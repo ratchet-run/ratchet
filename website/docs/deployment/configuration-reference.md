@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **66 fixed keys**.
+This build exposes **67 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -29,6 +29,7 @@ This build exposes **66 fixed keys**.
 | `ratchet.coordinator.thread-factory-jndi` | `RATCHET_COORDINATOR_THREAD_FACTORY_JNDI` | `java:comp/DefaultManagedThreadFactory` | `COORDINATOR_THREAD_FACTORY_JNDI` |
 | `ratchet.worker.virtual-executor-jndi` | `RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI` | `(empty string)` | `WORKER_VIRTUAL_EXECUTOR_JNDI` |
 | `ratchet.worker.virtual-counter-accounting` | `RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING` | `false` | `WORKER_VIRTUAL_COUNTER_ACCOUNTING` |
+| `ratchet.execution.max-continuations` | `RATCHET_EXECUTION_MAX_CONTINUATIONS` | `1000` | `MAX_CONTINUATIONS` |
 | `ratchet.execution.progress-flush-interval-ms` | `RATCHET_EXECUTION_PROGRESS_FLUSH_INTERVAL_MS` | `10000` | `PROGRESS_FLUSH_INTERVAL_MS` |
 | `ratchet.execution.checkpoint-flush-interval-ms` | `RATCHET_EXECUTION_CHECKPOINT_FLUSH_INTERVAL_MS` | `1000` | `CHECKPOINT_FLUSH_INTERVAL_MS` |
 | `ratchet.thread-pool.queue-size` | `RATCHET_THREAD_POOL_QUEUE_SIZE` | `100` | `THREAD_POOL_QUEUE_SIZE` |
@@ -118,3 +119,12 @@ The default is `10000` ms and the minimum is `1`. Invalid configured values use 
 default. Ratchet coalesces reports and saves the latest value once per interval,
 plus once before completion or retry. An idle node or a job that never reports makes
 no progress writes. Shutdown skips pending progress because running jobs will restart.
+
+### Continuation budget
+
+`ratchet.execution.max-continuations` (`RATCHET_EXECUTION_MAX_CONTINUATIONS`) limits
+continuations across the life of a job, including retries. The default is `1000`, the
+minimum is `1`, and invalid configured values fall back to the default. There is no
+per-job override. Reaching the limit fails the job and makes a best-effort counter reset
+for manual retry. See [Continuation](../api-reference/job-context.md#continuation) for
+transaction, watchdog and upper-bound counting semantics.

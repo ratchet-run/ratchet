@@ -39,6 +39,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
@@ -72,6 +73,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final PoolRegistry poolRegistry;
   private final JobTimeoutHandler timeoutHandler;
   private final ExecutorProvider executorProvider;
+  private final RatchetOptions options;
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler postExecutionHandler;
@@ -100,6 +102,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.poolRegistry = null;
     this.timeoutHandler = null;
     this.executorProvider = null;
+    this.options = null;
     this.jobStore = null;
     this.resourcePermitService = null;
     this.postExecutionHandler = null;
@@ -146,7 +149,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
       AfterCommitRegistrar afterCommitRegistrar,
       JobStateFlusher jobStateFlusher,
       Clock clock,
-      Instance<PreExecutionArgResolver> argResolver) {
+      Instance<PreExecutionArgResolver> argResolver,
+      RatchetOptions options) {
     this(
         argResolver != null && argResolver.isResolvable() ? argResolver.get() : null,
         poolRegistry,
@@ -170,7 +174,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         payloadSerializer,
         afterCommitRegistrar,
         jobStateFlusher,
-        clock);
+        clock,
+        options);
   }
 
   public DefaultJobExecutorService(
@@ -196,7 +201,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
       PayloadSerializer payloadSerializer,
       AfterCommitRegistrar afterCommitRegistrar,
       JobStateFlusher jobStateFlusher,
-      Clock clock) {
+      Clock clock,
+      RatchetOptions options) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -219,6 +225,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.jobStateFlusher = jobStateFlusher;
     this.payloadSerializer = payloadSerializer;
     this.clock = clock;
+    this.options = options;
     this.argResolver = argResolver;
   }
 
@@ -461,7 +468,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         jobStateFlusher,
         timeoutHandler,
         effective(),
-        argResolver);
+        argResolver,
+        options);
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(

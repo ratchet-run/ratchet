@@ -477,7 +477,7 @@ Negative values still throw `IllegalArgumentException` in these contexts.
 Read `JobQueryService.getJobDetail(id).orElseThrow().progress()`. The nullable
 `JobProgress` record contains `done`, `total`, and `reportedAt`, the report time.
 Progress remains after completion and is not reset on retry. If `reportedAt` is
-before `JobDetail.executionStartTime()`, the value came from an earlier attempt.
+before `JobDetail.executionStartTime()`, the value came from an earlier execution. A continued job keeps the previous run's progress until it reports again.
 The default flush interval is 10000 ms. Set
 `ratchet.execution.progress-flush-interval-ms` to change it.
 
@@ -563,3 +563,41 @@ void testJobUsesParameters() {
 - [Signal-Waiting Jobs](./job-builder#awaitsignal)
 - [JobLogger SPI](./spi-interfaces#joblogger)
 - [JobSchedulerService Reference](./job-scheduler-service)
+
+## Continuation
+
+Use `requestContinuation()` to split checkpointed work into executions without spending
+retry attempts. Pass a non-negative `Duration` to delay the next execution; the last call
+wins. The request stays in memory and only takes effect if the method returns normally.
+For example, a cursor-based job can yield at a safe point:
+
+```java
+String cursor = ctx.lastCheckpoint().orElse(START);
+while (cursor != null) {
+  cursor = processPage(cursor);         // own transaction
+  ctx.checkpoint(cursor);
+  if (ctx.isCancellationRequested()) { ctx.requestContinuation(); return; }
+}
+```
+
+Return only after the work's transaction commits. Rollback, including rollback-only,
+drops its checkpoint and the next execution repeats the work. Use idempotent page processing.
+The next execution becomes eligible after the delay and is picked up at the next poll.
+A normal return that lands its transition before the watchdog counts as continuation;
+if the watchdog wins, normal timeout handling uses a retry attempt.
+
+Continued runs ignore return values and skip `onSuccess`, result persistence and success
+finalization. Attempts and the circuit breaker are untouched. Execution history records
+`SUCCEEDED` runs sharing the same attempt number. The store transition uses the
+`schedule_retry` metric. Previous progress remains visible until the next report.
+
+Continuation requires `JobStateStore`, like checkpoints. Outside a persisted attempt it
+throws `IllegalStateException`; without job state it throws `UnsupportedOperationException`.
+Null delay throws `NullPointerException`; negative delay throws `IllegalArgumentException`.
+
+`ratchet.execution.max-continuations` defaults to 1000 and counts the life of the job across
+retries. At the limit the job fails without another retry attempt, then Ratchet makes a
+best-effort reset so manual retry gets a fresh budget. The count is an upper bound:
+a crash, lost race or failed transition can spend a continuation that never runs. A crash
+before reset can leave the old count, so manual retry may fail early. Counter or transition
+store failures use normal failure handling and spend a retry attempt.
