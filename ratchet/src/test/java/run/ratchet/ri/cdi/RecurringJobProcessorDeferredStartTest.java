@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -112,6 +113,8 @@ class RecurringJobProcessorDeferredStartTest {
     // unit-test path: registration happens inline on the calling thread, not deferred.
     verify(invocationSubmissionService)
         .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(recurringJobBuilder)
+        .withTags(argThat(tags -> tags.contains(RecurringJobStore.ANNOTATION_TAG)));
     verify(recurringJobBuilder).submit();
   }
 

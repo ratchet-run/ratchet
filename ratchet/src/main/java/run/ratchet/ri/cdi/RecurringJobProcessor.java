@@ -691,7 +691,7 @@ public class RecurringJobProcessor {
     String signature =
         className + "#" + methodName + "(" + (hasJobContextParam ? "JobContext" : "") + ")";
     List<String> tags = new ArrayList<>(Arrays.asList(annotation.tags()));
-    tags.add("recurring-annotation");
+    tags.add(RecurringJobStore.ANNOTATION_TAG);
     tags.add("sig:" + signature.hashCode());
     builder.withTags(tags);
 
