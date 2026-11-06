@@ -31,6 +31,15 @@ import run.ratchet.store.schema.Table;
 class RatchetSchemaCatalogTest {
 
   @Test
+  void eventOutboxDeclaresOrderedRecoveryIndex() {
+    Table outbox = table("scheduler_event_outbox");
+    assertEquals(List.of("event_id"), outbox.primaryKey());
+    assertEquals(
+        List.of("created_at", "event_id"), index(outbox, "idx_event_outbox_created").columns());
+    assertEquals(13, outbox.columns().size());
+  }
+
+  @Test
   void schedulerJobQueueIncludesSignalWaitingState() {
     Table queue = table("scheduler_job_queue");
 
@@ -105,7 +114,7 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        16,
+        17,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "catalog version should track the combined workflow, recurring, DLQ, and node schema"
             + " revision");

@@ -30,6 +30,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.EventOutboxStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -67,7 +68,8 @@ public abstract class AbstractCoreOnlyStoreContract {
           JobAnalyticsStore.class,
           JobAuditStore.class,
           JobPropertyStore.class,
-          JobStateStore.class);
+          JobStateStore.class,
+          EventOutboxStore.class);
 
   protected abstract JobStoreContractFixture fixture();
 
@@ -119,6 +121,7 @@ public abstract class AbstractCoreOnlyStoreContract {
     JobStoreContractFixture fixture = fixture();
 
     assertThrows(TestAbortedException.class, fixture::batchStore);
+    assertThrows(TestAbortedException.class, fixture::eventOutboxStore);
     assertThrows(TestAbortedException.class, fixture::signalStore);
     assertThrows(TestAbortedException.class, fixture::archiveStore);
     assertThrows(TestAbortedException.class, fixture::recurringStore);

@@ -170,6 +170,10 @@ class MongoCollectionInitializer {
     createResourcePermitIndexes();
     createJobPropertiesIndexes();
     createJobExtensionStateIndexes();
+    createRequiredIndex(
+        database.getCollection("scheduler_event_outbox"),
+        Indexes.ascending("created_at", "_id"),
+        new IndexOptions().name("idx_event_outbox_created"));
   }
 
   private void validateDataMigrations() {

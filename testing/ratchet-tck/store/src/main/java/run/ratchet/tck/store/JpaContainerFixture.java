@@ -50,6 +50,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.EventOutboxStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobPropertyStore;
@@ -113,7 +114,8 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
           JobAnalyticsStore.class,
           JobAuditStore.class,
           JobPropertyStore.class,
-          JobStateStore.class);
+          JobStateStore.class,
+          EventOutboxStore.class);
 
   private final EntityManagerFactory emf;
   private final ThreadLocal<EntityManager> threadEm;

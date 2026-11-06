@@ -47,6 +47,7 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
+import run.ratchet.store.dto.OutboxEvent;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -91,6 +92,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoSignalOperations signals;
   private final MongoRecurringJobOperations recurringJobs;
   private final MongoExtensionOperations extensions;
+  private final MongoEventOutboxOperations eventOutbox;
 
   /**
    * Package-private no-arg constructor required for Weld client-proxy generation (CDI 4.0 §3.15).
@@ -113,6 +115,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.signals = null;
     this.recurringJobs = null;
     this.extensions = null;
+    this.eventOutbox = null;
   }
 
   MongoJobStoreImpl(MongoClient client, MongoDatabase database, RatchetOptions options) {
@@ -153,6 +156,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.signals = new MongoSignalOperations(ctx);
     this.recurringJobs = new MongoRecurringJobOperations(ctx, reservations, crud);
     this.extensions = new MongoExtensionOperations(ctx);
+    this.eventOutbox = new MongoEventOutboxOperations(ctx);
   }
 
   @Override
@@ -1035,6 +1039,16 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public Map<String, String> getPropertiesByPrefix(UUID jobId, String prefix) {
     return extensions.getPropertiesByPrefix(jobId, prefix);
+  }
+
+  @Override
+  public List<OutboxEvent> findEventsCreatedBefore(Instant cutoff, int limit) {
+    return eventOutbox.findEventsCreatedBefore(cutoff, limit);
+  }
+
+  @Override
+  public int deleteEvents(Collection<UUID> eventIds) {
+    return eventOutbox.deleteEvents(eventIds);
   }
 
   // ---------- JobStateStore delegates ----------
