@@ -23,8 +23,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
+import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.internal.CancellationIdentities;
+import run.ratchet.api.internal.CheckpointBindings;
+import run.ratchet.api.internal.JobCheckpoints;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -56,11 +59,13 @@ public final class JobContext {
 
   static {
     CancellationIdentities.installContextReader(context -> context.cancellationIdentity);
+    CheckpointBindings.installContextReader(context -> context.checkpoints);
   }
 
   private final @Nullable Object cancellationIdentity;
   private final @Nullable AttemptToken attemptToken;
   private final BooleanSupplier currentAttempt;
+  private final @Nullable JobCheckpoints checkpoints;
   private final @Nullable Instant deadline;
   private final BooleanSupplier cancellationRequested;
   private final UUID jobId;
@@ -88,7 +93,18 @@ public final class JobContext {
       Map<String, String> params,
       @Nullable Serializable signalPayload,
       @Nullable String callerPrincipal) {
-    this(jobId, logger, params, signalPayload, callerPrincipal, null, NEVER, null, null, NEVER);
+    this(
+        jobId,
+        logger,
+        params,
+        signalPayload,
+        callerPrincipal,
+        null,
+        NEVER,
+        null,
+        null,
+        NEVER,
+        null);
   }
 
   private JobContext(
@@ -101,10 +117,12 @@ public final class JobContext {
       BooleanSupplier cancellationRequested,
       @Nullable Object cancellationIdentity,
       @Nullable AttemptToken attemptToken,
-      BooleanSupplier currentAttempt) {
+      BooleanSupplier currentAttempt,
+      @Nullable JobCheckpoints checkpoints) {
     if (attemptToken != null && !attemptToken.jobId().equals(jobId)) {
       throw new IllegalArgumentException("Attempt token belongs to another job");
     }
+    this.checkpoints = checkpoints;
     this.attemptToken = attemptToken;
     Objects.requireNonNull(currentAttempt);
     this.currentAttempt = attemptToken == null ? NEVER : currentAttempt;
@@ -194,7 +212,8 @@ public final class JobContext {
         cancellationRequested,
         cancellationIdentity,
         null,
-        NEVER);
+        NEVER,
+        null);
   }
 
   /**
@@ -212,7 +231,8 @@ public final class JobContext {
       BooleanSupplier cancellationRequested,
       @Nullable Object cancellationIdentity,
       @Nullable AttemptToken attemptToken,
-      BooleanSupplier currentAttempt) {
+      BooleanSupplier currentAttempt,
+      @Nullable JobCheckpoints checkpoints) {
     JobContext ctx =
         new JobContext(
             jobId,
@@ -224,14 +244,16 @@ public final class JobContext {
             cancellationRequested,
             cancellationIdentity,
             attemptToken,
-            currentAttempt);
+            currentAttempt,
+            checkpoints);
     TL.set(ctx);
     return ctx;
   }
 
   /**
    * Binds a context for unit tests of job code. The supplier decides what {@link
-   * #isCurrentAttempt()} returns. Always pair with {@link #clear()} in a finally block.
+   * #isCurrentAttempt()} returns. The in-memory checkpoint holder ignores transactions. Always pair
+   * with {@link #clear()} in a finally block.
    */
   public static JobContext bindAttempt(
       UUID jobId,
@@ -239,8 +261,98 @@ public final class JobContext {
       Map<String, String> params,
       AttemptToken attemptToken,
       BooleanSupplier currentAttempt) {
+    return bindAttempt(jobId, logger, params, attemptToken, currentAttempt, null);
+  }
+
+  /**
+   * Binds a seeded in-memory checkpoint holder for unit tests of job code. This holder ignores
+   * transactions. Always pair with {@link #clear()} in a finally block.
+   */
+  public static JobContext bindAttempt(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      AttemptToken attemptToken,
+      BooleanSupplier currentAttempt,
+      @Nullable String initialCheckpoint) {
     Objects.requireNonNull(attemptToken);
-    return bind(jobId, logger, params, null, null, null, NEVER, null, attemptToken, currentAttempt);
+    return bind(
+        jobId,
+        logger,
+        params,
+        null,
+        null,
+        null,
+        NEVER,
+        null,
+        attemptToken,
+        currentAttempt,
+        new InMemoryCheckpoints(initialCheckpoint));
+  }
+
+  /**
+   * Saves a position for at-least-once execution. Work since the last checkpoint can be repeated
+   * after a crash, timeout or reclaim; make it idempotent, for example using {@code
+   * attemptToken().orElseThrow().sequence()} as a fence.
+   *
+   * <p>Inside an open transaction the value is accepted only after commit and dropped on rollback.
+   * A background flush makes committed values durable; a crash can repeat work in that window. With
+   * no transaction it is saved before this call returns. Call on the thread whose transaction did
+   * the work. Values are limited to 1 MiB including JSON framing: store keys and positions, not
+   * data. Values are encrypted at rest when payload encryption is enabled.
+   *
+   * @throws IllegalStateException outside an executing persisted attempt, including lifecycle
+   *     callbacks
+   * @throws UnsupportedOperationException if the store does not support job state; call {@link
+   *     #lastCheckpoint()} before doing work to check support
+   * @throws AttemptSupersededException if this attempt has been replaced; stop doing work, as its
+   *     outcome writes are fenced and ignored
+   * @throws IllegalArgumentException if the framed value exceeds 1 MiB
+   * @throws NullPointerException if value is null
+   */
+  public void checkpoint(String value) {
+    Objects.requireNonNull(value);
+    requireCheckpoints().write(value);
+  }
+
+  /**
+   * Returns the latest committed checkpoint from this attempt, otherwise the value saved by an
+   * earlier attempt. An uncommitted or rolled-back value is never returned. See {@link
+   * #checkpoint(String)} for transaction, durability, idempotency, size and encryption rules.
+   *
+   * @throws IllegalStateException outside an executing persisted attempt, including lifecycle
+   *     callbacks
+   * @throws UnsupportedOperationException if the store does not support job state; call this before
+   *     doing work to surface unsupported stores
+   */
+  public Optional<String> lastCheckpoint() {
+    return requireCheckpoints().read();
+  }
+
+  private JobCheckpoints requireCheckpoints() {
+    if (checkpoints == null) {
+      throw new IllegalStateException(
+          "Checkpoints are available only while a persisted job attempt is executing");
+    }
+    return checkpoints;
+  }
+
+  private static final class InMemoryCheckpoints implements JobCheckpoints {
+    private @Nullable String value;
+
+    private InMemoryCheckpoints(@Nullable String value) {
+      this.value = value;
+    }
+
+    @Override
+    public synchronized void write(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public synchronized Optional<String> read() {
+      return Optional.ofNullable(value);
+    }
   }
 
   /** Returns the token for this claim, or empty outside an executing attempt. */

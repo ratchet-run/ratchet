@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.internal.*;
+import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.spi.*;
 
 class RatchetRuntimeTest {
@@ -44,6 +45,7 @@ class RatchetRuntimeTest {
             recurring,
             mock(OrphanRecoveryTimer.class),
             mock(BatchRecoveryTimer.class),
+            mock(CheckpointFlusher.class),
             mock(DeadLetterService.class),
             mock(JobArchivingService.class),
             mock(LogPurgeTimer.class),
@@ -129,6 +131,7 @@ class RatchetRuntimeTest {
         mock(RecurringScheduler.class),
         mock(OrphanRecoveryTimer.class),
         mock(BatchRecoveryTimer.class),
+        mock(CheckpointFlusher.class),
         mock(DeadLetterService.class),
         mock(JobArchivingService.class),
         mock(LogPurgeTimer.class),
@@ -150,7 +153,12 @@ class RatchetRuntimeTest {
     RetryBufferDrainer retryBuffer = mock(RetryBufferDrainer.class);
     JobStateManager state = mock(JobStateManager.class);
     JobExecutionCoordinator coordinator =
-        new JobExecutionCoordinator(mock(JobSubmissionService.class), state, retryBuffer, executor);
+        new JobExecutionCoordinator(
+            mock(JobSubmissionService.class),
+            state,
+            retryBuffer,
+            executor,
+            mock(CheckpointFlusher.class));
     Duration timeout = Duration.ofSeconds(12);
     when(executor.awaitIdle(timeout)).thenReturn(true);
     coordinator.shutdown(timeout);

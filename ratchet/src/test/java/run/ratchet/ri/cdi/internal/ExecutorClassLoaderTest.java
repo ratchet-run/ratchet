@@ -45,7 +45,9 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.StandaloneExecutorProvider;
 import run.ratchet.ri.core.*;
 import run.ratchet.ri.core.internal.*;
+import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.spi.*;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
@@ -455,6 +457,8 @@ public class ExecutorClassLoaderTest {
               results,
               null,
               mock(PayloadSerializer.class),
+              mock(AfterCommitRegistrar.class),
+              mock(CheckpointFlusher.class),
               Clock.systemUTC(),
               null);
     }
@@ -519,6 +523,7 @@ public class ExecutorClassLoaderTest {
               mock(RecurringScheduler.class),
               mock(OrphanRecoveryTimer.class),
               mock(BatchRecoveryTimer.class),
+              mock(CheckpointFlusher.class),
               mock(DeadLetterService.class),
               mock(JobArchivingService.class),
               mock(LogPurgeTimer.class),

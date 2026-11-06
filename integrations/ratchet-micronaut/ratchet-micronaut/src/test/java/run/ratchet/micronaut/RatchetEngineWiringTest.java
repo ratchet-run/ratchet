@@ -59,6 +59,7 @@ import run.ratchet.ri.core.SubmissionFailureHandler;
 import run.ratchet.ri.core.SubmissionGateChecker;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
 import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
@@ -112,6 +113,16 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.spi.JobStore;
 
 class RatchetEngineWiringTest {
+  @Test
+  void checkpointIntervalBindsThroughEngineOptions() {
+    try (ApplicationContext context =
+        TestContexts.engine(Map.of("ratchet.execution.checkpoint-flush-interval-ms", 250))) {
+      context.start();
+      assertEquals(
+          250L, context.getBean(RatchetOptions.class).execution().checkpointFlushIntervalMs());
+    }
+  }
+
   @Test
   void schemaMigrationDefaultsAndExplicitOverrides() {
     for (Map<String, Object> values :
@@ -326,6 +337,7 @@ class RatchetEngineWiringTest {
           Map.entry("singletonLeaseService", SingletonLeaseService.class),
           Map.entry("defaultDrainController", DrainController.class),
           Map.entry("batchRecoveryTimer", BatchRecoveryTimer.class),
+          Map.entry("checkpointFlusher", CheckpointFlusher.class),
           Map.entry("ratchetExecutorProvider", ExecutorProvider.class),
           Map.entry("internalEventPublisher", InternalEventPublisher.class),
           Map.entry("poolRegistry", PoolRegistry.class),

@@ -39,6 +39,37 @@ import run.ratchet.spi.RatchetConfigSource;
 class RatchetOptionsFactoryTest {
 
   @Test
+  void checkpointFlushIntervalDefaultsBindsAndValidates() {
+    assertEquals(1000L, RatchetOptions.defaults().execution().checkpointFlushIntervalMs());
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .execution(execution -> execution.checkpointFlushIntervalMs(250))
+            .build();
+    assertEquals(250L, options.execution().checkpointFlushIntervalMs());
+    assertEquals(
+        375L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.execution.checkpoint-flush-interval-ms", "375"), Map.of()))
+            .execution()
+            .checkpointFlushIntervalMs());
+    // An invalid configured value falls back to the default, like every other config key.
+    assertEquals(
+        1000L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.execution.checkpoint-flush-interval-ms", "0"), Map.of()))
+            .execution()
+            .checkpointFlushIntervalMs());
+    assertEquals(250L, options.toBuilder().build().execution().checkpointFlushIntervalMs());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .execution(execution -> execution.checkpointFlushIntervalMs(0)));
+  }
+
+  @Test
   void mapsCrashBudgetPropertyAndEnvironment() {
     assertEquals(3, RatchetOptions.builder().build().node().maxCrashRedeliveries());
     assertEquals(

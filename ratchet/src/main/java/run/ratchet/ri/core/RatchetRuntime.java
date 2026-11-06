@@ -28,6 +28,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RatchetLifecycle;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
@@ -49,6 +50,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
   private final RecurringScheduler recurringScheduler;
   private final OrphanRecoveryTimer orphanRecoveryTimer;
   private final BatchRecoveryTimer batchRecoveryTimer;
+  private final CheckpointFlusher checkpointFlusher;
   private final DeadLetterService deadLetterService;
   private final JobArchivingService jobArchivingService;
   private final LogPurgeTimer logPurgeTimer;
@@ -77,6 +79,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       RecurringScheduler recurringScheduler,
       OrphanRecoveryTimer orphanRecoveryTimer,
       BatchRecoveryTimer batchRecoveryTimer,
+      CheckpointFlusher checkpointFlusher,
       DeadLetterService deadLetterService,
       JobArchivingService jobArchivingService,
       LogPurgeTimer logPurgeTimer,
@@ -94,6 +97,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     this.recurringScheduler = recurringScheduler;
     this.orphanRecoveryTimer = orphanRecoveryTimer;
     this.batchRecoveryTimer = batchRecoveryTimer;
+    this.checkpointFlusher = checkpointFlusher;
     this.deadLetterService = deadLetterService;
     this.jobArchivingService = jobArchivingService;
     this.logPurgeTimer = logPurgeTimer;
@@ -157,6 +161,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
 
         orphanRecoveryTimer.start(scheduledExecutor, options.node().orphanScanIntervalSeconds());
         batchRecoveryTimer.start(scheduledExecutor);
+        checkpointFlusher.start(scheduledExecutor);
 
         if (options.maintenance().dlqPurgeEnabled()) {
           Cron dlqCron = RecurringScheduler.PARSER.parse(options.maintenance().dlqPurgeCron());
@@ -249,6 +254,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     // Stop background resubmission before resetting RUNNING jobs to PENDING.
     stopService(
         "job execution coordinator", () -> jobExecutionCoordinator.shutdown(shutdownTimeout));
+    stopService("checkpoint flusher", checkpointFlusher::stop);
     // Heartbeat until the claims are released. A draining node that stops heartbeating looks dead,
     // and another node's orphan scan would take its running jobs and charge them a crash.
     if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {

@@ -37,6 +37,28 @@ import run.ratchet.api.internal.CancellationIdentities;
 class JobContextTest {
 
   @Test
+  void plainContextsRejectCheckpointAccess() {
+    JobContext context = JobContext.bind(UUID.randomUUID(), null);
+    assertThrows(IllegalStateException.class, () -> context.checkpoint("position"));
+    assertThrows(IllegalStateException.class, context::lastCheckpoint);
+  }
+
+  @Test
+  void unitTestAttemptHasThreadSafeInMemoryCheckpoints() {
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 1), () -> true);
+    assertEquals(Optional.empty(), context.lastCheckpoint());
+    context.checkpoint("page-2");
+    assertEquals(Optional.of("page-2"), context.lastCheckpoint());
+    JobContext bound = context;
+    assertThrows(NullPointerException.class, () -> bound.checkpoint(null));
+    context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 2), () -> true, "page-1");
+    assertEquals(Optional.of("page-1"), context.lastCheckpoint());
+  }
+
+  @Test
   void shortAndLegacyBindsHaveNoAttempt() {
     UUID id = UUID.randomUUID();
     for (JobContext ctx :
@@ -63,7 +85,8 @@ class JobContextTest {
             null,
             () -> {
               throw new AssertionError("No attempt must not call supplier");
-            });
+            },
+            null);
     assertFalse(ctx.isCurrentAttempt());
   }
 
@@ -93,12 +116,23 @@ class JobContextTest {
                 () -> false,
                 null,
                 token,
-                current::get));
+                current::get,
+                null));
     assertThrows(
         NullPointerException.class, () -> JobContext.bindAttempt(id, null, Map.of(), token, null));
     ctx =
         JobContext.bind(
-            id, null, Map.of(), null, null, null, () -> false, new Object(), token, current::get);
+            id,
+            null,
+            Map.of(),
+            null,
+            null,
+            null,
+            () -> false,
+            new Object(),
+            token,
+            current::get,
+            null);
     assertEquals(Optional.of(token), ctx.attemptToken());
   }
 

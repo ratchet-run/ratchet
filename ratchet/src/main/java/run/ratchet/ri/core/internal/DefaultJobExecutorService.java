@@ -44,6 +44,7 @@ import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -85,6 +86,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
+  private final AfterCommitRegistrar afterCommitRegistrar;
+  private final CheckpointFlusher checkpointFlusher;
   private final PayloadSerializer payloadSerializer;
   private final PollerScheduler pollerScheduler;
   private final Clock clock;
@@ -111,6 +114,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
+    this.afterCommitRegistrar = null;
+    this.checkpointFlusher = null;
     this.payloadSerializer = null;
     this.pollerScheduler = null;
     this.clock = null;
@@ -138,6 +143,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
+      AfterCommitRegistrar afterCommitRegistrar,
+      CheckpointFlusher checkpointFlusher,
       Clock clock,
       Instance<PreExecutionArgResolver> argResolver) {
     this(
@@ -161,6 +168,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         resultPersistenceStrategy,
         authorizationPolicy,
         payloadSerializer,
+        afterCommitRegistrar,
+        checkpointFlusher,
         clock);
   }
 
@@ -185,6 +194,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
+      AfterCommitRegistrar afterCommitRegistrar,
+      CheckpointFlusher checkpointFlusher,
       Clock clock) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
@@ -204,6 +215,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
+    this.afterCommitRegistrar = afterCommitRegistrar;
+    this.checkpointFlusher = checkpointFlusher;
     this.payloadSerializer = payloadSerializer;
     this.clock = clock;
     this.argResolver = argResolver;
@@ -444,6 +457,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         resultPersistenceStrategy,
         authorizationPolicy,
         payloadSerializer,
+        afterCommitRegistrar,
+        checkpointFlusher,
         timeoutHandler,
         effective(),
         argResolver);

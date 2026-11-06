@@ -41,6 +41,7 @@ import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.RetryBufferManager;
 import run.ratchet.ri.core.StoreBackedStartupCoordinator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultDrainController;
 import run.ratchet.ri.core.internal.DefaultJobArchivingService;
@@ -181,6 +182,12 @@ class RatchetRuntimeConfiguration {
 
   @Bean(destroyMethod = "")
   @ConditionalOnMissingBean
+  CheckpointFlusher checkpointFlusher(RatchetOptions options) {
+    return new CheckpointFlusher(options);
+  }
+
+  @Bean(destroyMethod = "")
+  @ConditionalOnMissingBean
   BatchRecoveryTimer batchRecoveryTimer(
       RatchetOptions options,
       BatchService batchService,
@@ -290,6 +297,7 @@ class RatchetRuntimeConfiguration {
       RecurringScheduler recurring,
       OrphanRecoveryTimer orphanRecovery,
       BatchRecoveryTimer batchRecovery,
+      CheckpointFlusher checkpointFlusher,
       DeadLetterService deadLetter,
       JobArchivingService archiving,
       LogPurgeTimer logPurge,
@@ -313,6 +321,7 @@ class RatchetRuntimeConfiguration {
             recurring,
             orphanRecovery,
             batchRecovery,
+            checkpointFlusher,
             deadLetter,
             archiving,
             logPurge,
