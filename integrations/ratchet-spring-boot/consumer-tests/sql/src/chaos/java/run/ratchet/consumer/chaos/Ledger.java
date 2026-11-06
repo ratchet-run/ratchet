@@ -30,7 +30,8 @@ public record Ledger(List<Attempt> attempts, List<Commit> commits) {
       long startedUs,
       Long finishedUs,
       String outcome,
-      String currentAttempt) {}
+      String currentAttempt,
+      String checkpointResult) {}
 
   public record Commit(
       String jobId, String nodeId, String incarnation, String terminalStatus, long committedUs) {}
@@ -50,7 +51,8 @@ public record Ledger(List<Attempt> attempts, List<Commit> commits) {
                     rs.getLong("started_us"),
                     rs.getObject("finished_us", Long.class),
                     rs.getString("outcome"),
-                    rs.getString("current_attempt")),
+                    rs.getString("current_attempt"),
+                    rs.getString("checkpoint_result")),
             run);
     String id = store.equals("mysql") ? "BIN_TO_UUID(t.job_id)" : "cast(t.job_id as varchar(36))";
     var commits =

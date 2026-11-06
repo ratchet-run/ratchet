@@ -45,6 +45,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.consumer.chaos.DbClock;
 import run.ratchet.store.dto.JobClaimDto;
@@ -69,7 +70,7 @@ public class ChaosNodeApplication {
             attempt_id varchar(36) primary key, run_id varchar(64), job_key varchar(128),
             job_id varchar(36), node_id varchar(128), incarnation varchar(36),
             started_us bigint, finished_us bigint null, outcome varchar(16) null,
-            current_attempt varchar(8) null)
+            current_attempt varchar(8) null, checkpoint_result varchar(16) null)
           """);
       jdbc.execute(
           """
@@ -221,7 +222,7 @@ public class ChaosNodeApplication {
               jdbc.update(
                   "insert into chaos_attempt values (?, ?, ?, ?, ?, ?, "
                       + clock
-                      + ", null, null, null)",
+                      + ", null, null, null, null)",
                   attempt,
                   runId,
                   key,
@@ -230,6 +231,26 @@ public class ChaosNodeApplication {
                   incarnation));
       try {
         gate("body", JobContext.current().jobId());
+        String checkpointResult;
+        try {
+          JobContext.current().checkpoint("body");
+          checkpointResult = "ok";
+        } catch (AttemptSupersededException superseded) {
+          checkpointResult = "superseded";
+        } catch (Exception failure) {
+          checkpointResult = "threw";
+        }
+        String checkpointObservation = checkpointResult;
+        try {
+          transaction.executeWithoutResult(
+              tx ->
+                  jdbc.update(
+                      "update chaos_attempt set checkpoint_result = ? where attempt_id = ?",
+                      checkpointObservation,
+                      attempt));
+        } catch (RuntimeException ledgerFailure) {
+          // Keep the body running when an injected database fault prevents the observation.
+        }
         String current;
         try {
           current = Boolean.toString(JobContext.current().isCurrentAttempt());
