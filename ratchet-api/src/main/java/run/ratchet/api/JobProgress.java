@@ -17,6 +17,10 @@ package run.ratchet.api;
 
 import java.time.Instant;
 
-/** The last reported progress. Totals are estimates; readers clamp done to total for display. */
+/**
+ * The last reported progress. Totals are estimates; readers clamp done to total for display. A
+ * reportedAt before executionStartTime means an earlier execution. A continued job keeps the
+ * previous run's progress until it reports again.
+ */
 @Incubating
 public record JobProgress(long done, long total, Instant reportedAt) {}

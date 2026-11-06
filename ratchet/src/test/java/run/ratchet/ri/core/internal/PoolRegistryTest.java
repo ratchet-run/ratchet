@@ -127,7 +127,8 @@ class PoolRegistryTest {
                 "virtual",
                 counterAccounting,
                 1000L,
-                10000L));
+                10000L,
+                1000));
     return options;
   }
 

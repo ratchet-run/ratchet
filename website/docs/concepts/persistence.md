@@ -386,3 +386,7 @@ Ratchet stores progress in the `ratchet.progress` job-state namespace next to
 `ratchet.checkpoint`. It holds the latest `done`, `total`, and ISO-8601 `reportedAt`
 values. Progress is observational and best effort. Reports are not tied to transaction
 commit or rollback. See [Progress](../api-reference/job-context.md#progress-1).
+
+Ratchet counts continuations in the `ratchet.continuation` job-state namespace. Its JSON
+holds a `count` that Ratchet compares with `ratchet.execution.max-continuations`. See
+[Continuation](../api-reference/job-context.md#continuation).

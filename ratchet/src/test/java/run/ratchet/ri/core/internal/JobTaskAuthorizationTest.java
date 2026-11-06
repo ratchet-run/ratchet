@@ -119,7 +119,8 @@ class JobTaskAuthorizationTest {
             mock(JobStateFlusher.class),
             null,
             Clock.systemUTC(),
-            null);
+            null,
+            RatchetOptions.defaults());
   }
 
   @Test
@@ -265,7 +266,8 @@ class JobTaskAuthorizationTest {
             mock(JobStateFlusher.class),
             null,
             Clock.systemUTC(),
-            null);
+            null,
+            RatchetOptions.defaults());
 
     JobEntity job = createBaseJob();
     nullPolicyTask.init(job);

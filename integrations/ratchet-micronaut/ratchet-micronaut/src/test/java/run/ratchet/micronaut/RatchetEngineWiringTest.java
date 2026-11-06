@@ -134,6 +134,15 @@ class RatchetEngineWiringTest {
   }
 
   @Test
+  void continuationLimitBindsThroughEngineOptions() {
+    try (ApplicationContext context =
+        TestContexts.engine(Map.of("ratchet.execution.max-continuations", 250))) {
+      context.start();
+      assertEquals(250, context.getBean(RatchetOptions.class).execution().maxContinuations());
+    }
+  }
+
+  @Test
   void schemaMigrationDefaultsAndExplicitOverrides() {
     for (Map<String, Object> values :
         List.<Map<String, Object>>of(

@@ -16,6 +16,7 @@
 package run.ratchet.api;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
@@ -27,7 +28,9 @@ import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.api.internal.CheckpointBindings;
+import run.ratchet.api.internal.ContinuationBindings;
 import run.ratchet.api.internal.JobCheckpoints;
+import run.ratchet.api.internal.JobContinuation;
 import run.ratchet.api.internal.JobProgressSink;
 import run.ratchet.api.internal.ProgressBindings;
 import run.ratchet.spi.JobLogger;
@@ -46,9 +49,9 @@ import run.ratchet.spi.JobLogger;
  * points between units of work. A {@link CancellationRequestedException} created after a request in
  * the same attempt produces the timeout outcome (the same retries/DLQ and
  * JobExecutionTimedOutEvent) without an interrupt. One created before the request or kept from an
- * earlier attempt is an ordinary failure. Returning normally counts as success: Ratchet cannot
- * distinguish early return from finished work. The hard interrupt at the deadline remains the
- * backstop.
+ * earlier attempt is an ordinary failure. Returning normally counts as success unless continuation
+ * is requested: Ratchet cannot distinguish early return from finished work. The hard interrupt at
+ * the deadline remains the backstop.
  *
  * @since 0.1
  */
@@ -63,6 +66,7 @@ public final class JobContext {
     CancellationIdentities.installContextReader(context -> context.cancellationIdentity);
     CheckpointBindings.installContextReader(context -> context.checkpoints);
     ProgressBindings.installContextReader(context -> context.progress);
+    ContinuationBindings.installContextReader(context -> context.continuation);
   }
 
   private final @Nullable Object cancellationIdentity;
@@ -70,6 +74,7 @@ public final class JobContext {
   private final BooleanSupplier currentAttempt;
   private final @Nullable JobCheckpoints checkpoints;
   private final @Nullable JobProgressSink progress;
+  private final @Nullable JobContinuation continuation;
   private final @Nullable Instant deadline;
   private final BooleanSupplier cancellationRequested;
   private final UUID jobId;
@@ -129,6 +134,8 @@ public final class JobContext {
       throw new IllegalArgumentException("Attempt token belongs to another job");
     }
     this.checkpoints = checkpoints;
+    this.continuation =
+        attemptToken != null && checkpoints != null ? new JobContinuation(jobId) : null;
     this.progress = attemptToken == null ? null : progress;
     this.attemptToken = attemptToken;
     Objects.requireNonNull(currentAttempt);
@@ -327,8 +334,8 @@ public final class JobContext {
   }
 
   /**
-   * Returns the latest committed checkpoint from this attempt, otherwise the value saved by an
-   * earlier attempt. An uncommitted or rolled-back value is never returned. See {@link
+   * Returns the latest committed checkpoint from this execution, otherwise the value saved by an
+   * earlier execution. An uncommitted or rolled-back value is never returned. See {@link
    * #checkpoint(String)} for transaction, durability, idempotency, size and encryption rules.
    *
    * @throws IllegalStateException outside an executing persisted attempt, including lifecycle
@@ -352,6 +359,45 @@ public final class JobContext {
     if (done < 0 || total < 0)
       throw new IllegalArgumentException("Progress values must be non-negative");
     if (progress != null) progress.report(done, total);
+  }
+
+  /** Requests another execution at the next poll. See {@link #requestContinuation(Duration)}. */
+  public void requestContinuation() {
+    requestContinuation(Duration.ZERO);
+  }
+
+  /**
+   * Requests another execution after the delay, without spending a retry attempt. This only records
+   * an in-memory request: the last call wins, and it takes effect only when the payload returns
+   * normally. Attempts and the circuit breaker are untouched. The return value is ignored and
+   * onSuccess callbacks are not called for a continued run.
+   *
+   * <p>Return only after the work's transaction commits. Rollback, including rollback-only, drops
+   * its checkpoint and the next execution repeats that work. Eligible jobs are picked up at the
+   * next poll. If the returning run lands its transition before the watchdog, it counts as a
+   * continuation; if the watchdog wins, normal timeout handling spends a retry attempt.
+   *
+   * <p>The global {@code ratchet.execution.max-continuations} budget counts the life of the job
+   * across retries. The count is an upper bound: a crash, lost race or failed transition can spend
+   * a continuation that never runs. A counter or transition store failure uses normal failure
+   * handling and spends a retry attempt. Continued execution-history rows are SUCCEEDED and may
+   * share an attempt number. The transition is timed as {@code schedule_retry} in store metrics.
+   *
+   * @throws NullPointerException if delay is null
+   * @throws IllegalArgumentException if delay is negative
+   * @throws IllegalStateException outside an executing persisted attempt, including lifecycle
+   *     callbacks
+   * @throws UnsupportedOperationException if the store does not support job state
+   */
+  public void requestContinuation(Duration delay) {
+    Objects.requireNonNull(delay);
+    if (delay.isNegative())
+      throw new IllegalArgumentException("Continuation delay must be non-negative");
+    if (continuation == null) {
+      throw new IllegalStateException(
+          "Continuations are available only while a persisted job attempt is executing");
+    }
+    continuation.request(delay);
   }
 
   private JobCheckpoints requireCheckpoints() {
@@ -416,7 +462,8 @@ public final class JobContext {
    * {@code ratchet.timeout.cancellation-grace-seconds} before the deadline, or immediately before
    * interrupting when grace is zero or not shorter than the timeout. Safe from any thread and cheap
    * (no I/O); every attempt, including retries, starts cleared. Check at safe points and stop via
-   * {@link #throwIfCancellationRequested()}: returning normally counts as success.
+   * {@link #throwIfCancellationRequested()}: returning normally counts as success unless you
+   * request continuation.
    */
   public boolean isCancellationRequested() {
     return cancellationRequested.getAsBoolean();
