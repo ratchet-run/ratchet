@@ -16,12 +16,16 @@
 package run.ratchet.api.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.lang.reflect.Constructor;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
@@ -35,6 +39,52 @@ class EventApiContractTest {
   private static final UUID RECURRING_MASTER_ID =
       UUID.fromString("018f0000-0000-7000-8000-000000000003");
   private static final Instant TIMESTAMP = Instant.parse("2026-05-10T12:00:00Z");
+
+  @Test
+  void defaultEventIdsArePresentAndUnique() {
+    List<AbstractJobSchedulerEvent> events =
+        List.of(
+            new JobCompletedEvent(JOB_ID, null, null, null, null, null, TIMESTAMP, null),
+            new JobCompletedEvent(JOB_ID, null, null, null, null, null, (Long) null),
+            new JobFailedEvent(JOB_ID, null, null, null, null, null, TIMESTAMP, null, 0),
+            new JobFailedEvent(JOB_ID, null, null, null, null, null, null, 0),
+            new JobDlqEvent(JOB_ID, null, null, null, null, null, TIMESTAMP, null, 0),
+            new JobDlqEvent(JOB_ID, null, null, null, null, null, null, 0));
+    for (var event : events) assertNotNull(event.getEventId());
+    assertEquals(
+        events.size(),
+        events.stream().map(AbstractJobSchedulerEvent::getEventId).distinct().count());
+    assertNotEquals(events.get(0).getEventId(), events.get(1).getEventId());
+  }
+
+  @Test
+  void explicitTerminalEventIdsAreRetainedAndRequired() {
+    List<Function<UUID, AbstractJobSchedulerEvent>> constructors =
+        List.of(
+            id -> new JobCompletedEvent(id, JOB_ID, null, null, null, null, null, TIMESTAMP, 1L),
+            id ->
+                new JobFailedEvent(
+                    id, JOB_ID, null, null, null, null, null, TIMESTAMP, "failed", 1),
+            id ->
+                new JobDlqEvent(id, JOB_ID, null, null, null, null, null, TIMESTAMP, "failed", 1));
+    UUID id = UUID.randomUUID();
+    for (var constructor : constructors) {
+      var event = constructor.apply(id);
+      assertEquals(id, event.getEventId());
+      assertEquals(TIMESTAMP, event.getTimestamp());
+      assertEquals(JOB_ID, event.getJobId());
+      assertThrows(NullPointerException.class, () -> constructor.apply(null));
+    }
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new JobCompletedEvent(id, JOB_ID, null, null, null, null, null, TIMESTAMP, -1L));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new JobFailedEvent(id, JOB_ID, null, null, null, null, null, TIMESTAMP, null, -1));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new JobDlqEvent(id, JOB_ID, null, null, null, null, null, TIMESTAMP, null, -1));
+  }
 
   @Test
   void countAndAttemptAccessorsExposePrimitiveValues() throws NoSuchMethodException {

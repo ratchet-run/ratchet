@@ -25,9 +25,10 @@ import run.ratchet.api.Incubating;
  * <em>writes</em> ({@link TagStore}).
  *
  * <p>Capabilities a store may legitimately lack — recurring scheduling, batch fan-out, signals,
- * resource permits, distributed locks, archiving, query/analytics/audit reporting, and dead-letter
- * alerting — are <strong>not</strong> extended here. A store advertises an optional capability by
- * additionally implementing its interface; callers probe for it through {@link #capability}.
+ * resource permits, distributed locks, archiving, query/analytics/audit reporting, per-job
+ * state/properties, and durable terminal-event delivery — are <strong>not</strong> extended here. A
+ * store advertises an optional capability by additionally implementing its interface; callers probe
+ * for it through {@link #capability}.
  *
  * <p>Implementations must be thread-safe.
  */

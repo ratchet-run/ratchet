@@ -54,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 16;
+  public static final int CURRENT_VERSION = 17;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -78,10 +78,31 @@ public final class RatchetSchemaCatalog {
               schedulerWorkflowCondition(),
               schedulerResourcePermit(),
               schedulerJobProperties(),
-              schedulerJobExtensionState()),
+              schedulerJobExtensionState(),
+              schedulerEventOutbox()),
           deprecatedArtifacts());
 
   private RatchetSchemaCatalog() {}
+
+  private static Table schedulerEventOutbox() {
+    return Table.builder("scheduler_event_outbox")
+        .column(required("event_id", UUID))
+        .column(required("event_type", TEXT))
+        .column(required("job_id", UUID))
+        .column(nullable("business_key", TEXT))
+        .column(nullable("recurring_master_id", UUID))
+        .column(nullable("job_type", TEXT))
+        .column(nullable("priority", TEXT))
+        .column(nullable("node_id", TEXT))
+        .column(required("event_ts", TIMESTAMP_TZ))
+        .column(nullable("execution_time_ms", INT64))
+        .column(nullable("error_message", TEXT))
+        .column(required("retry_attempt", INT32))
+        .column(required("created_at", TIMESTAMP_TZ))
+        .primaryKey("event_id")
+        .index(Index.of("idx_event_outbox_created", "created_at", "event_id"))
+        .build();
+  }
 
   private static Table schedulerIdempotencyKey() {
     return Table.builder("scheduler_idempotency_key")

@@ -20,6 +20,7 @@ import static org.mockito.Mockito.*;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.spi.EventOutboxStore;
 import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
@@ -28,6 +29,9 @@ class JpaContainerFixtureProxyTest {
 
   @Test
   void proxyImplementsOnlyTheCapabilitiesTheDelegateAdvertises() {
+    assertEquals(
+        List.of(JobStore.class, EventOutboxStore.class),
+        interfacesFor(storeWith(EventOutboxStore.class)));
     assertEquals(List.of(JobStore.class), interfacesFor(mock(JobStore.class, CALLS_REAL_METHODS)));
     assertEquals(
         List.of(JobStore.class, JobPropertyStore.class),

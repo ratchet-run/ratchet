@@ -39,7 +39,8 @@ public record JobCompletionPlan(
     UUID batchId,
     BatchCompletion completedBatch,
     List<DependencyTransition> dependencies,
-    @Nullable Long expectedClaimSeq) {
+    @Nullable Long expectedClaimSeq,
+    List<OutboxEvent> outboxEvents) {
 
   public JobCompletionPlan {
     Objects.requireNonNull(jobId);
@@ -50,6 +51,7 @@ public record JobCompletionPlan(
       throw new IllegalArgumentException("Completion requires a terminal status");
     }
     dependencies = List.copyOf(dependencies);
+    outboxEvents = outboxEvents == null ? List.of() : List.copyOf(outboxEvents);
     if (batchId != null && completedBatch != null) {
       throw new IllegalArgumentException(
           "A completion cannot be both a batch child and batch parent");

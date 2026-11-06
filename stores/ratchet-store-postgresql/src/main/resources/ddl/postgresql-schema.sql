@@ -520,3 +520,25 @@ CREATE TABLE IF NOT EXISTS scheduler_idempotency_key (
     reserved_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
 );
+
+-- Durable terminal event outbox
+CREATE TABLE IF NOT EXISTS scheduler_event_outbox
+(
+    event_id UUID NOT NULL,
+    event_type VARCHAR(32) NOT NULL,
+    job_id UUID NOT NULL,
+    business_key TEXT NULL,
+    recurring_master_id UUID NULL,
+    job_type VARCHAR(32) NULL,
+    priority VARCHAR(16) NULL,
+    node_id VARCHAR(64) NULL,
+    event_ts TIMESTAMPTZ(6) NOT NULL,
+    execution_time_ms BIGINT NULL,
+    error_message TEXT NULL,
+    retry_attempt INT NOT NULL,
+    created_at TIMESTAMPTZ(6) NOT NULL,
+    CONSTRAINT pk_scheduler_event_outbox PRIMARY KEY (event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_outbox_created
+    ON scheduler_event_outbox (created_at, event_id);

@@ -21,6 +21,7 @@ import jakarta.decorator.Decorator;
 import jakarta.decorator.Delegate;
 import jakarta.enterprise.inject.Any;
 import jakarta.inject.Inject;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -72,7 +73,8 @@ public abstract class CompletionFaultDecorator implements JobTerminalStore {
               UUID.randomUUID(),
               null,
               plan.dependencies(),
-              plan.expectedClaimSeq());
+              plan.expectedClaimSeq(),
+              List.of());
       try {
         delegate.commitCompletion(invalid);
         throw new AssertionError("Missing batch must reject completion");

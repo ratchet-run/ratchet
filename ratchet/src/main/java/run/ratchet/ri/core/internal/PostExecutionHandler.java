@@ -334,7 +334,8 @@ public class PostExecutionHandler {
         completed.getJobType() == JobExecutionType.BATCH_CHILD ? completed.getDependsOn() : null,
         batchCompletion,
         workflow.dependencies(),
-        expectedStatus == JobStatus.RUNNING ? completed.getClaimSeq() : null);
+        expectedStatus == JobStatus.RUNNING ? completed.getClaimSeq() : null,
+        List.of());
   }
 
   private static JobEntity completionSnapshot(JobEntity source, JobStatus status) {

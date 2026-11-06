@@ -161,6 +161,10 @@ final class MongoStoreContext extends AbstractStoreContext {
                 inc(VERSION, 1)));
   }
 
+  MongoCollection<Document> eventOutbox() {
+    return database.getCollection("scheduler_event_outbox");
+  }
+
   MongoCollection<Document> jobs() {
     return database.getCollection("scheduler_job");
   }
