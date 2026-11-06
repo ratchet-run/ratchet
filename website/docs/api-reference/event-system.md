@@ -6,7 +6,7 @@ description: Complete reference for job lifecycle events, batch events, chain ev
 
 # Event System Reference
 
-Observing and reacting to job lifecycle events. Ratchet publishes an event after each state transition commits. Use them for monitoring, alerting, and custom integrations. Events are notifications, not a durable record: see [Delivery guarantees](#delivery-guarantees).
+Observing and reacting to job lifecycle events. Ratchet publishes an event after each state transition commits. Use them for monitoring, alerting, and custom integrations. Events are notifications; durable terminal delivery is opt-in: see [Delivery guarantees](#delivery-guarantees).
 
 ## Listening to events
 
@@ -51,10 +51,19 @@ scheduler.addEventListener(event -> {
 
 ## Delivery guarantees
 
+With `ratchet.events.durable=true` (environment variable `RATCHET_EVENTS_DURABLE`),
+`JobCompletedEvent`, `JobFailedEvent`, and `JobDlqEvent` are persisted with terminal state
+and delivered at least once. Delivery can be late and can come from another node after a crash;
+recovery latency is up to the orphan scan interval plus orphan grace. A local listener slower
+than the grace can overlap relay delivery. Deduplicate on `getEventId()`; it implies no ordering.
+Delivery counts as complete when publishing returns. Listeners must not throw and should hand
+slow or failing work to a job. Other events remain at most once. Durable mode requires
+`EventOutboxStore`, `LockStore`, and a scheduled executor; startup fails if any is missing.
+
 - **After commit.** A state-transition event raised inside a transaction is delivered after that transaction commits. A rollback suppresses it, and an observer cannot roll the transaction back.
-- **Synchronous and local.** Observers run synchronously on the node that made the change, though not always on the same thread. Other nodes in the cluster do not see the event.
-- **At most once.** An event is held in memory until it is delivered. If the node stops between the commit and the delivery, for example because its process is killed, the event is lost and is not delivered again.
-- **Failed registration.** When Ratchet cannot register an after-commit callback in an active transaction, an API call that changes state before any job runs (submitting a signal-waiting job, cancel, replace, pause, resume, retry, signal) throws so the transaction rolls back with the change. A change the engine makes after a job runs (completion, dead letter, timeout, chain and batch events) still commits, and the event is lost with a warning in the log. Ratchet does not throw in a rollback-only transaction, because it will not commit. MongoDB writes do not join the caller's transaction, so with the MongoDB store the change stays saved both when Ratchet throws and when the transaction is rollback-only. The event is lost, and a retried or resumed job waits for the next poll instead of starting at once.
+- **Synchronous.** Observers run on the thread that publishes the event, which is not always the thread that made the change. By default, delivery is local to the node that made the change. With durable events, recovery can publish on another node.
+- **At most once by default.** An event is held in memory until it is delivered. If the node stops between the commit and the delivery, for example because its process is killed, the event is lost and is not delivered again.
+- **Failed registration.** When Ratchet cannot register an after-commit callback in an active transaction, an API call that changes state before any job runs (submitting a signal-waiting job, cancel, replace, pause, resume, retry, signal) throws so the transaction rolls back with the change. A change the engine makes after a job runs (completion, dead letter, timeout, chain and batch events) still commits, and the event is lost with a warning in the log unless it is a durable terminal event; its outbox row remains for the relay. Ratchet does not throw in a rollback-only transaction, because it will not commit. MongoDB writes do not join the caller's transaction, so with the MongoDB store the change stays saved both when Ratchet throws and when the transaction is rollback-only. For events without durable delivery, the event is lost, and a retried or resumed job waits for the next poll instead of starting at once.
 - **Stored state is the source of truth.** When every outcome matters, for example for billing or outgoing webhooks, check the job's stored status with the [Job Query Service](./job-query-service) instead of relying on events alone.
 
 ## Event base class
@@ -63,6 +72,8 @@ All job lifecycle events extend `AbstractJobSchedulerEvent`:
 
 ```java
 public abstract class AbstractJobSchedulerEvent implements Serializable {
+    public UUID getEventId()
+    public UUID getRecurringMasterId()
     public UUID getJobId()
     public String getBusinessKey()
     public JobType getJobType()

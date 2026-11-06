@@ -53,6 +53,7 @@ import run.ratchet.ri.core.internal.DefaultPollerScheduler;
 import run.ratchet.ri.core.internal.DefaultRecurringScheduler;
 import run.ratchet.ri.core.internal.DefaultResourcePermitService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -62,6 +63,7 @@ import run.ratchet.ri.core.internal.JobSuccessFinalizer;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
+import run.ratchet.ri.core.internal.OutboxDeleter;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerCycleExecutor;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -70,6 +72,7 @@ import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.PreExecutionValidator;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
+import run.ratchet.ri.core.internal.TerminalEventRelay;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.security.JobSecurityValidator;
@@ -94,6 +97,7 @@ import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.EventOutboxStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -207,6 +211,7 @@ class RatchetExecutionConfiguration {
   @RatchetTransactionBoundary
   @Transactional
   MicronautDeadLetterService deadLetterService(
+      DurableTerminalEvents durableEvents,
       JobStore store,
       ExecutorProvider executorProvider,
       SingletonLeaseService singletonLeaseService,
@@ -214,15 +219,18 @@ class RatchetExecutionConfiguration {
       ErrorSanitizer errorSanitizer,
       Clock clock,
       AfterCommitRegistrar afterCommitRegistrar) {
-    return new MicronautDeadLetterService(
-        executorProvider,
-        store,
-        store,
-        singletonLeaseService,
-        eventPublisher,
-        errorSanitizer,
-        clock,
-        afterCommitRegistrar);
+    MicronautDeadLetterService service =
+        new MicronautDeadLetterService(
+            executorProvider,
+            store,
+            store,
+            singletonLeaseService,
+            eventPublisher,
+            errorSanitizer,
+            clock,
+            afterCommitRegistrar,
+            durableEvents);
+    return service;
   }
 
   @Singleton
@@ -237,6 +245,7 @@ class RatchetExecutionConfiguration {
   @RatchetTransactionBoundary
   @Transactional(value = TxType.REQUIRES_NEW, rollbackOn = Exception.class)
   MicronautPostExecutionHandler postExecutionHandler(
+      DurableTerminalEvents durableEvents,
       JobStore store,
       BatchService batchService,
       WorkflowScheduler workflowScheduler,
@@ -244,14 +253,17 @@ class RatchetExecutionConfiguration {
       PollerScheduler pollerScheduler,
       AfterCommitRegistrar afterCommitRegistrar,
       BatchCompletionTransaction completionTransaction) {
-    return new MicronautPostExecutionHandler(
-        batchService,
-        workflowScheduler,
-        deadLetterService,
-        pollerScheduler,
-        store,
-        afterCommitRegistrar,
-        completionTransaction);
+    MicronautPostExecutionHandler service =
+        new MicronautPostExecutionHandler(
+            batchService,
+            workflowScheduler,
+            deadLetterService,
+            pollerScheduler,
+            store,
+            afterCommitRegistrar,
+            completionTransaction,
+            durableEvents);
+    return service;
   }
 
   @Singleton
@@ -438,6 +450,7 @@ class RatchetExecutionConfiguration {
   @RatchetTransactionBoundary
   @Transactional
   MicronautBatchService batchService(
+      DurableTerminalEvents durableEvents,
       JobStore store,
       MetricsCollector metrics,
       InternalEventPublisher events,
@@ -449,21 +462,24 @@ class RatchetExecutionConfiguration {
       AfterCommitRegistrar registrar,
       BatchCompletionTransaction completionTransaction,
       PayloadSerializer payloadSerializer) {
-    return new MicronautBatchService(
-        store.capability(BatchStore.class).orElse(null),
-        store,
-        store,
-        store,
-        metrics,
-        events,
-        deadLetter,
-        workflow,
-        policy,
-        resolver,
-        clock,
-        registrar,
-        completionTransaction,
-        payloadSerializer);
+    MicronautBatchService service =
+        new MicronautBatchService(
+            store.capability(BatchStore.class).orElse(null),
+            store,
+            store,
+            store,
+            metrics,
+            events,
+            deadLetter,
+            workflow,
+            policy,
+            resolver,
+            clock,
+            registrar,
+            completionTransaction,
+            payloadSerializer,
+            durableEvents);
+    return service;
   }
 
   @Singleton
@@ -505,6 +521,41 @@ class RatchetExecutionConfiguration {
             observabilityFacade,
             clock,
             sanitizer),
-        options.timeout().signalTimeoutLeaseTtlSeconds());
+        options.timeout().signalTimeoutLeaseTtlSeconds(),
+        options.events().durable());
+  }
+
+  @Singleton
+  @Requires(missingBeans = DurableTerminalEvents.class)
+  DurableTerminalEvents durableTerminalEvents(
+      OutboxDeleter deleter,
+      TerminalEventRelay relay,
+      RatchetOptions options,
+      JobStore store,
+      Clock clock,
+      InternalEventPublisher publisher,
+      AfterCommitRegistrar registrar,
+      SingletonLeaseService leases) {
+    DurableTerminalEvents service =
+        new DurableTerminalEvents(
+            options, store, clock, publisher, registrar, leases, deleter, relay);
+    return service;
+  }
+
+  @Singleton
+  @Requires(missingBeans = OutboxDeleter.class)
+  OutboxDeleter outboxDeleter(JobStore store) {
+    return new OutboxDeleter(store.capability(EventOutboxStore.class).orElse(null));
+  }
+
+  @Singleton
+  @Requires(missingBeans = TerminalEventRelay.class)
+  TerminalEventRelay terminalEventRelay(
+      JobStore store,
+      SingletonLeaseService leases,
+      InternalEventPublisher publisher,
+      RatchetOptions options,
+      Clock clock) {
+    return new TerminalEventRelay(store, leases, publisher, options, clock);
   }
 }

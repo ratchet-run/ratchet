@@ -37,6 +37,7 @@ import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.SingletonLease;
+import run.ratchet.ri.core.internal.DurableTerminalEvents.PreparedDlqEvents;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
@@ -70,6 +71,43 @@ public class DeadLetterService {
 
   private final AfterCommitRegistrar afterCommitRegistrar;
 
+  private final DurableTerminalEvents durableEvents;
+
+  /** Builds the DLQ event before the atomic completion plan is committed. */
+  public JobDlqEvent prepareDlqEvent(JobEntity job, Throwable cause) {
+    String error = job.getLastError() != null ? job.getLastError() : sanitizeSafely(cause);
+    return new JobDlqEvent(
+        job.getId(),
+        job.getBusinessKey(),
+        job.getRecurringMasterId(),
+        job.getPublicJobType(),
+        job.getPriority(),
+        job.getPickedBy(),
+        effective().instant(),
+        error,
+        Math.max(0, job.getAttempts()));
+  }
+
+  /** Retains DLQ metadata and logging while publishing the already planned objects. */
+  @Transactional(TxType.MANDATORY)
+  public void recordDlqTransitionInCurrentTransaction(JobEntity job, PreparedDlqEvents prepared) {
+    JobDlqEvent dlq = prepared.dlq();
+    List<AbstractJobSchedulerEvent> events = prepared.events();
+    job.setLastError(dlq.getErrorMessage());
+    if (durableEvents != null && durableEvents.enabled()) durableEvents.publishAfterCommit(events);
+    else if (eventPublisher != null)
+      publishAfterCommit(() -> events.forEach(eventPublisher::publish));
+    log.warnf("Job %s moved to DLQ", job.getId());
+  }
+
+  /** Called after a batch commit; no additional transaction or connection is needed. */
+  @Transactional(TxType.NOT_SUPPORTED)
+  public void recordPreparedBatchDlqTransition(JobEntity job, PreparedDlqEvents prepared) {
+    job.setLastError(prepared.dlq().getErrorMessage());
+    durableEvents.publishNow(prepared.events());
+    log.warnf("Job %s moved to DLQ", job.getId());
+  }
+
   private Duration purgeAfter;
   private Cron cron;
   private ZoneId zone;
@@ -77,6 +115,7 @@ public class DeadLetterService {
   private volatile boolean stopped = false;
 
   protected DeadLetterService() {
+    this.durableEvents = null;
     this.executorProvider = null;
     this.jobBulkStore = null;
     this.jobTerminalStore = null;
@@ -85,6 +124,27 @@ public class DeadLetterService {
     this.errorSanitizer = null;
     this.clock = null;
     this.afterCommitRegistrar = null;
+  }
+
+  public DeadLetterService(
+      ExecutorProvider executorProvider,
+      JobBulkStore jobBulkStore,
+      JobTerminalStore jobTerminalStore,
+      SingletonLeaseService singletonLeaseService,
+      InternalEventPublisher eventPublisher,
+      ErrorSanitizer errorSanitizer,
+      Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar) {
+    this(
+        executorProvider,
+        jobBulkStore,
+        jobTerminalStore,
+        singletonLeaseService,
+        eventPublisher,
+        errorSanitizer,
+        clock,
+        afterCommitRegistrar,
+        null);
   }
 
   @Inject
@@ -96,7 +156,8 @@ public class DeadLetterService {
       InternalEventPublisher eventPublisher,
       ErrorSanitizer errorSanitizer,
       Clock clock,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      DurableTerminalEvents durableEvents) {
     this.executorProvider = executorProvider;
     this.jobBulkStore = jobBulkStore;
     this.jobTerminalStore = jobTerminalStore;
@@ -105,6 +166,7 @@ public class DeadLetterService {
     this.errorSanitizer = errorSanitizer;
     this.clock = clock;
     this.afterCommitRegistrar = afterCommitRegistrar;
+    this.durableEvents = durableEvents;
   }
 
   /**

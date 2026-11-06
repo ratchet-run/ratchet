@@ -20,6 +20,7 @@ import jakarta.transaction.Transactional;
 import java.time.Clock;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -47,7 +48,8 @@ public class MicronautDeadLetterService extends DeadLetterService {
       InternalEventPublisher eventPublisher,
       ErrorSanitizer errorSanitizer,
       Clock clock,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      DurableTerminalEvents durableEvents) {
     super(
         executorProvider,
         jobBulkStore,
@@ -56,6 +58,7 @@ public class MicronautDeadLetterService extends DeadLetterService {
         eventPublisher,
         errorSanitizer,
         clock,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        durableEvents);
   }
 }

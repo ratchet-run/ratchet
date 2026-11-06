@@ -33,6 +33,7 @@ import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.internal.DurableTerminalEvents.PreparedDlqEvents;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobCompletionPlan;
@@ -94,12 +95,15 @@ public class PostExecutionHandler {
   private final BatchService batchService;
   private final JobTerminalStore jobTerminalStore;
   private final WorkflowScheduler workflowScheduler;
+  private final DurableTerminalEvents durableEvents;
+
   private final DeadLetterService deadLetterService;
   private final PollerScheduler pollerScheduler;
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final BatchCompletionTransaction completionTransaction;
 
   protected PostExecutionHandler() {
+    this.durableEvents = null;
     this.batchService = null;
     this.jobTerminalStore = null;
     this.workflowScheduler = null;
@@ -137,7 +141,6 @@ public class PostExecutionHandler {
         null);
   }
 
-  @Inject
   public PostExecutionHandler(
       BatchService batchService,
       WorkflowScheduler workflowScheduler,
@@ -146,6 +149,27 @@ public class PostExecutionHandler {
       JobTerminalStore jobTerminalStore,
       AfterCommitRegistrar afterCommitRegistrar,
       BatchCompletionTransaction completionTransaction) {
+    this(
+        batchService,
+        workflowScheduler,
+        deadLetterService,
+        pollerScheduler,
+        jobTerminalStore,
+        afterCommitRegistrar,
+        completionTransaction,
+        null);
+  }
+
+  @Inject
+  public PostExecutionHandler(
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler,
+      DeadLetterService deadLetterService,
+      PollerScheduler pollerScheduler,
+      JobTerminalStore jobTerminalStore,
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction completionTransaction,
+      DurableTerminalEvents durableEvents) {
     this.jobTerminalStore = jobTerminalStore;
     this.batchService = batchService;
     this.workflowScheduler = workflowScheduler;
@@ -153,6 +177,7 @@ public class PostExecutionHandler {
     this.pollerScheduler = pollerScheduler;
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.completionTransaction = completionTransaction;
+    this.durableEvents = durableEvents;
   }
 
   @Transactional(value = TxType.NOT_SUPPORTED)
@@ -236,9 +261,33 @@ public class PostExecutionHandler {
         completed.getJobType() == JobExecutionType.BATCH_CHILD
             ? WorkflowCompletionPlan.empty()
             : workflowScheduler.planCompletion(completed, cancelChain);
-    JobCompletionResult result =
-        jobTerminalStore.commitCompletion(
-            completionPlan(completed, expectedStatus, null, workflow));
+    DurableTerminalEvents durable = durableEvents;
+    boolean durableEnabled = durable != null && durable.enabled();
+    List<AbstractJobSchedulerEvent> events = new ArrayList<>();
+    PreparedDlqEvents preparedDlq = null;
+    if (durableEnabled) {
+      if (completed.getStatus() == JobStatus.SUCCEEDED) {
+        events.add(
+            new JobCompletedEvent(
+                completed.getId(),
+                completed.getBusinessKey(),
+                completed.getRecurringMasterId(),
+                completed.getPublicJobType(),
+                completed.getPriority(),
+                completed.getPickedBy(),
+                completed.getExecutionEndTime(),
+                completed.getExecutionDurationMs()));
+      } else {
+        events.addAll(failureEvents);
+        preparedDlq =
+            durable.prepareDlqEvents(events, deadLetterService.prepareDlqEvent(completed, cause));
+        events = preparedDlq.events();
+      }
+      if (preparedDlq == null) events = durable.prepare(events);
+    }
+    JobCompletionPlan plan = completionPlan(completed, expectedStatus, null, workflow);
+    if (durableEnabled) plan = durable.withEvents(plan, events);
+    JobCompletionResult result = jobTerminalStore.commitCompletion(plan);
     if (!result.committed()) {
       if (expectedStatus == JobStatus.RUNNING && completed.getClaimSeq() != null)
         Logger.getLogger(PostExecutionHandler.class)
@@ -247,19 +296,24 @@ public class PostExecutionHandler {
                 completed.getId(), completed.getClaimSeq(), completed.getPickedBy());
       return false;
     }
-    if (completed.getStatus() == JobStatus.SUCCEEDED) {
-      workflowScheduler.publishTerminalEvent(
-          new JobCompletedEvent(
-              completed.getId(),
-              completed.getBusinessKey(),
-              completed.getRecurringMasterId(),
-              completed.getPublicJobType(),
-              completed.getPriority(),
-              completed.getPickedBy(),
-              completed.getExecutionEndTime(),
-              completed.getExecutionDurationMs()));
+    if (durableEnabled) {
+      if (completed.getStatus() == JobStatus.SUCCEEDED) durable.publishAfterCommit(events);
+      else deadLetterService.recordDlqTransitionInCurrentTransaction(completed, preparedDlq);
     } else {
-      deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
+      if (completed.getStatus() == JobStatus.SUCCEEDED) {
+        workflowScheduler.publishTerminalEvent(
+            new JobCompletedEvent(
+                completed.getId(),
+                completed.getBusinessKey(),
+                completed.getRecurringMasterId(),
+                completed.getPublicJobType(),
+                completed.getPriority(),
+                completed.getPickedBy(),
+                completed.getExecutionEndTime(),
+                completed.getExecutionDurationMs()));
+      } else {
+        deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
+      }
     }
     workflowScheduler.publishCompletion(workflow);
     wakeupIfNewWorkAvailable(workflow.newWorkAvailable());

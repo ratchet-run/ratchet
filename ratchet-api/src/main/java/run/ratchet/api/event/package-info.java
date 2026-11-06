@@ -28,6 +28,15 @@
  *       event type and is the right choice outside CDI (Spring, Micronaut, plain Java).
  * </ul>
  *
+ * <p>With ratchet.events.durable=true (environment variable RATCHET_EVENTS_DURABLE),
+ * JobCompletedEvent, JobFailedEvent, and JobDlqEvent are persisted with terminal state and
+ * delivered at least once. Delivery can be late and can come from another node after a crash;
+ * recovery latency is up to the orphan scan interval plus orphan grace. A local listener slower
+ * than the grace can overlap relay delivery. Deduplicate on getEventId(); it implies no ordering.
+ * Delivery counts as complete when publishing returns. Listeners must not throw and should hand
+ * slow or failing work to a job. Other events remain at most once. Durable mode requires
+ * EventOutboxStore, LockStore, and a scheduled executor; startup fails if any is missing.
+ *
  * <h2>Delivery contract</h2>
  *
  * <p>The delivery contract:
@@ -44,15 +53,16 @@
  *       state before any job runs (submitting a signal-waiting job, cancel, replace, pause, resume,
  *       retry, signal) throws so the transaction rolls back with the change. A change the engine
  *       makes after a job runs (completion, dead letter, timeout, chain and batch events) still
- *       commits, and the event is lost with a warning in the log. Ratchet does not throw in a
- *       rollback-only transaction, because it will not commit. MongoDB writes do not join the
- *       caller's transaction, so with the MongoDB store the change stays saved both when Ratchet
- *       throws and when the transaction is rollback-only. The event is lost, and a retried or
- *       resumed job waits for the next poll instead of starting at once.
- *   <li><b>At most once, on one node.</b> An event is held in memory on the node that made the
- *       change and is delivered only there. If that node stops between the commit and the delivery,
- *       for example because its process is killed, the event is lost and is not delivered again.
- *       The stored job state is the source of truth; check it when every outcome matters.
+ *       commits, and the event is lost with a warning in the log unless durable terminal delivery
+ *       is enabled. Ratchet does not throw in a rollback-only transaction, because it will not
+ *       commit. MongoDB writes do not join the caller's transaction, so with the MongoDB store the
+ *       change stays saved both when Ratchet throws and when the transaction is rollback-only. The
+ *       event is lost, and a retried or resumed job waits for the next poll instead of starting at
+ *       once.
+ *   <li><b>At most once by default, on one node.</b> An event is held in memory on the node that
+ *       made the change and is delivered only there. If that node stops between the commit and the
+ *       delivery, for example because its process is killed, the event is lost and is not delivered
+ *       again. The stored job state is the source of truth; check it when every outcome matters.
  *   <li><b>Contained failures.</b> A programmatic listener runs in its own guard: one that throws
  *       is logged, and the remaining listeners still run. CDI observers follow standard synchronous
  *       {@code fire} semantics — a {@code @Observes} method that throws aborts delivery to the

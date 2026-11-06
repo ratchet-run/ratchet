@@ -18,12 +18,15 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -60,17 +63,22 @@ import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
+import run.ratchet.ri.core.internal.DurableTerminalEvents.PreparedDlqEvents;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.WorkflowCompletionPlan;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
@@ -85,6 +93,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
 @ExtendWith(MockitoExtension.class)
@@ -270,6 +279,134 @@ class BatchServiceTest {
     batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0));
 
     verify(metricsCollector).jobCompleted(parentId, JobType.BATCH, 0L);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 2})
+  void durableParentStoresKnownEmptyDurationAndPublishesCommittedDuration(int total) {
+    AfterCommitRegistrar registrar =
+        action -> {
+          action.run();
+          return AfterCommitRegistrar.Result.REGISTERED;
+        };
+    DurableTerminalEvents durable =
+        new DurableTerminalEvents(
+            RatchetOptions.builder().events(e -> e.durable(true)).build(),
+            mock(JobStore.class),
+            FIXED_CLOCK,
+            eventPublisher,
+            registrar,
+            null);
+    batchService =
+        new BatchService(
+            batchStore,
+            jobCrudStore,
+            jobBatchStatusStore,
+            jobTerminalStore,
+            metricsCollector,
+            eventPublisher,
+            deadLetterService,
+            workflowScheduler,
+            classPolicy,
+            beanResolver,
+            FIXED_CLOCK,
+            new JakartaAfterCommitRegistrar(txRegistry),
+            batchCompletionTransaction,
+            null,
+            durable);
+    UUID parentId = UUID.randomUUID();
+    BatchMetricsEntity metrics = new BatchMetricsEntity();
+    metrics.setTotalDurationMs(total == 0 ? null : 7L);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent(parentId)));
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.of(metrics));
+    if (total == 0) batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0));
+    else {
+      when(batchStore.findBatchById(parentId))
+          .thenReturn(Optional.of(batch(parentId, total, total, 0)));
+      batchService.afterChildCompletion(new BatchProgress(parentId, total, total, 0, null));
+    }
+    ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+    verify(jobTerminalStore).commitCompletion(plan.capture());
+    assertEquals(1, plan.getValue().outboxEvents().size());
+    if (total == 0) assertEquals(0L, plan.getValue().outboxEvents().get(0).executionTimeMs());
+    else assertNull(plan.getValue().outboxEvents().get(0).executionTimeMs());
+    ArgumentCaptor<JobCompletedEvent> completed = ArgumentCaptor.forClass(JobCompletedEvent.class);
+    verify(eventPublisher).publish(completed.capture());
+    assertEquals(total == 0 ? 0L : 7L, completed.getValue().getExecutionTimeMs());
+    assertEquals(
+        plan.getValue().outboxEvents().get(0).eventId(), completed.getValue().getEventId());
+  }
+
+  @Test
+  void durableFailedParentPlansAndPublishesFailureAndDlqWithMatchingIds() {
+    AfterCommitRegistrar registrar =
+        action -> {
+          action.run();
+          return AfterCommitRegistrar.Result.REGISTERED;
+        };
+    DurableTerminalEvents durable =
+        new DurableTerminalEvents(
+            RatchetOptions.builder().events(e -> e.durable(true)).build(),
+            mock(JobStore.class),
+            FIXED_CLOCK,
+            eventPublisher,
+            registrar,
+            null);
+    batchService =
+        new BatchService(
+            batchStore,
+            jobCrudStore,
+            jobBatchStatusStore,
+            jobTerminalStore,
+            metricsCollector,
+            eventPublisher,
+            deadLetterService,
+            workflowScheduler,
+            classPolicy,
+            beanResolver,
+            FIXED_CLOCK,
+            new JakartaAfterCommitRegistrar(txRegistry),
+            batchCompletionTransaction,
+            null,
+            durable);
+    UUID parentId = UUID.randomUUID();
+    JobEntity parent = parent(parentId);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 2, 1, 1)));
+    when(deadLetterService.prepareDlqEvent(any(), any()))
+        .thenAnswer(
+            invocation ->
+                new JobDlqEvent(
+                    parentId,
+                    parent.getBusinessKey(),
+                    parent.getRecurringMasterId(),
+                    parent.getPublicJobType(),
+                    parent.getPriority(),
+                    parent.getPickedBy(),
+                    FIXED_NOW,
+                    parent.getLastError(),
+                    0));
+    doAnswer(
+            invocation -> {
+              PreparedDlqEvents prepared = invocation.getArgument(1);
+              durable.publishNow(prepared.events());
+              return null;
+            })
+        .when(deadLetterService)
+        .recordPreparedBatchDlqTransition(any(), any());
+    batchService.afterChildCompletion(new BatchProgress(parentId, 2, 1, 1, null));
+    ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+    verify(jobTerminalStore).commitCompletion(plan.capture());
+    assertEquals(2, plan.getValue().outboxEvents().size());
+    ArgumentCaptor<JobFailedEvent> failed = ArgumentCaptor.forClass(JobFailedEvent.class);
+    ArgumentCaptor<JobDlqEvent> dlq = ArgumentCaptor.forClass(JobDlqEvent.class);
+    InOrder order = inOrder(eventPublisher);
+    order.verify(eventPublisher).publish(any(BatchCompletingEvent.class));
+    order.verify(eventPublisher).publish(any(BatchCompletedEvent.class));
+    order.verify(eventPublisher).publish(failed.capture());
+    order.verify(eventPublisher).publish(dlq.capture());
+    assertEquals(plan.getValue().outboxEvents().get(0).eventId(), failed.getValue().getEventId());
+    assertEquals(plan.getValue().outboxEvents().get(1).eventId(), dlq.getValue().getEventId());
   }
 
   @Test

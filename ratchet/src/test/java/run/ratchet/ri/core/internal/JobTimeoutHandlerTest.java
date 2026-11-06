@@ -66,6 +66,8 @@ import org.jboss.logging.MDC;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -1116,8 +1118,10 @@ class JobTimeoutHandlerTest {
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
-  @Test
-  void terminalHardTimeoutCarriesTimedOutThenFailedForTheLifecycleTransaction() {
+  @ParameterizedTest
+  @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+  void terminalHardTimeoutCarriesTimedOutThenFailedForTheLifecycleTransaction(
+      boolean localPublisher, boolean durableEnabled) {
     Instant now = Instant.parse("2026-05-09T12:00:00Z");
     handler =
         newHandler(
@@ -1125,8 +1129,9 @@ class JobTimeoutHandlerTest {
             null,
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.fixed(now, ZoneOffset.UTC),
-            eventPublisher,
-            txRegistry);
+            localPublisher ? eventPublisher : null,
+            txRegistry,
+            durableEnabled);
     JobEntity job = jobWithMaxRetries(0);
     job.setBusinessKey("timeout-key");
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
@@ -1138,6 +1143,16 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(eventPublisher, never()).publish(any());
     assertEquals(job, terminalTimeoutTransition.job());
+    if (!localPublisher) {
+      assertEquals(durableEnabled ? 1 : 0, terminalTimeoutTransition.eventsBeforeDlq().size());
+      if (durableEnabled) {
+        JobFailedEvent failed =
+            assertInstanceOf(
+                JobFailedEvent.class, terminalTimeoutTransition.eventsBeforeDlq().get(0));
+        assertEquals(1, failed.getRetryAttempt());
+      }
+      return;
+    }
     assertEquals(2, terminalTimeoutTransition.eventsBeforeDlq().size());
     JobExecutionTimedOutEvent timedOutEvent =
         assertInstanceOf(
@@ -1633,8 +1648,10 @@ class JobTimeoutHandlerTest {
     verify(metricsCollector).signalTimedOut(JOB_ID, job.getPublicJobType(), "approval");
   }
 
-  @Test
-  void terminalSignalTimeoutCarriesTimedOutThenFailedUsingScanTime() {
+  @ParameterizedTest
+  @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+  void terminalSignalTimeoutCarriesTimedOutThenFailedUsingScanTime(
+      boolean localPublisher, boolean durableEnabled) {
     Instant createdAt = Instant.parse("2026-05-09T12:00:00Z");
     JobTimeoutHandler txHandler =
         newHandler(
@@ -1642,10 +1659,12 @@ class JobTimeoutHandlerTest {
             metricsCollector,
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.fixed(createdAt.plusSeconds(31), ZoneOffset.UTC),
-            eventPublisher,
-            txRegistry);
+            localPublisher ? eventPublisher : null,
+            txRegistry,
+            durableEnabled);
     JobEntity job = waitingJobWithMaxRetries(0);
-    job.setCreatedAt(createdAt);
+    // A null configured duration must be harmless when no timeout event will be published.
+    job.setCreatedAt(localPublisher ? createdAt : null);
     job.setSignalTimeout(createdAt.plusSeconds(30));
     when(lifecycleFacade.completeTimeoutFailure(
             any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any()))
@@ -1657,6 +1676,16 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), isNull());
     verify(eventPublisher, never()).publish(any());
     assertEquals(job, terminalTimeoutTransition.job());
+    if (!localPublisher) {
+      assertEquals(durableEnabled ? 1 : 0, terminalTimeoutTransition.eventsBeforeDlq().size());
+      if (durableEnabled) {
+        JobFailedEvent failed =
+            assertInstanceOf(
+                JobFailedEvent.class, terminalTimeoutTransition.eventsBeforeDlq().get(0));
+        assertEquals(1, failed.getRetryAttempt());
+      }
+      return;
+    }
     assertEquals(2, terminalTimeoutTransition.eventsBeforeDlq().size());
     JobSignalTimedOutEvent timedOutEvent =
         assertInstanceOf(
@@ -1809,6 +1838,35 @@ class JobTimeoutHandlerTest {
         txRegistry,
         null,
         errorSanitizer);
+  }
+
+  private JobTimeoutHandler newHandler(
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      TransactionSynchronizationRegistry txRegistry,
+      boolean durableEventsEnabled) {
+    return new JobTimeoutHandler(
+        new JakartaAfterCommitRegistrar(txRegistry),
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        80,
+        60L,
+        clock,
+        eventPublisher,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        0L,
+        null,
+        null,
+        null,
+        120,
+        durableEventsEnabled);
   }
 
   private JobTimeoutHandler newLeasedHandler(SingletonLeaseService singletonLeaseService) {

@@ -520,6 +520,7 @@ public class ExecutorClassLoaderTest {
               mock(OrphanRecoveryTimer.class),
               mock(BatchRecoveryTimer.class),
               mock(DeadLetterService.class),
+              null,
               mock(JobArchivingService.class),
               mock(LogPurgeTimer.class),
               mock(PollerWakeupListener.class),
