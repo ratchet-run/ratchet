@@ -105,6 +105,18 @@ class RatchetEngineWiringTest {
   }
 
   @Test
+  void continuationLimitBindsThroughEngineOptions() {
+    runner()
+        .withPropertyValues("ratchet.execution.max-continuations=250")
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              assertThat(context.getBean(RatchetOptions.class).execution().maxContinuations())
+                  .isEqualTo(250);
+            });
+  }
+
+  @Test
   void managedExecutorNameDoesNotEnableSpringVirtualPool() {
     runner()
         .withPropertyValues(

@@ -80,6 +80,8 @@ public final class RatchetConfigKeys {
           "ratchet.worker.virtual-counter-accounting",
           "RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING",
           false);
+  public static final RatchetConfigKey<Integer> MAX_CONTINUATIONS =
+      intKey("ratchet.execution.max-continuations", "RATCHET_EXECUTION_MAX_CONTINUATIONS", 1000, 1);
   public static final RatchetConfigKey<Long> PROGRESS_FLUSH_INTERVAL_MS =
       longKey(
           "ratchet.execution.progress-flush-interval-ms",

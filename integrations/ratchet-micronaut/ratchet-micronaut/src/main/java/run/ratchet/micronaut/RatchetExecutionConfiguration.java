@@ -348,7 +348,8 @@ class RatchetExecutionConfiguration {
       PayloadSerializer payloadSerializer,
       AfterCommitRegistrar afterCommitRegistrar,
       JobStateFlusher jobStateFlusher,
-      Clock clock) {
+      Clock clock,
+      RatchetOptions options) {
     return new DefaultJobExecutorService(
         argResolver.orElse(null),
         poolRegistry,
@@ -372,7 +373,8 @@ class RatchetExecutionConfiguration {
         payloadSerializer,
         afterCommitRegistrar,
         jobStateFlusher,
-        clock);
+        clock,
+        options);
   }
 
   @Singleton

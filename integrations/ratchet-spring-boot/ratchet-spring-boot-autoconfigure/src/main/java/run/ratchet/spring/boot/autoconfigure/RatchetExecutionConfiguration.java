@@ -318,7 +318,8 @@ class RatchetExecutionConfiguration {
       PayloadSerializer payloadSerializer,
       AfterCommitRegistrar afterCommitRegistrar,
       JobStateFlusher jobStateFlusher,
-      Clock clock) {
+      Clock clock,
+      RatchetOptions options) {
     return new DefaultJobExecutorService(
         argResolver.getIfAvailable(),
         poolRegistry,
@@ -342,7 +343,8 @@ class RatchetExecutionConfiguration {
         payloadSerializer,
         afterCommitRegistrar,
         jobStateFlusher,
-        clock);
+        clock,
+        options);
   }
 
   @Bean

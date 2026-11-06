@@ -18,11 +18,14 @@ package run.ratchet.ri.core.internal;
 import jakarta.inject.Inject;
 import java.io.Serial;
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -33,6 +36,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
@@ -44,6 +48,8 @@ import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.api.internal.CancellationIdentities;
+import run.ratchet.api.internal.ContinuationBindings;
+import run.ratchet.api.internal.JobContinuation;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
@@ -69,8 +75,10 @@ import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStateStore;
+import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.ExtensionValidation;
 import run.ratchet.store.util.PayloadEncryptor;
 
 /**
@@ -88,6 +96,9 @@ public class JobTask implements Callable<Void> {
    */
   private static final Duration UPGRADE_PENDING_BACKOFF = Duration.ofSeconds(30);
 
+  private static final String CONTINUATION_NAMESPACE = "ratchet.continuation";
+  private final int maxContinuations;
+  private @Nullable JobContinuation continuation;
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -126,6 +137,7 @@ public class JobTask implements Callable<Void> {
   private volatile boolean permitAcquired;
 
   protected JobTask() {
+    this.maxContinuations = 1000;
     this.jobStore = null;
     this.resourcePermitService = null;
     this.lifecycleFacade = null;
@@ -170,7 +182,9 @@ public class JobTask implements Callable<Void> {
       JobStateFlusher jobStateFlusher,
       JobTimeoutHandler timeoutHandler,
       Clock clock,
-      PreExecutionArgResolver argResolver) {
+      PreExecutionArgResolver argResolver,
+      RatchetOptions options) {
+    this.maxContinuations = options.execution().maxContinuations();
     this.argResolver = argResolver;
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
@@ -309,6 +323,10 @@ public class JobTask implements Callable<Void> {
     // cannot leak this job's identity onto the pooled worker thread. The inner try owns
     // execution-failure handling; this outer try only guarantees the bound context is cleared.
     try {
+      continuation = ContinuationBindings.continuationOf(JobContext.current());
+      if (continuation != null) {
+        continuation.supported(jobStore.capability(JobStateStore.class).isPresent());
+      }
       if (jobEntity.getCallerPrincipal() != null) {
         log.debugf("Job %s created by user (present)", jobId);
       } else {
@@ -400,7 +418,9 @@ public class JobTask implements Callable<Void> {
 
         flushStateQuietly();
         if (wasJobCanceledAfterExecution()) handleCanceledDuringExecution(start);
-        else handleSuccess(start, jobResult);
+        else if (continuation != null && continuation.delay() != null) {
+          handleContinuation(start, jobResult, continuation.delay());
+        } else handleSuccess(start, jobResult);
       } catch (CircuitBreakerOpenException e) {
         log.infof(
             "Job %s rescheduled - circuit breaker OPEN for service: %s",
@@ -1010,12 +1030,106 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private void handleNonRetryableFailure(Throwable ex, int attempt, String sanitized) {
+  private boolean handleNonRetryableFailure(Throwable ex, int attempt, String sanitized) {
     log.warnf(
         "Job %s failed with non-retryable exception: %s - moving directly to DLQ",
         job.getId(), ex.getClass().getName());
 
-    transitionToDlq(ex, attempt, sanitized);
+    return transitionToDlq(ex, attempt, sanitized);
+  }
+
+  private void handleContinuation(Instant start, Object jobResult, Duration delay) {
+    if (attempt.isSuperseded()) {
+      saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+      return;
+    }
+    JobStateStore store = jobStore.capability(JobStateStore.class).orElseThrow();
+    var state = store.getState(job.getId(), CONTINUATION_NAMESPACE);
+    long count = 0;
+    if (state.isPresent()) {
+      try {
+        Map<?, ?> decoded = payloadSerializer.deserialize(state.get().json(), Map.class);
+        Object value = decoded == null ? null : decoded.get("count");
+        if (!(value instanceof Number number)) {
+          throw new IllegalArgumentException("Counter is not a number");
+        }
+        count =
+            number instanceof BigInteger integer
+                ? integer.longValueExact()
+                : number instanceof BigDecimal decimal
+                    ? decimal.longValueExact()
+                    : new BigDecimal(number.toString()).longValueExact();
+        if (count < 0) {
+          throw new IllegalArgumentException("Counter is negative");
+        }
+      } catch (RuntimeException malformed) {
+        log.warnf("Job %s has a malformed continuation counter; treating it as 0", job.getId());
+        count = 0;
+      }
+    }
+    if (count >= maxContinuations) {
+      IllegalStateException failure =
+          new IllegalStateException(
+              "Continuation limit "
+                  + maxContinuations
+                  + " reached (ratchet.execution.max-continuations)");
+      String sanitized = sanitizeError(failure);
+      int failedAttempt = job.getAttempts() + 1;
+      observabilityFacade.recordJobFailure(job, failure, failedAttempt);
+      currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
+      if (handleNonRetryableFailure(failure, job.getAttempts(), sanitized)) {
+        try {
+          if (!store.updateState(
+              job.getId(),
+              CONTINUATION_NAMESPACE,
+              continuationJson(0),
+              state.orElseThrow().version())) {
+            log.warnf("Job %s continuation counter reset lost a version race", job.getId());
+          }
+        } catch (RuntimeException resetFailure) {
+          log.warnf(resetFailure, "Job %s could not reset continuation counter", job.getId());
+        }
+      }
+      return;
+    }
+    String json = continuationJson(count + 1);
+    StateWriteResult result =
+        state.isEmpty()
+            ? store.initState(job.getId(), CONTINUATION_NAMESPACE, json, expectedClaimSeq())
+            : store.updateState(
+                job.getId(),
+                CONTINUATION_NAMESPACE,
+                json,
+                state.get().version(),
+                expectedClaimSeq());
+    if (result != StateWriteResult.UPDATED) {
+      markAttemptSuperseded();
+      saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+      return;
+    }
+    Instant scheduled = effective().instant().plus(delay);
+    if (jobStore.scheduleJobRetry(
+        job.getId(), null, scheduled, job.getAttempts(), expectedClaimSeq())) {
+      job.setStatus(JobStatus.PENDING);
+      job.setScheduledTime(scheduled);
+      job.setLastError(null);
+      if (currentExecution != null) {
+        currentExecution.markSucceeded();
+        observabilityFacade.saveExecution(currentExecution);
+      }
+      log.infof(
+          "Job %s continuing (%d/%d) in %d ms",
+          job.getId(), count + 1, maxContinuations, delay.toMillis());
+    } else {
+      warnRejectedOwnerWrite();
+      saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+    }
+    if (jobResult != null) log.debugf("Job %s continuation return value ignored", job.getId());
+    currentScope.success(Duration.between(start, effective().instant()).toMillis());
+  }
+
+  private String continuationJson(long count) {
+    return payloadSerializer.serialize(Map.of("count", count), ExtensionValidation.MAX_STATE_BYTES);
   }
 
   private void handleSuccess(Instant start, Object jobResult) {
@@ -1158,6 +1272,7 @@ public class JobTask implements Callable<Void> {
         job.getId(), payload.target(), payload.method(), payload.isStatic());
 
     try {
+      if (continuation != null) continuation.clear();
       return payloadInvoker.invoke(payload);
     } catch (ClassNotFoundException cnfe) {
       log.errorf(cnfe, "Job %s target class not found: %s", job.getId(), payload.target());
