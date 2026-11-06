@@ -87,7 +87,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final AfterCommitRegistrar afterCommitRegistrar;
-  private final CheckpointFlusher checkpointFlusher;
+  private final JobStateFlusher jobStateFlusher;
   private final PayloadSerializer payloadSerializer;
   private final PollerScheduler pollerScheduler;
   private final Clock clock;
@@ -115,7 +115,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
     this.afterCommitRegistrar = null;
-    this.checkpointFlusher = null;
+    this.jobStateFlusher = null;
     this.payloadSerializer = null;
     this.pollerScheduler = null;
     this.clock = null;
@@ -144,7 +144,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
       AfterCommitRegistrar afterCommitRegistrar,
-      CheckpointFlusher checkpointFlusher,
+      JobStateFlusher jobStateFlusher,
       Clock clock,
       Instance<PreExecutionArgResolver> argResolver) {
     this(
@@ -169,7 +169,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
         authorizationPolicy,
         payloadSerializer,
         afterCommitRegistrar,
-        checkpointFlusher,
+        jobStateFlusher,
         clock);
   }
 
@@ -195,7 +195,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
       AfterCommitRegistrar afterCommitRegistrar,
-      CheckpointFlusher checkpointFlusher,
+      JobStateFlusher jobStateFlusher,
       Clock clock) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
@@ -216,7 +216,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
     this.afterCommitRegistrar = afterCommitRegistrar;
-    this.checkpointFlusher = checkpointFlusher;
+    this.jobStateFlusher = jobStateFlusher;
     this.payloadSerializer = payloadSerializer;
     this.clock = clock;
     this.argResolver = argResolver;
@@ -458,7 +458,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
         authorizationPolicy,
         payloadSerializer,
         afterCommitRegistrar,
-        checkpointFlusher,
+        jobStateFlusher,
         timeoutHandler,
         effective(),
         argResolver);

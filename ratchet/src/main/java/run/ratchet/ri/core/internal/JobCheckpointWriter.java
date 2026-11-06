@@ -29,7 +29,7 @@ import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.util.ExtensionValidation;
 
 /** Serializes and fences the committed checkpoints of one attempt. */
-public final class JobCheckpointWriter implements JobCheckpoints {
+public final class JobCheckpointWriter implements JobCheckpoints, FlushableState {
   public static final String NAMESPACE = "ratchet.checkpoint";
   private static final Logger log = Logger.getLogger(JobCheckpointWriter.class);
   private final UUID jobId;
@@ -37,7 +37,8 @@ public final class JobCheckpointWriter implements JobCheckpoints {
   private final @Nullable JobStateStore stateStore;
   private final AfterCommitRegistrar registrar;
   private final PayloadSerializer serializer;
-  private final CheckpointFlusher flusher;
+  private final JobStateFlusher flusher;
+  private final long intervalMs;
   // Store calls and knownVersion use ioLock; local state uses this monitor.
   private final Object ioLock = new Object();
   private long localSeq;
@@ -55,17 +56,28 @@ public final class JobCheckpointWriter implements JobCheckpoints {
       @Nullable JobStateStore stateStore,
       AfterCommitRegistrar registrar,
       PayloadSerializer serializer,
-      CheckpointFlusher flusher) {
+      JobStateFlusher flusher) {
     this.jobId = jobId;
     this.attempt = attempt;
     this.stateStore = stateStore;
     this.registrar = registrar;
     this.serializer = serializer;
     this.flusher = flusher;
+    this.intervalMs = flusher.checkpointFlushIntervalMs();
   }
 
   public UUID jobId() {
     return jobId;
+  }
+
+  @Override
+  public long flushIntervalMs() {
+    return intervalMs;
+  }
+
+  @Override
+  public boolean flushOnShutdown() {
+    return true;
   }
 
   @Override

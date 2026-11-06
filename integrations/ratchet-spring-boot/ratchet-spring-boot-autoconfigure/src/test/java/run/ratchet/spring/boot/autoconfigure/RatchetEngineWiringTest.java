@@ -26,8 +26,8 @@ import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.RatchetRuntime;
-import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.spi.ExecutorProvider;
@@ -71,7 +71,7 @@ class RatchetEngineWiringTest {
             context -> {
               assertThat(context).hasNotFailed();
               assertThat(context).hasSingleBean(JobSchedulerService.class);
-              assertThat(context).hasSingleBean(CheckpointFlusher.class);
+              assertThat(context).hasSingleBean(JobStateFlusher.class);
               assertThat(context).hasSingleBean(SpringRecurringDiscovery.class);
               assertThat(context.getBean(PoolRegistry.class).hasPool(ExecutorTargets.VIRTUAL))
                   .isFalse();
@@ -87,6 +87,19 @@ class RatchetEngineWiringTest {
               assertThat(context).hasNotFailed();
               assertThat(
                       context.getBean(RatchetOptions.class).execution().checkpointFlushIntervalMs())
+                  .isEqualTo(250L);
+            });
+  }
+
+  @Test
+  void progressIntervalBindsThroughEngineOptions() {
+    runner()
+        .withPropertyValues("ratchet.execution.progress-flush-interval-ms=250")
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              assertThat(
+                      context.getBean(RatchetOptions.class).execution().progressFlushIntervalMs())
                   .isEqualTo(250L);
             });
   }

@@ -66,6 +66,7 @@ import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
@@ -111,7 +112,8 @@ class RatchetSubmissionConfiguration {
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
       Clock clock,
-      RatchetOptions options) {
+      RatchetOptions options,
+      PayloadSerializer payloadSerializer) {
     return new DefaultJobQueryService(
         store.capability(JobQueryStore.class).orElse(null),
         store,
@@ -122,7 +124,9 @@ class RatchetSubmissionConfiguration {
         principalProvider,
         clock,
         options,
-        store.capability(JobPropertyStore.class).orElse(null));
+        store.capability(JobPropertyStore.class).orElse(null),
+        store.capability(JobStateStore.class).orElse(null),
+        payloadSerializer);
   }
 
   @Singleton

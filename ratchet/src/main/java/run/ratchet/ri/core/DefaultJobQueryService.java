@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.EnumMap;
@@ -26,25 +27,30 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.jboss.logging.Logger;
 import run.ratchet.api.ExecutionHistorySummary;
 import run.ratchet.api.JobDetail;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPage;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobProgress;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.QueueHealthSnapshot;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.ri.core.internal.JobProgressWriter;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.ri.security.PayloadMasker;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MaskingContext;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -54,6 +60,7 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.util.EncryptionTarget;
@@ -71,6 +78,9 @@ public class DefaultJobQueryService implements JobQueryService {
   // Each property key costs the store one correlated subquery (SQL EXISTS, MongoDB $lookup).
   private static final int MAX_PROPERTY_KEYS = 32;
 
+  private static final Logger log = Logger.getLogger(DefaultJobQueryService.class);
+  private final JobStateStore stateStore;
+  private final PayloadSerializer serializer;
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
   private final JobAnalyticsStore analyticsStore;
@@ -84,6 +94,8 @@ public class DefaultJobQueryService implements JobQueryService {
   private final CallerPrincipalResolver callerPrincipalResolver;
 
   protected DefaultJobQueryService() {
+    this.stateStore = null;
+    this.serializer = null;
     this.queryStore = null;
     this.crudStore = null;
     this.analyticsStore = null;
@@ -145,6 +157,8 @@ public class DefaultJobQueryService implements JobQueryService {
       Instance<JobAuditStore> executionStore,
       Instance<RecurringJobStore> recurringJobStore,
       Instance<JobPropertyStore> propertyStore,
+      Instance<JobStateStore> stateStore,
+      PayloadSerializer serializer,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
       Clock clock,
@@ -159,7 +173,9 @@ public class DefaultJobQueryService implements JobQueryService {
         principalProvider,
         clock,
         options,
-        propertyStore.isResolvable() ? propertyStore.get() : null);
+        propertyStore.isResolvable() ? propertyStore.get() : null,
+        stateStore.isResolvable() ? stateStore.get() : null,
+        serializer);
   }
 
   DefaultJobQueryService(
@@ -182,6 +198,8 @@ public class DefaultJobQueryService implements JobQueryService {
         principalProvider,
         clock,
         options,
+        null,
+        null,
         null);
   }
 
@@ -195,7 +213,11 @@ public class DefaultJobQueryService implements JobQueryService {
       CallerPrincipalProvider principalProvider,
       Clock clock,
       RatchetOptions options,
-      JobPropertyStore propertyStore) {
+      JobPropertyStore propertyStore,
+      JobStateStore stateStore,
+      PayloadSerializer serializer) {
+    this.stateStore = stateStore;
+    this.serializer = serializer;
     this.queryStore = queryStore;
     this.crudStore = crudStore;
     this.analyticsStore = analyticsStore;
@@ -368,8 +390,35 @@ public class DefaultJobQueryService implements JobQueryService {
             e.getExecutionDurationMs(),
             e.getQueueWaitMs(),
             history,
-            dependantIds);
+            dependantIds,
+            readProgress(jobId));
     return Optional.of(detail);
+  }
+
+  private @Nullable JobProgress readProgress(UUID jobId) {
+    if (stateStore == null) return null;
+    try {
+      var state = stateStore.getState(jobId, JobProgressWriter.NAMESPACE);
+      if (state.isEmpty()) return null;
+      Map<?, ?> value = serializer.deserialize(state.get().json(), Map.class);
+      long done = progressNumber(value.get("done"));
+      long total = progressNumber(value.get("total"));
+      if (!(value.get("reportedAt") instanceof String time)) {
+        throw new IllegalArgumentException("Missing progress timestamp");
+      }
+      return new JobProgress(done, total, Instant.parse(time));
+    } catch (Exception failure) {
+      log.warnf(failure, "Could not read progress for job %s", jobId);
+      return null;
+    }
+  }
+
+  private static long progressNumber(Object value) {
+    if (!(value instanceof Number number))
+      throw new IllegalArgumentException("Invalid progress count");
+    long count = new BigDecimal(number.toString()).longValueExact();
+    if (count < 0) throw new IllegalArgumentException("Negative progress count");
+    return count;
   }
 
   @Override

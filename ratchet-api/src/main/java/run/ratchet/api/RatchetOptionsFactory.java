@@ -246,6 +246,7 @@ public final class RatchetOptionsFactory {
         .virtualExecutorJndi(config.get(RatchetConfigKeys.WORKER_VIRTUAL_EXECUTOR_JNDI))
         .virtualCounterAccounting(config.get(RatchetConfigKeys.WORKER_VIRTUAL_COUNTER_ACCOUNTING))
         .checkpointFlushIntervalMs(config.get(RatchetConfigKeys.CHECKPOINT_FLUSH_INTERVAL_MS))
+        .progressFlushIntervalMs(config.get(RatchetConfigKeys.PROGRESS_FLUSH_INTERVAL_MS))
         .queueSize(config.get(RatchetConfigKeys.THREAD_POOL_QUEUE_SIZE))
         .maxConcurrency("SINGLE", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_SINGLE))
         .maxConcurrency("RECURRING", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_RECURRING))

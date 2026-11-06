@@ -70,6 +70,56 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void progressFlushIntervalDefaultsBindsAndValidates() {
+    assertEquals(10000L, RatchetOptions.defaults().execution().progressFlushIntervalMs());
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .execution(execution -> execution.progressFlushIntervalMs(250))
+            .build();
+    assertEquals(250L, options.execution().progressFlushIntervalMs());
+    assertEquals(
+        375L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.execution.progress-flush-interval-ms", "375"), Map.of()))
+            .execution()
+            .progressFlushIntervalMs());
+    // An invalid configured value falls back to the default, like every other config key.
+    assertEquals(
+        10000L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.execution.progress-flush-interval-ms", "0"), Map.of()))
+            .execution()
+            .progressFlushIntervalMs());
+    assertEquals(250L, options.toBuilder().build().execution().progressFlushIntervalMs());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder().execution(execution -> execution.progressFlushIntervalMs(0)));
+  }
+
+  @Test
+  void progressIntervalEnvironmentAndInvalidValues() {
+    assertEquals(
+        200L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(), Map.of("RATCHET_EXECUTION_PROGRESS_FLUSH_INTERVAL_MS", "200")))
+            .execution()
+            .progressFlushIntervalMs());
+    for (String value : List.of("0", "-1", "invalid")) {
+      assertEquals(
+          10000L,
+          optionsFrom(
+                  new MapRatchetConfigSource(
+                      Map.of("ratchet.execution.progress-flush-interval-ms", value), Map.of()))
+              .execution()
+              .progressFlushIntervalMs());
+    }
+  }
+
+  @Test
   void mapsCrashBudgetPropertyAndEnvironment() {
     assertEquals(3, RatchetOptions.builder().build().node().maxCrashRedeliveries());
     assertEquals(
