@@ -37,6 +37,8 @@ import run.ratchet.store.util.RowValues;
 
 final class SqlserverJobDeleteOperations {
 
+  static final int ORPHAN_RECOVERY_CHUNK_SIZE = 500;
+
   private final SqlserverStoreContext ctx;
   private final SqlserverBusinessKeyReservations reservations;
 
@@ -196,7 +198,7 @@ final class SqlserverJobDeleteOperations {
       Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     String predicate =
         """
-        WHERE status = 'RUNNING'
+        status = 'RUNNING'
             AND NOT EXISTS (
               SELECT 1 FROM scheduler_node n
               WHERE n.node_id = scheduler_job_queue.picked_by
@@ -216,7 +218,7 @@ final class SqlserverJobDeleteOperations {
   OrphanRecovery resetOrphanJobsForNode(
       String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
     return recoverOrphans(
-        "WHERE status = 'RUNNING' AND picked_by = ?",
+        "status = 'RUNNING' AND picked_by = ?",
         List.of(nodeId),
         maxCrashRedeliveries,
         exhaustedLimit,
@@ -230,62 +232,109 @@ final class SqlserverJobDeleteOperations {
       int exhaustedLimit,
       boolean releaseOwner) {
     try {
-      // Close first: after the reset the predicate no longer matches. Each statement checks the
-      // heartbeat again, so a node that heartbeats in between keeps its job, and this attempt reads
-      // FAILED until that node's own saveExecution writes the real outcome.
-      Query close =
+      // The candidate read takes no locks, so a scan without orphans locks nothing. The re-check
+      // uses UPDLOCK to lock only candidates by primary key, matching the terminal path's first
+      // lock. Later statements address those locked rows by id. All chunks share one transaction
+      // and hold locks until commit: chunking only bounds statement size.
+      Query candidates =
           ctx.em()
               .createNativeQuery(
-                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
-                      + "SYSUTCDATETIME(), error_message = ? "
-                      + "WHERE status = 'RUNNING' AND job_id IN "
-                      + "(SELECT job_id FROM scheduler_job_queue "
-                      + predicate
-                      + ")");
-      close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
-      bindPredicate(close, parameters, 2);
-      close.executeUpdate();
-      String resetSql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-              crash_count = crash_count + 1, updated_at = SYSUTCDATETIME()
-          """
-              + predicate
-              + " AND crash_count < ?";
-      Query reset = ctx.em().createNativeQuery(resetSql);
-      bindRecovery(reset, parameters, maxCrashRedeliveries);
-      int count = reset.executeUpdate();
-      List<ExhaustedOrphan> exhausted = new ArrayList<>();
-      if (exhaustedLimit > 0) {
-        String selectSql =
-            """
-            SELECT job_id, claim_seq, crash_count, picked_by FROM scheduler_job_queue
-            """
-                + predicate
-                + " AND crash_count >= ? ORDER BY job_id";
-        Query select = ctx.em().createNativeQuery(selectSql);
-        bindRecovery(select, parameters, maxCrashRedeliveries);
-        select.setMaxResults(exhaustedLimit);
-        for (Object result : select.getResultList()) {
-          Object[] row = (Object[]) result;
-          exhausted.add(
-              new ExhaustedOrphan(
-                  SqlserverJobRowMapper.uuidOrNull(row[0]),
-                  ((Number) row[1]).longValue(),
-                  ((Number) row[2]).intValue(),
-                  row[3] == null ? null : row[3].toString()));
-        }
+                  "SELECT job_id FROM scheduler_job_queue WHERE " + predicate + " ORDER BY job_id");
+      bindPredicate(candidates, parameters, 1);
+      List<?> candidateRows = candidates.getResultList();
+      if (candidateRows.isEmpty()) {
+        return new OrphanRecovery(0, List.of());
       }
-      if (releaseOwner) {
-        Query release =
+      List<UUID> ids = new ArrayList<>(candidateRows.size());
+      for (Object row : candidateRows) {
+        ids.add(SqlserverJobRowMapper.uuidOrNull(row));
+      }
+      int count = 0;
+      List<ExhaustedOrphan> exhausted = new ArrayList<>();
+      for (int offset = 0; offset < ids.size(); offset += ORPHAN_RECOVERY_CHUNK_SIZE) {
+        List<UUID> chunk =
+            ids.subList(offset, Math.min(offset + ORPHAN_RECOVERY_CHUNK_SIZE, ids.size()));
+        String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        Query lock =
             ctx.em()
                 .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                    """
+                    SELECT job_id, claim_seq, crash_count, picked_by
+                    FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK, FORCESEEK)
+                    WHERE job_id IN (
+                    """
+                        + placeholders
+                        + ") AND "
                         + predicate
-                        + " AND crash_count >= ?");
-        bindRecovery(release, parameters, maxCrashRedeliveries);
-        release.executeUpdate();
+                        + " ORDER BY job_id");
+        bindUuidList(lock, chunk, 1);
+        bindPredicate(lock, parameters, chunk.size() + 1);
+        List<UUID> confirmed = new ArrayList<>();
+        List<UUID> resettable = new ArrayList<>();
+        List<UUID> exhaustedIds = new ArrayList<>();
+        for (Object result : lock.getResultList()) {
+          Object[] row = (Object[]) result;
+          UUID id = SqlserverJobRowMapper.uuidOrNull(row[0]);
+          int crashCount = ((Number) row[2]).intValue();
+          confirmed.add(id);
+          if (crashCount < maxCrashRedeliveries) {
+            resettable.add(id);
+          } else {
+            exhaustedIds.add(id);
+            if (exhausted.size() < exhaustedLimit) {
+              exhausted.add(
+                  new ExhaustedOrphan(
+                      id,
+                      ((Number) row[1]).longValue(),
+                      crashCount,
+                      row[3] == null ? null : row[3].toString()));
+            }
+          }
+        }
+        if (confirmed.isEmpty()) {
+          continue;
+        }
+        Query close =
+            ctx.em()
+                .createNativeQuery(
+                    """
+                    UPDATE scheduler_job_execution
+                    SET status = 'FAILED', ended_at = SYSUTCDATETIME(), error_message = ?
+                    WHERE status = 'RUNNING' AND job_id IN (
+                    """
+                        + String.join(",", Collections.nCopies(confirmed.size(), "?"))
+                        + ")");
+        close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
+        bindUuidList(close, confirmed, 2);
+        close.executeUpdate();
+        if (!resettable.isEmpty()) {
+          Query reset =
+              ctx.em()
+                  .createNativeQuery(
+                      """
+                      UPDATE scheduler_job_queue
+                      SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
+                          crash_count = crash_count + 1, updated_at = SYSUTCDATETIME()
+                      WHERE job_id IN (
+                      """
+                          + String.join(",", Collections.nCopies(resettable.size(), "?"))
+                          + ") AND status = 'RUNNING'");
+          bindUuidList(reset, resettable, 1);
+          count += reset.executeUpdate();
+        }
+        if (releaseOwner && !exhaustedIds.isEmpty()) {
+          Query release =
+              ctx.em()
+                  .createNativeQuery(
+                      """
+                      UPDATE scheduler_job_queue SET picked_by = NULL
+                      WHERE job_id IN (
+                      """
+                          + String.join(",", Collections.nCopies(exhaustedIds.size(), "?"))
+                          + ")");
+          bindUuidList(release, exhaustedIds, 1);
+          release.executeUpdate();
+        }
       }
       ctx.em().clear();
       return new OrphanRecovery(count, List.copyOf(exhausted));
@@ -294,9 +343,10 @@ final class SqlserverJobDeleteOperations {
     }
   }
 
-  private static void bindRecovery(Query query, List<?> parameters, int maxCrashRedeliveries) {
-    bindPredicate(query, parameters, 1);
-    query.setParameter(parameters.size() + 1, maxCrashRedeliveries);
+  private static void bindUuidList(Query query, List<UUID> ids, int index) {
+    for (UUID id : ids) {
+      query.setParameter(index++, UuidByteArrayConverter.toBytes(id));
+    }
   }
 
   private static void bindPredicate(Query query, List<?> parameters, int index) {
