@@ -18,6 +18,8 @@ package run.ratchet.ri.core.internal;
 import jakarta.inject.Inject;
 import java.io.Serial;
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -1052,17 +1054,33 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleContinuation(Instant start, Object jobResult, Duration delay) {
-    if (attempt.isSuperseded()) return;
+    if (attempt.isSuperseded()) {
+      saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+      return;
+    }
     JobStateStore store = jobStore.capability(JobStateStore.class).orElseThrow();
     var state = store.getState(job.getId(), CONTINUATION_NAMESPACE);
     long count = 0;
     if (state.isPresent()) {
-      Map<?, ?> decoded = payloadSerializer.deserialize(state.get().json(), Map.class);
-      Object value = decoded == null ? null : decoded.get("count");
-      if (!(value instanceof Number number) || number.longValue() < 0) {
-        throw new IllegalStateException("Invalid continuation counter for job " + job.getId());
+      try {
+        Map<?, ?> decoded = payloadSerializer.deserialize(state.get().json(), Map.class);
+        Object value = decoded == null ? null : decoded.get("count");
+        if (!(value instanceof Number number)) {
+          throw new IllegalArgumentException("Counter is not a number");
+        }
+        count =
+            number instanceof BigInteger integer
+                ? integer.longValueExact()
+                : number instanceof BigDecimal decimal
+                    ? decimal.longValueExact()
+                    : new BigDecimal(number.toString()).longValueExact();
+        if (count < 0) {
+          throw new IllegalArgumentException("Counter is negative");
+        }
+      } catch (RuntimeException malformed) {
+        log.warnf("Job %s has a malformed continuation counter; treating it as 0", job.getId());
+        count = 0;
       }
-      count = number.longValue();
     }
     if (count >= maxContinuations) {
       IllegalStateException failure =
@@ -1104,21 +1122,22 @@ public class JobTask implements Callable<Void> {
       saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
       return;
     }
-    if (currentExecution != null) {
-      currentExecution.markSucceeded();
-      observabilityFacade.saveExecution(currentExecution);
-    }
     Instant scheduled = effective().instant().plus(delay);
     if (jobStore.scheduleJobRetry(
         job.getId(), null, scheduled, job.getAttempts(), expectedClaimSeq())) {
       job.setStatus(JobStatus.PENDING);
       job.setScheduledTime(scheduled);
       job.setLastError(null);
+      if (currentExecution != null) {
+        currentExecution.markSucceeded();
+        observabilityFacade.saveExecution(currentExecution);
+      }
       log.infof(
           "Job %s continuing (%d/%d) in %d ms",
           job.getId(), count + 1, maxContinuations, delay.toMillis());
     } else {
       warnRejectedOwnerWrite();
+      saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
     }
     if (jobResult != null) log.debugf("Job %s continuation return value ignored", job.getId());
     currentScope.success(Duration.between(start, effective().instant()).toMillis());
