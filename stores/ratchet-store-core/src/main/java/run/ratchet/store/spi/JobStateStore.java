@@ -25,6 +25,9 @@ import run.ratchet.store.util.ExtensionValidation;
  * a mutable JSON blob with an independent version for optimistic CAS. State is encrypted at rest
  * when payload encryption is configured; versions cover the stored bytes.
  *
+ * <p>Namespaces starting with "ratchet." are reserved for Ratchet itself; the RI stores checkpoints
+ * under "ratchet.checkpoint".
+ *
  * <p>State and properties follow the owning job through archiving when advertised by the store.
  * Callers probe via {@code jobStore.capability(JobStateStore.class)}.
  */

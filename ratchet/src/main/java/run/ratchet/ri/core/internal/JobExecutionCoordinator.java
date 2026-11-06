@@ -36,12 +36,14 @@ public class JobExecutionCoordinator {
   private final JobStateManager jobStateManager;
   private final RetryBufferDrainer retryBufferDrainer;
   private final JobExecutorService jobExecutorService;
+  private final CheckpointFlusher checkpointFlusher;
 
   protected JobExecutionCoordinator() {
     this.jobSubmissionService = null;
     this.jobStateManager = null;
     this.retryBufferDrainer = null;
     this.jobExecutorService = null;
+    this.checkpointFlusher = null;
   }
 
   @Inject
@@ -49,11 +51,13 @@ public class JobExecutionCoordinator {
       JobSubmissionService jobSubmissionService,
       JobStateManager jobStateManager,
       RetryBufferDrainer retryBufferDrainer,
-      JobExecutorService jobExecutorService) {
+      JobExecutorService jobExecutorService,
+      CheckpointFlusher checkpointFlusher) {
     this.jobSubmissionService = jobSubmissionService;
     this.jobStateManager = jobStateManager;
     this.retryBufferDrainer = retryBufferDrainer;
     this.jobExecutorService = jobExecutorService;
+    this.checkpointFlusher = checkpointFlusher;
   }
 
   public void submit(JobEntity job) {
@@ -85,6 +89,11 @@ public class JobExecutionCoordinator {
       } catch (InterruptedException interrupted) {
         Thread.currentThread().interrupt();
       }
+    }
+    try {
+      checkpointFlusher.flushAll();
+    } catch (Throwable failure) {
+      log.warn("Checkpoint flush during shutdown failed", failure);
     }
     // Release before interrupting. The claim fence then rejects the failure an interrupted worker
     // would record, so a drain timeout charges neither an attempt nor a crash.
