@@ -24,8 +24,10 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -41,6 +43,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
@@ -50,8 +53,10 @@ import run.ratchet.spi.AfterCommitRegistrar.Result;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 
-class CheckpointFlusherTest {
-  private final CheckpointFlusher flusher = new CheckpointFlusher(RatchetOptions.builder().build());
+class JobStateFlusherTest {
+  private final AtomicLong now = new AtomicLong();
+  private final JobStateFlusher flusher =
+      new JobStateFlusher(RatchetOptions.builder().build(), now::get);
   private final ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
   private final ScheduledFuture<?> handle = mock(ScheduledFuture.class);
   private final List<Runnable> scheduled = new ArrayList<>();
@@ -75,7 +80,8 @@ class CheckpointFlusherTest {
     flusher.markDirty(fixture.writer());
     flusher.markDirty(fixture.writer());
     flusher.markDirty(fixture.writer());
-    verify(executor).schedule(any(Runnable.class), eq(1000L), eq(TimeUnit.MILLISECONDS));
+    verify(executor).schedule(any(Runnable.class), eq(1_000_000_000L), eq(TimeUnit.NANOSECONDS));
+    now.set(1_000_000_000L);
     scheduled.get(0).run();
     verifyWritten(fixture);
     assertFalse(fixture.writer().hasUnflushed());
@@ -106,9 +112,11 @@ class CheckpointFlusherTest {
               return StateWriteResult.UPDATED;
             });
     flusher.start(executor);
+    now.set(1_000_000_000L);
     scheduled.get(0).run();
     assertEquals(2, scheduled.size());
     verifyWritten(fixture);
+    now.set(2_000_000_000L);
     scheduled.get(1).run();
     assertEquals(2, scheduled.size());
     verifyWritten(fixture);
@@ -121,12 +129,14 @@ class CheckpointFlusherTest {
     when(bad.store().initState(eq(bad.writer().jobId()), anyString(), anyString(), eq(7L)))
         .thenThrow(new IllegalStateException("store down"));
     flusher.start(executor);
+    now.set(1_000_000_000L);
     scheduled.get(0).run();
     verifyWritten(good);
     verifyWritten(bad);
     assertTrue(bad.writer().hasUnflushed());
     assertEquals(2, scheduled.size());
     flusher.remove(bad.writer());
+    now.set(2_000_000_000L);
     scheduled.get(1).run();
     assertEquals(2, scheduled.size());
   }
@@ -136,6 +146,7 @@ class CheckpointFlusherTest {
     List<WriterFixture> writers = new ArrayList<>();
     for (int i = 0; i < 105; i++) writers.add(writer());
     flusher.start(executor);
+    now.set(1_000_000_000L);
     scheduled.get(0).run();
     long count = writers.stream().filter(w -> !w.writer().hasUnflushed()).count();
     assertTrue(count <= 100);
@@ -174,9 +185,11 @@ class CheckpointFlusherTest {
             .updateState(eq(fixture.writer().jobId()), anyString(), anyString(), eq(0), eq(7L)))
         .thenReturn(StateWriteResult.UPDATED);
     flusher.start(executor);
+    now.set(1_000_000_000L);
     scheduled.get(0).run();
     assertEquals(2, scheduled.size());
     assertTrue(fixture.writer().hasUnflushed());
+    now.set(2_000_000_000L);
     scheduled.get(1).run();
     verifyWritten(fixture);
     verify(fixture.store())
@@ -207,6 +220,7 @@ class CheckpointFlusherTest {
     flusher.start(executor);
     var threads = Executors.newFixedThreadPool(2);
     try {
+      now.set(1_000_000_000L);
       var scheduledDrain = threads.submit(scheduled.get(0));
       assertTrue(entered.await(5, TimeUnit.SECONDS));
       WriterFixture second = writer();
@@ -229,6 +243,91 @@ class CheckpointFlusherTest {
       threads.shutdownNow();
       assertTrue(threads.awaitTermination(5, TimeUnit.SECONDS));
     }
+  }
+
+  @Test
+  void intervalsRescheduleEarlierAndShutdownSkipsProgress() {
+    FlushableState progress = mock(FlushableState.class);
+    FlushableState checkpoint = mock(FlushableState.class);
+    when(progress.flushIntervalMs()).thenReturn(10000L);
+    when(checkpoint.flushIntervalMs()).thenReturn(1000L);
+    when(checkpoint.flushOnShutdown()).thenReturn(true);
+    flusher.start(executor);
+    flusher.markDirty(progress);
+    flusher.markDirty(checkpoint);
+    verify(handle).cancel(false);
+    verify(executor).schedule(any(Runnable.class), eq(10_000_000_000L), eq(TimeUnit.NANOSECONDS));
+    verify(executor).schedule(any(Runnable.class), eq(1_000_000_000L), eq(TimeUnit.NANOSECONDS));
+    flusher.flushAll();
+    verify(checkpoint).flush();
+    verify(progress, never()).flush();
+  }
+
+  @Test
+  void drainsOnlyDueWritersWithDifferentIntervals() {
+    FlushableState checkpoint = mock(FlushableState.class);
+    FlushableState progress = mock(FlushableState.class);
+    when(checkpoint.flushIntervalMs()).thenReturn(1000L);
+    when(progress.flushIntervalMs()).thenReturn(10000L);
+    flusher.markDirty(checkpoint);
+    flusher.markDirty(progress);
+    flusher.start(executor);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    verify(checkpoint).flush();
+    verify(progress, never()).flush();
+    verify(executor).schedule(any(Runnable.class), eq(9_000_000_000L), eq(TimeUnit.NANOSECONDS));
+    now.set(10_000_000_000L);
+    scheduled.get(1).run();
+    verify(progress).flush();
+  }
+
+  @Test
+  void redirtiedWriterWaitsOneIntervalAfterFlushFinishes() {
+    FlushableState writer = mock(FlushableState.class);
+    when(writer.flushIntervalMs()).thenReturn(1000L);
+    when(writer.hasUnflushed()).thenReturn(true, false);
+    doAnswer(
+            call -> {
+              now.set(1_500_000_000L);
+              flusher.markDirty(writer);
+              now.set(1_700_000_000L);
+              return null;
+            })
+        .when(writer)
+        .flush();
+    flusher.markDirty(writer);
+    flusher.start(executor);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    verify(executor, times(2))
+        .schedule(any(Runnable.class), eq(1_000_000_000L), eq(TimeUnit.NANOSECONDS));
+    now.set(2_600_000_000L);
+    flusher.flushDirty();
+    verify(writer).flush();
+    doNothing().when(writer).flush();
+    now.set(2_700_000_000L);
+    scheduled.get(1).run();
+    verify(writer, times(2)).flush();
+    assertEquals(2, scheduled.size());
+  }
+
+  @Test
+  void backlogContinuesWithoutIntervalDelay() {
+    for (int i = 0; i < 250; i++) {
+      FlushableState writer = mock(FlushableState.class);
+      when(writer.flushIntervalMs()).thenReturn(1000L);
+      flusher.markDirty(writer);
+    }
+    flusher.start(executor);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    assertEquals(2, scheduled.size());
+    scheduled.get(1).run();
+    assertEquals(3, scheduled.size());
+    scheduled.get(2).run();
+    assertEquals(3, scheduled.size());
+    verify(executor, times(2)).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
   }
 
   private void verifyWritten(WriterFixture fixture) {

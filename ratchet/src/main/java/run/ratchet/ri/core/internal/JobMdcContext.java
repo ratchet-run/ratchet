@@ -25,6 +25,7 @@ import run.ratchet.api.AttemptToken;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.internal.JobCheckpoints;
+import run.ratchet.api.internal.JobProgressSink;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -128,6 +129,7 @@ final class JobMdcContext {
         null,
         null,
         () -> false,
+        null,
         null);
   }
 
@@ -144,7 +146,8 @@ final class JobMdcContext {
       Object cancellationIdentity,
       @Nullable AttemptToken attemptToken,
       BooleanSupplier currentAttempt,
-      @Nullable JobCheckpoints checkpoints) {
+      @Nullable JobCheckpoints checkpoints,
+      @Nullable JobProgressSink progress) {
     JobContext.bind(
         jobId,
         logger,
@@ -156,7 +159,8 @@ final class JobMdcContext {
         cancellationIdentity,
         attemptToken,
         currentAttempt,
-        checkpoints);
+        checkpoints,
+        progress);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
     }

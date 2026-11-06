@@ -42,6 +42,10 @@ import java.util.UUID;
  * @param queueWaitMs time from scheduled availability to execution start in milliseconds, or null
  *     if unavailable
  * @param executionHistory bounded execution history for this job; never {@code null}
+ * @param progress last reported progress; null if never reported or job state is unavailable. It is
+ *     not reset on retry: reportedAt before executionStartTime means an earlier attempt. Best
+ *     effort; the last interval can be missing, for example after cancellation. Done may exceed
+ *     total.
  * @param dependantJobIds bounded IDs of jobs that directly depend on this job; never {@code null}
  */
 @Incubating
@@ -56,7 +60,8 @@ public record JobDetail(
     Long executionDurationMs,
     Long queueWaitMs,
     List<ExecutionHistorySummary> executionHistory,
-    List<UUID> dependantJobIds) {
+    List<UUID> dependantJobIds,
+    @Nullable JobProgress progress) {
   public JobDetail {
     params = params == null ? null : Map.copyOf(params);
     traceContext = traceContext == null ? null : Map.copyOf(traceContext);

@@ -42,26 +42,26 @@ import run.ratchet.store.spi.JobClaimStore;
 class JobAttemptControlTest {
   @Test
   void checkpointFlushWithoutHookIsHarmless() {
-    newAttempt().flushCheckpointsQuietly();
+    newAttempt().flushStateQuietly();
   }
 
   @Test
   void checkpointFlushRunsAttachedHook() {
     JobAttemptControl attempt = newAttempt();
     Runnable hook = mock(Runnable.class);
-    attempt.attachCheckpointFlush(hook);
-    attempt.flushCheckpointsQuietly();
+    attempt.attachStateFlush(hook);
+    attempt.flushStateQuietly();
     verify(hook).run();
   }
 
   @Test
   void checkpointFlushCatchesThrowable() {
     JobAttemptControl attempt = newAttempt();
-    attempt.attachCheckpointFlush(
+    attempt.attachStateFlush(
         () -> {
           throw new AssertionError("flush failed");
         });
-    attempt.flushCheckpointsQuietly();
+    attempt.flushStateQuietly();
   }
 
   private JobAttemptControl newAttempt() {

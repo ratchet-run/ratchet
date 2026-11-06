@@ -26,6 +26,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -42,6 +43,8 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.internal.CheckpointBindings;
 import run.ratchet.api.internal.JobCheckpoints;
+import run.ratchet.api.internal.JobProgressSink;
+import run.ratchet.api.internal.ProgressBindings;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.PayloadSerializer;
@@ -75,6 +78,8 @@ class LifecycleCallbackInvokerTest {
               assertTrue(ctx.attemptToken().isEmpty());
               assertThrows(IllegalStateException.class, ctx::lastCheckpoint);
               assertThrows(IllegalStateException.class, () -> ctx.checkpoint("forbidden"));
+              ctx.progress(1, 2);
+              assertThrows(IllegalArgumentException.class, () -> ctx.progress(-1, 2));
               assertFalse(ctx.isCurrentAttempt());
               assertEquals(deadline, ctx.deadline().orElseThrow());
               assertTrue(ctx.isCancellationRequested());
@@ -91,6 +96,7 @@ class LifecycleCallbackInvokerTest {
             new DefaultErrorSanitizer());
     AttemptToken token = new AttemptToken(job.getId(), 7);
     JobCheckpoints checkpoints = mock(JobCheckpoints.class);
+    JobProgressSink progress = mock(JobProgressSink.class);
     JobContext.bind(
         job.getId(),
         null,
@@ -102,15 +108,20 @@ class LifecycleCallbackInvokerTest {
         new Object(),
         token,
         () -> true,
-        checkpoints);
+        checkpoints,
+        progress);
     callbacks.invokeOnSuccess(job);
     assertSame(checkpoints, CheckpointBindings.checkpointsOf(JobContext.current()));
+    assertSame(progress, ProgressBindings.progressOf(JobContext.current()));
+    verifyNoInteractions(progress);
     assertEquals(token, JobContext.current().attemptToken().orElseThrow());
     assertTrue(JobContext.current().isCurrentAttempt());
     assertEquals(deadline, JobContext.current().deadline().orElseThrow());
     assertTrue(JobContext.current().isCancellationRequested());
     callbacks.invokeOnFailure(job, new IllegalStateException("failed"));
     assertSame(checkpoints, CheckpointBindings.checkpointsOf(JobContext.current()));
+    assertSame(progress, ProgressBindings.progressOf(JobContext.current()));
+    verifyNoInteractions(progress);
     assertEquals(token, JobContext.current().attemptToken().orElseThrow());
     assertTrue(JobContext.current().isCurrentAttempt());
     assertEquals(deadline, JobContext.current().deadline().orElseThrow());

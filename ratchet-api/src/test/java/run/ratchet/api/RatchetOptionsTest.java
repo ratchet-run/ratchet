@@ -479,7 +479,8 @@ class RatchetOptionsTest {
             "java:app/concurrent/CoordinatorFactory",
             null,
             false,
-            1000L);
+            1000L,
+            10000L);
     RatchetOptions.CircuitBreakerProfileOptions profile =
         new RatchetOptions.CircuitBreakerProfileOptions(40.0f, 10, 5000L, 2, 3);
     RatchetOptions.CircuitBreakerOptions circuitBreaker =

@@ -26,6 +26,7 @@ import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCallbackFailedEvent.CallbackType;
 import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.api.internal.CheckpointBindings;
+import run.ratchet.api.internal.ProgressBindings;
 import run.ratchet.ri.payload.RuntimeArguments;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.PayloadSerializer;
@@ -109,7 +110,8 @@ public final class LifecycleCallbackInvoker {
           CancellationIdentities.identityOf(previous),
           previous.attemptToken().orElse(null),
           previous::isCurrentAttempt,
-          CheckpointBindings.checkpointsOf(previous));
+          CheckpointBindings.checkpointsOf(previous),
+          ProgressBindings.progressOf(previous));
     }
   }
 

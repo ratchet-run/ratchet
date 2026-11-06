@@ -195,6 +195,14 @@ try {
 
 ## Instance methods
 
+### progress
+
+```java
+public void progress(long done, long total)
+```
+
+Records progress for readers of `JobDetail.progress()`. See [Progress](#progress-1).
+
 ### jobId
 
 ```java
@@ -445,6 +453,28 @@ void importPages() {
     }
 }
 ```
+
+## Progress
+
+Call `ctx.progress(done, total)` as work advances. It records the latest value in
+memory, so it is cheap to call in a loop. Both values must be non-negative. Totals
+are estimates: `done` may exceed `total`. Readers should clamp values for display.
+
+Progress is observational and not transactional. A rollback does not undo a report.
+Ratchet writes at most once per configured interval, plus once before the job finishes
+or retries. Persistence is best effort. Cancellation or a crash can lose the last value.
+An idle node or a job that never reports makes no progress writes.
+
+Valid reports are silent no-ops in plain `bind()` contexts, lifecycle callbacks,
+`bindAttempt()` test contexts, stores without `JobStateStore`, and superseded attempts.
+Negative values still throw `IllegalArgumentException` in these contexts.
+
+Read `JobQueryService.getJobDetail(id).orElseThrow().progress()`. The nullable
+`JobProgress` record contains `done`, `total`, and `reportedAt`, the report time.
+Progress remains after completion and is not reset on retry. If `reportedAt` is
+before `JobDetail.executionStartTime()`, the value came from an earlier attempt.
+The default flush interval is 10000 ms. Set
+`ratchet.execution.progress-flush-interval-ms` to change it.
 
 ## Thread-local lifecycle
 
