@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -39,6 +40,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -310,6 +312,30 @@ class JobStateFlusherTest {
     scheduled.get(1).run();
     verify(writer, times(2)).flush();
     assertEquals(2, scheduled.size());
+  }
+
+  @Test
+  void rejectedScheduleIsRetriedByTheNextMarkOfAQueuedWriter() {
+    FlushableState writer = mock(FlushableState.class);
+    when(writer.flushIntervalMs()).thenReturn(1000L);
+    doThrow(new RejectedExecutionException("busy"))
+        .doAnswer(
+            call -> {
+              scheduled.add(call.getArgument(0));
+              return handle;
+            })
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    flusher.start(executor);
+    flusher.markDirty(writer);
+    assertTrue(scheduled.isEmpty());
+    flusher.markDirty(writer);
+    assertEquals(1, scheduled.size());
+    flusher.markDirty(writer);
+    verify(executor, times(2)).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    verify(writer).flush();
   }
 
   @Test
