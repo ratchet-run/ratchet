@@ -33,7 +33,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -336,6 +338,37 @@ class JobStateFlusherTest {
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     verify(writer).flush();
+  }
+
+  @Test
+  void dirtyProgressWriterRetriesARejectedScheduleOnTheNextReport() {
+    UUID id = UUID.randomUUID();
+    Instant start = Instant.parse("2026-11-06T12:00:00Z");
+    JobProgressWriter progress =
+        new JobProgressWriter(
+            id,
+            new JobAttemptControl(id, start.plusSeconds(30), 30, start, 0, 7L, "node"),
+            mock(JobStateStore.class),
+            new JsonbTestPayloadSerializer(),
+            flusher,
+            Clock.fixed(start, ZoneOffset.UTC));
+    doThrow(new RejectedExecutionException("busy"))
+        .doAnswer(
+            call -> {
+              scheduled.add(call.getArgument(0));
+              return handle;
+            })
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    flusher.start(executor);
+    progress.report(1, 10);
+    assertTrue(scheduled.isEmpty());
+    assertTrue(flusher.scheduleFailed());
+    progress.report(2, 10);
+    assertEquals(1, scheduled.size());
+    assertFalse(flusher.scheduleFailed());
+    progress.report(3, 10);
+    verify(executor, times(2)).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
   }
 
   @Test

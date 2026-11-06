@@ -85,6 +85,8 @@ public final class JobProgressWriter implements JobProgressSink, FlushableState 
     if (!dirty) {
       dirty = true;
       flusher.markDirty(this);
+    } else if (flusher.scheduleFailed()) {
+      flusher.markDirty(this);
     }
   }
 

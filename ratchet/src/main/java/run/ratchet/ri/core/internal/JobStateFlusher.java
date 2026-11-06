@@ -69,6 +69,11 @@ public class JobStateFlusher {
     return progressIntervalMs;
   }
 
+  /** True after the executor rejected a schedule, until a later schedule succeeds. */
+  boolean scheduleFailed() {
+    return scheduleFailed;
+  }
+
   public void markDirty(FlushableState writer) {
     long due = nanoTime.getAsLong() + TimeUnit.MILLISECONDS.toNanos(writer.flushIntervalMs());
     if (dirty.putIfAbsent(writer, due) == null || scheduleFailed) scheduleIfNeeded();
@@ -116,8 +121,10 @@ public class JobStateFlusher {
       scheduleFailed = false;
     } catch (RuntimeException failure) {
       handle = null;
+      // Warn once per outage: dirty progress writers retry on every report while it lasts.
+      if (scheduleFailed) log.debug("Could not schedule job state flush", failure);
+      else log.warn("Could not schedule job state flush", failure);
       scheduleFailed = true;
-      log.warn("Could not schedule job state flush", failure);
     }
   }
 
