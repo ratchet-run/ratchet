@@ -218,6 +218,15 @@ public interface JobSchedulerService {
    * <p><b>Transaction attribute:</b> {@code NOT_SUPPORTED}. Listener registration is an in-memory
    * operation and MUST NOT participate in a transaction.
    *
+   * <p>With ratchet.events.durable=true (environment variable RATCHET_EVENTS_DURABLE),
+   * JobCompletedEvent, JobFailedEvent, and JobDlqEvent are persisted with terminal state and
+   * delivered at least once. Delivery can be late and can come from another node after a crash;
+   * recovery latency is up to the orphan scan interval plus orphan grace. A local listener slower
+   * than the grace can overlap relay delivery. Deduplicate on getEventId(); it implies no ordering.
+   * Delivery counts as complete when publishing returns. Listeners must not throw and should hand
+   * slow or failing work to a job. Other events remain at most once. Durable mode requires
+   * EventOutboxStore, LockStore, and a scheduled executor; startup fails if any is missing.
+   *
    * @param listener a consumer that receives all scheduler events
    */
   void addEventListener(Consumer<Object> listener);

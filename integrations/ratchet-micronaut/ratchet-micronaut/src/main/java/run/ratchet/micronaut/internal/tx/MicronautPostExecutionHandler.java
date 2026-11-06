@@ -23,6 +23,7 @@ import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -46,7 +47,8 @@ public class MicronautPostExecutionHandler extends PostExecutionHandler {
       PollerScheduler pollerScheduler,
       JobTerminalStore jobTerminalStore,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchCompletionTransaction completionTransaction) {
+      BatchCompletionTransaction completionTransaction,
+      DurableTerminalEvents durableEvents) {
     super(
         batchService,
         workflowScheduler,
@@ -54,6 +56,7 @@ public class MicronautPostExecutionHandler extends PostExecutionHandler {
         pollerScheduler,
         jobTerminalStore,
         afterCommitRegistrar,
-        completionTransaction);
+        completionTransaction,
+        durableEvents);
   }
 }

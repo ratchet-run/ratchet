@@ -19,6 +19,7 @@ import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -36,6 +37,7 @@ import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
@@ -78,6 +80,7 @@ public class JobTimeoutHandler {
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
+  private final boolean durableEventsEnabled;
   // Runs onFailure after a terminal timeout commits: on the hard-timeout watchdog's thread, or on
   // the thread running the signal-timeout scan.
   private final LifecycleCallbackInvoker callbackInvoker;
@@ -92,6 +95,7 @@ public class JobTimeoutHandler {
   private final Set<UUID> watchdogCancelledJobIds = ConcurrentHashMap.newKeySet();
 
   protected JobTimeoutHandler() {
+    this.durableEventsEnabled = false;
     this.jobCrudStore = null;
     this.jobRetryStore = null;
     this.jobBatchStatusStore = null;
@@ -193,6 +197,47 @@ public class JobTimeoutHandler {
       ErrorSanitizer errorSanitizer,
       LifecycleCallbackInvoker callbackInvoker,
       long signalTimeoutLeaseTtlSeconds) {
+    this(
+        afterCommitRegistrar,
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        cancellationGraceSeconds,
+        singletonLeaseService,
+        errorSanitizer,
+        callbackInvoker,
+        signalTimeoutLeaseTtlSeconds,
+        false);
+  }
+
+  public JobTimeoutHandler(
+      AfterCommitRegistrar afterCommitRegistrar,
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      long cancellationGraceSeconds,
+      SingletonLeaseService singletonLeaseService,
+      ErrorSanitizer errorSanitizer,
+      LifecycleCallbackInvoker callbackInvoker,
+      long signalTimeoutLeaseTtlSeconds,
+      boolean durableEventsEnabled) {
+    this.durableEventsEnabled = durableEventsEnabled;
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -615,24 +660,28 @@ public class JobTimeoutHandler {
 
   private TerminalTimeoutTransition terminalSignalTimeoutTransition(
       JobEntity job, String errorMessage, int retryAttempt, Instant timestamp) {
-    if (eventPublisher == null) {
+    if (eventPublisher == null && !durableEventsEnabled) {
       return new TerminalTimeoutTransition(job, List.of());
     }
-    Duration configuredTimeout =
-        job.getCreatedAt() != null && job.getSignalTimeout() != null
-            ? Duration.between(job.getCreatedAt(), job.getSignalTimeout())
-            : null;
-    JobSignalTimedOutEvent event =
-        new JobSignalTimedOutEvent(
-            job.getId(),
-            job.getBusinessKey(),
-            job.getRecurringMasterId(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            timestamp,
-            job.getSignalKey(),
-            configuredTimeout);
+    List<AbstractJobSchedulerEvent> events = new ArrayList<>();
+    if (eventPublisher != null) {
+      Duration configuredTimeout =
+          job.getCreatedAt() != null && job.getSignalTimeout() != null
+              ? Duration.between(job.getCreatedAt(), job.getSignalTimeout())
+              : null;
+      JobSignalTimedOutEvent event =
+          new JobSignalTimedOutEvent(
+              job.getId(),
+              job.getBusinessKey(),
+              job.getRecurringMasterId(),
+              job.getPublicJobType(),
+              job.getPriority(),
+              job.getPickedBy(),
+              timestamp,
+              job.getSignalKey(),
+              configuredTimeout);
+      events.add(event);
+    }
     JobFailedEvent failedEvent =
         new JobFailedEvent(
             job.getId(),
@@ -644,7 +693,8 @@ public class JobTimeoutHandler {
             timestamp,
             errorMessage,
             retryAttempt);
-    return new TerminalTimeoutTransition(job, List.of(event, failedEvent));
+    events.add(failedEvent);
+    return new TerminalTimeoutTransition(job, events);
   }
 
   private void publishHardTimeoutRetryEvents(
@@ -681,12 +731,13 @@ public class JobTimeoutHandler {
 
   private TerminalTimeoutTransition terminalHardTimeoutTransition(
       JobEntity job, String errorMessage, int retryAttempt, long timeoutSec, Duration elapsedTime) {
-    if (eventPublisher == null) {
+    if (eventPublisher == null && !durableEventsEnabled) {
       return new TerminalTimeoutTransition(job, List.of());
     }
     Instant timestamp = effective().instant();
-    JobExecutionTimedOutEvent timedOutEvent =
-        executionTimedOutEvent(job, timestamp, timeoutSec, elapsedTime, retryAttempt);
+    List<AbstractJobSchedulerEvent> events = new ArrayList<>();
+    if (eventPublisher != null)
+      events.add(executionTimedOutEvent(job, timestamp, timeoutSec, elapsedTime, retryAttempt));
     JobFailedEvent failedEvent =
         new JobFailedEvent(
             job.getId(),
@@ -698,7 +749,8 @@ public class JobTimeoutHandler {
             timestamp,
             errorMessage,
             retryAttempt);
-    return new TerminalTimeoutTransition(job, List.of(timedOutEvent, failedEvent));
+    events.add(failedEvent);
+    return new TerminalTimeoutTransition(job, events);
   }
 
   private JobExecutionTimedOutEvent executionTimedOutEvent(

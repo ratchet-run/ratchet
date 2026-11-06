@@ -28,6 +28,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.JobTask;
@@ -37,6 +38,19 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.spi.JobStore;
 
 class RatchetEngineWiringTest {
+  @Test
+  void durableConfigurationAndSharedServiceAreWired() {
+    runner()
+        .withPropertyValues("ratchet.events.durable=true")
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              assertThat(context.getBean(RatchetOptions.class).events().durable()).isTrue();
+              assertThat(context.getBean(RatchetProperties.class).getEvents().isDurable()).isTrue();
+              assertThat(context).hasSingleBean(DurableTerminalEvents.class);
+            });
+  }
+
   @Test
   void schemaAutoMigrationDefaultsToTrueAndHonorsExplicitValues() {
     runner()

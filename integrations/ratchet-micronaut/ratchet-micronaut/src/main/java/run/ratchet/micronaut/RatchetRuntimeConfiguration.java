@@ -50,6 +50,7 @@ import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultDrainController;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
 import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -311,6 +312,7 @@ class RatchetRuntimeConfiguration {
       BatchRecoveryTimer batchRecovery,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetter,
+      DurableTerminalEvents durableEvents,
       JobArchivingService archiving,
       LogPurgeTimer logPurge,
       PollerWakeupListener wakeup,
@@ -335,6 +337,7 @@ class RatchetRuntimeConfiguration {
             batchRecovery,
             jobStateFlusher,
             deadLetter,
+            durableEvents,
             archiving,
             logPurge,
             wakeup,

@@ -37,6 +37,21 @@ import run.ratchet.api.internal.RatchetConfigKeys;
 import run.ratchet.spi.RatchetConfigSource;
 
 class RatchetOptionsFactoryTest {
+  @Test
+  void durableEventsDefaultOffAndMapBothSources() {
+    assertFalse(RatchetOptions.defaults().events().durable());
+    assertTrue(
+        optionsFrom(new MapRatchetConfigSource(Map.of("ratchet.events.durable", "true"), Map.of()))
+            .events()
+            .durable());
+    assertTrue(
+        optionsFrom(new MapRatchetConfigSource(Map.of(), Map.of("RATCHET_EVENTS_DURABLE", "true")))
+            .events()
+            .durable());
+    RatchetOptions enabled = RatchetOptions.builder().events(e -> e.durable(true)).build();
+    assertTrue(enabled.toBuilder().build().events().durable());
+    assertTrue(enabled.withCallerPrincipalResolver(Optional::empty).events().durable());
+  }
 
   @Test
   void checkpointFlushIntervalDefaultsBindsAndValidates() {

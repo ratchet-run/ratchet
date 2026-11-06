@@ -55,6 +55,7 @@ public class RatchetOptions {
   private final StoreOptions store;
   private final CircuitBreakerOptions circuitBreaker;
   private final EncryptionOptions encryption;
+  private final EventOptions events;
   private final CallerPrincipalResolver callerPrincipalResolver;
 
   /**
@@ -77,6 +78,7 @@ public class RatchetOptions {
     this.store = null;
     this.circuitBreaker = null;
     this.encryption = null;
+    this.events = null;
     this.callerPrincipalResolver = null;
   }
 
@@ -108,7 +110,8 @@ public class RatchetOptions {
         store,
         circuitBreaker,
         encryption,
-        /* callerPrincipalResolver */ null);
+        /* callerPrincipalResolver */ null,
+        new EventOptions(false));
   }
 
   private RatchetOptions(
@@ -125,7 +128,8 @@ public class RatchetOptions {
       StoreOptions store,
       CircuitBreakerOptions circuitBreaker,
       EncryptionOptions encryption,
-      CallerPrincipalResolver callerPrincipalResolver) {
+      CallerPrincipalResolver callerPrincipalResolver,
+      EventOptions events) {
     this.polling = Objects.requireNonNull(polling, "polling must not be null");
     this.execution = Objects.requireNonNull(execution, "execution must not be null");
     this.node = Objects.requireNonNull(node, "node must not be null");
@@ -139,6 +143,7 @@ public class RatchetOptions {
     this.store = Objects.requireNonNull(store, "store must not be null");
     this.circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
     this.encryption = Objects.requireNonNull(encryption, "encryption must not be null");
+    this.events = Objects.requireNonNull(events, "events");
     this.callerPrincipalResolver = callerPrincipalResolver;
   }
 
@@ -257,6 +262,7 @@ public class RatchetOptions {
               profile.minimumCalls()));
     }
 
+    builder.events.durable = events.durable();
     builder.encryption.enabled = encryption.enabled();
     builder.encryption.writeAlgorithm = encryption.writeAlgorithm();
     builder.callerPrincipalResolver = callerPrincipalResolver;
@@ -472,7 +478,8 @@ public class RatchetOptions {
         store,
         circuitBreaker,
         encryption,
-        resolver);
+        resolver,
+        events);
   }
 
   public enum IsolationCheckMode {
@@ -888,7 +895,33 @@ public class RatchetOptions {
   @Incubating
   public record EncryptionOptions(boolean enabled, String writeAlgorithm) {}
 
+  public record EventOptions(boolean durable) {}
+
+  public EventOptions events() {
+    return events;
+  }
+
+  public static final class EventBuilder {
+    private boolean durable;
+
+    public EventBuilder durable(boolean value) {
+      durable = value;
+      return this;
+    }
+
+    private EventOptions build() {
+      return new EventOptions(durable);
+    }
+  }
+
   public static final class Builder {
+    private final EventBuilder events = new EventBuilder();
+
+    public Builder events(Consumer<EventBuilder> customizer) {
+      customizer.accept(events);
+      return this;
+    }
+
     private final PollingBuilder polling = new PollingBuilder();
     private final ExecutionBuilder execution = new ExecutionBuilder();
     private final NodeBuilder node = new NodeBuilder();
@@ -1002,7 +1035,8 @@ public class RatchetOptions {
           store.build(),
           circuitBreaker.build(),
           encryption.build(),
-          callerPrincipalResolver);
+          callerPrincipalResolver,
+          events.build());
     }
   }
 

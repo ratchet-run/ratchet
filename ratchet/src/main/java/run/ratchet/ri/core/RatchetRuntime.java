@@ -25,11 +25,13 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RatchetLifecycle;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
@@ -52,6 +54,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
   private final BatchRecoveryTimer batchRecoveryTimer;
   private final JobStateFlusher jobStateFlusher;
   private final DeadLetterService deadLetterService;
+  private final DurableTerminalEvents durable;
   private final JobArchivingService jobArchivingService;
   private final LogPurgeTimer logPurgeTimer;
   private final PollerWakeupListener pollerWakeupListener;
@@ -81,6 +84,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       BatchRecoveryTimer batchRecoveryTimer,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetterService,
+      @Nullable DurableTerminalEvents durable,
       JobArchivingService jobArchivingService,
       LogPurgeTimer logPurgeTimer,
       PollerWakeupListener pollerWakeupListener,
@@ -99,6 +103,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     this.batchRecoveryTimer = batchRecoveryTimer;
     this.jobStateFlusher = jobStateFlusher;
     this.deadLetterService = deadLetterService;
+    this.durable = durable;
     this.jobArchivingService = jobArchivingService;
     this.logPurgeTimer = logPurgeTimer;
     this.pollerWakeupListener = pollerWakeupListener;
@@ -130,6 +135,20 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     if (started) {
       return;
     }
+    ScheduledExecutorService durableExecutor = null;
+    if (options.events().durable()) {
+      if (durable == null)
+        throw new IllegalStateException(
+            "Durable events require EventOutboxStore and LockStore wiring");
+      durable.validate();
+      try {
+        durableExecutor = executorProvider.getScheduledExecutor();
+      } catch (RuntimeException failure) {
+        throw new IllegalStateException("Durable events require a scheduled executor", failure);
+      }
+      if (durableExecutor == null)
+        throw new IllegalStateException("Durable events require a scheduled executor");
+    }
     started = true;
     try {
       ClassLoader loader = Thread.currentThread().getContextClassLoader();
@@ -150,12 +169,14 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       // while cluster peers continue sweeping on their normal orphan-recovery intervals.
       initializeDefaultNodeIdentityProvider();
 
-      ScheduledExecutorService scheduledExecutor = resolveScheduledExecutorForStartup();
+      ScheduledExecutorService scheduledExecutor =
+          options.events().durable() ? durableExecutor : resolveScheduledExecutorForStartup();
       if (scheduledExecutor != null) {
         recurringScheduler.configure(
             options.recurring().pollMs(),
             options.recurring().maxPollMs(),
             options.recurring().batchLimit());
+        if (options.events().durable()) durable.start(scheduledExecutor);
         poller.init();
         recurringScheduler.init();
 
@@ -255,6 +276,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     stopService(
         "job execution coordinator", () -> jobExecutionCoordinator.shutdown(shutdownTimeout));
     stopService("checkpoint flusher", jobStateFlusher::stop);
+    if (durable != null) stopService("durable terminal events", durable::stop);
     // Heartbeat until the claims are released. A draining node that stops heartbeating looks dead,
     // and another node's orphan scan would take its running jobs and charge them a crash.
     if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {

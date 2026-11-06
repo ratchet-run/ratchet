@@ -156,6 +156,7 @@ class RatchetOptionsTest {
         Set.of(
             "circuitBreaker",
             "encryption",
+            "events",
             "execution",
             "maintenance",
             "node",
@@ -456,6 +457,7 @@ class RatchetOptionsTest {
                                     .permittedCallsInHalfOpen(4)
                                     .minimumCalls(6)))
             .encryption(encryption -> encryption.enabled(true).writeAlgorithm("AES/GCM/NoPadding"))
+            .events(events -> events.durable(true))
             .callerPrincipalResolver(resolver)
             .build();
 
@@ -474,6 +476,7 @@ class RatchetOptionsTest {
     assertEquals(original.store(), roundTripped.store());
     assertEquals(original.circuitBreaker(), roundTripped.circuitBreaker());
     assertEquals(original.encryption(), roundTripped.encryption());
+    assertEquals(original.events(), roundTripped.events());
     assertSame(original.callerPrincipalResolver(), roundTripped.callerPrincipalResolver());
   }
 
