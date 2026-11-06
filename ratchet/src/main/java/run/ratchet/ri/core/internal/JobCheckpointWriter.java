@@ -38,6 +38,8 @@ public final class JobCheckpointWriter implements JobCheckpoints {
   private final AfterCommitRegistrar registrar;
   private final PayloadSerializer serializer;
   private final CheckpointFlusher flusher;
+  // Store calls and knownVersion use ioLock; local state uses this monitor.
+  private final Object ioLock = new Object();
   private long localSeq;
   private long durableSeq;
   private @Nullable Pending pending;
@@ -67,23 +69,31 @@ public final class JobCheckpointWriter implements JobCheckpoints {
   }
 
   @Override
-  public synchronized void write(String value) {
+  public void write(String value) {
     requireStore();
     if (attempt.isSuperseded()) throw superseded();
     String json = serializer.serialize(Map.of("value", value), ExtensionValidation.MAX_STATE_BYTES);
-    long seq = ++localSeq;
+    long seq;
+    synchronized (this) {
+      seq = ++localSeq;
+    }
     switch (registrar.registerAfterCommit(
         ExecutorClassLoader.preserveContext(() -> onCommit(seq, value, json)))) {
       case NO_ACTIVE_TRANSACTION -> {
-        if (fencedWrite(json) == StateWriteResult.SUPERSEDED) {
-          attempt.markSuperseded();
-          throw superseded();
+        synchronized (ioLock) {
+          synchronized (this) {
+            if (seq <= durableSeq) return;
+          }
+          if (fencedWrite(json) == StateWriteResult.SUPERSEDED) {
+            synchronized (this) {
+              supersede();
+            }
+            throw superseded();
+          }
+          synchronized (this) {
+            recordDurable(new Pending(seq, value, json));
+          }
         }
-        durableSeq = seq;
-        durableValue = value;
-        cache = value;
-        loaded = true;
-        if (pending != null && pending.seq() <= seq) pending = null;
       }
       case REGISTERED -> {}
       case ROLLBACK_ONLY -> log.debugf("Checkpoint dropped for rollback-only job %s", jobId);
@@ -106,11 +116,17 @@ public final class JobCheckpointWriter implements JobCheckpoints {
   }
 
   @Override
-  public synchronized Optional<String> read() {
+  public Optional<String> read() {
     JobStateStore store = requireStore();
-    if (cache != null) return Optional.of(cache);
-    if (!loaded) {
+    synchronized (this) {
+      if (cache != null || loaded) return Optional.ofNullable(cache);
+    }
+    synchronized (ioLock) {
+      synchronized (this) {
+        if (cache != null || loaded) return Optional.ofNullable(cache);
+      }
       var state = store.getState(jobId, NAMESPACE);
+      String storedValue = null;
       if (state.isPresent()) {
         knownVersion = state.get().version();
         Map<?, ?> decoded = serializer.deserialize(state.get().json(), Map.class);
@@ -118,28 +134,51 @@ public final class JobCheckpointWriter implements JobCheckpoints {
         if (!(value instanceof String text)) {
           throw new IllegalStateException("Invalid checkpoint for job " + jobId);
         }
-        cache = text;
-        durableValue = text;
+        storedValue = text;
       }
-      loaded = true;
+      synchronized (this) {
+        durableValue = storedValue;
+        if (cache == null) cache = storedValue;
+        loaded = true;
+        return Optional.ofNullable(cache);
+      }
     }
-    return Optional.ofNullable(cache);
   }
 
-  public synchronized void flush() {
-    if (closed || pending == null || pending.seq() <= durableSeq) return;
-    Pending next = pending;
-    if (fencedWrite(next.json()) == StateWriteResult.SUPERSEDED) {
-      attempt.markSuperseded();
-      pending = null;
-      cache = durableValue;
-      loaded = true;
-      close();
-      return;
+  public void flush() {
+    synchronized (ioLock) {
+      Pending next;
+      synchronized (this) {
+        if (pending == null || pending.seq() <= durableSeq) return;
+        next = pending;
+      }
+      StateWriteResult result = fencedWrite(next.json());
+      synchronized (this) {
+        if (result == StateWriteResult.SUPERSEDED) {
+          supersede();
+        } else {
+          recordDurable(next);
+        }
+      }
     }
-    durableSeq = next.seq();
-    durableValue = next.value();
-    if (pending == next) pending = null;
+  }
+
+  // Called with the state monitor held, after the store call has finished.
+  private void recordDurable(Pending next) {
+    if (next.seq() > durableSeq) {
+      durableSeq = next.seq();
+      durableValue = next.value();
+    }
+    if (pending != null && pending.seq() <= durableSeq) pending = null;
+    cache = pending == null ? durableValue : pending.value();
+    loaded = true;
+  }
+
+  private void supersede() {
+    attempt.markSuperseded();
+    pending = null;
+    cache = durableValue;
+    close();
   }
 
   private StateWriteResult fencedWrite(String json) {

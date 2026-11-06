@@ -278,6 +278,7 @@ public class JobTask implements Callable<Void> {
               afterCommitRegistrar,
               payloadSerializer,
               checkpointFlusher);
+      attempt.attachCheckpointFlush(checkpointWriter::flush);
     }
     JobMdcContext.bindJobContext(
         jobId,

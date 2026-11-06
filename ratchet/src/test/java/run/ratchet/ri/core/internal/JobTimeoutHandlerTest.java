@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -238,6 +239,46 @@ class JobTimeoutHandlerTest {
     verify(future, never()).cancel(anyBoolean());
     Mockito.verifyNoInteractions(jobCrudStore, jobRetryStore, jobBatchStatusStore, lifecycleFacade);
     assertFalse(attempt.handBackTimeoutToWatchdog());
+  }
+
+  @Test
+  void watchdogFlushesAfterClaimAndInterruptBeforeTransition() throws Exception {
+    assertWatchdogFlush(false);
+  }
+
+  @Test
+  void throwingCheckpointHookDoesNotStopTimeoutTransition() throws Exception {
+    assertWatchdogFlush(true);
+  }
+
+  private void assertWatchdogFlush(boolean throwing) throws Exception {
+    JobEntity job = jobWithMaxRetries(3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
+        .thenReturn(true);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
+    Runnable hook = mock(Runnable.class);
+    doAnswer(
+            call -> {
+              assertTrue(attempt.isSuperseded());
+              assertFalse(attempt.claimTimeoutForWorker());
+              if (throwing) throw new AssertionError("checkpoint store failed");
+              return null;
+            })
+        .when(hook)
+        .run();
+    attempt.attachCheckpointFlush(hook);
+    Future<?> future = mock(Future.class);
+    invokeHardTimeout(attempt, future);
+    var order = inOrder(future, hook, jobCrudStore, jobRetryStore);
+    order.verify(future).cancel(true);
+    order.verify(hook).run();
+    order.verify(jobCrudStore).findById(JOB_ID);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
+    order
+        .verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L));
   }
 
   private void invokeHardTimeout(JobAttemptControl attempt, Future<?> future) throws Exception {

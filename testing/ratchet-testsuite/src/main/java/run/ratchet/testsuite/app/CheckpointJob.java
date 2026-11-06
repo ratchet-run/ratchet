@@ -60,6 +60,26 @@ public class CheckpointJob {
     observations.add(ctx.lastCheckpoint());
   }
 
+  public static void live() throws InterruptedException {
+    JobContext ctx = JobContext.current();
+    CDI.current().select(CheckpointTransactions.class).get().run(() -> ctx.checkpoint("live"));
+    written.countDown();
+    if (!release.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Job not released");
+  }
+
+  public static void hardTimeout() throws InterruptedException {
+    JobContext ctx = JobContext.current();
+    var observations = OBSERVED.computeIfAbsent(ctx.jobId(), id -> new CopyOnWriteArrayList<>());
+    if (observations.isEmpty()) {
+      CDI.current().select(CheckpointTransactions.class).get().run(() -> ctx.checkpoint("page-7"));
+      observations.add(Optional.empty());
+      // Do not check cancellation: only the hard watchdog interrupt ends this attempt.
+      Thread.sleep(TimeUnit.MINUTES.toMillis(1));
+      throw new IllegalStateException("Hard watchdog did not interrupt the first attempt");
+    }
+    observations.add(ctx.lastCheckpoint());
+  }
+
   public static void immediate() throws InterruptedException {
     JobContext.current().checkpoint("now");
     written.countDown();

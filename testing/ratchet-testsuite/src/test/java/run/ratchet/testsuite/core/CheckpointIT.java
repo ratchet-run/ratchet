@@ -15,6 +15,7 @@
  */
 package run.ratchet.testsuite.core;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobStatus;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
@@ -98,6 +100,35 @@ class CheckpointIT extends BaseRatchetIT {
     try {
       assertTrue(CheckpointJob.written.await(20, TimeUnit.SECONDS));
       assertStored(handle.id(), "now");
+    } finally {
+      CheckpointJob.release.countDown();
+    }
+    JobAssertions.assertJobCompleted(store, handle);
+  }
+
+  @Test
+  void flusherWritesWhileJobIsStillRunning() throws InterruptedException {
+    JobHandle handle = jobs.enqueue(CheckpointJob::live).submit();
+    try {
+      assertTrue(CheckpointJob.written.await(20, TimeUnit.SECONDS));
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .untilAsserted(
+              () -> {
+                var state =
+                    store
+                        .capability(JobStateStore.class)
+                        .orElseThrow()
+                        .getState(handle.id(), "ratchet.checkpoint");
+                assertTrue(
+                    state.isPresent(), "Background flusher has not saved the checkpoint yet");
+                assertEquals(
+                    "live",
+                    serializer.deserialize(state.orElseThrow().json(), Map.class).get("value"));
+                assertEquals(
+                    JobStatus.RUNNING, store.findById(handle.id()).orElseThrow().getStatus());
+                assertEquals(1L, CheckpointJob.release.getCount());
+              });
     } finally {
       CheckpointJob.release.countDown();
     }
