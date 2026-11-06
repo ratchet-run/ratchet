@@ -236,6 +236,14 @@ class JobTaskTest {
                 any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
       order.verify(checkpointFlusher).remove(writer.getValue());
       Assertions.assertFalse(writer.getValue().hasUnflushed());
+      if (interrupted) {
+        // The worker has already closed the writer; the watchdog must still flush its pending
+        // value.
+        Thread.interrupted();
+        attempt.flushCheckpointsQuietly();
+        verify(stateStore)
+            .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+      }
     } finally {
       Thread.interrupted();
     }

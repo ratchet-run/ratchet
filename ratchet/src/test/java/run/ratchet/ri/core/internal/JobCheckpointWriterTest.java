@@ -43,6 +43,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -280,6 +283,103 @@ class JobCheckpointWriterTest {
         IllegalArgumentException.class,
         () -> writer.write("x".repeat(ExtensionValidation.MAX_STATE_BYTES)));
     verifyNoInteractions(registrar);
+  }
+
+  @Test
+  void commitDoesNotWaitForBlockedStoreAndNewerValueWins() throws Exception {
+    registered();
+    writer.write("old");
+    commits.get(0).run();
+    writer.write("new");
+    Runnable commit = commits.get(1);
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    when(store.initState(id, JobCheckpointWriter.NAMESPACE, "old", 7L))
+        .thenAnswer(
+            call -> {
+              entered.countDown();
+              assertTrue(release.await(5, TimeUnit.SECONDS));
+              return StateWriteResult.UPDATED;
+            });
+    var executor = Executors.newFixedThreadPool(2);
+    try {
+      var flush = executor.submit(writer::flush);
+      assertTrue(entered.await(5, TimeUnit.SECONDS));
+      executor.submit(commit).get(1, TimeUnit.SECONDS);
+      release.countDown();
+      flush.get(5, TimeUnit.SECONDS);
+      assertEquals(Optional.of("new"), writer.read());
+      writer.flush();
+      assertEquals(Optional.of("new"), writer.read());
+      verify(store).updateState(id, JobCheckpointWriter.NAMESPACE, "new", 0, 7L);
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void explicitFlushAfterCloseWritesPendingValue() {
+    registered();
+    writer.write("pending");
+    commits.get(0).run();
+    writer.close();
+    writer.flush();
+    verify(store).initState(id, JobCheckpointWriter.NAMESPACE, "pending", 7L);
+  }
+
+  @Test
+  void supersededWithoutDurableValueLoadsPreviousAttemptOnNextRead() {
+    registered();
+    writer.write("pending");
+    commits.get(0).run();
+    when(store.initState(id, JobCheckpointWriter.NAMESPACE, "pending", 7L))
+        .thenReturn(StateWriteResult.SUPERSEDED);
+    writer.flush();
+    when(store.getState(id, JobCheckpointWriter.NAMESPACE))
+        .thenReturn(Optional.of(new VersionedState("previous-json", 3)));
+    when(serializer.deserialize("previous-json", Map.class))
+        .thenReturn(Map.of("value", "previous"));
+    assertEquals(Optional.of("previous"), writer.read());
+    verify(store, times(2)).getState(id, JobCheckpointWriter.NAMESPACE);
+  }
+
+  @Test
+  void olderSynchronousWriteDelayedAtRegistrationCannotOverwriteNewerDurableValue()
+      throws Exception {
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    doAnswer(
+            call -> {
+              if (Thread.currentThread().getName().equals("older-checkpoint")) {
+                entered.countDown();
+                assertTrue(release.await(5, TimeUnit.SECONDS));
+              }
+              return Result.NO_ACTIVE_TRANSACTION;
+            })
+        .when(registrar)
+        .registerAfterCommit(any());
+    var executor = Executors.newSingleThreadExecutor(r -> new Thread(r, "older-checkpoint"));
+    try {
+      var older = executor.submit(() -> writer.write("older"));
+      assertTrue(entered.await(5, TimeUnit.SECONDS));
+      writer.write("newer");
+      release.countDown();
+      older.get(5, TimeUnit.SECONDS);
+      registered();
+      writer.write("rejected");
+      commits.get(0).run();
+      when(store.updateState(id, JobCheckpointWriter.NAMESPACE, "rejected", 0, 7L))
+          .thenReturn(StateWriteResult.SUPERSEDED);
+      writer.flush();
+      assertEquals(Optional.of("newer"), writer.read());
+      verify(store, never()).initState(id, JobCheckpointWriter.NAMESPACE, "older", 7L);
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   private void registered() {

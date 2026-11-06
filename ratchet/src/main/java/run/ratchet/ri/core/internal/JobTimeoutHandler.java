@@ -791,6 +791,7 @@ public class JobTimeoutHandler {
     watchdogCancelledJobIds.add(jobId);
 
     future.cancel(true);
+    attempt.flushCheckpointsQuietly();
 
     try {
       processHardTimeout(

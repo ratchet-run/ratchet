@@ -32,6 +32,7 @@ public class CheckpointFlusher {
   private static final Logger log = Logger.getLogger(CheckpointFlusher.class);
   private final Set<JobCheckpointWriter> dirty = ConcurrentHashMap.newKeySet();
   private final long intervalMs;
+  private final Object drainLock = new Object();
   // The scheduling monitor never encloses writer calls: writers call markDirty under their lock.
   private ScheduledExecutorService executor;
   private ScheduledFuture<?> handle;
@@ -80,7 +81,9 @@ public class CheckpointFlusher {
 
   void flushDirty() {
     try {
-      drain(true);
+      synchronized (drainLock) {
+        drain(true);
+      }
     } catch (Throwable failure) {
       log.warn("Checkpoint flush failed", failure);
     } finally {
@@ -93,7 +96,9 @@ public class CheckpointFlusher {
   }
 
   public void flushAll() {
-    drain(false);
+    synchronized (drainLock) {
+      drain(false);
+    }
   }
 
   private void drain(boolean bounded) {

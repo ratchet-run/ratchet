@@ -408,8 +408,9 @@ latest committed value. With no transaction, Ratchet saves it before the call re
 A transaction around the whole job cannot save intermediate positions before it commits.
 
 `ratchet.execution.checkpoint-flush-interval-ms` defaults to `1000` milliseconds.
-Ratchet also tries to flush before the attempt ends. A hard watchdog interrupt can lose
-up to one interval of checkpoints. A cooperative stop usually keeps the last committed
+Ratchet also tries to flush before the attempt ends. On a hard timeout, the watchdog saves the last
+committed checkpoint before it retries or fails the job. A transaction that commits
+after the interrupt can still lose its checkpoint. A cooperative stop usually keeps the last committed
 value. Make repeated work safe in either case.
 
 Values must fit within 1 MiB, including JSON framing. Store keys and positions, rather

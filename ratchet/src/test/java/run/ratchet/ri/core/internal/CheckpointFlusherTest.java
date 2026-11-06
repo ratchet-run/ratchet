@@ -17,6 +17,7 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -34,9 +35,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
@@ -185,6 +189,46 @@ class CheckpointFlusherTest {
     assertFalse(fixture.writer().hasUnflushed());
     assertEquals(Optional.of("newer"), fixture.writer().read());
     assertEquals(2, scheduled.size());
+  }
+
+  @Test
+  void shutdownWaitsForScheduledDrainAndThenDrainsNewWriters() throws Exception {
+    WriterFixture first = writer();
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch shutdownStarted = new CountDownLatch(1);
+    when(first.store().initState(eq(first.writer().jobId()), anyString(), anyString(), eq(7L)))
+        .thenAnswer(
+            call -> {
+              entered.countDown();
+              assertTrue(release.await(5, TimeUnit.SECONDS));
+              return StateWriteResult.UPDATED;
+            });
+    flusher.start(executor);
+    var threads = Executors.newFixedThreadPool(2);
+    try {
+      var scheduledDrain = threads.submit(scheduled.get(0));
+      assertTrue(entered.await(5, TimeUnit.SECONDS));
+      WriterFixture second = writer();
+      var shutdown =
+          threads.submit(
+              () -> {
+                shutdownStarted.countDown();
+                flusher.flushAll();
+              });
+      assertTrue(shutdownStarted.await(5, TimeUnit.SECONDS));
+      assertThrows(TimeoutException.class, () -> shutdown.get(200, TimeUnit.MILLISECONDS));
+      release.countDown();
+      scheduledDrain.get(5, TimeUnit.SECONDS);
+      shutdown.get(5, TimeUnit.SECONDS);
+      verifyWritten(first);
+      verifyWritten(second);
+      assertFalse(second.writer().hasUnflushed());
+    } finally {
+      release.countDown();
+      threads.shutdownNow();
+      assertTrue(threads.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   private void verifyWritten(WriterFixture fixture) {
