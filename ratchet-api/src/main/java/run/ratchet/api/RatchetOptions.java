@@ -204,6 +204,7 @@ public class RatchetOptions {
     builder.recurring.convergenceWindowSeconds = recurring.convergenceWindowSeconds();
     builder.recurring.leaseTtlSeconds = recurring.leaseTtlSeconds();
 
+    builder.execution.checkpointFlushIntervalMs = execution.checkpointFlushIntervalMs();
     builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
 
     builder.timeout.softTimeoutPercent = timeout.softTimeoutPercent();
@@ -552,6 +553,8 @@ public class RatchetOptions {
    *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
    * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
    *     virtual pool instead of the default semaphore bound
+   * @param checkpointFlushIntervalMs positive delay in milliseconds before flushing committed
+   *     checkpoints
    */
   public record ExecutionOptions(
       ThreadingMode defaultThreadingMode,
@@ -563,7 +566,8 @@ public class RatchetOptions {
       String scheduledExecutorJndi,
       String coordinatorThreadFactoryJndi,
       String virtualExecutorJndi,
-      boolean virtualCounterAccounting) {
+      boolean virtualCounterAccounting,
+      long checkpointFlushIntervalMs) {
 
     public ExecutionOptions(
         ThreadingMode defaultThreadingMode,
@@ -585,10 +589,12 @@ public class RatchetOptions {
           scheduledExecutorJndi,
           DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI,
           virtualExecutorJndi,
-          virtualCounterAccounting);
+          virtualCounterAccounting,
+          1000L);
     }
 
     public ExecutionOptions {
+      atLeast("checkpointFlushIntervalMs", checkpointFlushIntervalMs, 1L);
       maxConcurrency = Map.copyOf(maxConcurrency);
       virtualThreadLimits = Map.copyOf(virtualThreadLimits);
       rateLimitsPerMinute = Map.copyOf(rateLimitsPerMinute);
@@ -1067,8 +1073,15 @@ public class RatchetOptions {
     private String coordinatorThreadFactoryJndi = DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI;
     private String virtualExecutorJndi;
     private boolean virtualCounterAccounting;
+    private long checkpointFlushIntervalMs = 1000L;
 
     private ExecutionBuilder() {}
+
+    /** Sets the delay before flushing committed checkpoints; defaults to 1000 ms. */
+    public ExecutionBuilder checkpointFlushIntervalMs(long intervalMs) {
+      checkpointFlushIntervalMs = atLeast("checkpointFlushIntervalMs", intervalMs, 1L);
+      return this;
+    }
 
     /**
      * Sets the pool a job runs on when it specifies no target of its own. Defaults to {@link
@@ -1172,7 +1185,8 @@ public class RatchetOptions {
           scheduledExecutorJndi,
           coordinatorThreadFactoryJndi,
           virtualExecutorJndi,
-          virtualCounterAccounting);
+          virtualCounterAccounting,
+          checkpointFlushIntervalMs);
     }
   }
 

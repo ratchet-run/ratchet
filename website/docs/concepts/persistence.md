@@ -373,3 +373,11 @@ Combined with `FOR UPDATE SKIP LOCKED` in SQL stores or atomic document claiming
 - [Execution Model](./execution-model.md) -- How job claiming works
 - [Clustering](./clustering.md) -- Multi-node persistence considerations
 - [Job Lifecycle](./job-lifecycle.md) -- State transitions stored in the database
+
+## Checkpoint state
+
+Ratchet stores each job's checkpoint in the `ratchet.checkpoint` job-state namespace.
+The JSON contains a `value` string. Payload encryption also protects this state at rest.
+Namespaces starting with `ratchet.` are reserved for Ratchet. Use another prefix for
+application state. See [Checkpoints](../api-reference/job-context.md#checkpoints) for
+transaction and retry behavior.

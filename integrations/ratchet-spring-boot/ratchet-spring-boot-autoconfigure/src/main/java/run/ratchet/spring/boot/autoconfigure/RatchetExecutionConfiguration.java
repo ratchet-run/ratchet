@@ -37,6 +37,7 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DefaultPollerScheduler;
@@ -253,9 +254,14 @@ class RatchetExecutionConfiguration {
       JobSubmissionService jobSubmissionService,
       JobStateManager jobStateManager,
       RetryBufferDrainer retryBufferDrainer,
-      JobExecutorService jobExecutorService) {
+      JobExecutorService jobExecutorService,
+      CheckpointFlusher checkpointFlusher) {
     return new JobExecutionCoordinator(
-        jobSubmissionService, jobStateManager, retryBufferDrainer, jobExecutorService);
+        jobSubmissionService,
+        jobStateManager,
+        retryBufferDrainer,
+        jobExecutorService,
+        checkpointFlusher);
   }
 
   @Bean(destroyMethod = "")
@@ -310,6 +316,8 @@ class RatchetExecutionConfiguration {
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
+      AfterCommitRegistrar afterCommitRegistrar,
+      CheckpointFlusher checkpointFlusher,
       Clock clock) {
     return new DefaultJobExecutorService(
         argResolver.getIfAvailable(),
@@ -332,6 +340,8 @@ class RatchetExecutionConfiguration {
         resultPersistenceStrategy,
         authorizationPolicy,
         payloadSerializer,
+        afterCommitRegistrar,
+        checkpointFlusher,
         clock);
   }
 

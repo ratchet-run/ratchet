@@ -31,6 +31,7 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
@@ -125,6 +126,7 @@ class DefaultRatchetLifecycleDeferredStartTest {
         recurringScheduler,
         mock(OrphanRecoveryTimer.class),
         mock(BatchRecoveryTimer.class),
+        mock(CheckpointFlusher.class),
         mock(DeadLetterService.class),
         mock(JobArchivingService.class),
         mock(LogPurgeTimer.class),
