@@ -84,7 +84,7 @@ class MysqlJobDeleteOperationsTest {
                                       row[1],
                                       row[2],
                                       row[3],
-                                      sql.contains("FOR SHARE ) AS owner_live")
+                                      sql.contains("LOCK IN SHARE MODE ) AS owner_live")
                                               && row[3] != null
                                               && liveOwners.stream()
                                                   .anyMatch(
@@ -113,7 +113,7 @@ class MysqlJobDeleteOperationsTest {
     assertEquals(1, statements.size());
     assertTrue(statements.get(0).sql().startsWith("SELECT job_id FROM"));
     assertFalse(statements.get(0).sql().contains("FOR UPDATE"));
-    assertFalse(statements.get(0).sql().contains("FOR SHARE"));
+    assertFalse(statements.get(0).sql().contains("SHARE MODE"));
     assertTrue(statements.get(0).sql().endsWith("ORDER BY job_id"));
     verify(em, never()).clear();
   }
@@ -134,7 +134,7 @@ class MysqlJobDeleteOperationsTest {
     assertTrue(lock.contains("picked_by IS NULL OR picked_by NOT IN"));
     assertTrue(lock.endsWith("ORDER BY job_id FOR UPDATE"));
     assertTrue(lock.contains("n.node_id = scheduler_job_queue.picked_by"));
-    assertTrue(lock.contains("FOR SHARE ) AS owner_live"));
+    assertTrue(lock.contains("LOCK IN SHARE MODE ) AS owner_live"));
     verify(statements.get(1).query()).setParameter(1, Timestamp.from(cutoff));
     verify(statements.get(1).query())
         .setParameter(2, UuidByteArrayConverter.toBytes(new UUID(0, 1)));
@@ -165,7 +165,7 @@ class MysqlJobDeleteOperationsTest {
     var result = operations(6).resetOrphanJobsForNode("dead", 1, 1);
     String lock = statements.get(1).sql();
     assertTrue(lock.contains("0 AS owner_live"));
-    assertFalse(lock.contains("FOR SHARE"));
+    assertFalse(lock.contains("SHARE MODE"));
     verify(statements.get(1).query())
         .setParameter(1, UuidByteArrayConverter.toBytes(new UUID(0, 1)));
     assertEquals(3, result.reset());

@@ -258,7 +258,8 @@ final class MysqlJobDeleteOperations {
       // locks until commit: chunking only bounds statement size.
       // On periodic scans the lock statement also returns each owner's heartbeat status through a
       // locking subquery keyed by primary key. It sees heartbeats committed since the snapshot,
-      // compares ids with the column collation, and locks only the owners' node rows.
+      // compares ids with the column collation, and locks only the owners' node rows. It uses LOCK
+      // IN SHARE MODE because MariaDB rejects FOR SHARE.
       Query candidates =
           ctx.em()
               .createNativeQuery(
@@ -284,7 +285,7 @@ final class MysqlJobDeleteOperations {
                   EXISTS (
                     SELECT 1 FROM scheduler_node n FORCE INDEX (PRIMARY)
                     WHERE n.node_id = scheduler_job_queue.picked_by AND n.heartbeat_ts >= ?
-                    FOR SHARE
+                    LOCK IN SHARE MODE
                   ) AS owner_live
                   """
                 : "0 AS owner_live";
