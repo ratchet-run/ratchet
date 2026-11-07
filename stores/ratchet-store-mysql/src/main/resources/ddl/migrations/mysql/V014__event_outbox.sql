@@ -31,5 +31,15 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
     PRIMARY KEY (event_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX idx_event_outbox_created
-    ON scheduler_event_outbox (created_at, event_id);
+-- MySQL 8.0 lacks CREATE INDEX IF NOT EXISTS, so guard through metadata.
+SET @ratchet_event_outbox_index_ddl =
+    (SELECT IF(COUNT(*) = 0,
+               'CREATE INDEX idx_event_outbox_created ON scheduler_event_outbox (created_at, event_id)',
+               'SELECT 1')
+       FROM information_schema.statistics
+      WHERE table_schema = DATABASE()
+        AND table_name = 'scheduler_event_outbox'
+        AND index_name = 'idx_event_outbox_created');
+PREPARE ratchet_event_outbox_index_statement FROM @ratchet_event_outbox_index_ddl;
+EXECUTE ratchet_event_outbox_index_statement;
+DEALLOCATE PREPARE ratchet_event_outbox_index_statement;
