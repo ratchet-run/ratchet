@@ -26,6 +26,24 @@ public class RatchetProperties {
   /** Enables migrations, recurring discovery, and the scheduler runtime. */
   private boolean enabled = true;
 
+  private final Events events = new Events();
+
+  public Events getEvents() {
+    return events;
+  }
+
+  public static class Events {
+    private boolean durable;
+
+    public boolean isDurable() {
+      return durable;
+    }
+
+    public void setDurable(boolean durable) {
+      this.durable = durable;
+    }
+  }
+
   /** Maximum time to drain running jobs before cancellation during shutdown. */
   private Duration shutdownTimeout = Duration.ofSeconds(30);
 

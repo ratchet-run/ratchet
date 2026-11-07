@@ -23,6 +23,7 @@ import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.EventOutboxStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobPropertyStore;
@@ -77,6 +78,10 @@ public interface JobStoreContractFixture {
 
   default RecurringJobStore recurringStore() {
     return capabilityView(RecurringJobStore.class);
+  }
+
+  default EventOutboxStore eventOutboxStore() {
+    return capabilityView(EventOutboxStore.class);
   }
 
   default BatchStore batchStore() {

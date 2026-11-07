@@ -61,6 +61,7 @@ import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
 import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
@@ -72,6 +73,7 @@ import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
+import run.ratchet.ri.core.internal.OutboxDeleter;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerCycleExecutor;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -81,6 +83,7 @@ import run.ratchet.ri.core.internal.PreExecutionValidator;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
+import run.ratchet.ri.core.internal.TerminalEventRelay;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.security.CallerPrincipalProvider;
@@ -112,6 +115,15 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.spi.JobStore;
 
 class RatchetEngineWiringTest {
+  @Test
+  void durableConfigurationAndSharedServiceAreWired() {
+    try (var context = TestContexts.engine(Map.of("ratchet.events.durable", true))) {
+      context.start();
+      assertTrue(context.getBean(RatchetOptions.class).events().durable());
+      assertNotNull(context.getBean(DurableTerminalEvents.class));
+    }
+  }
+
   @Test
   void schemaMigrationDefaultsAndExplicitOverrides() {
     for (Map<String, Object> values :
@@ -332,6 +344,9 @@ class RatchetEngineWiringTest {
           Map.entry("dynamicHeartbeatCalculator", DynamicHeartbeatCalculator.class),
           Map.entry("nodeIdentityProvider", NodeIdentityProvider.class),
           Map.entry("orphanRecoveryTimer", OrphanRecoveryTimer.class),
+          Map.entry("durableTerminalEvents", DurableTerminalEvents.class),
+          Map.entry("outboxDeleter", OutboxDeleter.class),
+          Map.entry("terminalEventRelay", TerminalEventRelay.class),
           Map.entry("ratchetRuntime", RatchetRuntime.class),
           Map.entry(
               "recurringAnnotationMaintenanceService",

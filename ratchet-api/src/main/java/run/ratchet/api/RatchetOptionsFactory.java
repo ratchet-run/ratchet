@@ -104,6 +104,7 @@ public final class RatchetOptionsFactory {
                         config.get(RatchetConfigKeys.CANCELLATION_GRACE_SECONDS))
                     .signalTimeoutLeaseTtlSeconds(
                         config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_LEASE_TTL_SECONDS)))
+        .events(events -> events.durable(config.get(RatchetConfigKeys.EVENTS_DURABLE)))
         .maintenance(
             maintenance ->
                 maintenance

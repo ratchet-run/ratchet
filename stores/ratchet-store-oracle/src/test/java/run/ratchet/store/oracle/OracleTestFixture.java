@@ -73,6 +73,7 @@ public class OracleTestFixture extends JpaContainerFixture {
     executeNativeSql("DELETE FROM scheduler_job_archive");
     executeNativeSql("DELETE FROM scheduler_job_properties");
     executeNativeSql("DELETE FROM scheduler_job_extension_state");
+    executeNativeSql("DELETE FROM scheduler_event_outbox");
     executeNativeSql("DELETE FROM scheduler_job");
     executeNativeSql("DELETE FROM scheduler_recurring_job_archive");
     executeNativeSql("DELETE FROM scheduler_recurring_job");

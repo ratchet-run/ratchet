@@ -8,6 +8,14 @@ description: Entity/document model, JobStore SPI composition, UUIDv7 identifiers
 
 Ratchet persists all job state in the selected store backend. SQL stores use JPA entities and DDL-backed tables; the MongoDB store maps the same model to documents and collections. The shared persistence layer is built around a composable SPI interface, UUIDv7 identifiers, and dialect-specific constraint detection where the backend needs it.
 
+## Terminal event outbox
+
+`scheduler_event_outbox` is a table (or MongoDB collection) holding typed terminal event
+snapshots keyed by event ID and indexed by `created_at`. Durable mode inserts rows in the
+terminal completion transaction. Local delivery queues bounded deletes outside the transaction
+callback; one leased relay recovers leftovers using the injected application clock minus orphan grace. Delivered
+rows are deleted, so no retention timer is needed.
+
 ## Entity Model
 
 The core logical model is `JobEntity`. In SQL stores it is split across a cold
@@ -285,6 +293,7 @@ public interface JobStore
 | `WorkflowConditionStore` | Workflow condition persistence and retrieval |
 | `SignalStore` | Atomic signal delivery, signal-timeout scans, and signal-event lookup |
 | `ResourcePermitStore` | Resource permit acquisition and release |
+| `EventOutboxStore` | Durable terminal event reads and bounded deletion; rows commit on `JobCompletionPlan` |
 | `LockStore` | Distributed lock acquisition and release |
 | `ArchiveStore` | Job archival to the archive table/collection |
 | `JobQueryStore` | Read-only list/detail/queue-health queries and tag lookups |

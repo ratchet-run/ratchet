@@ -84,6 +84,7 @@ import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.migration.SchemaInitializationException;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.EventOutboxStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobPropertyStore;
@@ -166,6 +167,7 @@ class SqlLifecycleTest {
               JobAuditStore.class,
               JobPropertyStore.class,
               JobStateStore.class,
+              EventOutboxStore.class,
               JobQueryStore.class,
               LockStore.class,
               RecurringJobStore.class,

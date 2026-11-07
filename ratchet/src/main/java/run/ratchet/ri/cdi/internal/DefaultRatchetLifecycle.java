@@ -34,6 +34,7 @@ import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
@@ -89,7 +90,6 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         null);
   }
 
-  @Inject
   public DefaultRatchetLifecycle(
       Poller poller,
       RecurringScheduler recurringScheduler,
@@ -106,6 +106,43 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       JobExecutionCoordinator jobExecutionCoordinator,
       ClusterCoordinator clusterCoordinator,
       Instance<SchedulerLifecycleHook> lifecycleHooks) {
+    this(
+        poller,
+        recurringScheduler,
+        orphanRecoveryTimer,
+        batchRecoveryTimer,
+        deadLetterService,
+        jobArchivingService,
+        logPurgeTimer,
+        pollerWakeupListener,
+        executorProvider,
+        nodeIdentityProvider,
+        drainController,
+        options,
+        jobExecutionCoordinator,
+        clusterCoordinator,
+        lifecycleHooks,
+        null);
+  }
+
+  @Inject
+  public DefaultRatchetLifecycle(
+      Poller poller,
+      RecurringScheduler recurringScheduler,
+      OrphanRecoveryTimer orphanRecoveryTimer,
+      BatchRecoveryTimer batchRecoveryTimer,
+      DeadLetterService deadLetterService,
+      JobArchivingService jobArchivingService,
+      LogPurgeTimer logPurgeTimer,
+      PollerWakeupListener pollerWakeupListener,
+      ExecutorProvider executorProvider,
+      NodeIdentityProvider nodeIdentityProvider,
+      DrainController drainController,
+      RatchetOptions options,
+      JobExecutionCoordinator jobExecutionCoordinator,
+      ClusterCoordinator clusterCoordinator,
+      Instance<SchedulerLifecycleHook> lifecycleHooks,
+      DurableTerminalEvents durable) {
     this.runtime =
         new RatchetRuntime(
             poller,
@@ -113,6 +150,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
             orphanRecoveryTimer,
             batchRecoveryTimer,
             deadLetterService,
+            durable,
             jobArchivingService,
             logPurgeTimer,
             pollerWakeupListener,

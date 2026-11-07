@@ -190,6 +190,7 @@ public final class SqlJobCompletion {
         throw stale("Batch completion lost", plan.jobId());
       batches.finalizeBatchMetrics(plan.jobId());
     }
+    for (var event : plan.outboxEvents()) SqlEventOutbox.insert(em, event, sqlServer, uuid);
     return new JobCompletionResult(true, progress);
   }
 
