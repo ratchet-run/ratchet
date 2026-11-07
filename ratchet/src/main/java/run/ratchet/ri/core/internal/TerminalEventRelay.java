@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobType;
 import run.ratchet.api.RatchetOptions;
@@ -47,7 +48,7 @@ public class TerminalEventRelay {
   private final SingletonLeaseService leases;
   private final InternalEventPublisher publisher;
   private final RatchetOptions options;
-  private final Object runLock = new Object();
+  private final ReentrantLock runLock = new ReentrantLock();
   private volatile boolean stopped;
   private volatile ScheduledFuture<?> handle;
 
@@ -118,15 +119,18 @@ public class TerminalEventRelay {
     stopped = true;
     ScheduledFuture<?> current = handle;
     if (current != null) current.cancel(false);
-    synchronized (runLock) {
-      // Wait for the current bounded batch before its store can be torn down.
-    }
+    // Wait for the current bounded batch before its store can be torn down.
+    runLock.lock();
+    runLock.unlock();
   }
 
   /** Runs one bounded recovery pass, also used by deterministic integration tests. */
   public void relayNow() {
-    synchronized (runLock) {
+    runLock.lock();
+    try {
       relayWithLock();
+    } finally {
+      runLock.unlock();
     }
   }
 
