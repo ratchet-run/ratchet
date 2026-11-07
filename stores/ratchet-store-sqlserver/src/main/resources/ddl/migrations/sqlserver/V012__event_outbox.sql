@@ -13,6 +13,8 @@
 -- limitations under the License.
 
 -- Durable terminal events committed with the terminal transition.
+IF OBJECT_ID('scheduler_event_outbox', 'U') IS NULL
+BEGIN
 CREATE TABLE scheduler_event_outbox
 (
     event_id BINARY(16) NOT NULL,
@@ -30,6 +32,11 @@ CREATE TABLE scheduler_event_outbox
     created_at DATETIME2(6) NOT NULL,
     CONSTRAINT pk_scheduler_event_outbox PRIMARY KEY (event_id)
 );
+END;
 
-CREATE INDEX idx_event_outbox_created
-    ON scheduler_event_outbox (created_at, event_id);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+     WHERE name = 'idx_event_outbox_created'
+       AND object_id = OBJECT_ID('scheduler_event_outbox'))
+    CREATE INDEX idx_event_outbox_created
+        ON scheduler_event_outbox (created_at, event_id);
