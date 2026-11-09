@@ -11,7 +11,7 @@ Ratchet provides two batch processing APIs: `BatchBuilder` for in-memory collect
 ## Retrying failed children
 
 You can retry a failed child while its batch is still running. The retry updates the batch's
-failure counter so later completion counts the child once. Batch parents and children of a
+failure counter so later completion counts the child once. Parents and children of a
 finished batch cannot be retried. `retryJob` returns `false` for them. `retryJobs` skips them.
 Cancelling a child counts as a failure. The batch completes as soon as its last child ends.
 
@@ -283,6 +283,50 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 | Submit method | `submit()` | `start()` |
 
 **Rule of thumb:** If you can call `findAll()` without worrying about memory, use `BatchBuilder`. If you need `streamAll()` or are reading from a file/external source, use `StreamingBatchBuilder`.
+
+## Control a running batch
+
+Pass the batch parent id to the existing scheduler methods:
+
+```java
+scheduler.cancelJob(batch.id());
+scheduler.pauseJob(batch.id());
+scheduler.resumeJob(batch.id());
+scheduler.retryJob(batch.id());
+```
+
+`cancelJob` cancels PENDING, PAUSED and WAITING children and unstarted callbacks,
+including the chain steps below those callbacks. A RUNNING child finishes its current
+attempt. If that attempt fails, it is not retried. No child starts a new attempt after
+the cancel. No batch callback runs after cancellation.
+
+`pauseJob` pauses PENDING children. RUNNING children finish and count toward the batch.
+Callbacks stay locked, and the parent cannot complete while paused. This pauses the
+children that are pending at that moment. A running child's automatic retry, or a
+retry that races the pause, may become PENDING and run during the pause.
+
+`resumeJob` restores all PAUSED children to their previous status. This includes
+children paused one by one before the batch pause. It also checks whether the batch
+finished while paused, so completion and callbacks can proceed immediately.
+
+`retryJob` on an open parent retries all FAILED children. It returns `true` if at
+least one child was reset. The parent must be PENDING or PAUSED and completion must
+not have been processed. Finished batches cannot be reopened. Retried children of
+a paused batch come back PAUSED and run when the batch resumes.
+
+Use `retryJobs` to select children by additional filters. Each call resets at most
+1000 children:
+
+```java
+scheduler.retryJobs(
+    JobFilter.builder().parentJobId(batch.id()).types(JobType.BATCH).build(), 1000);
+```
+
+On MongoDB, batch submission and control update children in separate transactions,
+one per chunk. Children submitted after a control operation has passed their chunk may
+be missed. If a batch pause or resume is interrupted, call it again to finish the
+remaining children. Recovery finishes an interrupted cancellation of an open batch with
+a CANCELED parent.
 
 ## Batch Recovery
 

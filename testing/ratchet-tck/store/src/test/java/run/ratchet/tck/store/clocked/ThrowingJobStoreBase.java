@@ -455,6 +455,26 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public int cancelBatchChildren(UUID batchId) {
+    return fail("cancelBatchChildren");
+  }
+
+  @Override
+  public int pauseBatchChildren(UUID batchId) {
+    return fail("pauseBatchChildren");
+  }
+
+  @Override
+  public int resumeBatchChildren(UUID batchId) {
+    return fail("resumeBatchChildren");
+  }
+
+  @Override
+  public void closeBatch(UUID batchId) {
+    fail("closeBatch");
+  }
+
+  @Override
   public List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
     return fail("findBatchesByIds");
   }

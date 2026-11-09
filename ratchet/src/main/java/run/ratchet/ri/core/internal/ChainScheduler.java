@@ -97,6 +97,10 @@ public class ChainScheduler {
         if (parentId.equals(failed.getId()) && skippedDirectChildren.contains(child.getId())) {
           continue;
         }
+        if (failed.getJobType() == JobExecutionType.BATCH_PARENT
+            && child.getJobType() == JobExecutionType.BATCH_CHILD) {
+          continue;
+        }
         JobStatus status = child.getStatus();
         if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
           // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +

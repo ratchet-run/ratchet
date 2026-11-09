@@ -269,6 +269,57 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void retriesOfPausedBatchChildrenStayPausedUntilResume() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 2);
+    JobEntity single =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    JobEntity bulk =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    batchStore().incrementFailedAtomic(parent.getId());
+    batchStore().incrementFailedAtomic(parent.getId());
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+
+    assertTrue(store().resetFailedToPending(single.getId()));
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertEquals(
+        1,
+        store().resetFailedToPending(JobFilter.builder().parentJobId(parent.getId()).build(), 100));
+    for (JobEntity child : List.of(single, bulk)) {
+      JobEntity reset = store().findById(child.getId()).orElseThrow();
+      assertEquals(JobStatus.PAUSED, reset.getStatus());
+      assertEquals(JobStatus.PENDING, reset.getPausedFromStatus());
+    }
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertEquals(2, batchStore().resumeBatchChildren(parent.getId()));
+    for (JobEntity child : List.of(single, bulk)) {
+      assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
+    }
+  }
+
+  @Test
+  void retryChildOfCancelledOpenBatchChangesNothing() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    JobEntity child =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    batchStore().incrementFailedAtomic(parent.getId());
+    assertTrue(store().cancelJob(parent.getId()));
+
+    assertFalse(store().resetFailedToPending(child.getId()));
+    assertEquals(
+        0,
+        store().resetFailedToPending(JobFilter.builder().parentJobId(parent.getId()).build(), 100));
+    assertEquals(JobStatus.FAILED, store().getJobStatus(child.getId()));
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertEquals(
+        Boolean.FALSE,
+        batchStore().findBatchById(parent.getId()).orElseThrow().getCompletionProcessed());
+  }
+
+  @Test
   void retryClosedBatchChildChangesNothing() {
     batchStore();
     JobEntity parent = persist(newBatchParentJob());

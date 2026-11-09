@@ -279,7 +279,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled pending job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.PENDING, job);
-      completeCancelledChildBatch(job);
+      cascadeCancel(job);
       return true;
     }
 
@@ -289,7 +289,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled running job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.RUNNING, job);
-      completeCancelledChildBatch(job);
+      cascadeCancel(job);
       return true;
     }
 
@@ -298,7 +298,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
       log.debugf("Canceled paused job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.PAUSED, job);
-      completeCancelledChildBatch(job);
+      cascadeCancel(job);
       return true;
     }
 
@@ -307,7 +307,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled waiting job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.WAITING, job);
-      completeCancelledChildBatch(job);
+      cascadeCancel(job);
       if (metricsCollector != null && job != null) {
         metricsCollector.signalCancelled(jobId, job.getPublicJobType(), job.getSignalKey());
       }
@@ -330,6 +330,31 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
 
     log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
     return false;
+  }
+
+  /**
+   * Cancels the rest of a batch for a parent, or checks whether a cancelled child ended its batch.
+   */
+  private void cascadeCancel(JobEntity job) {
+    if (batchService != null && job != null && job.getJobType() == JobExecutionType.BATCH_PARENT) {
+      batchService.cancelBatch(job);
+      UUID batchId = job.getId();
+      AfterCommitActions.runOrFail(
+          afterCommitRegistrar,
+          "cancelled batch sweep",
+          () -> {
+            try {
+              batchService.sweepCancelledBatch(batchId);
+            } catch (RuntimeException ex) {
+              log.warnf(
+                  ex,
+                  "Batch %s cancellation sweep failed; a child that became runnable during the"
+                      + " cancel may still run",
+                  batchId);
+            }
+          });
+    }
+    completeCancelledChildBatch(job);
   }
 
   private void completeCancelledChildBatch(JobEntity job) {
@@ -542,6 +567,12 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     }
     JobStatus current = job.getStatus();
     if (current == JobStatus.PAUSED) {
+      if (job.getJobType() == JobExecutionType.BATCH_PARENT && batchStore != null) {
+        int count = batchStore.pauseBatchChildren(jobId);
+        if (count > 0) {
+          log.infof("Paused batch %s: %d children paused", jobId, count);
+        }
+      }
       log.debugf("Job %s is already paused", jobId);
       return true;
     }
@@ -549,6 +580,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     // Executable jobs: try PENDING → PAUSED on hot.
     if (jobPauseStore.transitionToPaused(jobId, JobStatus.PENDING)) {
       log.debugf("Paused pending job %s", jobId);
+      if (job.getJobType() == JobExecutionType.BATCH_PARENT && batchStore != null) {
+        int count = batchStore.pauseBatchChildren(jobId);
+        log.infof("Paused batch %s: %d children paused", jobId, count);
+      }
       publishPausedEvent(jobId, job);
       return true;
     }
@@ -597,6 +632,22 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       authorizationPolicy.checkResume(jobId, job.getCallerPrincipal(), currentPrincipal);
     }
 
+    if (job.getJobType() == JobExecutionType.BATCH_PARENT
+        && job.getStatus() == JobStatus.PENDING
+        && batchStore != null
+        && batchStore
+            .findBatchById(jobId)
+            .map(batch -> !Boolean.TRUE.equals(batch.getCompletionProcessed()))
+            .orElse(false)) {
+      int count = batchStore.resumeBatchChildren(jobId);
+      if (count > 0) {
+        log.infof("Resumed batch %s: %d children resumed", jobId, count);
+        checkResumedBatchAfterCommit(jobId, count);
+        return true;
+      }
+      return false;
+    }
+
     JobStatus target = jobPauseStore.transitionFromPausedAtomic(jobId);
     if (target == null) {
       log.debugf(
@@ -604,11 +655,33 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       return false;
     }
     log.debugf("Resumed job %s to %s", jobId, target);
+    if (job.getJobType() == JobExecutionType.BATCH_PARENT && batchStore != null) {
+      int count = batchStore.resumeBatchChildren(jobId);
+      log.infof("Resumed batch %s: %d children resumed", jobId, count);
+      checkResumedBatchAfterCommit(jobId, count);
+    }
     publishResumedEvent(jobId, job);
     if (target == JobStatus.PENDING) {
       recurringScheduler.kick();
     }
     return true;
+  }
+
+  private void checkResumedBatchAfterCommit(UUID jobId, int count) {
+    AfterCommitActions.runOrFail(
+        afterCommitRegistrar,
+        "resumed batch completion",
+        () -> {
+          boolean completed = false;
+          try {
+            completed = batchService.completeIfFinished(jobId);
+          } catch (RuntimeException ex) {
+            log.warnf(ex, "Batch %s completion deferred to recovery", jobId);
+          }
+          if ((completed || count > 0) && wakeupService != null) {
+            wakeupService.notify(JobPriority.NORMAL, true, null);
+          }
+        });
   }
 
   @Override
@@ -625,8 +698,31 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       authorizationPolicy.checkRetry(jobId, ownerPrincipal, currentPrincipal);
     }
 
+    if (job != null && job.getJobType() == JobExecutionType.BATCH_PARENT) {
+      if (batchStore == null
+          || (job.getStatus() != JobStatus.PENDING && job.getStatus() != JobStatus.PAUSED)
+          || batchStore
+              .findBatchById(jobId)
+              .map(batch -> Boolean.TRUE.equals(batch.getCompletionProcessed()))
+              .orElse(true)) {
+        return false;
+      }
+      JobFilter filter = JobFilter.builder().parentJobId(jobId).types(JobType.BATCH).build();
+      int total = 0;
+      int count;
+      // One bulk event per store chunk keeps each event within its limit.
+      while ((count = jobRetryStore.resetFailedToPending(filter, 1000)) > 0) {
+        total += count;
+        publishAfterCommit(new JobsBulkRetriedEvent(filter, 1000, count, effective().instant()));
+      }
+      if (total > 0 && wakeupService != null) {
+        wakeupService.notify(JobPriority.NORMAL, true, null);
+      }
+      return total > 0;
+    }
+
     if (jobRetryStore.resetFailedToPending(jobId)) {
-      log.debugf("Retried failed job %s — reset to PENDING", jobId);
+      log.debugf("Retried failed job %s — reset for retry", jobId);
       publishRetryingEventAndWakeup(jobId, job);
       return true;
     }

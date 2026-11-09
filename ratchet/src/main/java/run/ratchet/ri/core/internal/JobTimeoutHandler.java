@@ -487,16 +487,17 @@ public class JobTimeoutHandler {
       log.infof(
           "Job %s timeout retry increment was already applied (%s attempts)", jobId, newAttempts);
     }
+    boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
     // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
     // attempts are part of commitCompletion, including for stores without ambient JTA.
-    if (!incrementAlreadyApplied && newAttempts <= job.getMaxRetries()) {
+    if (!incrementAlreadyApplied && retryAllowed) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq);
       if (newAttempts < 0) {
         warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId, attempt);
         return Optional.empty();
       }
     }
-    if (newAttempts <= job.getMaxRetries()) {
+    if (retryAllowed && newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(
@@ -575,6 +576,17 @@ public class JobTimeoutHandler {
         timeoutEx, true, false, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
+  private boolean batchAllowsRetry(JobEntity job) {
+    BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobCrudStore, job);
+    if (parentState.closed()) {
+      log.infof(
+          "Job %s not retried: batch %s is closed (parent %s)",
+          job.getId(), job.getDependsOn(), parentState.description());
+      return false;
+    }
+    return true;
+  }
+
   private Optional<TerminalTimeoutTransition> applySignalTimeoutTransition(
       UUID jobId, Instant now, String message) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
@@ -586,13 +598,14 @@ public class JobTimeoutHandler {
       return Optional.empty();
     }
     int newAttempts = job.getAttempts() + 1;
-    if (newAttempts <= job.getMaxRetries()) {
+    boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
+    if (retryAllowed) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null);
       if (newAttempts < 0) {
         return Optional.empty();
       }
     }
-    if (newAttempts <= job.getMaxRetries()) {
+    if (retryAllowed && newAttempts <= job.getMaxRetries()) {
       long backoffMs =
           job.getBackoffPolicy() != null
               ? BackoffPolicyHandler.computeDelay(

@@ -260,6 +260,29 @@ public class JobTask implements Callable<Void> {
       JobMdcContext.clear();
       return null;
     }
+    try {
+      BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobStore, jobEntity);
+      if (parentState.closed()) {
+        // The store proxy performs the terminal cancel in its short REQUIRED transaction.
+        // It owns reservation release and batch counting; do not repeat either here.
+        jobStore.cancelJob(jobId);
+        log.infof(
+            "Job %s not started: batch %s is closed (parent %s)",
+            jobId, jobEntity.getDependsOn(), parentState.description());
+        JobMdcContext.clear();
+        return null;
+      }
+    } catch (RuntimeException e) {
+      // Do not run a batch child when the batch state is unknown. The claim stays RUNNING, and
+      // recovery hands it back to a worker that checks the parent again.
+      log.errorf(
+          e,
+          "Job %s not started: could not check or cancel it for batch %s",
+          jobId,
+          jobEntity.getDependsOn());
+      JobMdcContext.clear();
+      return null;
+    }
     JobLogger logger =
         jobLoggerFactory.create(
             new JobLoggerContext(
@@ -1006,11 +1029,24 @@ public class JobTask implements Callable<Void> {
     currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     logIfTimeout(ex);
 
-    if (attempt <= job.getMaxRetries() && retryPolicy.shouldRetry(attempt, ex)) {
+    if (attempt <= job.getMaxRetries()
+        && retryPolicy.shouldRetry(attempt, ex)
+        && batchAllowsRetry()) {
       scheduleRetry(ex, attempt, sanitized);
     } else {
       moveToDlq(ex, attempt, sanitized);
     }
+  }
+
+  private boolean batchAllowsRetry() {
+    BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobStore, job);
+    if (parentState.closed()) {
+      log.infof(
+          "Job %s not retried: batch %s is closed (parent %s)",
+          job.getId(), job.getDependsOn(), parentState.description());
+      return false;
+    }
+    return true;
   }
 
   /**

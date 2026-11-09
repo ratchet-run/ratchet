@@ -51,6 +51,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.jboss.logging.MDC;
@@ -1596,7 +1597,60 @@ class JobTaskTest {
     jobTask.call();
 
     verify(retryPolicy).shouldRetry(1, error);
+    verify(jobStore, never()).getJobStatus(argThat(id -> !JOB_UUID.equals(id)));
     verify(errorSanitizer, times(1)).sanitize(error);
+  }
+
+  @Test
+  void cancelledBatchChildDoesNotRetryFailure() throws Exception {
+    assertBatchChildFailureRetry(JobStatus.CANCELED);
+  }
+
+  @Test
+  void pendingBatchChildRetriesFailure() throws Exception {
+    assertBatchChildFailureRetry(JobStatus.PENDING);
+  }
+
+  @Test
+  void pausedBatchChildRetriesFailure() throws Exception {
+    assertBatchChildFailureRetry(JobStatus.PAUSED);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertBatchChildFailureRetry(JobStatus parentStatus) throws Exception {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = createTestJob();
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    job.setMaxRetries(3);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING, parentStatus);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException error = new RuntimeException("batch failure");
+    when(errorSanitizer.sanitize(error)).thenReturn("batch failure");
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(false);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, error)).thenReturn(true);
+    if (parentStatus != JobStatus.CANCELED) {
+      when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+      when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L)))
+          .thenReturn(true);
+    } else {
+      when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+          .thenReturn(true);
+    }
+
+    jobTask.call();
+
+    verify(jobStore, times(2)).getJobStatus(parentId);
+    if (parentStatus != JobStatus.CANCELED) {
+      verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L));
+    } else {
+      verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+      verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    }
   }
 
   @Test
@@ -2679,6 +2733,130 @@ class JobTaskTest {
         .scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(0L));
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(resourcePermitService, never()).release(anyString(), any(UUID.class));
+  }
+
+  @Test
+  void claimedBatchChildOfCancelledParentNeverStarts() throws Exception {
+    assertClosedBatchChildNeverStarts(JobStatus.CANCELED);
+  }
+
+  @Test
+  void claimedBatchChildOfMissingParentNeverStarts() throws Exception {
+    assertClosedBatchChildNeverStarts(null);
+  }
+
+  @Test
+  void claimedBatchChildNeverStartsWhenParentCheckFails() throws Exception {
+    assertBatchChildNeverStarts(
+        parentId ->
+            when(jobStore.getJobStatus(parentId))
+                .thenThrow(new IllegalStateException("store unavailable")),
+        false);
+  }
+
+  @Test
+  void claimedBatchChildNeverStartsWhenCancelFails() throws Exception {
+    assertBatchChildNeverStarts(
+        parentId -> {
+          when(jobStore.getJobStatus(parentId)).thenReturn(JobStatus.CANCELED);
+          when(jobStore.cancelJob(JOB_UUID)).thenThrow(new IllegalStateException("deadlock"));
+        },
+        true);
+  }
+
+  private void assertClosedBatchChildNeverStarts(JobStatus parentStatus) throws Exception {
+    assertBatchChildNeverStarts(
+        parentId -> {
+          when(jobStore.getJobStatus(parentId)).thenReturn(parentStatus);
+          when(jobStore.cancelJob(JOB_UUID)).thenReturn(true);
+        },
+        true);
+  }
+
+  private void assertBatchChildNeverStarts(Consumer<UUID> stubParent, boolean expectCancel)
+      throws Exception {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy("node-1");
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    task.initFromClaim(claimForNode("node-1"));
+    when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    stubParent.accept(parentId);
+    MDC.put("jobId", "previous-job");
+    MDC.put("node", "previous-node");
+
+    task.call();
+
+    Assertions.assertNull(MDC.get("jobId"));
+    Assertions.assertNull(MDC.get("node"));
+    verify(jobStore).getJobStatus(parentId);
+    verify(jobStore, expectCancel ? times(1) : never()).cancelJob(JOB_UUID);
+    verify(invoker, never()).invoke(any());
+    verify(observabilityFacade, never()).recordJobStart(any());
+    verify(observabilityFacade, never()).startExecution(any(), anyInt(), any());
+    verify(observabilityFacade, never()).publishEvent(any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    Assertions.assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void claimedBatchChildOfPendingParentRunsNormally() throws Exception {
+    assertClaimedJobRuns(JobExecutionType.BATCH_CHILD, JobStatus.PENDING);
+  }
+
+  @Test
+  void claimedBatchChildOfPausedParentRunsNormally() throws Exception {
+    assertClaimedJobRuns(JobExecutionType.BATCH_CHILD, JobStatus.PAUSED);
+  }
+
+  @Test
+  void claimedSingleJobDoesNotLookUpParent() throws Exception {
+    assertClaimedJobRuns(JobExecutionType.SINGLE, null);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertClaimedJobRuns(JobExecutionType type, JobStatus parentStatus)
+      throws Exception {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy("node-1");
+    job.setJobType(type);
+    job.setDependsOn(parentId);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    initJobTaskWithDefaultStubs(task, job);
+    task.initFromClaim(claimForNode("node-1"));
+    when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    if (type == JobExecutionType.BATCH_CHILD) {
+      when(jobStore.getJobStatus(parentId)).thenReturn(parentStatus);
+    }
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    task.call();
+
+    verify(invoker).invoke(job.getPayload());
+    verify(observabilityFacade).recordJobStart(job);
+    verify(observabilityFacade).startExecution(eq(JOB_UUID), eq(1), eq("node-1"));
+    verify(observabilityFacade).publishEvent(any(JobStartedEvent.class));
+    verify(jobStore, never()).cancelJob(any());
+    if (type == JobExecutionType.BATCH_CHILD) {
+      verify(jobStore).getJobStatus(parentId);
+    } else {
+      verify(jobStore, never()).getJobStatus(parentId);
+    }
   }
 
   @Test

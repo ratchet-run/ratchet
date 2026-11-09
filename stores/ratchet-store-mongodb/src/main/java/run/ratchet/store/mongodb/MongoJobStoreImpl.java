@@ -560,6 +560,31 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public int cancelBatchChildren(UUID batchId) {
+    return batches.cancelBatchChildren(batchId);
+  }
+
+  @Override
+  public int pauseBatchChildren(UUID batchId) {
+    return batches.pauseBatchChildren(batchId);
+  }
+
+  @Override
+  public int resumeBatchChildren(UUID batchId) {
+    return batches.resumeBatchChildren(batchId);
+  }
+
+  @Override
+  public void closeBatch(UUID batchId) {
+    batches.closeBatch(batchId);
+  }
+
+  @Override
+  public List<UUID> findCancelledOpenBatchIds(int limit) {
+    return batches.findCancelledOpenBatchIds(limit);
+  }
+
+  @Override
   public boolean markBatchCompleteIfReady(UUID batchId) {
     return batches.markBatchCompleteIfReady(batchId);
   }

@@ -242,16 +242,34 @@ public class BatchService {
       // No BatchStore capability: batch fan-out is unavailable, so there are no batches to recover.
       return 0;
     }
+    int repaired = 0;
+    for (UUID batchId : batchStore.findCancelledOpenBatchIds(100)) {
+      try {
+        if (batchCompletionTransaction.complete(
+            () -> {
+              JobEntity parent = jobCrudStore.findById(batchId).orElse(null);
+              if (parent == null || parent.getStatus() != JobStatus.CANCELED) {
+                return false;
+              }
+              cancelBatch(parent);
+              return true;
+            })) {
+          repaired++;
+        }
+      } catch (RuntimeException ex) {
+        log.warnf(ex, "Failed to repair cancelled batch %s", batchId);
+      }
+    }
     List<UUID> recoverableIds = batchStore.findRecoverableBatchIds(100);
     if (recoverableIds.isEmpty()) {
-      return 0;
+      return repaired;
     }
 
     Map<UUID, BatchEntity> batchMap =
         batchStore.findBatchesByIds(recoverableIds).stream()
             .collect(Collectors.toMap(BatchEntity::getId, Function.identity()));
 
-    int recovered = 0;
+    int recovered = repaired;
     Map<UUID, JobEntity> parentMap =
         jobCrudStore.findByIds(recoverableIds).stream()
             .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
@@ -270,6 +288,36 @@ public class BatchService {
       }
     }
     return recovered;
+  }
+
+  /** Cancels children that became runnable while the parent cancellation was in flight. */
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
+  public int sweepCancelledBatch(UUID batchId) {
+    if (batchStore == null) {
+      return 0;
+    }
+    int count = batchCompletionTransaction.complete(() -> batchStore.cancelBatchChildren(batchId));
+    if (count > 0) {
+      log.infof(
+          "Cancelled %d children of batch %s that became runnable during its cancellation",
+          count, batchId);
+    }
+    return count;
+  }
+
+  /**
+   * Finishes child and callback cancellation after the parent transition, then closes the batch.
+   */
+  public void cancelBatch(JobEntity parent) {
+    if (batchStore == null) {
+      return;
+    }
+    int children = batchStore.cancelBatchChildren(parent.getId());
+    int callbacks = workflowScheduler.cancelBatchCallbacks(parent);
+    batchStore.closeBatch(parent.getId());
+    log.infof(
+        "Cancelled batch %s: %d children cancelled, %d callbacks cancelled",
+        parent.getId(), children, callbacks);
   }
 
   /**

@@ -35,6 +35,41 @@ import run.ratchet.store.entity.BatchMetricsEntity;
 @Incubating
 public interface BatchStore {
 
+  /**
+   * Cancels PENDING, PAUSED and WAITING batch children, removing hot rows and reservations. SQL
+   * joins the REQUIRED transaction: lock parent, sorted child hot rows, then batch row last. Mongo
+   * uses a transaction per chunk. Never interrupts RUNNING children. Adds the cancelled count to
+   * failed_items. A re-run after a partial cancel counts each child once.
+   */
+  int cancelBatchChildren(UUID batchId);
+
+  /**
+   * Pauses PENDING children, preserving their source status. REQUIRED; locks sorted child hot rows
+   * after the parent. Mongo uses a transaction per chunk. Never touches callbacks or the batch row.
+   */
+  int pauseBatchChildren(UUID batchId);
+
+  /**
+   * Restores PAUSED children to their source status and clears it. REQUIRED; locks sorted child hot
+   * rows after the parent. Mongo uses a transaction per chunk. Never touches callbacks or batch
+   * rows.
+   */
+  int resumeBatchChildren(UUID batchId);
+
+  /**
+   * Marks completion processed without changing failed_items. REQUIRED; lock the batch row last,
+   * after parent and children. Mongo uses its own transaction. Never changes jobs or callbacks.
+   */
+  void closeBatch(UUID batchId);
+
+  /**
+   * Finds cancelled parents whose cascade needs repair. SUPPORTS; never locks or changes rows. SQL
+   * cascades are transactional and need no repair.
+   */
+  default List<UUID> findCancelledOpenBatchIds(int limit) {
+    return List.of();
+  }
+
   /** Persists a batch row. Transaction attribute: {@code REQUIRED}. */
   BatchEntity saveBatch(BatchEntity batch);
 

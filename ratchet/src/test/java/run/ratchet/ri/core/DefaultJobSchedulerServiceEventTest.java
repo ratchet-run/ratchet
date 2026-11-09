@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -221,10 +222,15 @@ class DefaultJobSchedulerServiceEventTest {
       names = {"BATCH_PARENT", "BATCH_CHILD"})
   void retryRejectedFailedBatchJobDoesNotPublishOrWake(JobExecutionType type) {
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job(JobStatus.FAILED, type)));
-    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.FAILED);
+    lenient().when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.FAILED);
 
     assertFalse(service.retryJob(JOB_ID));
-    verify(jobRetryStore).resetFailedToPending(JOB_ID);
+    if (type == JobExecutionType.BATCH_PARENT) {
+      // A parent that is not PENDING or PAUSED is rejected before the store is called.
+      verifyNoInteractions(jobRetryStore);
+    } else {
+      verify(jobRetryStore).resetFailedToPending(JOB_ID);
+    }
     verifyNoInteractions(eventPublisher, wakeupService);
   }
 

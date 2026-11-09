@@ -120,6 +120,38 @@ class WorkflowSchedulerTest {
   }
 
   @Test
+  void batchCancellationCancelsCallbackDescendantsAndSkipsBatchChildren() {
+    JobEntity parent = job(UUID.randomUUID(), JobStatus.CANCELED);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    JobEntity child = job(UUID.randomUUID(), JobStatus.CANCELED);
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    JobEntity callback = job(UUID.randomUUID(), JobStatus.PENDING);
+    callback.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    JobEntity step = job(UUID.randomUUID(), JobStatus.WAITING);
+    step.setJobType(JobExecutionType.CHAIN_STEP);
+    when(conditionStore.findConditionsByParentJobId(parent.getId()))
+        .thenReturn(List.of(condition(parent.getId(), callback.getId(), 1)));
+    when(jobCrudStore.findById(callback.getId())).thenReturn(Optional.of(callback));
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child, callback));
+    when(jobCrudStore.findDependants(eq(callback.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(step));
+    when(jobTerminalStore.cancelJob(callback.getId()))
+        .thenAnswer(
+            invocation -> {
+              callback.setStatus(JobStatus.CANCELED);
+              return true;
+            });
+    when(jobTerminalStore.cancelJob(step.getId())).thenReturn(true);
+
+    assertEquals(1, scheduler.cancelBatchCallbacks(parent));
+    verify(jobTerminalStore).cancelJob(callback.getId());
+    verify(jobTerminalStore).cancelJob(step.getId());
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
+    verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
+  }
+
+  @Test
   void completionPlanPreservesWaitingStatusAndDoesNotWriteBeforeCommit() {
     JobEntity parent = job(new UUID(0L, 801L), JobStatus.SUCCEEDED);
     parent.setJobType(JobExecutionType.SINGLE);

@@ -627,6 +627,7 @@ final class MongoJobLifecycleOperations
                             and(eq(ID, id), eq(STATUS, "FAILED")),
                             combine(
                                 set(STATUS, "PENDING"),
+                                set(PAUSED_FROM_STATUS, null),
                                 set(ATTEMPTS, 0),
                                 set(CRASH_COUNT, 0),
                                 set(LAST_ERROR, null),
@@ -641,6 +642,7 @@ final class MongoJobLifecycleOperations
                                 inc(VERSION, 1)));
                 if (result.getModifiedCount() > 0
                     && "BATCH_CHILD".equals(job.getString(JOB_TYPE))) {
+                  pauseRetriedChild(session, job);
                   decrementRetryFailures(session, job.get("depends_on", UUID.class), 1);
                 }
                 return result;
@@ -669,6 +671,7 @@ final class MongoJobLifecycleOperations
                         and(in(ID, ids), eq(STATUS, "FAILED")),
                         combine(
                             set(STATUS, "PENDING"),
+                            set(PAUSED_FROM_STATUS, null),
                             set(ATTEMPTS, 0),
                             set(CRASH_COUNT, 0),
                             set(LAST_ERROR, null),
@@ -703,6 +706,7 @@ final class MongoJobLifecycleOperations
                 throw new RatchetTransientStoreException(
                     "Bulk retry selection changed concurrently: batch finished or missing");
               }
+              pauseRetriedChild(session, job);
               batchCounts.merge(batchId, 1, Integer::sum);
             }
             batchCounts.forEach(
@@ -817,6 +821,22 @@ final class MongoJobLifecycleOperations
         ignored -> "success");
   }
 
+  private String retryParentStatus(ClientSession session, UUID batchId) {
+    Document parent =
+        ctx.jobs().find(session, and(eq(ID, batchId), in(STATUS, "PENDING", "PAUSED"))).first();
+    return parent == null ? null : parent.getString(STATUS);
+  }
+
+  private void pauseRetriedChild(ClientSession session, Document job) {
+    if ("PAUSED".equals(retryParentStatus(session, job.get("depends_on", UUID.class)))) {
+      ctx.jobs()
+          .updateOne(
+              session,
+              eq(ID, job.get(ID)),
+              combine(set(STATUS, "PAUSED"), set(PAUSED_FROM_STATUS, "PENDING")));
+    }
+  }
+
   private boolean retryEligible(ClientSession session, Document job) {
     if (job == null || "BATCH_PARENT".equals(job.getString(JOB_TYPE))) {
       return false;
@@ -826,6 +846,7 @@ final class MongoJobLifecycleOperations
     }
     UUID batchId = job.get("depends_on", UUID.class);
     return batchId != null
+        && retryParentStatus(session, batchId) != null
         && ctx.batches()
                 .find(session, and(eq(ID, batchId), eq("completion_processed", false)))
                 .first()

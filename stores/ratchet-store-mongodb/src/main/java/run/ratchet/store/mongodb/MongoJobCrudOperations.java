@@ -294,7 +294,15 @@ final class MongoJobCrudOperations {
   }
 
   JobStatus getJobStatus(UUID id) {
-    Document doc = ctx.jobs().find(eq(ID, id)).projection(new Document(STATUS, 1)).first();
+    // Read the primary even when the client prefers secondaries: callers act on this status
+    // (a cancelled batch parent stops its children), so a lagging secondary must not answer.
+    Document doc =
+        ctx.jobs()
+            .withReadPreference(ReadPreference.primary())
+            .withReadConcern(ReadConcern.MAJORITY)
+            .find(eq(ID, id))
+            .projection(new Document(STATUS, 1))
+            .first();
     if (doc == null) {
       return null;
     }

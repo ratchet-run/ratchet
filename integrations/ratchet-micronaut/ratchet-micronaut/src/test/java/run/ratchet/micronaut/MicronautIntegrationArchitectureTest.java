@@ -222,7 +222,6 @@ class MicronautIntegrationArchitectureTest {
             "ChainScheduler",
             "DeadLetterService",
             "DefaultJobArchivingService",
-            "JobCascadeService",
             "JobStateManager",
             "PollerCycleExecutor",
             "PostExecutionHandler",

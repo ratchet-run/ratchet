@@ -43,7 +43,6 @@ import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
-import run.ratchet.ri.core.JobCascadeService;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
@@ -359,7 +358,6 @@ class RatchetEngineWiringTest {
           Map.entry("errorSanitizer", ErrorSanitizer.class),
           Map.entry("resilienceStrategy", ResilienceStrategy.class),
           Map.entry("nodeTagAffinityProvider", NodeTagAffinityProvider.class),
-          Map.entry("jobCascadeService", JobCascadeService.class),
           Map.entry("workflowConditionEvaluator", WorkflowConditionEvaluator.class),
           Map.entry("defaultJobQueryService", JobQueryService.class),
           Map.entry("jobSubmissionService", JobSubmissionService.class),

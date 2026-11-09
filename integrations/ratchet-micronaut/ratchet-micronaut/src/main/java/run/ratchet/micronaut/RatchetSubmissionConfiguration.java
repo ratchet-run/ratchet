@@ -19,7 +19,6 @@ import io.micronaut.context.annotation.Factory;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.context.annotation.Secondary;
 import jakarta.inject.Singleton;
-import jakarta.transaction.Transactional;
 import java.time.Clock;
 import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.JobQueryService;
@@ -27,7 +26,6 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobCreationService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobSchedulerService;
-import run.ratchet.micronaut.internal.tx.MicronautJobCascadeService;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultClusterQueryService;
@@ -79,18 +77,6 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 @Requires(beans = JobStore.class)
 @Requires(property = "ratchet.enabled", notEquals = "false")
 class RatchetSubmissionConfiguration {
-  @Singleton
-  @Secondary
-  @RatchetTransactionBoundary
-  @Transactional
-  MicronautJobCascadeService jobCascadeService(
-      JobStore store,
-      InternalEventPublisher eventPublisher,
-      Clock clock,
-      AfterCommitRegistrar afterCommitRegistrar) {
-    return new MicronautJobCascadeService(
-        store, store, eventPublisher, clock, afterCommitRegistrar);
-  }
 
   @Singleton
   @Requires(missingBeans = WorkflowConditionEvaluator.class)

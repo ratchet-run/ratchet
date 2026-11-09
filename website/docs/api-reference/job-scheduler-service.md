@@ -206,7 +206,11 @@ JobHandle replacement = scheduler.replace(
 boolean cancelJob(UUID jobId)
 ```
 
-Cancels a job by its ID. Cancelling a batch child counts as a failure. The batch completes
+Cancels a job by its ID. For a batch parent, also cancels PENDING, PAUSED and WAITING
+children and unstarted callbacks with their chain steps. A RUNNING child finishes its
+current attempt. If that attempt fails, it is not retried. No child starts a new
+attempt after the cancel.
+Cancelling a batch child counts as a failure. The batch completes
 as soon as its last child ends.
 
 - **PENDING** jobs transition directly to CANCELED.
@@ -232,6 +236,10 @@ boolean pauseJob(UUID jobId)
 ```
 
 Pauses a job, preventing it from being picked up for execution.
+For a batch parent, also pauses its PENDING children. RUNNING children finish.
+Callbacks stay locked, and batch completion waits for resume.
+On MongoDB, child updates run in separate transactions. If a batch pause or resume is
+interrupted, call it again to finish the remaining children.
 
 - Only **PENDING** jobs can be paused.
 - The job's previous status is recorded so it can be restored on resume.
@@ -256,6 +264,10 @@ boolean resumeJob(UUID jobId)
 ```
 
 Resumes a paused job, making it eligible for execution again.
+For a batch parent, also resumes every PAUSED child, including children paused
+individually. Checks for batch completion after the transaction commits.
+On MongoDB, child updates run in separate transactions. If a batch pause or resume is
+interrupted, call it again to finish the remaining children.
 
 - The job returns to the status it had before being paused.
 - Resuming a previously **PENDING** job makes it eligible for polling again.
@@ -265,6 +277,7 @@ Resumes a paused job, making it eligible for execution again.
 - `jobId` -- the ID of the job to resume.
 
 **Returns:** `true` if the job was resumed; `false` if the job was not found or not in PAUSED state.
+For an open batch parent that is already PENDING, returns `true` if PAUSED children were resumed.
 
 ```java
 boolean resumed = scheduler.resumeJob(jobId);
@@ -276,21 +289,25 @@ boolean resumed = scheduler.resumeJob(jobId);
 boolean retryJob(UUID jobId)
 ```
 
-Retries a failed job by resetting it to PENDING status. This is the primary mechanism for manual retry of jobs in the Dead Letter Queue.
+Resets a failed job for retry. This is the primary mechanism for manual retry of jobs in the Dead Letter Queue.
 
 - The attempt counter is reset to 0.
 - Error information is cleared.
-- Scheduled time is set to now, making the job immediately eligible for execution.
-- Only **FAILED** jobs can be retried.
+- Scheduled time is set to now. Retried children of a paused batch come back PAUSED
+  and run when the batch resumes. Other retried jobs become PENDING.
+- Executable jobs must be **FAILED** to be retried.
 
 **Parameters:**
 - `jobId` -- the ID of the failed job to retry.
 
 Failed batch children can be retried while their batch is running. The retry updates the batch's
-failure counter. Batch parents and children of finished batches cannot be retried.
+failure counter. Passing an open batch parent retries all FAILED children and returns
+`true` if any were reset. The parent must be PENDING or PAUSED with completion unprocessed.
+Finished batches and their children cannot be retried.
 
-**Returns:** `true` if the job was successfully reset to PENDING; `false` if not found, not FAILED,
-or a batch parent or child of a finished batch.
+**Returns:** `true` if the job was successfully reset for retry; `false` if not found, not FAILED,
+or a child of a finished batch. For a batch parent, returns `true` if any child was reset;
+returns `false` for a finished batch or when no FAILED child was reset.
 
 ```java
 // Manual DLQ retry
@@ -307,8 +324,9 @@ int retryJobs(JobFilter filter, int limit)
 ```
 
 Recovers a bounded set of failed jobs in one atomic store operation. Ratchet intersects the filter
-with `FAILED`, ignores archived rows, resets retry metadata, and makes the selected jobs immediately
-eligible again. The limit must be from 1 through 1000; repeat the call to drain a larger incident in
+with `FAILED`, ignores archived rows, and resets retry metadata.
+Retried children of a paused batch come back PAUSED and run when the batch resumes.
+Other retried jobs become PENDING and eligible again. The limit must be from 1 through 1000; repeat the call to drain a larger incident in
 bounded transactions.
 
 ```java
