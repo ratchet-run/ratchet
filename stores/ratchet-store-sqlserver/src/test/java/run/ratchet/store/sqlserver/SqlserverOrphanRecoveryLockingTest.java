@@ -17,10 +17,12 @@ package run.ratchet.store.sqlserver;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.LockTimeoutException;
 import jakarta.persistence.Persistence;
 import java.time.Instant;
 import java.util.HashMap;
@@ -82,6 +84,92 @@ class SqlserverOrphanRecoveryLockingTest {
   @Test
   void startupScanDoesNotBlockOnExclusivelyLockedRows() {
     scanWithOtherOwnersRowLocked(true, true);
+  }
+
+  @Test
+  void staleOwnerHeartbeatWaitsForTheScanToCommit() {
+    fixture.cleanupStore();
+    emf = newFactory();
+    Instant now = Instant.now();
+    Instant cutoff = now.minusSeconds(60);
+    var seed = emf.createEntityManager();
+    var heartbeat = emf.createEntityManager();
+    var scan = emf.createEntityManager();
+    try {
+      var seedStore = store(seed);
+      seed.getTransaction().begin();
+      seedStore.upsertHeartbeat("live", now);
+      seedStore.upsertHeartbeat("late", now.minusSeconds(3600));
+      UUID jobId = runningJob(seedStore, "late", cutoff.minusSeconds(60));
+      seed.getTransaction().commit();
+
+      var scanStore = store(scan);
+      scan.getTransaction().begin();
+      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+      assertEquals(1, recovery.reset());
+
+      var heartbeatStore = store(heartbeat);
+      heartbeat.getTransaction().begin();
+      heartbeatStore.upsertHeartbeat("live", now);
+      heartbeat.getTransaction().commit();
+
+      heartbeat.getTransaction().begin();
+      // Only the candidate owner's node row stays shared-locked until the scan commits. The
+      // connection's lockTimeout makes SQL Server end the wait with error 1222, which surfaces as
+      // a lock timeout rather than a transient store error.
+      assertThrows(LockTimeoutException.class, () -> heartbeatStore.upsertHeartbeat("late", now));
+      if (heartbeat.getTransaction().isActive()) heartbeat.getTransaction().rollback();
+
+      scan.getTransaction().commit();
+
+      heartbeat.getTransaction().begin();
+      heartbeatStore.upsertHeartbeat("late", now);
+      heartbeat.getTransaction().commit();
+
+      scan.getTransaction().begin();
+      var job = scanStore.findById(jobId).orElseThrow();
+      assertEquals(JobStatus.PENDING, job.getStatus());
+      assertNull(job.getPickedBy());
+      scan.getTransaction().commit();
+    } finally {
+      closeSessions(List.of(scan, heartbeat, seed));
+    }
+  }
+
+  @Test
+  void periodicScanRecoversOrphansAcrossPages() {
+    fixture.cleanupStore();
+    emf = newFactory();
+    Instant cutoff = Instant.now().minusSeconds(60);
+    int count = SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE + 1;
+    var seed = emf.createEntityManager();
+    var scan = emf.createEntityManager();
+    try {
+      var seedStore = store(seed);
+      seed.getTransaction().begin();
+      seedStore.upsertHeartbeat("dead", cutoff.minusSeconds(3600));
+      for (int i = 0; i < count; i++) {
+        runningJob(seedStore, "dead", cutoff.minusSeconds(60));
+      }
+      seed.getTransaction().commit();
+
+      var scanStore = store(scan);
+      scan.getTransaction().begin();
+      assertEquals(count, scanStore.resetOrphanJobsBefore(cutoff, 3, 100).reset());
+      assertEquals(
+          0,
+          ((Number)
+                  scan.createNativeQuery(
+                          """
+                          SELECT COUNT(*) FROM scheduler_job_queue
+                          WHERE picked_by = 'dead' AND status = 'RUNNING'
+                          """)
+                      .getSingleResult())
+              .intValue());
+      scan.getTransaction().commit();
+    } finally {
+      closeSessions(List.of(scan, seed));
+    }
   }
 
   private void scanWithOtherOwnersRowLocked(boolean startup, boolean exclusive) {

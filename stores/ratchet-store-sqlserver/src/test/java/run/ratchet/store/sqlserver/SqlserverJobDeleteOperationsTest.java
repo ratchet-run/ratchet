@@ -18,6 +18,8 @@ package run.ratchet.store.sqlserver;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -29,8 +31,11 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -41,6 +46,7 @@ class SqlserverJobDeleteOperationsTest {
   private final EntityManager em = mock(EntityManager.class);
   private final List<Statement> statements = new ArrayList<>();
   private final List<Object[]> rows = new ArrayList<>();
+  private final Set<String> liveOwners = new HashSet<>();
   private final Set<UUID> rejectedIds = new HashSet<>();
 
   private record Statement(String sql, Query query) {}
@@ -56,23 +62,59 @@ class SqlserverJobDeleteOperationsTest {
               String sql = invocation.<String>getArgument(0).replaceAll("\\s+", " ").trim();
               Query query = mock(Query.class, Answers.RETURNS_SELF);
               statements.add(new Statement(sql, query));
-              if (sql.startsWith("SELECT job_id FROM")) {
-                when(query.getResultList()).thenReturn(rows.stream().map(row -> row[0]).toList());
-              } else if (sql.startsWith("SELECT")) {
-                int chunk =
-                    (int) statements.stream().filter(s -> s.sql().contains("UPDLOCK")).count() - 1;
-                int start = chunk * SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE;
-                int end =
-                    Math.min(
-                        start + SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE,
-                        rows.size());
+              Map<Integer, Object> bindings = new HashMap<>();
+              when(query.setParameter(anyInt(), any()))
+                  .thenAnswer(
+                      binding -> {
+                        bindings.put(binding.getArgument(0), binding.getArgument(1));
+                        return query;
+                      });
+              if (sql.startsWith("SELECT TOP (500) job_id")) {
                 when(query.getResultList())
-                    .thenReturn(
-                        rows.subList(start, end).stream()
-                            .filter(
-                                row ->
-                                    !rejectedIds.contains(SqlserverJobRowMapper.uuidOrNull(row[0])))
-                            .toList());
+                    .thenAnswer(
+                        ignored -> {
+                          byte[] after =
+                              sql.contains("job_id > ?")
+                                  ? (byte[]) bindings.get(bindings.size())
+                                  : null;
+                          return rows.stream()
+                              .map(row -> (byte[]) row[0])
+                              .sorted(Arrays::compareUnsigned)
+                              .filter(id -> after == null || Arrays.compareUnsigned(id, after) > 0)
+                              .limit(500)
+                              .toList();
+                        });
+              } else if (sql.startsWith("SELECT")) {
+                when(query.getResultList())
+                    .thenAnswer(
+                        ignored ->
+                            rows.stream()
+                                .filter(
+                                    row ->
+                                        bindings.values().stream()
+                                            .anyMatch(
+                                                value ->
+                                                    value instanceof byte[] id
+                                                        && Arrays.equals(id, (byte[]) row[0])))
+                                .filter(
+                                    row ->
+                                        !rejectedIds.contains(
+                                            SqlserverJobRowMapper.uuidOrNull(row[0])))
+                                .sorted(
+                                    (a, b) -> Arrays.compareUnsigned((byte[]) a[0], (byte[]) b[0]))
+                                .map(
+                                    row ->
+                                        new Object[] {
+                                          row[0],
+                                          row[1],
+                                          row[2],
+                                          row[3],
+                                          sql.contains("CASE WHEN EXISTS")
+                                                  && liveOwners.contains(row[3])
+                                              ? 1
+                                              : 0
+                                        })
+                                .toList());
               } else {
                 int ids = (int) sql.chars().filter(c -> c == '?').count();
                 when(query.executeUpdate())
@@ -90,7 +132,7 @@ class SqlserverJobDeleteOperationsTest {
     assertEquals(0, result.reset());
     assertTrue(result.exhausted().isEmpty());
     assertEquals(1, statements.size());
-    assertTrue(statements.get(0).sql().startsWith("SELECT job_id FROM"));
+    assertTrue(statements.get(0).sql().startsWith("SELECT TOP (500) job_id"));
     assertFalse(statements.get(0).sql().contains("UPDLOCK"));
     assertTrue(statements.get(0).sql().endsWith("ORDER BY job_id"));
     verify(em, never()).clear();
@@ -98,7 +140,8 @@ class SqlserverJobDeleteOperationsTest {
 
   @Test
   void candidatesAreLockedAndSplitUsingCurrentCrashCounts() {
-    var result = operations(4).resetOrphanJobsBefore(Instant.now(), 1, 100);
+    Instant cutoff = Instant.now();
+    var result = operations(4).resetOrphanJobsBefore(cutoff, 1, 100);
     assertEquals(2, result.reset());
     assertEquals(
         List.of(new UUID(0, 2), new UUID(0, 4)),
@@ -115,6 +158,19 @@ class SqlserverJobDeleteOperationsTest {
             "AND status = 'RUNNING' AND NOT EXISTS ( SELECT 1 FROM"
                 + " scheduler_node n WHERE n.node_id = scheduler_job_queue.picked_by"
                 + " AND n.heartbeat_ts >= ? ) AND picked_at < ?"));
+    assertTrue(
+        lock.contains(
+            "CASE WHEN EXISTS ( SELECT 1 FROM scheduler_node n"
+                + " WITH (HOLDLOCK, ROWLOCK, FORCESEEK(pk_scheduler_node(node_id)))"
+                + " WHERE n.node_id = scheduler_job_queue.picked_by AND n.heartbeat_ts >= ?"
+                + " ) THEN 1 ELSE 0 END AS owner_live"));
+    Query lockQuery = statements.get(1).query();
+    verify(lockQuery).setParameter(1, SqlserverTimestamps.microTimestamp(cutoff));
+    for (int i = 1; i <= 4; i++) {
+      verify(lockQuery).setParameter(i + 1, UuidByteArrayConverter.toBytes(new UUID(0, i)));
+    }
+    verify(lockQuery).setParameter(6, SqlserverTimestamps.microTimestamp(cutoff));
+    verify(lockQuery).setParameter(7, SqlserverTimestamps.microTimestamp(cutoff));
     assertTrue(lock.endsWith("ORDER BY job_id"));
     assertEquals(4, statements.size());
     verify(statements.get(2).query()).setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
@@ -134,6 +190,11 @@ class SqlserverJobDeleteOperationsTest {
     assertEquals(size / 2 + 1, result.exhausted().size());
     assertEquals(new UUID(0, size + 2), result.exhausted().get(size / 2).jobId());
     assertEquals(2, statements.stream().filter(s -> s.sql().contains("UPDLOCK")).count());
+    var reads = candidateReads();
+    assertEquals(2, reads.size());
+    assertFalse(reads.get(0).sql().contains("job_id > ?"));
+    assertTrue(reads.get(1).sql().contains("job_id > ?"));
+    verify(reads.get(1).query()).setParameter(3, UuidByteArrayConverter.toBytes(new UUID(0, size)));
     assertEquals(0, statements.stream().filter(s -> isRelease(s.sql())).count());
     assertUpdatesUseIds();
   }
@@ -143,6 +204,11 @@ class SqlserverJobDeleteOperationsTest {
     var result = operations(6).resetOrphanJobsForNode("dead", 1, 1);
     assertTrue(
         statements.get(1).sql().contains("AND status = 'RUNNING' AND picked_by = ? ORDER BY"));
+    assertTrue(statements.get(1).sql().contains("0 AS owner_live"));
+    assertFalse(statements.get(1).sql().contains("HOLDLOCK"));
+    verify(statements.get(1).query())
+        .setParameter(1, UuidByteArrayConverter.toBytes(new UUID(0, 1)));
+    verify(statements.get(1).query()).setParameter(7, "dead");
     assertEquals(3, result.reset());
     assertEquals(1, result.exhausted().size());
     Statement release =
@@ -162,6 +228,9 @@ class SqlserverJobDeleteOperationsTest {
     assertEquals(1, result.exhausted().size());
     var releases = statements.stream().filter(s -> isRelease(s.sql())).toList();
     assertEquals(2, releases.size());
+    var reads = candidateReads();
+    assertEquals(2, reads.size());
+    verify(reads.get(1).query()).setParameter(2, UuidByteArrayConverter.toBytes(new UUID(0, size)));
     for (int chunk = 0; chunk < releases.size(); chunk++) {
       Statement release = releases.get(chunk);
       int count = chunk == 0 ? size / 2 : 2;
@@ -220,6 +289,48 @@ class SqlserverJobDeleteOperationsTest {
     assertTrue(result.exhausted().isEmpty());
     assertEquals(2, statements.size());
     assertTrue(statements.stream().noneMatch(s -> s.sql().startsWith("UPDATE")));
+  }
+
+  @Test
+  void fullPageIsFollowedByAnEmptyCandidateRead() {
+    int size = SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE;
+    var result = operations(size).resetOrphanJobsBefore(Instant.now(), 1, 100);
+    assertEquals(size / 2, result.reset());
+    var reads = candidateReads();
+    assertEquals(2, reads.size());
+    verify(reads.get(1).query()).setParameter(3, UuidByteArrayConverter.toBytes(new UUID(0, size)));
+    assertEquals(reads.get(1), statements.get(statements.size() - 1));
+    assertEquals(1, statements.stream().filter(s -> s.sql().contains("UPDLOCK")).count());
+  }
+
+  @Test
+  void pagingAdvancesPastAnEntireRejectedPage() {
+    int size = SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE;
+    for (int i = 1; i <= size; i++) {
+      rejectedIds.add(new UUID(0, i));
+    }
+    var result = operations(size + 1).resetOrphanJobsBefore(Instant.now(), 1, 100);
+    assertEquals(1, result.reset());
+    assertTrue(result.exhausted().isEmpty());
+    var reads = candidateReads();
+    assertEquals(2, reads.size());
+    verify(reads.get(1).query()).setParameter(3, UuidByteArrayConverter.toBytes(new UUID(0, size)));
+    assertEquals(2, statements.stream().filter(s -> s.sql().contains("UPDLOCK")).count());
+    assertEquals(2, statements.stream().filter(s -> s.sql().startsWith("UPDATE")).count());
+  }
+
+  @Test
+  void periodicScanSkipsRowsWhoseOwnerIsLiveUnderLock() {
+    liveOwners.add("dead");
+    var result = operations(2).resetOrphanJobsBefore(Instant.now(), 1, 100);
+    assertEquals(0, result.reset());
+    assertTrue(result.exhausted().isEmpty());
+    assertEquals(2, statements.size());
+    assertTrue(statements.stream().noneMatch(s -> s.sql().startsWith("UPDATE")));
+  }
+
+  private List<Statement> candidateReads() {
+    return statements.stream().filter(s -> s.sql().startsWith("SELECT TOP (500) job_id")).toList();
   }
 
   private static boolean isRelease(String sql) {

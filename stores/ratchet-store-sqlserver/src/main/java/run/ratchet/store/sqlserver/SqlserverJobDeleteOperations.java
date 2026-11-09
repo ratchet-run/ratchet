@@ -212,7 +212,8 @@ final class SqlserverJobDeleteOperations {
         List.of(cutoffTimestamp, cutoffTimestamp),
         maxCrashRedeliveries,
         exhaustedLimit,
-        false);
+        false,
+        cutoffTimestamp);
   }
 
   OrphanRecovery resetOrphanJobsForNode(
@@ -222,7 +223,8 @@ final class SqlserverJobDeleteOperations {
         List.of(nodeId),
         maxCrashRedeliveries,
         exhaustedLimit,
-        true);
+        true,
+        null);
   }
 
   private OrphanRecovery recoverOrphans(
@@ -230,55 +232,92 @@ final class SqlserverJobDeleteOperations {
       List<?> parameters,
       int maxCrashRedeliveries,
       int exhaustedLimit,
-      boolean releaseOwner) {
+      boolean releaseOwner,
+      Timestamp liveSince) {
     try {
-      // The candidate read takes no locks, so a scan without orphans locks nothing. The re-check
-      // uses UPDLOCK to lock only candidates by primary key, matching the terminal path's first
-      // lock. Later statements address those locked rows by id. All chunks share one transaction
-      // and hold locks until commit: chunking only bounds statement size. The re-check and the
-      // queue updates force a seek on pk_scheduler_job_queue, so they lock clustered rows first,
-      // in the same order as the terminal path, and never seek idx_queue_orphan. The updates use
-      // FORCESEEK with INDEX(...) because the SQL Server documentation does not allow FORCESEEK
-      // with index parameters on an UPDATE target.
-      Query candidates =
-          ctx.em()
-              .createNativeQuery(
-                  "SELECT job_id FROM scheduler_job_queue WHERE " + predicate + " ORDER BY job_id");
-      bindPredicate(candidates, parameters, 1);
-      List<?> candidateRows = candidates.getResultList();
-      if (candidateRows.isEmpty()) {
-        return new OrphanRecovery(0, List.of());
-      }
-      List<UUID> ids = new ArrayList<>(candidateRows.size());
-      for (Object row : candidateRows) {
-        ids.add(SqlserverJobRowMapper.uuidOrNull(row));
-      }
+      // The candidate read takes no locks, so a scan without orphans locks nothing. It reads one
+      // page of ids at a time, keyed by job_id, so memory stays bounded by the page size. The
+      // re-check uses UPDLOCK to lock only candidates by primary key, matching the terminal
+      // path's first lock. Later statements address those locked rows by id. All pages share one
+      // transaction and hold their locks until commit. The re-check and the queue updates force a
+      // seek on pk_scheduler_job_queue, so they lock clustered rows first, in the same order as
+      // the terminal path, and never seek idx_queue_orphan. The updates use FORCESEEK with
+      // INDEX(...) because the SQL Server documentation does not allow FORCESEEK with index
+      // parameters on an UPDATE target.
+      //
+      // On periodic scans the re-check also reads each candidate owner's node row under HOLDLOCK,
+      // seeking pk_scheduler_node. It sees a heartbeat that committed after the candidate read,
+      // and its shared lock keeps that owner from recording a heartbeat until the scan commits.
+      // REPEATABLEREAD is not enough: SQL Server releases its lock on a row the subquery's WHERE
+      // rejects, which is the stale owner's row. Only the candidates' owners are locked, so other
+      // nodes' heartbeats don't wait.
       int count = 0;
       List<ExhaustedOrphan> exhausted = new ArrayList<>();
-      for (int offset = 0; offset < ids.size(); offset += ORPHAN_RECOVERY_CHUNK_SIZE) {
-        List<UUID> chunk =
-            ids.subList(offset, Math.min(offset + ORPHAN_RECOVERY_CHUNK_SIZE, ids.size()));
+      UUID lastId = null;
+      boolean more = true;
+      while (more) {
+        Query candidates =
+            ctx.em()
+                .createNativeQuery(
+                    "SELECT TOP ("
+                        + ORPHAN_RECOVERY_CHUNK_SIZE
+                        + ") job_id FROM scheduler_job_queue WHERE "
+                        + predicate
+                        + (lastId == null ? "" : " AND job_id > ?")
+                        + " ORDER BY job_id");
+        bindPredicate(candidates, parameters, 1);
+        if (lastId != null) {
+          candidates.setParameter(parameters.size() + 1, UuidByteArrayConverter.toBytes(lastId));
+        }
+        List<?> candidateRows = candidates.getResultList();
+        if (candidateRows.isEmpty()) {
+          if (lastId == null) return new OrphanRecovery(0, List.of());
+          break;
+        }
+        List<UUID> chunk = new ArrayList<>(candidateRows.size());
+        for (Object row : candidateRows) {
+          chunk.add(SqlserverJobRowMapper.uuidOrNull(row));
+        }
+        lastId = chunk.get(chunk.size() - 1);
+        more = chunk.size() == ORPHAN_RECOVERY_CHUNK_SIZE;
+        String ownerCheck =
+            liveSince == null
+                ? "0 AS owner_live"
+                : """
+                CASE WHEN EXISTS (
+                  SELECT 1 FROM scheduler_node n
+                      WITH (HOLDLOCK, ROWLOCK, FORCESEEK(pk_scheduler_node(node_id)))
+                  WHERE n.node_id = scheduler_job_queue.picked_by AND n.heartbeat_ts >= ?
+                ) THEN 1 ELSE 0 END AS owner_live
+                """;
         String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
         Query lock =
             ctx.em()
                 .createNativeQuery(
                     """
-                    SELECT job_id, claim_seq, crash_count, picked_by
-                    FROM scheduler_job_queue
-                        WITH (UPDLOCK, ROWLOCK, FORCESEEK(pk_scheduler_job_queue(job_id)))
-                    WHERE job_id IN (
+                    SELECT job_id, claim_seq, crash_count, picked_by,
                     """
+                        + ownerCheck
+                        + " "
+                        + """
+                        FROM scheduler_job_queue
+                            WITH (UPDLOCK, ROWLOCK, FORCESEEK(pk_scheduler_job_queue(job_id)))
+                        WHERE job_id IN (
+                        """
                         + placeholders
                         + ") AND "
                         + predicate
                         + " ORDER BY job_id");
-        bindUuidList(lock, chunk, 1);
-        bindPredicate(lock, parameters, chunk.size() + 1);
+        int index = 1;
+        if (liveSince != null) lock.setParameter(index++, liveSince);
+        bindUuidList(lock, chunk, index);
+        bindPredicate(lock, parameters, chunk.size() + index);
         List<UUID> confirmed = new ArrayList<>();
         List<UUID> resettable = new ArrayList<>();
         List<UUID> exhaustedIds = new ArrayList<>();
         for (Object result : lock.getResultList()) {
           Object[] row = (Object[]) result;
+          if (((Number) row[4]).intValue() != 0) continue;
           UUID id = SqlserverJobRowMapper.uuidOrNull(row[0]);
           int crashCount = ((Number) row[2]).intValue();
           confirmed.add(id);
