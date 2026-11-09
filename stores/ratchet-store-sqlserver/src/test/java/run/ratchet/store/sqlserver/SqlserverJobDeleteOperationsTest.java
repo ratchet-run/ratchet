@@ -236,7 +236,7 @@ class SqlserverJobDeleteOperationsTest {
           sql.contains("WHERE status = 'RUNNING' AND job_id IN (")
               || sql.contains("WHERE q.job_id IN ("));
       if (sql.contains("scheduler_job_queue")) {
-        assertTrue(sql.contains("WITH (FORCESEEK(pk_scheduler_job_queue(job_id)))"));
+        assertTrue(sql.contains("WITH (FORCESEEK, INDEX(pk_scheduler_job_queue))"));
         assertTrue(sql.contains("WHERE q.job_id IN ("));
         assertFalse(sql.contains("ORDER BY"));
       }

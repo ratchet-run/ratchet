@@ -236,8 +236,10 @@ final class SqlserverJobDeleteOperations {
       // uses UPDLOCK to lock only candidates by primary key, matching the terminal path's first
       // lock. Later statements address those locked rows by id. All chunks share one transaction
       // and hold locks until commit: chunking only bounds statement size. The re-check and the
-      // queue updates use FORCESEEK(pk_scheduler_job_queue(job_id)), so they lock clustered rows
-      // first, in the same order as the terminal path, and never seek idx_queue_orphan.
+      // queue updates force a seek on pk_scheduler_job_queue, so they lock clustered rows first,
+      // in the same order as the terminal path, and never seek idx_queue_orphan. The updates use
+      // FORCESEEK with INDEX(...) because the SQL Server documentation does not allow FORCESEEK
+      // with index parameters on an UPDATE target.
       Query candidates =
           ctx.em()
               .createNativeQuery(
@@ -318,7 +320,7 @@ final class SqlserverJobDeleteOperations {
                       UPDATE q
                       SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
                           crash_count = crash_count + 1, updated_at = SYSUTCDATETIME()
-                      FROM scheduler_job_queue q WITH (FORCESEEK(pk_scheduler_job_queue(job_id)))
+                      FROM scheduler_job_queue q WITH (FORCESEEK, INDEX(pk_scheduler_job_queue))
                       WHERE q.job_id IN (
                       """
                           + String.join(",", Collections.nCopies(resettable.size(), "?"))
@@ -332,7 +334,7 @@ final class SqlserverJobDeleteOperations {
                   .createNativeQuery(
                       """
                       UPDATE q SET picked_by = NULL
-                      FROM scheduler_job_queue q WITH (FORCESEEK(pk_scheduler_job_queue(job_id)))
+                      FROM scheduler_job_queue q WITH (FORCESEEK, INDEX(pk_scheduler_job_queue))
                       WHERE q.job_id IN (
                       """
                           + String.join(",", Collections.nCopies(exhaustedIds.size(), "?"))
