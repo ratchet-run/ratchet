@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,6 +54,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ErrorSanitizer;
@@ -163,10 +165,49 @@ class OrphanRecoveryTimerTest {
               .anyMatch(
                   record ->
                       record.getMessage().equals("Orphan recovery scan failed")
+                          && record.getLevel().equals(Level.SEVERE)
                           && record.getThrown() instanceof IllegalStateException));
     }
     verify(jobBulkStore).closeStaleExecutions(cutoff, 500);
     verify(nodeStore, never()).findInactiveNodesSince(any(Instant.class));
+  }
+
+  @Test
+  void transientFailureInsideLeaseLogsWarningAndReleasesLease() {
+    SingletonLeaseService leases = mock(SingletonLeaseService.class);
+    LockStore locks = mock(LockStore.class);
+    when(leases.tryAcquire("orphanRecovery", Duration.ofSeconds(120)))
+        .thenReturn(Optional.of(new SingletonLease(locks, "orphanRecovery", "node-1")));
+    var failure = new RatchetTransientStoreException("deadlock");
+    when(jobBulkStore.resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 100)).thenThrow(failure);
+    var configured =
+        new OrphanRecoveryTimer(
+            jobBulkStore,
+            jobCrudStore,
+            nodeStore,
+            resourcePermitService,
+            leases,
+            lifecycleFacade,
+            callbackInvoker,
+            errorSanitizer,
+            3,
+            60,
+            120,
+            FIXED_CLOCK);
+    try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
+      configured.recoverNow();
+      assertTrue(
+          logs.records().stream()
+              .anyMatch(
+                  record ->
+                      record.getLevel().equals(Level.WARNING)
+                          && record.getMessage().contains("the next scan will retry")
+                          && record.getThrown() == failure));
+      assertFalse(
+          logs.records().stream().anyMatch(record -> record.getLevel().equals(Level.SEVERE)));
+    }
+    verify(locks).unlock("orphanRecovery", "node-1");
+    verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 100);
   }
 
   @Test

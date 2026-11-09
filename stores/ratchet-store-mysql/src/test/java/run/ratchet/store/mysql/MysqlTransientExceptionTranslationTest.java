@@ -76,8 +76,9 @@ class MysqlTransientExceptionTranslationTest {
   }
 
   @Test
-  void resetOrphanJobsTranslatesTransientWriteFailure() {
-    MysqlStoreContext ctx = throwingContext("executeUpdate");
+  void resetOrphanJobsTranslatesTransientFailure() {
+    // The scan's first statement is the non-locking candidate read.
+    MysqlStoreContext ctx = throwingContext("getResultList");
     MysqlJobDeleteOperations deletes =
         new MysqlJobDeleteOperations(ctx, new MysqlBusinessKeyReservations(ctx));
 
