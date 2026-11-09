@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -136,7 +137,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             Clock.systemUTC(),
             null,
-            new JakartaAfterCommitRegistrar());
+            new JakartaAfterCommitRegistrar(),
+            mock(BatchService.class));
   }
 
   @Test
@@ -175,7 +177,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         null,
         Clock.systemUTC(),
         RatchetOptions.builder().callerPrincipalResolver(callerPrincipalResolver).build(),
-        new JakartaAfterCommitRegistrar());
+        new JakartaAfterCommitRegistrar(),
+        mock(BatchService.class));
   }
 
   @Test
@@ -440,7 +443,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             Clock.systemUTC(),
             null,
-            new JakartaAfterCommitRegistrar());
+            new JakartaAfterCommitRegistrar(),
+            mock(BatchService.class));
 
     when(jobBatchStatusStore.compareAndSwapStatus(
             eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any()))

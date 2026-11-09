@@ -276,6 +276,36 @@ final class MysqlJobQueryOperations {
   }
 
   @SuppressWarnings("unchecked")
+  List<UUID> findRetryableFailedJobIds(JobFilter filter, int limit) {
+    try {
+      List<Object> params = new ArrayList<>();
+      String where = buildWhere(filter, params);
+      String eligibility =
+          """
+          c.job_type <> 'BATCH_PARENT'
+          AND (c.job_type <> 'BATCH_CHILD' OR EXISTS (
+            SELECT 1 FROM scheduler_batch b
+            WHERE b.batch_id = c.depends_on AND b.completion_processed = 0))
+          """;
+      String sql =
+          "SELECT c.job_id "
+              + HYDRATION_FROM
+              + where
+              + (where.isBlank() ? " WHERE " : " AND ")
+              + eligibility
+              + buildOrderBy(filter)
+              + " LIMIT "
+              + Math.min(limit, MAX_IN_CLAUSE);
+      Query query = ctx.em().createNativeQuery(sql);
+      bindParams(query, params);
+      List<Object> rows = query.getResultList();
+      return rows.stream().map(MysqlJobRowMapper::uuidOrNull).toList();
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("find retryable failed jobs", ex);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     try {
       boolean archive = useArchive(filter);

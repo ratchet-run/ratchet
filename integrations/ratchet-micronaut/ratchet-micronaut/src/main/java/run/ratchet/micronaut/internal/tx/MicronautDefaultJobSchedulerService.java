@@ -19,6 +19,7 @@ import io.micronaut.core.annotation.Creator;
 import java.time.Clock;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -73,7 +74,8 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
       MetricsCollector metricsCollector,
       Clock clock,
       RatchetOptions options,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchService batchService) {
     super(
         eventPublisher,
         jobBatchStatusStore,
@@ -96,6 +98,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
         metricsCollector,
         clock,
         options,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        batchService);
   }
 }

@@ -225,7 +225,8 @@ class RatchetSubmissionConfiguration {
       MetricsCollector metrics,
       Clock clock,
       RatchetOptions options,
-      AfterCommitRegistrar registrar) {
+      AfterCommitRegistrar registrar,
+      BatchService batchService) {
     return new DefaultJobSchedulerService(
         events,
         store,
@@ -248,6 +249,7 @@ class RatchetSubmissionConfiguration {
         metrics,
         clock,
         options,
-        registrar);
+        registrar,
+        batchService);
   }
 }

@@ -27,12 +27,15 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,6 +93,7 @@ class DefaultJobSchedulerServiceEventTest {
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private BatchStore batchStore;
+  @Mock private BatchService batchService;
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
   @Mock private RecurringJobStore recurringJobStore;
@@ -132,7 +136,96 @@ class DefaultJobSchedulerServiceEventTest {
             metricsCollector,
             FIXED_CLOCK,
             null,
-            registrar);
+            registrar,
+            batchService);
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = JobStatus.class,
+      names = {"PENDING", "RUNNING", "PAUSED", "WAITING"})
+  void cancelBatchChildChecksCompletionOnlyAfterCommit(JobStatus previous) {
+    List<Runnable> callbacks = new ArrayList<>();
+    setUp(
+        action -> {
+          callbacks.add(action);
+          return AfterCommitRegistrar.Result.REGISTERED;
+        });
+    JobEntity child = job(previous, JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(REPLACEMENT_ID);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(child));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), any(), eq(JobStatus.CANCELED), isNull()))
+        .thenAnswer(inv -> inv.getArgument(1) == previous);
+    when(batchService.completeIfFinished(REPLACEMENT_ID)).thenReturn(true);
+
+    assertTrue(service.cancelJob(JOB_ID));
+    assertEquals(2, callbacks.size());
+    verifyNoInteractions(batchService, wakeupService);
+    callbacks.forEach(Runnable::run);
+    verify(batchService).completeIfFinished(REPLACEMENT_ID);
+    verify(wakeupService).notify(JobPriority.NORMAL, true, null);
+  }
+
+  @Test
+  void cancelSingleJobRegistersOnlyEvent() {
+    List<Runnable> callbacks = new ArrayList<>();
+    setUp(
+        action -> {
+          callbacks.add(action);
+          return AfterCommitRegistrar.Result.REGISTERED;
+        });
+    when(jobCrudStore.findById(JOB_ID))
+        .thenReturn(Optional.of(job(JobStatus.PENDING, JobExecutionType.SINGLE)));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+
+    assertTrue(service.cancelJob(JOB_ID));
+    assertEquals(1, callbacks.size());
+    callbacks.forEach(Runnable::run);
+    verifyNoInteractions(batchService);
+  }
+
+  @Test
+  void unsuccessfulCancelDoesNotRegisterBatchCompletion() {
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    setUp(registrar);
+    JobEntity child = job(JobStatus.FAILED, JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(REPLACEMENT_ID);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(child));
+
+    assertFalse(service.cancelJob(JOB_ID));
+    verifyNoInteractions(registrar, batchService);
+  }
+
+  @Test
+  void failedBatchFollowupIsDeferredToRecovery() {
+    JobEntity child = job(JobStatus.PENDING, JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(REPLACEMENT_ID);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(child));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+    when(batchService.completeIfFinished(REPLACEMENT_ID))
+        .thenThrow(new IllegalStateException("store unavailable"));
+
+    assertTrue(service.cancelJob(JOB_ID));
+    verify(batchService).completeIfFinished(REPLACEMENT_ID);
+    verifyNoInteractions(wakeupService);
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = JobExecutionType.class,
+      names = {"BATCH_PARENT", "BATCH_CHILD"})
+  void retryRejectedFailedBatchJobDoesNotPublishOrWake(JobExecutionType type) {
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job(JobStatus.FAILED, type)));
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.FAILED);
+
+    assertFalse(service.retryJob(JOB_ID));
+    verify(jobRetryStore).resetFailedToPending(JOB_ID);
+    verifyNoInteractions(eventPublisher, wakeupService);
   }
 
   @ParameterizedTest

@@ -206,7 +206,8 @@ JobHandle replacement = scheduler.replace(
 boolean cancelJob(UUID jobId)
 ```
 
-Cancels a job by its ID.
+Cancels a job by its ID. Cancelling a batch child counts as a failure. The batch completes
+as soon as its last child ends.
 
 - **PENDING** jobs transition directly to CANCELED.
 - **RUNNING** jobs transition to CANCELED; the executor should check status before committing results.
@@ -285,7 +286,11 @@ Retries a failed job by resetting it to PENDING status. This is the primary mech
 **Parameters:**
 - `jobId` -- the ID of the failed job to retry.
 
-**Returns:** `true` if the job was successfully reset to PENDING; `false` if not found or not FAILED.
+Failed batch children can be retried while their batch is running. The retry updates the batch's
+failure counter. Batch parents and children of finished batches cannot be retried.
+
+**Returns:** `true` if the job was successfully reset to PENDING; `false` if not found, not FAILED,
+or a batch parent or child of a finished batch.
 
 ```java
 // Manual DLQ retry
@@ -318,6 +323,8 @@ int recovered = scheduler.retryJobs(billingFailures, 250);
 ```
 
 - All `JobFilter` criteria and ordering apply, but only current `FAILED` jobs are eligible.
+- Batch parents and children of finished batches are skipped. They do not count toward the limit.
+  Retrying a child of a running batch updates its failure counter.
 - The batch commits or rolls back as a unit. A business-key reservation conflict rolls back the
   whole selected batch instead of partially recovering it.
 - This administrative operation does not run per-job authorization checks. Use `retryJob(UUID)`

@@ -28,8 +28,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
@@ -247,6 +250,108 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertThrows(NullPointerException.class, () -> store().resetFailedToPending(null, 1));
     assertThrows(IllegalArgumentException.class, () -> store().resetFailedToPending(allJobs, 0));
     assertThrows(IllegalArgumentException.class, () -> store().resetFailedToPending(allJobs, 1001));
+  }
+
+  @Test
+  void retryOpenBatchChildDecrementsFailures() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 2);
+    JobEntity child =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    batchStore().incrementFailedAtomic(parent.getId());
+
+    assertTrue(store().resetFailedToPending(child.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertFalse(store().resetFailedToPending(child.getId()));
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void retryClosedBatchChildChangesNothing() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    JobEntity child =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    batchStore().incrementFailedAtomic(parent.getId());
+    assertTrue(batchStore().markBatchCompleteIfReady(parent.getId()));
+
+    assertFalse(store().resetFailedToPending(child.getId()));
+    assertEquals(JobStatus.FAILED, store().getJobStatus(child.getId()));
+    BatchEntity batch = batchStore().findBatchById(parent.getId()).orElseThrow();
+    assertEquals(1, batch.getFailedItems());
+    assertEquals(Boolean.TRUE, batch.getCompletionProcessed());
+  }
+
+  @Test
+  void retryBatchParentChangesNothing() {
+    batchStore();
+    JobEntity parent = failedBatchJob(null, JobExecutionType.BATCH_PARENT, JobPriority.NORMAL);
+    persistBatch(parent.getId(), 1);
+
+    assertFalse(store().resetFailedToPending(parent.getId()));
+    assertEquals(JobStatus.FAILED, store().getJobStatus(parent.getId()));
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void retryChildFailureCounterIsFlooredAtZero() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 2);
+    JobEntity child =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+
+    assertTrue(store().resetFailedToPending(child.getId()));
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void bulkRetryLimitCountsOnlyEligibleRowsAndGroupsChildDecrement() {
+    batchStore();
+    JobEntity failedParent = failedBatchJob(null, JobExecutionType.BATCH_PARENT, JobPriority.HIGH);
+    JobEntity closedParent = persist(newBatchParentJob());
+    persistBatch(closedParent.getId(), 1);
+    JobEntity closedChild =
+        failedBatchJob(closedParent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.HIGH);
+    batchStore().incrementFailedAtomic(closedParent.getId());
+    assertTrue(batchStore().markBatchCompleteIfReady(closedParent.getId()));
+    JobEntity openParent = persist(newBatchParentJob());
+    persistBatch(openParent.getId(), 3);
+    JobEntity first =
+        failedBatchJob(openParent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    JobEntity second =
+        failedBatchJob(openParent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    batchStore().incrementFailedAtomic(openParent.getId());
+    batchStore().incrementFailedAtomic(openParent.getId());
+
+    JobFilter filter =
+        JobFilter.builder()
+            .tags("batch-retry")
+            .sortField(JobQuerySortField.PRIORITY)
+            .sortAscending(false)
+            .build();
+    assertEquals(2, store().resetFailedToPending(filter, 2));
+    assertEquals(JobStatus.FAILED, store().getJobStatus(failedParent.getId()));
+    assertEquals(JobStatus.FAILED, store().getJobStatus(closedChild.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(first.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(second.getId()));
+    assertEquals(0, batchStore().findBatchById(openParent.getId()).orElseThrow().getFailedItems());
+    assertEquals(
+        1, batchStore().findBatchById(closedParent.getId()).orElseThrow().getFailedItems());
+  }
+
+  private JobEntity failedBatchJob(UUID parentId, JobExecutionType type, JobPriority priority) {
+    JobEntity job = type == JobExecutionType.BATCH_PARENT ? newBatchParentJob() : newPendingJob();
+    job.setJobType(type);
+    job.setDependsOn(parentId);
+    job.setPriority(priority);
+    job.setTags(List.of("batch-retry"));
+    job.setStatus(JobStatus.FAILED);
+    job.setLastError("batch retry fixture");
+    return persist(job);
   }
 
   private JobEntity failedJob(String tag) {

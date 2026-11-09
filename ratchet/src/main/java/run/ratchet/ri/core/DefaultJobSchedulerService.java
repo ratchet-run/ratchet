@@ -99,6 +99,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   private final JobTerminalStore jobTerminalStore;
   private final JobCrudStore jobCrudStore;
   private final BatchStore batchStore;
+  private final BatchService batchService;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final RecurringJobStore recurringJobStore;
@@ -125,6 +126,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.jobTerminalStore = null;
     this.jobCrudStore = null;
     this.batchStore = null;
+    this.batchService = null;
     this.tagStore = null;
     this.workflowConditionStore = null;
     this.recurringJobStore = null;
@@ -166,7 +168,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       MetricsCollector metricsCollector,
       Clock clock,
       RatchetOptions options,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchService batchService) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -189,7 +192,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         metricsCollector,
         clock,
         options,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        batchService);
   }
 
   /**
@@ -219,7 +223,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       MetricsCollector metricsCollector,
       Clock clock,
       RatchetOptions options,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchService batchService) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -227,6 +232,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
+    this.batchService = batchService;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
     this.recurringJobStore = recurringJobStore;
@@ -273,6 +279,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled pending job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.PENDING, job);
+      completeCancelledChildBatch(job);
       return true;
     }
 
@@ -282,6 +289,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled running job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.RUNNING, job);
+      completeCancelledChildBatch(job);
       return true;
     }
 
@@ -290,6 +298,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
       log.debugf("Canceled paused job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.PAUSED, job);
+      completeCancelledChildBatch(job);
       return true;
     }
 
@@ -298,6 +307,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled waiting job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.WAITING, job);
+      completeCancelledChildBatch(job);
       if (metricsCollector != null && job != null) {
         metricsCollector.signalCancelled(jobId, job.getPublicJobType(), job.getSignalKey());
       }
@@ -320,6 +330,28 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
 
     log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
     return false;
+  }
+
+  private void completeCancelledChildBatch(JobEntity job) {
+    if (batchService == null
+        || job == null
+        || job.getJobType() != JobExecutionType.BATCH_CHILD
+        || job.getDependsOn() == null) {
+      return;
+    }
+    UUID batchId = job.getDependsOn();
+    AfterCommitActions.runOrFail(
+        afterCommitRegistrar,
+        "cancelled child batch completion",
+        () -> {
+          try {
+            if (batchService.completeIfFinished(batchId) && wakeupService != null) {
+              wakeupService.notify(JobPriority.NORMAL, true, null);
+            }
+          } catch (RuntimeException ex) {
+            log.warnf(ex, "Batch %s completion deferred to recovery", batchId);
+          }
+        });
   }
 
   @Override
@@ -602,6 +634,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     JobStatus current = jobCrudStore.getJobStatus(jobId);
     if (current == null) {
       log.debugf("Cannot retry job %s — not found", jobId);
+    } else if (current == JobStatus.FAILED) {
+      log.debugf("Cannot retry job %s — batch parent or child of a finished batch", jobId);
     } else {
       log.debugf("Cannot retry job %s — not in FAILED state (current: %s)", jobId, current);
     }
