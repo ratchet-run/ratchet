@@ -258,11 +258,8 @@ final class MysqlJobDeleteOperations {
       // locks until commit: chunking only bounds statement size.
       // On periodic scans the lock statement also returns each owner's heartbeat status through a
       // locking subquery keyed by primary key. It sees heartbeats committed since the snapshot,
-      // compares ids with the column collation, and locks only the owners' node rows. It matches
-      // the owner's row by key alone and tests the heartbeat in its select list, so the lock is
-      // kept until commit even when the heartbeat is stale, without relying on how READ COMMITTED
-      // treats rows a WHERE clause rejects. It uses LOCK IN SHARE MODE because MariaDB rejects
-      // FOR SHARE.
+      // compares ids with the column collation, and locks only the owners' node rows. It uses LOCK
+      // IN SHARE MODE because MariaDB rejects FOR SHARE.
       Query candidates =
           ctx.em()
               .createNativeQuery(
@@ -285,11 +282,11 @@ final class MysqlJobDeleteOperations {
         String ownerLive =
             liveSince != null
                 ? """
-                  COALESCE((
-                    SELECT n.heartbeat_ts >= ? FROM scheduler_node n FORCE INDEX (PRIMARY)
-                    WHERE n.node_id = scheduler_job_queue.picked_by
+                  EXISTS (
+                    SELECT 1 FROM scheduler_node n FORCE INDEX (PRIMARY)
+                    WHERE n.node_id = scheduler_job_queue.picked_by AND n.heartbeat_ts >= ?
                     LOCK IN SHARE MODE
-                  ), 0) AS owner_live
+                  ) AS owner_live
                   """
                 : "0 AS owner_live";
         Query lock =
