@@ -235,7 +235,9 @@ final class SqlserverJobDeleteOperations {
       // The candidate read takes no locks, so a scan without orphans locks nothing. The re-check
       // uses UPDLOCK to lock only candidates by primary key, matching the terminal path's first
       // lock. Later statements address those locked rows by id. All chunks share one transaction
-      // and hold locks until commit: chunking only bounds statement size.
+      // and hold locks until commit: chunking only bounds statement size. The re-check and the
+      // queue updates use FORCESEEK(pk_scheduler_job_queue(job_id)), so they lock clustered rows
+      // first, in the same order as the terminal path, and never seek idx_queue_orphan.
       Query candidates =
           ctx.em()
               .createNativeQuery(
@@ -260,7 +262,8 @@ final class SqlserverJobDeleteOperations {
                 .createNativeQuery(
                     """
                     SELECT job_id, claim_seq, crash_count, picked_by
-                    FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK, FORCESEEK)
+                    FROM scheduler_job_queue
+                        WITH (UPDLOCK, ROWLOCK, FORCESEEK(pk_scheduler_job_queue(job_id)))
                     WHERE job_id IN (
                     """
                         + placeholders
@@ -312,13 +315,14 @@ final class SqlserverJobDeleteOperations {
               ctx.em()
                   .createNativeQuery(
                       """
-                      UPDATE scheduler_job_queue
+                      UPDATE q
                       SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
                           crash_count = crash_count + 1, updated_at = SYSUTCDATETIME()
-                      WHERE job_id IN (
+                      FROM scheduler_job_queue q WITH (FORCESEEK(pk_scheduler_job_queue(job_id)))
+                      WHERE q.job_id IN (
                       """
                           + String.join(",", Collections.nCopies(resettable.size(), "?"))
-                          + ") AND status = 'RUNNING'");
+                          + ") AND q.status = 'RUNNING'");
           bindUuidList(reset, resettable, 1);
           count += reset.executeUpdate();
         }
@@ -327,8 +331,9 @@ final class SqlserverJobDeleteOperations {
               ctx.em()
                   .createNativeQuery(
                       """
-                      UPDATE scheduler_job_queue SET picked_by = NULL
-                      WHERE job_id IN (
+                      UPDATE q SET picked_by = NULL
+                      FROM scheduler_job_queue q WITH (FORCESEEK(pk_scheduler_job_queue(job_id)))
+                      WHERE q.job_id IN (
                       """
                           + String.join(",", Collections.nCopies(exhaustedIds.size(), "?"))
                           + ")");

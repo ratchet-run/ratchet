@@ -29,7 +29,9 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
@@ -39,6 +41,7 @@ class SqlserverJobDeleteOperationsTest {
   private final EntityManager em = mock(EntityManager.class);
   private final List<Statement> statements = new ArrayList<>();
   private final List<Object[]> rows = new ArrayList<>();
+  private final Set<UUID> rejectedIds = new HashSet<>();
 
   private record Statement(String sql, Query query) {}
 
@@ -63,7 +66,13 @@ class SqlserverJobDeleteOperationsTest {
                     Math.min(
                         start + SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE,
                         rows.size());
-                when(query.getResultList()).thenReturn(rows.subList(start, end));
+                when(query.getResultList())
+                    .thenReturn(
+                        rows.subList(start, end).stream()
+                            .filter(
+                                row ->
+                                    !rejectedIds.contains(SqlserverJobRowMapper.uuidOrNull(row[0])))
+                            .toList());
               } else {
                 int ids = (int) sql.chars().filter(c -> c == '?').count();
                 when(query.executeUpdate())
@@ -98,8 +107,14 @@ class SqlserverJobDeleteOperationsTest {
     assertEquals(1, result.exhausted().get(0).crashCount());
     assertEquals("dead", result.exhausted().get(0).pickedBy());
     String lock = statements.get(1).sql();
-    assertTrue(lock.contains("WITH (UPDLOCK, ROWLOCK, FORCESEEK) WHERE job_id IN"));
-    assertTrue(lock.contains("n.node_id = scheduler_job_queue.picked_by"));
+    assertTrue(
+        lock.contains(
+            "WITH (UPDLOCK, ROWLOCK, FORCESEEK(pk_scheduler_job_queue(job_id))) WHERE job_id IN"));
+    assertTrue(
+        lock.contains(
+            "AND status = 'RUNNING' AND NOT EXISTS ( SELECT 1 FROM"
+                + " scheduler_node n WHERE n.node_id = scheduler_job_queue.picked_by"
+                + " AND n.heartbeat_ts >= ? ) AND picked_at < ?"));
     assertTrue(lock.endsWith("ORDER BY job_id"));
     assertEquals(4, statements.size());
     verify(statements.get(2).query()).setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
@@ -126,6 +141,8 @@ class SqlserverJobDeleteOperationsTest {
   @Test
   void startupReleasesEveryExhaustedRowBeyondResultLimit() {
     var result = operations(6).resetOrphanJobsForNode("dead", 1, 1);
+    assertTrue(
+        statements.get(1).sql().contains("AND status = 'RUNNING' AND picked_by = ? ORDER BY"));
     assertEquals(3, result.reset());
     assertEquals(1, result.exhausted().size());
     Statement release =
@@ -164,8 +181,49 @@ class SqlserverJobDeleteOperationsTest {
     assertTrue(statements.stream().anyMatch(s -> isRelease(s.sql())));
   }
 
+  @Test
+  void lockReadRejectionsNeverReachUpdates() {
+    rejectedIds.addAll(List.of(new UUID(0, 1), new UUID(0, 2)));
+    var result = operations(4).resetOrphanJobsForNode("dead", 1, 100);
+    assertEquals(1, result.reset());
+    assertEquals(List.of(new UUID(0, 4)), result.exhausted().stream().map(r -> r.jobId()).toList());
+    assertEquals(5, statements.size());
+    for (int i = 2; i < statements.size(); i++) {
+      Statement statement = statements.get(i);
+      for (UUID rejectedId : rejectedIds) {
+        for (int parameter = 1; parameter <= 4; parameter++) {
+          verify(statement.query(), never())
+              .setParameter(parameter, UuidByteArrayConverter.toBytes(rejectedId));
+        }
+      }
+    }
+    assertEquals(3, statements.get(2).sql().chars().filter(c -> c == '?').count());
+    verify(statements.get(2).query()).setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
+    verify(statements.get(2).query())
+        .setParameter(2, UuidByteArrayConverter.toBytes(new UUID(0, 3)));
+    verify(statements.get(2).query())
+        .setParameter(3, UuidByteArrayConverter.toBytes(new UUID(0, 4)));
+    assertEquals(1, statements.get(3).sql().chars().filter(c -> c == '?').count());
+    verify(statements.get(3).query())
+        .setParameter(1, UuidByteArrayConverter.toBytes(new UUID(0, 3)));
+    assertEquals(1, statements.get(4).sql().chars().filter(c -> c == '?').count());
+    verify(statements.get(4).query())
+        .setParameter(1, UuidByteArrayConverter.toBytes(new UUID(0, 4)));
+    assertUpdatesUseIds();
+  }
+
+  @Test
+  void emptyLockReadIssuesNoUpdates() {
+    rejectedIds.addAll(List.of(new UUID(0, 1), new UUID(0, 2)));
+    var result = operations(2).resetOrphanJobsForNode("dead", 1, 100);
+    assertEquals(0, result.reset());
+    assertTrue(result.exhausted().isEmpty());
+    assertEquals(2, statements.size());
+    assertTrue(statements.stream().noneMatch(s -> s.sql().startsWith("UPDATE")));
+  }
+
   private static boolean isRelease(String sql) {
-    return sql.startsWith("UPDATE scheduler_job_queue") && !sql.contains("PENDING");
+    return sql.startsWith("UPDATE q") && !sql.contains("PENDING");
   }
 
   private void assertUpdatesUseIds() {
@@ -176,9 +234,10 @@ class SqlserverJobDeleteOperationsTest {
       assertFalse(sql.contains("SELECT"));
       assertTrue(
           sql.contains("WHERE status = 'RUNNING' AND job_id IN (")
-              || sql.contains("WHERE job_id IN ("));
-      if (sql.startsWith("UPDATE scheduler_job_queue")) {
-        assertTrue(sql.contains("WHERE job_id IN ("));
+              || sql.contains("WHERE q.job_id IN ("));
+      if (sql.contains("scheduler_job_queue")) {
+        assertTrue(sql.contains("WITH (FORCESEEK(pk_scheduler_job_queue(job_id)))"));
+        assertTrue(sql.contains("WHERE q.job_id IN ("));
         assertFalse(sql.contains("ORDER BY"));
       }
     }

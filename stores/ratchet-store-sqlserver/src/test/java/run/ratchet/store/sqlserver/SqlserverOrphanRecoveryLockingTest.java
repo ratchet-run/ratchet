@@ -66,15 +66,25 @@ class SqlserverOrphanRecoveryLockingTest {
 
   @Test
   void periodicScanDoesNotBlockOnHealthyRunningRows() {
-    scanWithOtherOwnersRowLocked(false);
+    scanWithOtherOwnersRowLocked(false, false);
   }
 
   @Test
   void startupScanDoesNotBlockOnOtherNodesRunningRows() {
-    scanWithOtherOwnersRowLocked(true);
+    scanWithOtherOwnersRowLocked(true, false);
   }
 
-  private void scanWithOtherOwnersRowLocked(boolean startup) {
+  @Test
+  void periodicScanDoesNotBlockOnExclusivelyLockedHealthyRows() {
+    scanWithOtherOwnersRowLocked(false, true);
+  }
+
+  @Test
+  void startupScanDoesNotBlockOnExclusivelyLockedRows() {
+    scanWithOtherOwnersRowLocked(true, true);
+  }
+
+  private void scanWithOtherOwnersRowLocked(boolean startup, boolean exclusive) {
     fixture.cleanupStore();
     emf = newFactory();
     Instant now = Instant.now();
@@ -92,14 +102,25 @@ class SqlserverOrphanRecoveryLockingTest {
       seed.getTransaction().commit();
 
       holder.getTransaction().begin();
-      holder
-          .createNativeQuery(
-              """
-              SELECT job_id FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK)
-              WHERE job_id = ?
-              """)
-          .setParameter(1, UuidByteArrayConverter.toBytes(healthyId))
-          .getSingleResult();
+      if (exclusive) {
+        holder
+            .createNativeQuery(
+                """
+                UPDATE scheduler_job_queue SET updated_at = SYSUTCDATETIME()
+                WHERE job_id = ?
+                """)
+            .setParameter(1, UuidByteArrayConverter.toBytes(healthyId))
+            .executeUpdate();
+      } else {
+        holder
+            .createNativeQuery(
+                """
+                SELECT job_id FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK)
+                WHERE job_id = ?
+                """)
+            .setParameter(1, UuidByteArrayConverter.toBytes(healthyId))
+            .getSingleResult();
+      }
       var scanStore = store(scan);
       scan.getTransaction().begin();
       // Before this fix the scan waited on the locked healthy row until the lock timeout.
@@ -109,6 +130,7 @@ class SqlserverOrphanRecoveryLockingTest {
               : scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
       assertEquals(1, recovery.reset());
       scan.getTransaction().commit();
+      if (exclusive) holder.getTransaction().rollback();
 
       scan.getTransaction().begin();
       var orphan = scanStore.findById(orphanId).orElseThrow();
