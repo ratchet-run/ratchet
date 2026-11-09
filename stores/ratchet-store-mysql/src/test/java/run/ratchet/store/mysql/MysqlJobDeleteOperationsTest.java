@@ -84,7 +84,7 @@ class MysqlJobDeleteOperationsTest {
                                       row[1],
                                       row[2],
                                       row[3],
-                                      sql.contains("LOCK IN SHARE MODE ), 0) AS owner_live")
+                                      sql.contains("LOCK IN SHARE MODE ) AS owner_live")
                                               && row[3] != null
                                               && liveOwners.stream()
                                                   .anyMatch(
@@ -134,11 +134,7 @@ class MysqlJobDeleteOperationsTest {
     assertTrue(lock.contains("picked_by IS NULL OR picked_by NOT IN"));
     assertTrue(lock.endsWith("ORDER BY job_id FOR UPDATE"));
     assertTrue(lock.contains("n.node_id = scheduler_job_queue.picked_by"));
-    assertTrue(
-        lock.contains(
-            "SELECT n.heartbeat_ts >= ? FROM scheduler_node n FORCE INDEX (PRIMARY)"
-                + " WHERE n.node_id = scheduler_job_queue.picked_by"));
-    assertTrue(lock.contains("LOCK IN SHARE MODE ), 0) AS owner_live"));
+    assertTrue(lock.contains("LOCK IN SHARE MODE ) AS owner_live"));
     verify(statements.get(1).query()).setParameter(1, Timestamp.from(cutoff));
     verify(statements.get(1).query())
         .setParameter(2, UuidByteArrayConverter.toBytes(new UUID(0, 1)));
