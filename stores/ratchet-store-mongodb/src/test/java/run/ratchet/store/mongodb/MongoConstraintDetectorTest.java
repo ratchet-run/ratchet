@@ -18,6 +18,8 @@ package run.ratchet.store.mongodb;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.mongodb.MongoCommandException;
@@ -27,16 +29,93 @@ import com.mongodb.MongoSocketOpenException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteError;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import java.lang.reflect.Proxy;
+import java.util.UUID;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 
 class MongoConstraintDetectorTest {
 
   private static final ServerAddress SERVER_ADDRESS = new ServerAddress("localhost", 27017);
 
   private final MongoConstraintDetector detector = new MongoConstraintDetector();
+
+  @Test
+  void translatesReservationPrimaryKeyConflictToPreciseSignal() {
+    MongoWriteException failure =
+        writeException(
+            11000,
+            "E11000 duplicate key error collection: ratchet.scheduler_business_key_reservation"
+                + " index: _id_ dup key: { _id: \"order-1\" }");
+    MongoBusinessKeyReservations reservations = reservationsFailingWith(failure);
+
+    BusinessKeyReservationConflictException thrown =
+        assertThrows(
+            BusinessKeyReservationConflictException.class,
+            () -> reservations.reserveRecurring(null, "order-1", UUID.randomUUID()));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void translatesReservationCommandConflictToPreciseSignal() {
+    MongoCommandException failure =
+        commandException(
+            11000,
+            "E11000 duplicate key error collection: ratchet.scheduler_business_key_reservation"
+                + " index: _id_ dup key: { _id: \"order-1\" }");
+    MongoBusinessKeyReservations reservations = reservationsFailingWith(failure);
+
+    BusinessKeyReservationConflictException thrown =
+        assertThrows(
+            BusinessKeyReservationConflictException.class,
+            () -> reservations.reserveRecurring(null, "order-1", UUID.randomUUID()));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void preservesNonDuplicateReservationFailure() {
+    MongoCommandException failure = commandException(112, "WriteConflict");
+    MongoBusinessKeyReservations reservations = reservationsFailingWith(failure);
+
+    assertSame(
+        failure,
+        assertThrows(
+            MongoCommandException.class,
+            () -> reservations.reserveRecurring(null, "order-1", UUID.randomUUID())));
+  }
+
+  private static MongoBusinessKeyReservations reservationsFailingWith(RuntimeException failure) {
+    MongoCollection<?> collection =
+        (MongoCollection<?>)
+            Proxy.newProxyInstance(
+                MongoCollection.class.getClassLoader(),
+                new Class<?>[] {MongoCollection.class},
+                (proxy, method, args) -> {
+                  if (method.getName().equals("insertOne")) {
+                    throw failure;
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+    MongoDatabase database =
+        (MongoDatabase)
+            Proxy.newProxyInstance(
+                MongoDatabase.class.getClassLoader(),
+                new Class<?>[] {MongoDatabase.class},
+                (proxy, method, args) -> {
+                  if (method.getName().equals("getCollection")) {
+                    return collection;
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+    return new MongoBusinessKeyReservations(new MongoStoreContext(() -> null, database, null, 15));
+  }
 
   @Test
   void detectsSocketFailures() {

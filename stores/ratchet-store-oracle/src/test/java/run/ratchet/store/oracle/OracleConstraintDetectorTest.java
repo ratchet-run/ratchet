@@ -18,11 +18,19 @@ package run.ratchet.store.oracle;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import jakarta.persistence.EntityManager;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.BusinessKeyReservationConflictException;
+import run.ratchet.store.entity.JobEntity;
 
 class OracleConstraintDetectorTest {
 
@@ -30,6 +38,42 @@ class OracleConstraintDetectorTest {
 
   private static Exception ora(String message, String sqlState, int errorCode) {
     return new RuntimeException("hibernate", new SQLException(message, sqlState, errorCode));
+  }
+
+  @Test
+  void translatesReservationConflictToPreciseSignal() {
+    RuntimeException failure =
+        new RuntimeException(
+            "hibernate",
+            new SQLException(
+                "ORA-00001: unique constraint (RATCHET.PK_SCHEDULER_BUSINESS_KEY_RESERVATION)"
+                    + " violated",
+                "23000",
+                1));
+    EntityManager em = mock(EntityManager.class);
+    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    OracleJobWriteOperations writes =
+        new OracleJobWriteOperations(new OracleStoreContext(em, null), null, null);
+    JobEntity job = new JobEntity();
+    job.setBusinessKey("order-1");
+
+    BusinessKeyReservationConflictException thrown =
+        assertThrows(BusinessKeyReservationConflictException.class, () -> writes.saveInsert(job));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void doesNotTranslateUnrelatedWriteFailureToReservationConflict() {
+    RuntimeException failure = new RuntimeException("unrelated write failure");
+    EntityManager em = mock(EntityManager.class);
+    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    OracleJobWriteOperations writes =
+        new OracleJobWriteOperations(new OracleStoreContext(em, null), null, null);
+    JobEntity job = new JobEntity();
+    job.setBusinessKey("order-1");
+
+    assertSame(failure, assertThrows(RuntimeException.class, () -> writes.saveInsert(job)));
   }
 
   @Test

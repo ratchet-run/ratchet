@@ -28,8 +28,8 @@ import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
@@ -170,8 +170,7 @@ final class OracleJobWriteOperations {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
       }
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        throw new RatchetTransientStoreException(
-            "Active business key in use for job " + job.getId(), e);
+        throw new BusinessKeyReservationConflictException(job.getBusinessKey(), e);
       }
       throw e;
     }

@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.UUID;
 import org.bson.Document;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.util.BusinessKeyReservations;
 import run.ratchet.store.util.StatusClassifier;
@@ -112,7 +112,7 @@ final class MongoBusinessKeyReservations {
       ctx.businessKeyReservations().insertOne(session, reservation);
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateKey(e)) {
-        throw new RatchetTransientStoreException("Active business key in use: " + businessKey, e);
+        throw new BusinessKeyReservationConflictException(businessKey, e);
       }
       // Preserve transaction error labels so ClientSession.withTransaction can retry the callback.
       throw e;
