@@ -157,6 +157,8 @@
                 <configuration>
                     <systemPropertyVariables>
                         <ratchet.tck.store.name>${project.artifactId}</ratchet.tck.store.name>
+                        <!-- Keep startup-check log assertions independent of SLF4J discovery. -->
+                        <org.jboss.logging.provider>jdk</org.jboss.logging.provider>
                     </systemPropertyVariables>
                     <!--
                       mssql-jdbc binds java.sql.Timestamp to zoneless DATETIME2 using the JVM

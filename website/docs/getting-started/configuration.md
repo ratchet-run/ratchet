@@ -247,7 +247,7 @@ DDL, not a datasource.
 | `orphanScanIntervalSeconds(long)` | `300` | Orphan recovery scan cadence in seconds |
 | `orphanRecoveryLeaseTtlSeconds(long)` | `30` | Orphan scan lease lifetime in seconds |
 | `dynamicHeartbeatEnabled(boolean)` | `true` | Adjust heartbeat cadence by load |
-| `store.isolationCheckMode(FAIL)` | `FAIL` | SQL isolation validation behavior |
+| `store.isolationCheckMode(FAIL)` | `FAIL` | SQL isolation validation behavior, including SQL Server's required `READ_COMMITTED_SNAPSHOT ON` setting |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Age-based priority boost interval; `0` disables boosting |
 
 ### Retention and payloads

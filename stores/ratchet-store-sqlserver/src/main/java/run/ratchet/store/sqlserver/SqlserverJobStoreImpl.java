@@ -19,6 +19,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 import jakarta.transaction.Transactional;
 import java.time.Duration;
 import java.time.Instant;
@@ -28,12 +29,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.jboss.logging.Logger;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptions.IsolationCheckMode;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
@@ -80,6 +83,8 @@ import run.ratchet.store.util.SqlJobCompletion;
 @ApplicationScoped
 @Transactional
 class SqlserverJobStoreImpl implements SqlserverJobStore {
+
+  private static final Logger log = Logger.getLogger(SqlserverJobStoreImpl.class);
 
   private final RatchetEntityManagerProvider entityManagerProvider;
   private final MetricsCollector metricsCollector;
@@ -840,34 +845,62 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     return signals.findJobsBySignalDeliveryId(deliveryId);
   }
 
-  // Probes the current session's isolation level. The @@SPID-scoped sys.dm_exec_sessions row is
-  // always visible to the session itself, so this needs no VIEW SERVER STATE grant.
-  // READ_COMMITTED_SNAPSHOT still reports level 2 (read committed). (SQL Server has no SHOW-style
-  // statement; the PostgreSQL "SHOW transaction_isolation" this was ported from is invalid T-SQL.)
+  // Reads the session isolation level (column 1) and the database's READ_COMMITTED_SNAPSHOT
+  // setting (column 2) in one query. The @@SPID-scoped sys.dm_exec_sessions row is always visible
+  // to the session itself, so this needs no VIEW SERVER STATE grant, and the connected login can
+  // always see the current database's own sys.databases row. READ_COMMITTED_SNAPSHOT still
+  // reports level 2 (read committed). (SQL Server has no SHOW-style statement; the PostgreSQL
+  // "SHOW transaction_isolation" this was ported from is invalid T-SQL.)
   // language=SQL Server
-  static final String ISOLATION_PROBE_SQL =
-      "SELECT CASE transaction_isolation_level"
-          + " WHEN 0 THEN 'unspecified' WHEN 1 THEN 'read uncommitted'"
-          + " WHEN 2 THEN 'read committed' WHEN 3 THEN 'repeatable read'"
-          + " WHEN 4 THEN 'serializable' WHEN 5 THEN 'snapshot' END"
-          + " FROM sys.dm_exec_sessions WHERE session_id = @@SPID";
+  static final String STARTUP_PROBE_SQL =
+      """
+      SELECT CASE transaction_isolation_level
+               WHEN 0 THEN 'unspecified' WHEN 1 THEN 'read uncommitted'
+               WHEN 2 THEN 'read committed' WHEN 3 THEN 'repeatable read'
+               WHEN 4 THEN 'serializable' WHEN 5 THEN 'snapshot' END,
+             (SELECT CASE is_read_committed_snapshot_on WHEN 1 THEN 'on' ELSE 'off' END
+              FROM sys.databases WHERE name = DB_NAME())
+      FROM sys.dm_exec_sessions WHERE session_id = @@SPID
+      """;
 
   @PostConstruct
   void checkIsolationLevel() {
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
-    IsolationCheck.verifyReadCommitted(
-        em,
-        "SQL Server",
-        List.of(ISOLATION_PROBE_SQL),
-        "read committed",
+    IsolationCheckMode mode = options.store().isolationCheckMode();
+    Object[] settings = null;
+    if (mode != IsolationCheckMode.DISABLE) {
+      try {
+        // OpenLiberty leaks a JTA transaction when this @PostConstruct runs two native queries.
+        settings = (Object[]) em.createNativeQuery(STARTUP_PROBE_SQL).getSingleResult();
+      } catch (PersistenceException | IllegalStateException e) {
+        log.debug("Could not check SQL Server startup settings", e);
+      }
+    }
+    IsolationCheck.verifyValue(
+        "SQL Server session isolation",
+        "SQL Server isolation level",
+        settings == null ? null : settings[0],
+        List.of("read committed"),
         "SERIALIZABLE, REPEATABLE READ, and SNAPSHOT isolation surface error 1205 deadlock victims"
             + " on concurrent job claims, which Ratchet's claim loop does not retry. Ratchet's SQL"
             + " Server store relies on READ COMMITTED (the engine default; with"
             + " READ_COMMITTED_SNAPSHOT ON it still reports level 2). Clear any connection-pool"
             + " isolation override that raises the level.",
-        options.store().isolationCheckMode());
+        mode);
+    IsolationCheck.verifyValue(
+        "SQL Server READ_COMMITTED_SNAPSHOT",
+        "SQL Server READ_COMMITTED_SNAPSHOT",
+        settings == null ? null : settings[1],
+        List.of("on"),
+        "Lock-based READ COMMITTED takes shared read locks and causes lock waits and deadlocks"
+            + " in concurrent claim, cancel, and orphan-scan paths. Run ALTER DATABASE [<db>] SET"
+            + " READ_COMMITTED_SNAPSHOT ON (replace <db> with the Ratchet database name). This"
+            + " requires exclusive access; use a quiet moment or append WITH ROLLBACK IMMEDIATE"
+            + " to disconnect other sessions and roll back their transactions. See the SQL Server"
+            + " deployment guide section 'Row-versioning is required'.",
+        mode);
     initDelegates();
   }
 

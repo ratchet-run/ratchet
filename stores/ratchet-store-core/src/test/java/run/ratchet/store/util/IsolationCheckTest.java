@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.util;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -29,6 +31,8 @@ import java.util.List;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import run.ratchet.api.RatchetOptions;
 
@@ -202,5 +206,90 @@ class IsolationCheckTest {
             });
     IsolationCheck.verifyReadCommitted(
         em, "MySQL", List.of("SELECT @@SESSION.transaction_isolation"), "READ-COMMITTED", "fix");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"READ-COMMITTED", " read   committed ", "REPEATABLE-READ"})
+  void verifyValueAcceptsNormalizedSupportedValues(String actual) {
+    assertDoesNotThrow(
+        () ->
+            IsolationCheck.verifyValue(
+                "MySQL session isolation",
+                "MySQL isolation level",
+                actual,
+                List.of("read committed", "repeatable read"),
+                "fix",
+                RatchetOptions.IsolationCheckMode.FAIL));
+  }
+
+  @Test
+  void verifyValueFailsWithExistingMessage() {
+    IsolationCheckFailedException failure =
+        assertThrows(
+            IsolationCheckFailedException.class,
+            () ->
+                IsolationCheck.verifyValue(
+                    "SQL Server READ_COMMITTED_SNAPSHOT",
+                    "SQL Server READ_COMMITTED_SNAPSHOT",
+                    "off",
+                    List.of("on"),
+                    "enable row-versioning",
+                    RatchetOptions.IsolationCheckMode.FAIL));
+
+    assertEquals(
+        "SQL Server READ_COMMITTED_SNAPSHOT is 'off' — Ratchet requires on. enable row-versioning",
+        failure.getMessage());
+  }
+
+  @Test
+  void verifyValueWarnsOnMismatch() {
+    assertDoesNotThrow(
+        () ->
+            IsolationCheck.verifyValue(
+                "SQL Server READ_COMMITTED_SNAPSHOT",
+                "SQL Server READ_COMMITTED_SNAPSHOT",
+                "off",
+                List.of("on"),
+                "fix",
+                RatchetOptions.IsolationCheckMode.WARN));
+  }
+
+  @Test
+  void verifyValueSkipsNull() {
+    assertDoesNotThrow(
+        () ->
+            IsolationCheck.verifyValue(
+                "SQL Server READ_COMMITTED_SNAPSHOT",
+                "SQL Server READ_COMMITTED_SNAPSHOT",
+                null,
+                List.of("on"),
+                "fix",
+                RatchetOptions.IsolationCheckMode.FAIL));
+  }
+
+  @Test
+  void verifyValueSkipsMismatchWhenDisabled() {
+    assertDoesNotThrow(
+        () ->
+            IsolationCheck.verifyValue(
+                "SQL Server READ_COMMITTED_SNAPSHOT",
+                "SQL Server READ_COMMITTED_SNAPSHOT",
+                "off",
+                List.of("on"),
+                "fix",
+                RatchetOptions.IsolationCheckMode.DISABLE));
+  }
+
+  @Test
+  void verifyValueHandlesNonStringResults() {
+    assertDoesNotThrow(
+        () ->
+            IsolationCheck.verifyValue(
+                "setting",
+                "setting",
+                Boolean.TRUE,
+                List.of("true"),
+                "fix",
+                RatchetOptions.IsolationCheckMode.FAIL));
   }
 }

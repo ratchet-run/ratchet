@@ -42,7 +42,7 @@ class SqlserverIsolationProbeTest {
   void isolationProbeReturnsReadCommitted() throws Exception {
     try (Connection conn = fixture.openConnection();
         Statement stmt = conn.createStatement();
-        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.ISOLATION_PROBE_SQL)) {
+        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.STARTUP_PROBE_SQL)) {
       assertTrue(rs.next(), "isolation probe returned no row");
       String level = rs.getString(1);
       assertNotNull(level, "isolation probe returned NULL — the CASE did not match a known level");
@@ -50,6 +50,16 @@ class SqlserverIsolationProbeTest {
           "read committed",
           level.toLowerCase(Locale.ROOT),
           "default SQL Server session isolation should be READ COMMITTED (level 2)");
+    }
+  }
+
+  @Test
+  void rcsiProbeReturnsOn() throws Exception {
+    try (Connection conn = fixture.openConnection();
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.STARTUP_PROBE_SQL)) {
+      assertTrue(rs.next(), "RCSI probe returned no row");
+      assertEquals("on", rs.getString(2));
     }
   }
 }
