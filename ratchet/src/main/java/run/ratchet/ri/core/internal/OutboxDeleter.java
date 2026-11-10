@@ -31,13 +31,15 @@ import run.ratchet.store.spi.EventOutboxStore;
 
 /**
  * Event-driven, bounded deletion outside transaction completion callbacks. Ids that arrive within
- * {@value #COALESCE_MS} ms share one drain, so a node issues at most about ten delete rounds a
- * second however fast jobs finish, and none while it is idle.
+ * {@value #COALESCE_MS} ms share one drain. Each scheduled drain deletes at most ten batches before
+ * yielding to other executor tasks, and there are no wakeups while idle.
  */
 @ApplicationScoped
 public class OutboxDeleter {
   private static final Logger log = Logger.getLogger(OutboxDeleter.class);
   private static final int MAX_PENDING = 100_000;
+  private static final int BATCH_SIZE = 500;
+  private static final int MAX_BATCHES_PER_DRAIN = 10;
   static final long COALESCE_MS = 100;
   private final EventOutboxStore store;
   private final Set<UUID> pending = new LinkedHashSet<>();
@@ -100,7 +102,7 @@ public class OutboxDeleter {
     }
     boolean success;
     try {
-      success = drainBatches();
+      success = drainBatches(MAX_BATCHES_PER_DRAIN);
     } finally {
       synchronized (this) {
         running = false;
@@ -112,11 +114,11 @@ public class OutboxDeleter {
     }
   }
 
-  private boolean drainBatches() {
-    while (true) {
+  private boolean drainBatches(int maxBatches) {
+    for (int i = 0; i < maxBatches; i++) {
       List<UUID> batch;
       synchronized (this) {
-        batch = pending.stream().limit(500).toList();
+        batch = pending.stream().limit(BATCH_SIZE).toList();
       }
       if (batch.isEmpty()) return true;
       try {
@@ -137,6 +139,7 @@ public class OutboxDeleter {
         return false;
       }
     }
+    return true;
   }
 
   public void stop() {
@@ -153,6 +156,7 @@ public class OutboxDeleter {
         }
       }
     }
-    drainBatches();
+    // Enqueue is stopped, so a final attempt can cover the entire bounded queue.
+    drainBatches(MAX_PENDING / BATCH_SIZE);
   }
 }

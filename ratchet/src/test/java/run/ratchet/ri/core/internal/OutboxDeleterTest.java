@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -69,7 +70,7 @@ class OutboxDeleterTest {
     deleter.enqueue(ids);
     clearInvocations(store);
     doReturn(500).when(store).deleteEvents(any());
-    deleter.drain();
+    for (int pass = 0; pass < 20; pass++) deleter.drain();
     ArgumentCaptor<Collection<UUID>> deleted = ArgumentCaptor.forClass(Collection.class);
     verify(store, times(200)).deleteEvents(deleted.capture());
     assertEquals(
@@ -79,6 +80,40 @@ class OutboxDeleterTest {
     deleter.enqueue(ids.subList(100_000, 100_002));
     deleter.drain();
     verify(store).deleteEvents(ids.subList(100_000, 100_002));
+  }
+
+  @Test
+  void continuousArrivalsYieldAndRescheduleTheRemainingIds() {
+    EventOutboxStore store = mock(EventOutboxStore.class);
+    ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+    doReturn(mock(ScheduledFuture.class))
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    OutboxDeleter deleter = new OutboxDeleter(store);
+    deleter.start(executor);
+    deleter.enqueue(List.of(new UUID(0, 0)));
+    AtomicInteger arrivals = new AtomicInteger();
+    when(store.deleteEvents(any()))
+        .thenAnswer(
+            invocation -> {
+              int next = arrivals.incrementAndGet();
+              assertTrue(next <= 10, "A drain must yield even when every delete adds more ids");
+              deleter.enqueue(List.of(new UUID(0, next)));
+              return 1;
+            });
+    ArgumentCaptor<Runnable> callback = ArgumentCaptor.forClass(Runnable.class);
+    verify(executor).schedule(callback.capture(), anyLong(), any(TimeUnit.class));
+
+    callback.getValue().run();
+
+    assertEquals(10, arrivals.get());
+    verify(executor, times(2))
+        .schedule(callback.capture(), eq(OutboxDeleter.COALESCE_MS), eq(TimeUnit.MILLISECONDS));
+    doReturn(1).when(store).deleteEvents(any());
+    callback.getValue().run();
+    verify(store).deleteEvents(List.of(new UUID(0, 10)));
+    verifyNoMoreInteractions(executor);
+    deleter.stop();
   }
 
   @Test
