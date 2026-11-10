@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -50,6 +51,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -344,11 +346,12 @@ class JobStateFlusherTest {
   void dirtyProgressWriterRetriesARejectedScheduleOnTheNextReport() {
     UUID id = UUID.randomUUID();
     Instant start = Instant.parse("2026-11-06T12:00:00Z");
+    JobStateStore store = mock(JobStateStore.class);
     JobProgressWriter progress =
         new JobProgressWriter(
             id,
             new JobAttemptControl(id, start.plusSeconds(30), 30, start, 0, 7L, "node"),
-            mock(JobStateStore.class),
+            store,
             new JsonbTestPayloadSerializer(),
             flusher,
             Clock.fixed(start, ZoneOffset.UTC));
@@ -369,6 +372,90 @@ class JobStateFlusherTest {
     assertFalse(flusher.scheduleFailed());
     progress.report(3, 10);
     verify(executor, times(2)).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    now.set(TimeUnit.MILLISECONDS.toNanos(flusher.progressFlushIntervalMs()) + 1);
+    scheduled.get(0).run();
+    verifyProgressWritten(store, id, 3, 10);
+  }
+
+  @Test
+  void rejectedProgressScheduleIsRetriedWithoutAnotherReport() {
+    UUID id = UUID.randomUUID();
+    Instant start = Instant.parse("2026-11-06T12:00:00Z");
+    JobStateStore store = mock(JobStateStore.class);
+    JobProgressWriter progress =
+        new JobProgressWriter(
+            id,
+            new JobAttemptControl(id, start.plusSeconds(30), 30, start, 0, 7L, "node"),
+            store,
+            new JsonbTestPayloadSerializer(),
+            flusher,
+            Clock.fixed(start, ZoneOffset.UTC));
+    doThrow(new RejectedExecutionException("busy"))
+        .doAnswer(
+            call -> {
+              scheduled.add(call.getArgument(0));
+              return handle;
+            })
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    flusher.start(executor);
+    progress.report(1, 10);
+    assertTrue(flusher.scheduleFailed());
+    assertTrue(scheduled.isEmpty());
+
+    flusher.retryRejectedSchedule();
+
+    assertEquals(1, scheduled.size());
+    assertFalse(flusher.scheduleFailed());
+    verify(executor, times(2)).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    now.set(TimeUnit.MILLISECONDS.toNanos(flusher.progressFlushIntervalMs()) + 1);
+    scheduled.get(0).run();
+    verifyProgressWritten(store, id, 1, 10);
+    assertFalse(flusher.scheduleFailed());
+  }
+
+  @Test
+  void retryRejectedScheduleDoesNothingOnAnIdleHealthyFlusher() {
+    flusher.start(executor);
+
+    flusher.retryRejectedSchedule();
+
+    verifyNoInteractions(executor);
+    assertFalse(flusher.scheduleFailed());
+  }
+
+  @Test
+  void retryRejectedScheduleClearsFailureWhenWriterWasRemoved() {
+    FlushableState writer = mock(FlushableState.class);
+    when(writer.flushIntervalMs()).thenReturn(1000L);
+    doThrow(new RejectedExecutionException("busy"))
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    flusher.start(executor);
+    flusher.markDirty(writer);
+    assertTrue(flusher.scheduleFailed());
+
+    flusher.remove(writer);
+    flusher.retryRejectedSchedule();
+
+    assertFalse(flusher.scheduleFailed());
+    verify(executor).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+  }
+
+  @Test
+  void stopClearsRejectedScheduleFailure() {
+    FlushableState writer = mock(FlushableState.class);
+    when(writer.flushIntervalMs()).thenReturn(1000L);
+    doThrow(new RejectedExecutionException("busy"))
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    flusher.start(executor);
+    flusher.markDirty(writer);
+    assertTrue(flusher.scheduleFailed());
+
+    flusher.stop();
+
+    assertFalse(flusher.scheduleFailed());
   }
 
   @Test
@@ -387,6 +474,14 @@ class JobStateFlusherTest {
     scheduled.get(2).run();
     assertEquals(3, scheduled.size());
     verify(executor, times(2)).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
+  }
+
+  private void verifyProgressWritten(JobStateStore store, UUID id, long done, long total) {
+    ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+    verify(store).initState(eq(id), eq(JobProgressWriter.NAMESPACE), json.capture(), eq(7L));
+    Map<?, ?> value = new JsonbTestPayloadSerializer().deserialize(json.getValue(), Map.class);
+    assertEquals(done, ((Number) value.get("done")).longValue());
+    assertEquals(total, ((Number) value.get("total")).longValue());
   }
 
   private void verifyWritten(WriterFixture fixture) {

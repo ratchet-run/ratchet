@@ -114,14 +114,16 @@ class RatchetRuntimeConfiguration {
       JobSubmissionService jobSubmissionService,
       PoolRegistry poolRegistry,
       DrainController drainController,
-      RatchetOptions options) {
+      RatchetOptions options,
+      JobStateFlusher jobStateFlusher) {
     return new RetryBufferDrainer(
         executorProvider,
         retryBufferManager,
         jobSubmissionService,
         poolRegistry,
         drainController,
-        options);
+        options,
+        jobStateFlusher);
   }
 
   @Bean(destroyMethod = "")

@@ -25,6 +25,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.RetryBufferManager.BufferedClaim;
 import run.ratchet.ri.core.internal.ExecutionTargetClaimPlanner;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobExecutionType;
@@ -49,6 +50,7 @@ public class RetryBufferDrainer {
   private final ExecutionTargetClaimPlanner claimPlanner;
   private final DrainController drainController;
   private final long drainIntervalMs;
+  private final JobStateFlusher jobStateFlusher;
 
   @SuppressWarnings("java:S3077")
   private volatile ScheduledFuture<?> drainerTask;
@@ -60,6 +62,7 @@ public class RetryBufferDrainer {
     this.poolRegistry = null;
     this.claimPlanner = null;
     this.drainController = null;
+    this.jobStateFlusher = null;
     this.drainIntervalMs = 1000L;
   }
 
@@ -70,7 +73,9 @@ public class RetryBufferDrainer {
       JobSubmissionService jobSubmissionService,
       PoolRegistry poolRegistry,
       DrainController drainController,
-      RatchetOptions options) {
+      RatchetOptions options,
+      JobStateFlusher jobStateFlusher) {
+    this.jobStateFlusher = jobStateFlusher;
     this.executorProvider = executorProvider;
     this.retryBufferManager = retryBufferManager;
     this.jobSubmissionService = jobSubmissionService;
@@ -90,10 +95,7 @@ public class RetryBufferDrainer {
           executorProvider
               .getScheduledExecutor()
               .scheduleAtFixedRate(
-                  this::drainRetryBuffersSafely,
-                  drainIntervalMs,
-                  drainIntervalMs,
-                  TimeUnit.MILLISECONDS);
+                  this::tick, drainIntervalMs, drainIntervalMs, TimeUnit.MILLISECONDS);
     }
   }
 
@@ -106,6 +108,20 @@ public class RetryBufferDrainer {
         task.cancel(false);
         log.info("RetryBufferDrainer shutdown complete");
       }
+    }
+  }
+
+  private void tick() {
+    retryRejectedFlushSafely();
+    drainRetryBuffersSafely();
+  }
+
+  private void retryRejectedFlushSafely() {
+    if (jobStateFlusher == null) return;
+    try {
+      jobStateFlusher.retryRejectedSchedule();
+    } catch (Exception e) {
+      log.warn("Job state flush retry failed", e);
     }
   }
 

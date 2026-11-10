@@ -79,6 +79,14 @@ public class JobStateFlusher {
     if (dirty.putIfAbsent(writer, due) == null || scheduleFailed) scheduleIfNeeded();
   }
 
+  /**
+   * Called from an existing periodic task so a rejected schedule is retried even if no writer
+   * reports again.
+   */
+  public void retryRejectedSchedule() {
+    if (scheduleFailed) scheduleIfNeeded();
+  }
+
   public void remove(FlushableState writer) {
     dirty.remove(writer);
     if (dirty.isEmpty()) {
@@ -99,13 +107,18 @@ public class JobStateFlusher {
 
   public synchronized void stop() {
     executor = null;
+    scheduleFailed = false;
     generation++;
     if (handle != null) handle.cancel(false);
     handle = null;
   }
 
   private synchronized void scheduleIfNeeded() {
-    if (executor == null || draining || dirty.isEmpty()) return;
+    if (executor == null || draining) return;
+    if (dirty.isEmpty()) {
+      scheduleFailed = false;
+      return;
+    }
     long now = nanoTime.getAsLong();
     var earliest = dirty.values().stream().min((a, b) -> Long.compare(a - now, b - now));
     if (earliest.isEmpty()) return;
@@ -121,9 +134,8 @@ public class JobStateFlusher {
       scheduleFailed = false;
     } catch (RuntimeException failure) {
       handle = null;
-      // Warn once per outage: dirty progress writers retry on every report while it lasts.
-      if (scheduleFailed) log.debug("Could not schedule job state flush", failure);
-      else log.warn("Could not schedule job state flush", failure);
+      // Warn once per outage; later reports and the retry buffer drainer's tick retry the schedule.
+      if (!scheduleFailed) log.warn("Could not schedule job state flush", failure);
       scheduleFailed = true;
     }
   }
