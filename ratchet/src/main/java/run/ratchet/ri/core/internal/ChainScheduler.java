@@ -92,25 +92,36 @@ public class ChainScheduler {
 
     while (!stack.isEmpty()) {
       UUID parentId = stack.pop();
-      List<JobEntity> children = findAllDependants(parentId);
-      for (JobEntity child : children) {
-        if (parentId.equals(failed.getId()) && skippedDirectChildren.contains(child.getId())) {
-          continue;
-        }
-        if (failed.getJobType() == JobExecutionType.BATCH_PARENT
-            && child.getJobType() == JobExecutionType.BATCH_CHILD) {
-          continue;
-        }
-        JobStatus status = child.getStatus();
-        if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
-          // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
-          // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
-          if (jobTerminalStore.cancelJob(child.getId())) {
-            log.warnf("Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
-            canceled = true;
+      int offset = 0;
+      while (true) {
+        // Dependants are ordered by immutable created-at/id and include terminal rows, so
+        // cancellation does not shift offsets. Discard batch children before loading another page.
+        List<JobEntity> children =
+            jobCrudStore.findDependants(parentId, DEPENDANT_PAGE_SIZE, offset);
+        for (JobEntity child : children) {
+          if (parentId.equals(failed.getId()) && skippedDirectChildren.contains(child.getId())) {
+            continue;
           }
+          if (failed.getJobType() == JobExecutionType.BATCH_PARENT
+              && child.getJobType() == JobExecutionType.BATCH_CHILD) {
+            continue;
+          }
+          JobStatus status = child.getStatus();
+          if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
+            // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
+            // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
+            if (jobTerminalStore.cancelJob(child.getId())) {
+              log.warnf(
+                  "Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
+              canceled = true;
+            }
+          }
+          stack.push(child.getId());
         }
-        stack.push(child.getId());
+        if (children.size() < DEPENDANT_PAGE_SIZE) {
+          break;
+        }
+        offset += children.size();
       }
     }
     if (canceled || failed.getJobType() == JobExecutionType.CHAIN_STEP) {
