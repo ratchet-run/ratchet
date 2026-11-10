@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     timeout_sec           INT                                                                                                                 NOT NULL DEFAULT 0,
     cron_expr             VARCHAR(64)                                                                                                         NOT NULL DEFAULT '',
     zone_id               VARCHAR(32)                                                                                                         NOT NULL DEFAULT 'UTC',
-    -- Payload + params (insert-once; never mutated after enqueue).
+    -- Payload + params (batch-result slot filling is the sole payload mutation after enqueue).
     payload               JSON                                                                                                                NOT NULL,
     params                JSON                                                                                                                NULL,
     -- W3C TraceContext carrier captured at enqueue time; passed to TracingCollector at execution
@@ -319,6 +319,8 @@ CREATE TABLE IF NOT EXISTS scheduler_batch
     completion_processed TINYINT(1)      NOT NULL DEFAULT 0,
     version              INT             NOT NULL DEFAULT 0,
     progress_hook        JSON            NULL,
+    reducer JSON NULL,
+    fold_claimed_at DATETIME(3) NULL,
     PRIMARY KEY (batch_id),
     CONSTRAINT fk_batch_job FOREIGN KEY (batch_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB

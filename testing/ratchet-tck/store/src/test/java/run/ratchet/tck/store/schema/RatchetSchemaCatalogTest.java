@@ -112,9 +112,21 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
+  void batchReducerAndClaimAreCatalogued() {
+    assertTrue(
+        table("scheduler_batch").columns().stream()
+            .map(Column::name)
+            .toList()
+            .containsAll(List.of("reducer", "fold_claimed_at")));
+    assertEquals(
+        List.of("depends_on", "job_id"),
+        index(table("scheduler_job"), "idx_job_depends_on").columns());
+  }
+
+  @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        17,
+        18,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "catalog version should track the combined workflow, recurring, DLQ, and node schema"
             + " revision");

@@ -91,6 +91,28 @@ class MongoCollectionInitializer {
     }
   }
 
+  /**
+   * Creates the (depends_on, _id) index that pages batch partial results. A database created before
+   * the batch reducer has a single-field index under the same name; MongoDB rejects the new key
+   * shape for that name (IndexOptionsConflict 85 / IndexKeySpecsConflict 86), so replace it.
+   */
+  private void createDependsOnIndex(MongoCollection<Document> coll) {
+    Bson keys = Indexes.ascending(DEPENDS_ON, "_id");
+    if (creating) {
+      try {
+        coll.createIndex(keys, new IndexOptions().name("idx_job_depends_on"));
+        return;
+      } catch (MongoCommandException e) {
+        if (e.getErrorCode() != 85 && e.getErrorCode() != 86) {
+          log.warnf(e, "Index creation error: idx_job_depends_on on %s", coll.getNamespace());
+          return;
+        }
+        coll.dropIndex("idx_job_depends_on");
+      }
+    }
+    createIndex(coll, keys, "idx_job_depends_on");
+  }
+
   private void createRequiredIndex(
       MongoCollection<Document> coll, Bson keys, IndexOptions options) {
     if (!creating) {
@@ -484,7 +506,7 @@ class MongoCollectionInitializer {
                     .append(BUSINESS_KEY, new Document("$type", "string"))));
     createIndex(coll, Indexes.ascending(TAGS), "idx_job_tags");
     createIndex(coll, Indexes.ascending(PICKED_BY), "idx_job_picked_by");
-    createIndex(coll, Indexes.ascending(DEPENDS_ON), "idx_job_depends_on");
+    createDependsOnIndex(coll);
     createIndex(coll, Indexes.ascending(TARGET_CLASS), "idx_job_target_class");
     createIndex(coll, Indexes.ascending(METHOD_NAME), "idx_job_method_name");
     createIndex(coll, Indexes.ascending(CREATED_AT), "idx_job_created_at");

@@ -248,7 +248,7 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);
 
 -- Lookup/relationship indexes (cold).
-CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on);
+CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on, job_id);
 CREATE INDEX IF NOT EXISTS idx_job_superseded_by ON scheduler_job (superseded_by);
 CREATE INDEX IF NOT EXISTS idx_job_recurring_master_id ON scheduler_job (recurring_master_id);
 CREATE INDEX IF NOT EXISTS idx_job_encryption_key_id ON scheduler_job (encryption_key_id);
@@ -276,6 +276,8 @@ CREATE TABLE IF NOT EXISTS scheduler_batch
     completion_processed BOOLEAN    DEFAULT FALSE NOT NULL,
     version              NUMBER(10) DEFAULT 0 NOT NULL,
     progress_hook        CLOB,
+    reducer CLOB NULL,
+    fold_claimed_at TIMESTAMP(6) NULL,
     CONSTRAINT pk_scheduler_batch PRIMARY KEY (batch_id),
     CONSTRAINT fk_batch_job FOREIGN KEY (batch_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );

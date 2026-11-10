@@ -37,6 +37,7 @@ final class InvocationStreamingState<T extends Serializable>
   }
 
   void setInvocationFactory(Function<T, JobInvocation> invocationFactory) {
+    processingConfigured();
     this.invocationFactory =
         Objects.requireNonNull(invocationFactory, "invocationFactory must not be null");
   }

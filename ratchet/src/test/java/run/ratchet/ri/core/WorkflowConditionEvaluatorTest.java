@@ -295,6 +295,31 @@ class WorkflowConditionEvaluatorTest {
   }
 
   @Test
+  void foldFailureSelectsOnlyBatchFailure() {
+    JobEntity parent = batchParent(JobStatus.FAILED);
+    BatchEntity batch = batch(10, 10, 0);
+    batch.setReducer("{}");
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch));
+    assertFalse(
+        evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_SUCCESS), parent));
+    assertTrue(
+        evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_FAILURE), parent));
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "0"),
+            parent));
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_FAILURE_COUNT, "99"),
+            parent));
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(
+                WorkflowCondition.ConditionType.BATCH_CUSTOM, "never evaluated"),
+            parent));
+  }
+
+  @Test
   void batchSuccess_allComplete_returnsTrue() {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 10, 0)));

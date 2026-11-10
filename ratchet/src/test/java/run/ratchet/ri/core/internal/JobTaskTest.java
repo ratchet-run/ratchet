@@ -2044,6 +2044,32 @@ class JobTaskTest {
   }
 
   @Test
+  void unfilledBatchResultSlotFailsPermanentlyBeforeInvocation() throws Exception {
+    JobEntity job = createTestJob();
+    JobPayload original = job.getPayload();
+    job.setMaxRetries(10);
+    job.setPayload(
+        new JobPayload(
+            original.target(),
+            original.method(),
+            original.methodDescriptor(),
+            original.isStatic(),
+            Arrays.asList((Object) null),
+            List.of(0)));
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any())).thenReturn(true);
+    jobTask.call();
+    ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
+    verify(lifecycleFacade).moveToDlqAndHandlePermanentFailure(eq(job), failure.capture());
+    Assertions.assertEquals(
+        "Batch success callback was never given the batch result", failure.getValue().getMessage());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+  }
+
+  @Test
   void call_hydrationDecryptPoison_delegatesAtomicTerminalHandlingWithoutRetry() {
     // A claimed RUNNING job whose payload fails to decrypt during hydration is poison: the
     // ciphertext cannot be recovered by re-running. It must be dead-lettered, not swallowed and

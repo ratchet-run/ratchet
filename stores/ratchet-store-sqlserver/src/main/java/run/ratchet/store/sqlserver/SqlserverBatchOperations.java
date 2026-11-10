@@ -29,12 +29,14 @@ import org.jboss.logging.Logger;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.BatchProgressRows;
+import run.ratchet.store.util.RowValues;
 
 final class SqlserverBatchOperations implements BatchStore {
 
@@ -45,6 +47,60 @@ final class SqlserverBatchOperations implements BatchStore {
 
   SqlserverBatchOperations(SqlserverStoreContext ctx) {
     this.ctx = ctx;
+  }
+
+  @Override
+  public List<ChildResult> findSucceededChildResults(UUID batchId, UUID afterJobId, int limit) {
+    if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
+    try {
+      String cursor = afterJobId == null ? "" : " AND job_id > ?";
+      String sql =
+          """
+          SELECT job_id, job_result, result_type FROM scheduler_job
+          WHERE depends_on = ? AND job_type = 'BATCH_CHILD' AND terminal_status = 'SUCCEEDED'
+          %s ORDER BY job_id OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
+          """
+              .formatted(cursor);
+      var query =
+          ctx.em().createNativeQuery(sql).setParameter(1, UuidByteArrayConverter.toBytes(batchId));
+      int parameter = 2;
+      if (afterJobId != null)
+        query.setParameter(parameter++, UuidByteArrayConverter.toBytes(afterJobId));
+      query.setParameter(parameter, limit);
+      List<?> rows = query.getResultList();
+      List<ChildResult> results = new ArrayList<>(rows.size());
+      for (Object value : rows) {
+        Object[] row = (Object[]) value;
+        results.add(
+            new ChildResult(
+                SqlserverJobRowMapper.uuidOrNull(row[0]),
+                RowValues.stringOrNull(row[1]),
+                RowValues.stringOrNull(row[2])));
+      }
+      return results;
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("read batch partial results", ex);
+    }
+  }
+
+  @Override
+  public boolean claimFold(UUID batchId, Instant now, Instant staleBefore) {
+    try {
+      return ctx.em()
+              .createNativeQuery(
+                  """
+                  UPDATE scheduler_batch SET fold_claimed_at = ?
+                  WHERE batch_id = ? AND completion_processed = 0
+                    AND (fold_claimed_at IS NULL OR fold_claimed_at < ?)
+                  """)
+              .setParameter(1, Timestamp.from(now))
+              .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
+              .setParameter(3, Timestamp.from(staleBefore))
+              .executeUpdate()
+          == 1;
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("claim batch fold", ex);
+    }
   }
 
   @Override
@@ -190,9 +246,9 @@ final class SqlserverBatchOperations implements BatchStore {
     String sql =
         """
         MERGE scheduler_batch WITH (HOLDLOCK) AS tgt
-        USING (VALUES (?, ?, ?, ?, ?, ?))
+        USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?))
           AS src(batch_id, total_items, completed_items, failed_items,
-                 completion_processed, progress_hook)
+                 completion_processed, progress_hook, reducer, fold_claimed_at)
           ON tgt.batch_id = src.batch_id
         WHEN MATCHED THEN UPDATE SET
           total_items = src.total_items,
@@ -200,15 +256,17 @@ final class SqlserverBatchOperations implements BatchStore {
           failed_items = src.failed_items,
           completion_processed = src.completion_processed,
           progress_hook = src.progress_hook,
+          reducer = src.reducer,
+          fold_claimed_at = src.fold_claimed_at,
           version = tgt.version + 1
         WHEN NOT MATCHED THEN INSERT
           (batch_id, total_items, completed_items, failed_items,
-           completion_processed, progress_hook)
+           completion_processed, progress_hook, reducer, fold_claimed_at)
           VALUES (src.batch_id, src.total_items, src.completed_items, src.failed_items,
-                  src.completion_processed, src.progress_hook)
+                  src.completion_processed, src.progress_hook, src.reducer, src.fold_claimed_at)
         OUTPUT inserted.batch_id, inserted.total_items, inserted.completed_items,
                inserted.failed_items, inserted.completion_processed, inserted.version,
-               inserted.progress_hook;
+               inserted.progress_hook, inserted.reducer, inserted.fold_claimed_at;
         """;
     Object row =
         ctx.em()
@@ -219,6 +277,10 @@ final class SqlserverBatchOperations implements BatchStore {
             .setParameter(4, batch.getFailedItems())
             .setParameter(5, Boolean.TRUE.equals(batch.getCompletionProcessed()))
             .setParameter(6, progressHookJson(batch.getProgressHook()))
+            .setParameter(7, batch.getReducer())
+            .setParameter(
+                8,
+                batch.getFoldClaimedAt() == null ? null : Timestamp.from(batch.getFoldClaimedAt()))
             .getSingleResult();
     return row instanceof Object[] values ? mapBatchRow(values) : batch;
   }
@@ -241,7 +303,7 @@ final class SqlserverBatchOperations implements BatchStore {
     String sql =
         """
         SELECT batch_id, total_items, completed_items, failed_items,
-               completion_processed, version, progress_hook
+               completion_processed, version, progress_hook, reducer, fold_claimed_at
         FROM scheduler_batch
         WHERE batch_id IN (%s)
         """
@@ -497,6 +559,8 @@ final class SqlserverBatchOperations implements BatchStore {
     batch.setCompletionProcessed(asBoolean(row[4]));
     batch.setVersion(row[5] == null ? null : ((Number) row[5]).intValue());
     batch.setProgressHook(parseProgressHook(row[6]));
+    batch.setReducer(RowValues.stringOrNull(row[7]));
+    batch.setFoldClaimedAt(RowValues.instantOrNull(row[8]));
     return batch;
   }
 

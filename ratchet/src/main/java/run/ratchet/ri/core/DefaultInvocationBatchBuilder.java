@@ -40,6 +40,12 @@ final class DefaultInvocationBatchBuilder implements InvocationBatchBuilder {
   }
 
   @Override
+  public InvocationBatchBuilder reducing(Object identity, JobInvocation combiner) {
+    delegate.reducingInvocation(identity, combiner);
+    return this;
+  }
+
+  @Override
   public InvocationBatchBuilder withIdempotencyKey(String key) {
     delegate.withIdempotencyKey(key);
     return this;
@@ -61,7 +67,8 @@ final class DefaultInvocationBatchBuilder implements InvocationBatchBuilder {
 
   @Override
   public InvocationBatchBuilder thenOnBatchSuccess(JobInvocation next) {
-    delegate.thenOnBatchSuccess(new InvocationAdapter(next));
+    if (delegate.reducer() == null) delegate.thenOnBatchSuccess(new InvocationAdapter(next));
+    else delegate.resultCallback(new InvocationAdapter(next));
     return this;
   }
 

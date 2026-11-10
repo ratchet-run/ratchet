@@ -336,3 +336,21 @@ scheduler.<Long>streamingBatch("Migrate Users")
 - [JobBuilder Reference](./job-builder)
 - [BatchBuilder Reference](./batch-builder)
 - [WorkflowCondition Reference](./workflow-condition)
+
+## Batch reduction functions
+
+`SerializableBinaryOperator<R>` extends `BinaryOperator<R>` and `Serializable`. Pass a method
+reference or a single-call forwarding lambda to `reducing(identity, combiner)`. The combiner must be
+deterministic and free of side effects; Ratchet may fold more than once before one completion wins.
+`Long::sum`, `Integer::sum`, `Double::sum`, `Math::max`, and `Math::min` are supported without a
+class-policy target entry.
+
+`SerializableFunction<T, R>` supplies collection or streaming child results. Streaming builders also
+provide `processChecked(SerializableCheckedFunction<T, R>)` for methods that throw checked exceptions.
+`SerializableConsumer<R>` receives the combined value in `thenOnBatchSuccess`. Return the identity
+when a child has nothing to report; returning null fails the batch.
+
+`TypeRef<R>` captures a full generic result type, for example `new TypeRef<Set<String>>() {}`. Use
+it as the first argument to `reducing` when the combiner method itself is generic. Without a token,
+`R` is inferred from the combiner's declared return type, rather than the identity's implementation
+class. See [reducing builders](batch-builder.md#reducing-builders) for validation and policy rules.

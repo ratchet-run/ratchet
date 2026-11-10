@@ -118,6 +118,10 @@ final class MongoCompletionOperations {
       changes.add(set(JOB_TYPE, dep.jobType().name()));
       changes.add(set(UPDATED_AT, DocumentMapper.toDate(now)));
       changes.add(inc(VERSION, 1));
+      if (dep.payload() != null) {
+        changes.add(set("payload", dep.payload()));
+        changes.add(set("encryption_key_id", dep.encryptionKeyId()));
+      }
       if (dep.status() == JobStatus.CANCELED)
         changes.add(set(TERMINATED_AT, DocumentMapper.toDate(now)));
       changed =

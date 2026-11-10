@@ -505,3 +505,36 @@ JobHandle handle = scheduler.<Long>streamingBatch("Full Migration")
 - [BatchContext Reference](./batch-context)
 - [WorkflowCondition Reference](./workflow-condition)
 - [JobSchedulerService Reference](./job-scheduler-service)
+
+## Reducing builders
+
+`BatchBuilder.reducing(R identity, SerializableBinaryOperator<R> combiner)` returns
+`ReducingBatchBuilder<R>`. Its `forEach(Collection<T>, SerializableFunction<T, R>)` captures each
+child's partial return value; `thenOnBatchSuccess(SerializableConsumer<R>)` registers at most one
+callback receiving the combined value. All ordinary child and callback options remain available.
+
+`StreamingBatchBuilder<T>.reducing(...)` returns `ReducingStreamingBatchBuilder<T, R>`. Use
+`process(SerializableFunction<T, R>)`, or `processChecked(SerializableCheckedFunction<T, R>)` for a
+checked exception, followed by `start()`. Configure reduction before `fromStream` or `process`.
+Both builder families also accept `reducing(TypeRef<R>, R, SerializableBinaryOperator<R>)`.
+Null identity, combiner, or type tokens are rejected. Selecting reduction after items, processing,
+or a success callback throws `IllegalStateException`.
+
+`R` is the combiner's declared generic return type, boxed for primitives; explicit `TypeRef` supports
+generic combiner methods. Combiner parameters and success callback parameters must match `R`;
+callback supertypes are rejected. Child return types must match, with assignable raw return types
+accepted for plain-class `R`. Type variables, wildcards, and arrays are rejected. Identity must
+round-trip through the configured serializer, including its generic `deserialize(String, Type)`
+overload. Result classes recursively require both class-policy permissions, except the JDK values
+and container raw types listed in [Batches](../concepts/batches.md#folding-partial-results).
+
+Combiners must be deterministic and free of side effects because folding may run more than once.
+Return the identity for an empty partial; null fails the batch. Folding failures run the failure
+callback and suppress batch rate/count/custom conditions. Empty batches deliver the identity.
+Configure stale-claim recovery with `ratchet.batch.fold-timeout=PT5M`; combined values respect
+`ratchet.jobs.max-result-bytes`. The parent result is also available through job detail and result
+workflow conditions.
+
+The trusted invocation SPI accepts a per-item invocation factory. A reducing invocation stream
+stages its items and resolved invocations in memory so all target return types can be checked
+before any rows are written. Lambda-based reducing streams retain chunked input consumption.

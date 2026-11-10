@@ -341,3 +341,49 @@ The parent job is never "stuck" indefinitely: it tracks progress based on child 
 - [Job Types](./job-types.md) -- BATCH_PARENT and BATCH_CHILD execution types
 - [Workflows](./workflows.md) -- Workflow conditions including batch-specific conditions
 - [Error Handling](./error-handling.md) -- How individual child failures are handled
+
+## Folding partial results
+
+A reducing batch persists each child's return value and folds those partials after every child
+succeeds. Its success callback receives the combined value:
+
+```java
+scheduler.enqueueBatch("scan")
+    .reducing(0L, Long::sum)
+    .forEach(ranges, r -> scans.count(r))
+    .thenOnBatchSuccess(total -> audit.record(total))
+    .submit();
+```
+
+Call `reducing` before adding items, processing, or a success callback. An empty batch delivers the
+identity without calling the combiner. A child with nothing to report must return the identity.
+Null or truncated partials, deserialization errors, combiner exceptions, and an oversized combined
+result fail the batch and select its failure callback. A failed child prevents folding entirely.
+After a fold failure, rate, failure-count, and custom batch conditions do not fire.
+
+The combiner must be deterministic and free of side effects. Recovery and competing nodes may run
+it more than once; only one completion commits. Partial results remain protected from retention
+archiving until batch completion. The fold runs on the job executor without holding a transaction
+while calling user code. `ratchet.batch.fold-timeout` (ISO-8601 duration, default `PT5M`) controls when
+recovery may retake an abandoned fold claim. This is a claim timeout, not an interruption deadline.
+The combined value uses `ratchet.jobs.max-result-bytes`.
+
+`R` comes from the combiner method's declared generic return type, with primitives boxed. Both
+combiner parameters must also be `R`. Child results must match `R` (subclasses are accepted when `R`
+is a plain class), and the success callback parameter must match exactly. Generic results such as
+`Map<String, Long>` are supported; arrays, wildcards, and unresolved type variables are rejected.
+For a generic combiner method, specify the full type explicitly:
+
+```java
+scheduler.enqueueBatch("tags")
+    .reducing(new TypeRef<Set<String>>() {}, Set.of(), Sets::union)
+    .forEach(items, item -> tags.read(item))
+    .thenOnBatchSuccess(all -> audit.recordTags(all))
+    .submit();
+```
+
+Result classes must pass both invocation and result-type class policies, recursively. The JDK
+value types `Long`, `Integer`, `Double`, `Boolean`, `String`, `BigDecimal`, and `BigInteger`, and
+container raw types `Map`, `List`, and `Set`, are exempt; container arguments are still checked.
+`Long::sum`, `Integer::sum`, `Double::sum`, and static `Math::min` / `Math::max` need no target
+allowlist entry. Identity serialization and restoration as `R` are validated at submission.

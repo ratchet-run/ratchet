@@ -22,6 +22,7 @@ import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
+import static com.mongodb.client.model.Filters.nin;
 import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
@@ -200,7 +201,7 @@ final class MongoArchiveOperations implements ArchiveStore {
     List<JobEntity> results = new ArrayList<>();
     for (Document doc :
         ctx.jobs()
-            .find(terminalOlderThan(olderThan))
+            .find(archiveCandidates(olderThan))
             .sort(ascending(TERMINATED_AT, UPDATED_AT))
             .limit(limit)) {
       results.add(DocumentMapper.toJobEntity(doc));
@@ -210,7 +211,7 @@ final class MongoArchiveOperations implements ArchiveStore {
 
   @Override
   public long countJobsForArchiving(Instant olderThan) {
-    return ctx.jobs().countDocuments(terminalOlderThan(olderThan));
+    return ctx.jobs().countDocuments(archiveCandidates(olderThan));
   }
 
   @Override
@@ -243,6 +244,20 @@ final class MongoArchiveOperations implements ArchiveStore {
     DeleteResult result =
         ctx.archives().deleteMany(lt(ARCHIVED_AT, DocumentMapper.toDate(olderThan)));
     return (int) result.getDeletedCount();
+  }
+
+  private Bson archiveCandidates(Instant olderThan) {
+    List<UUID> unfinished = new ArrayList<>();
+    for (Document batch :
+        ctx.batches()
+            .find(
+                and(
+                    eq("completion_processed", false),
+                    new Document("reducer", new Document("$ne", null))))
+            .projection(new Document(ID, 1))) {
+      unfinished.add(batch.get(ID, UUID.class));
+    }
+    return and(terminalOlderThan(olderThan), nin("depends_on", unfinished));
   }
 
   static Bson terminalOlderThan(Instant olderThan) {

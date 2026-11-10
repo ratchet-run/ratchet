@@ -18,7 +18,9 @@ package run.ratchet.store.mongodb;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.exists;
+import static com.mongodb.client.model.Filters.gt;
 import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
@@ -47,6 +49,8 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -63,7 +67,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.spi.BatchStore;
@@ -240,6 +246,40 @@ final class MongoBatchOperations implements BatchStore {
       ids.add(batch.get(ID, UUID.class));
     }
     return ids;
+  }
+
+  @Override
+  public List<ChildResult> findSucceededChildResults(UUID batchId, UUID afterJobId, int limit) {
+    if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
+    Bson filter =
+        and(eq(DEPENDS_ON, batchId), eq(JOB_TYPE, "BATCH_CHILD"), eq(STATUS, "SUCCEEDED"));
+    if (afterJobId != null) filter = and(filter, gt(ID, afterJobId));
+    List<ChildResult> results = new ArrayList<>();
+    for (Document doc :
+        ctx.jobs()
+            .withReadPreference(ReadPreference.primary())
+            .withReadConcern(ReadConcern.MAJORITY)
+            .find(filter)
+            .sort(ascending(ID))
+            .limit(limit)) {
+      results.add(
+          new ChildResult(
+              doc.get(ID, UUID.class), doc.getString("job_result"), doc.getString("result_type")));
+    }
+    return results;
+  }
+
+  @Override
+  public boolean claimFold(UUID batchId, Instant now, Instant staleBefore) {
+    return ctx.batches()
+            .updateOne(
+                and(
+                    eq(ID, batchId),
+                    eq(COMPLETION_PROCESSED, false),
+                    or(eq("fold_claimed_at", null), lt("fold_claimed_at", Date.from(staleBefore)))),
+                set("fold_claimed_at", Date.from(now)))
+            .getModifiedCount()
+        == 1;
   }
 
   @Override

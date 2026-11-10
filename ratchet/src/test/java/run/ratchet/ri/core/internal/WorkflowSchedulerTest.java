@@ -41,6 +41,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,13 +57,22 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
+import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.ri.testsupport.EncryptionTestKit;
+import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
+import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 @ExtendWith(MockitoExtension.class)
 class WorkflowSchedulerTest {
@@ -209,6 +219,59 @@ class WorkflowSchedulerTest {
       if (child.getJobType() == JobExecutionType.BATCH_CHILD) {
         verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
       }
+    }
+  }
+
+  @Test
+  void reducingCompletionBindsAndClearsCallbackSlot() {
+    assertReducingCallbackBound(false);
+    assertReducingCallbackBound(true);
+  }
+
+  private void assertReducingCallbackBound(boolean encrypted) {
+    JobEntity parent = job(new UUID(0L, 901L), JobStatus.SUCCEEDED);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    JobEntity child = job(new UUID(0L, 902L), JobStatus.PENDING);
+    child.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    child.setPayload(
+        new JobPayload(
+            "example.Callback",
+            "accept",
+            "(Ljava/lang/Long;)V",
+            true,
+            Collections.singletonList(null),
+            List.of(0)));
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+    var serializer = new JsonbTestPayloadSerializer();
+    child.setEncryptedPayload(encrypted);
+    EncryptionTestKit.install(encrypted);
+    PayloadSerializerHolder.set(serializer);
+    try {
+      var plan = scheduler.planCompletion(parent, false, 42L);
+      JobPayload bound =
+          serializer.deserialize(
+              PayloadEncryptor.decryptArgs(
+                  plan.dependencies().get(0).payload(),
+                  EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, child.getId())),
+              JobPayload.class);
+      if (encrypted) {
+        assertThrows(
+            PayloadDecryptionException.class,
+            () ->
+                PayloadEncryptor.decryptArgs(
+                    plan.dependencies().get(0).payload(),
+                    EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, parent.getId())));
+      }
+      assertEquals("42", bound.args().get(0).toString());
+      assertEquals(null, bound.runtimeArgIndexes());
+      assertEquals(null, scheduler.planCompletion(parent, false).dependencies().get(0).payload());
+    } finally {
+      PayloadSerializerHolder.set(null);
+      EncryptionHolder.disable();
     }
   }
 

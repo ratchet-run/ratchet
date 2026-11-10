@@ -34,12 +34,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionPlan.BatchCompletion;
 import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.dto.OutboxEvent;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 
 /** Base contract tests for {@code JobTerminalStore}. */
 public abstract class AbstractJobTerminalStoreContract implements JobStoreContractFixture {
@@ -84,6 +86,77 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
         dependencies,
         null,
         events);
+  }
+
+  @Test
+  void completionWritesDependencyPayloadOnlyUnderItsSnapshotGuard() {
+    var parent = persist(newPendingJob());
+    var child = persist(newPendingJob());
+    var original = store().findById(child.getId()).orElseThrow();
+    assertTrue(
+        store().compareAndSwapStatus(parent.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    String argument = "é".repeat(40000); // Exercises Oracle's direct large-CLOB assignment.
+    JobPayload rewritten =
+        new JobPayload(
+            "example.BatchCallback",
+            "accept",
+            "(Ljava/lang/String;)V",
+            true,
+            List.of(argument),
+            null);
+    String json = PayloadSerializerHolder.get().serialize(rewritten);
+    Instant now = Instant.now();
+    var transition =
+        new DependencyTransition(
+            child.getId(),
+            original.getStatus(),
+            original.getVersion(),
+            original.getScheduledTime(),
+            JobStatus.PENDING,
+            original.getScheduledTime(),
+            original.getJobType(),
+            json,
+            null);
+    var wrongParent =
+        new JobCompletionPlan(
+            parent.getId(),
+            JobStatus.PENDING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(transition),
+            null,
+            List.of());
+    assertFalse(store().commitCompletion(wrongParent).committed());
+    assertEquals(original.getPayload(), store().findById(child.getId()).orElseThrow().getPayload());
+    var correct =
+        new JobCompletionPlan(
+            parent.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(transition),
+            null,
+            List.of());
+    assertTrue(store().commitCompletion(correct).committed());
+    assertEquals(rewritten, store().findById(child.getId()).orElseThrow().getPayload());
   }
 
   @Test
@@ -303,12 +376,23 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             child.getScheduledTime(),
             JobStatus.PENDING,
             now,
-            child.getJobType());
+            child.getJobType(),
+            PayloadSerializerHolder.get()
+                .serialize(
+                    new JobPayload(
+                        "example.Callback",
+                        "accept",
+                        "(Ljava/lang/String;)V",
+                        true,
+                        List.of("must not be written"),
+                        null)),
+            null);
     var plan =
         completionPlan(
             parent, JobStatus.RUNNING, JobStatus.FAILED, null, List.of(transition), List.of());
     Assertions.assertThrows(RuntimeException.class, () -> store().commitCompletion(plan));
     assertEquals(JobStatus.RUNNING, store().findById(parent.getId()).orElseThrow().getStatus());
+    assertEquals(child.getPayload(), store().findById(child.getId()).orElseThrow().getPayload());
   }
 
   @Test

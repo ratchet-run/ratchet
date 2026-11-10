@@ -202,6 +202,8 @@ final class SqlserverArchiveOperations implements ArchiveStore {
           FROM scheduler_job c
           LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
           WHERE c.terminal_status IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM scheduler_batch b WHERE b.batch_id = c.depends_on
+              AND b.completion_processed = 0 AND b.reducer IS NOT NULL)
             AND c.terminated_at < ?
           ORDER BY c.terminated_at ASC
           OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
@@ -226,8 +228,10 @@ final class SqlserverArchiveOperations implements ArchiveStore {
     // language=SQL Server
     String sql =
         """
-        SELECT COUNT(*) FROM scheduler_job
-        WHERE terminal_status IS NOT NULL AND terminated_at < ?
+        SELECT COUNT(*) FROM scheduler_job c
+        WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ?
+            AND NOT EXISTS (SELECT 1 FROM scheduler_batch b WHERE b.batch_id = c.depends_on
+              AND b.completion_processed = 0 AND b.reducer IS NOT NULL)
         """;
     return ctx.countByNative(sql, Timestamp.from(olderThan));
   }

@@ -168,6 +168,8 @@ public class WorkflowConditionEvaluator {
     return getBatchForParent(parentJob)
         .map(
             batch -> {
+              if (parentJob.getStatus() == JobStatus.FAILED && batch.getFailedItems() == 0)
+                return false;
               BatchContext context =
                   new BatchContext(
                       batch.getId(),
@@ -181,7 +183,9 @@ public class WorkflowConditionEvaluator {
   }
 
   private boolean evaluateBatchFailure(JobEntity parentJob) {
-    return getBatchForParent(parentJob).map(batch -> batch.getFailedItems() > 0).orElse(false);
+    return getBatchForParent(parentJob)
+        .map(batch -> batch.getFailedItems() > 0 || parentJob.getStatus() == JobStatus.FAILED)
+        .orElse(false);
   }
 
   private boolean evaluateBatchFailureCount(
@@ -189,6 +193,8 @@ public class WorkflowConditionEvaluator {
     return getBatchForParent(parentJob)
         .map(
             batch -> {
+              if (parentJob.getStatus() == JobStatus.FAILED && batch.getFailedItems() == 0)
+                return false;
               try {
                 int maxFailures = Integer.parseInt(condition.getConditionExpression());
                 return batch.getFailedItems() <= maxFailures;
@@ -205,7 +211,9 @@ public class WorkflowConditionEvaluator {
     return getBatchForParent(parentJob)
         .map(
             batch ->
-                batch.getFailedItems() == 0 && batch.getCompletedItems() == batch.getTotalItems())
+                parentJob.getStatus() == JobStatus.SUCCEEDED
+                    && batch.getFailedItems() == 0
+                    && batch.getCompletedItems() == batch.getTotalItems())
         .orElse(false);
   }
 
@@ -213,6 +221,8 @@ public class WorkflowConditionEvaluator {
     return getBatchForParent(parentJob)
         .map(
             batch -> {
+              if (parentJob.getStatus() == JobStatus.FAILED && batch.getFailedItems() == 0)
+                return false;
               double actualSuccessRate =
                   batch.getTotalItems() == 0
                       ? 1.0
@@ -401,6 +411,10 @@ public class WorkflowConditionEvaluator {
         PayloadEncryptor.decryptJsonColumn(
             jobResultJson, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
     try {
+      if (resultType != null && resultType.indexOf('<') >= 0) {
+        return payloadSerializer.deserialize(
+            jobResultJson, BatchResultTypes.parse(resultType, classPolicy));
+      }
       if (resultType != null
           && classPolicy != null
           && classPolicy.isAllowedForResultType(resultType)) {

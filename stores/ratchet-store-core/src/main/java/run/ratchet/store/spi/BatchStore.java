@@ -15,11 +15,14 @@
  */
 package run.ratchet.store.spi;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.Nullable;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 
@@ -34,6 +37,12 @@ import run.ratchet.store.entity.BatchMetricsEntity;
  */
 @Incubating
 public interface BatchStore {
+
+  /** Pages succeeded batch children in ascending job-id order, exclusively after the cursor. */
+  List<ChildResult> findSucceededChildResults(UUID batchId, @Nullable UUID afterJobId, int limit);
+
+  /** Claims a fold unless another unexpired fold owns it or completion has committed. */
+  boolean claimFold(UUID batchId, Instant now, Instant staleBefore);
 
   /**
    * Cancels PENDING, PAUSED and WAITING batch children, removing hot rows and reservations. SQL

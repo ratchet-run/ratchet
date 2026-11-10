@@ -54,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 17;
+  public static final int CURRENT_VERSION = 18;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -154,7 +154,7 @@ public final class RatchetSchemaCatalog {
         .column(nullable("encryption_key_id", TEXT))
         .primaryKey("job_id")
         .index(Index.unique("uk_idempotency_key", "idempotency_key"))
-        .index(Index.of("idx_job_depends_on", "depends_on"))
+        .index(Index.of("idx_job_depends_on", "depends_on", "job_id"))
         .index(Index.of("idx_job_superseded_by", "superseded_by"))
         .index(Index.of("idx_job_business_key", "business_key"))
         .index(Index.of("idx_job_created_at", "created_at"))
@@ -330,6 +330,8 @@ public final class RatchetSchemaCatalog {
         .column(required("failed_items", INT32))
         .column(required("completion_processed", BOOLEAN))
         .column(required("version", INT32))
+        .column(nullable("reducer", TEXT))
+        .column(nullable("fold_claimed_at", TIMESTAMP_TZ))
         // progress_hook intentionally omitted: MySQL JSON vs PG TEXT type asymmetry.
         .primaryKey("batch_id")
         .foreignKey(

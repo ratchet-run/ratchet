@@ -54,6 +54,7 @@ import run.ratchet.api.internal.JobContinuation;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
+import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -464,6 +465,22 @@ public class JobTask implements Callable<Void> {
           authorizationPolicy.checkExecute(jobEntity.getId(), jobEntity.getCallerPrincipal());
         }
         // Validate before breaker scope — config errors must not trip the circuit breaker
+        try {
+          JobPayloadInputValidator.requireBoundTaskArguments(jobEntity.getPayload());
+        } catch (IllegalStateException unbound) {
+          try {
+            if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
+              markAttemptSuperseded();
+            }
+          } catch (Throwable finalizationFailure) {
+            log.errorf(
+                finalizationFailure,
+                "Job %s unbound batch callback finalization rolled back; stale-RUNNING recovery"
+                    + " will retry it",
+                jobEntity.getId());
+          }
+          return null;
+        }
         validationFacade.validateSecurity(jobEntity.getPayload());
 
         // Last-moment argument resolution (late binding), after the security gate cleared the

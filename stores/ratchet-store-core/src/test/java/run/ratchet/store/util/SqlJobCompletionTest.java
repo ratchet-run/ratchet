@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.util;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -24,9 +25,12 @@ import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobStore;
 
@@ -39,6 +43,76 @@ class SqlJobCompletionTest {
   @Test
   void changedAttemptsAreWrittenBeforeTerminalTransition() {
     exerciseAttempts(2, 4);
+  }
+
+  @Test
+  void dependencyPayloadWriterRunsOnlyAfterAllSnapshotGuards() {
+    exercisePayloadGuard(false);
+    exercisePayloadGuard(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void exercisePayloadGuard(boolean stale) {
+    EntityManager em = mock(EntityManager.class);
+    JobStore store = mock(JobStore.class);
+    Query primary = mock(Query.class, RETURNS_SELF);
+    Query dependent = mock(Query.class, RETURNS_SELF);
+    Query update = mock(Query.class, RETURNS_SELF);
+    UUID id = new UUID(0L, 1L);
+    UUID child = new UUID(0L, 2L);
+    Instant now = Instant.now();
+    when(em.createNativeQuery(startsWith("SELECT "))).thenReturn(primary, dependent);
+    when(primary.getResultList())
+        .thenReturn(List.<Object[]>of(new Object[] {"RUNNING", 0, now, 1, 1L}));
+    when(dependent.getResultList())
+        .thenReturn(List.<Object[]>of(new Object[] {"PENDING", stale ? 4 : 3, now, 0, 0L}));
+    when(em.createNativeQuery(startsWith("UPDATE "))).thenReturn(update);
+    when(update.executeUpdate()).thenReturn(1);
+    when(store.markJobSucceeded(eq(id), any(), any(), any(), any(), any(), any())).thenReturn(true);
+    var dependency =
+        new JobCompletionPlan.DependencyTransition(
+            child,
+            JobStatus.PENDING,
+            3,
+            now,
+            JobStatus.PENDING,
+            now,
+            JobExecutionType.WORKFLOW_BRANCH,
+            "{\"args\":[7]}",
+            "new-key");
+    var plan =
+        new JobCompletionPlan(
+            id,
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(dependency),
+            null,
+            List.of());
+    Consumer<JobCompletionPlan.DependencyTransition> writer = mock(Consumer.class);
+    if (stale) {
+      assertThrows(
+          RatchetTransientStoreException.class,
+          () ->
+              SqlJobCompletion.commit(
+                  em, store, mock(BatchStore.class), plan, false, uuid -> uuid, writer));
+      verify(writer, never()).accept(any());
+    } else {
+      assertTrue(
+          SqlJobCompletion.commit(
+                  em, store, mock(BatchStore.class), plan, false, uuid -> uuid, writer)
+              .committed());
+      verify(writer).accept(dependency);
+    }
   }
 
   private void exerciseAttempts(int stored, int planned) {

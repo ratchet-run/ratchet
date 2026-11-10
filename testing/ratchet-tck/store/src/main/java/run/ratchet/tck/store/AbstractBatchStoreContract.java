@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +33,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.converter.PayloadSerializerHolder;
+import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -41,6 +44,90 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code BatchStore}, including batch metrics. */
 public abstract class AbstractBatchStoreContract implements JobStoreContractFixture {
+
+  private static void assertReducerJsonEquals(String expected, String actual) {
+    Object expectedValue = PayloadSerializerHolder.get().deserialize(expected, Object.class);
+    Object actualValue = PayloadSerializerHolder.get().deserialize(actual, Object.class);
+    assertEquals(expectedValue, actualValue);
+  }
+
+  @Test
+  void reducerAndFoldClaimRoundTrip() {
+    var parent = persist(newBatchParentJob());
+    var batch = persistBatch(parent.getId(), 2);
+    String reducer = "{\"combiner\":{},\"identity\":0,\"type\":\"java.lang.Long\"}";
+    batch.setReducer(reducer);
+    batchStore().saveBatch(batch);
+    assertReducerJsonEquals(
+        reducer, batchStore().findBatchById(parent.getId()).orElseThrow().getReducer());
+    assertReducerJsonEquals(
+        reducer, batchStore().findBatchesByIds(List.of(parent.getId())).get(0).getReducer());
+    Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+    assertTrue(batchStore().claimFold(parent.getId(), now, now.minusSeconds(300)));
+    assertFalse(batchStore().claimFold(parent.getId(), now.plusSeconds(1), now.minusSeconds(300)));
+    assertEquals(now, batchStore().findBatchById(parent.getId()).orElseThrow().getFoldClaimedAt());
+    assertTrue(batchStore().claimFold(parent.getId(), now.plusSeconds(600), now.plusSeconds(300)));
+    batchStore().closeBatch(parent.getId());
+    assertFalse(
+        batchStore().claimFold(parent.getId(), now.plusSeconds(1200), now.plusSeconds(900)));
+  }
+
+  @Test
+  void succeededPartialResultsArePagedOrderedAndFiltered() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 4);
+    List<UUID> succeeded = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      var child = cascadeChild(parent.getId(), JobStatus.PENDING);
+      assertTrue(store().tryPickUpJob(child.getId(), "result-worker"));
+      Instant now = Instant.now();
+      assertTrue(store().markJobSucceeded(child.getId(), "42", "java.lang.Long", now, now, 0L, 0L));
+      succeeded.add(child.getId());
+    }
+    cascadeChild(parent.getId(), JobStatus.PENDING);
+    var callback = newPendingJob();
+    callback.setDependsOn(parent.getId());
+    callback.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    callback = persist(callback);
+    assertTrue(store().tryPickUpJob(callback.getId(), "result-worker"));
+    Instant now = Instant.now();
+    assertTrue(
+        store().markJobSucceeded(callback.getId(), "99", "java.lang.Long", now, now, 0L, 0L));
+    var other = persist(newBatchParentJob());
+    persistBatch(other.getId(), 1);
+    cascadeChild(other.getId(), JobStatus.PENDING);
+    succeeded.sort(UUID::compareTo);
+    var first = batchStore().findSucceededChildResults(parent.getId(), null, 2);
+    assertEquals(succeeded.subList(0, 2), first.stream().map(ChildResult::jobId).toList());
+    assertEquals("42", first.get(0).jobResult());
+    assertEquals("java.lang.Long", first.get(0).resultType());
+    var second = batchStore().findSucceededChildResults(parent.getId(), first.get(1).jobId(), 2);
+    assertEquals(List.of(succeeded.get(2)), second.stream().map(ChildResult::jobId).toList());
+    assertTrue(
+        batchStore().findSucceededChildResults(parent.getId(), succeeded.get(2), 2).isEmpty());
+  }
+
+  @Test
+  void unfinishedReducerPartialsAreExcludedFromBothArchiveQueries() {
+    var parent = persist(newBatchParentJob());
+    var batch = persistBatch(parent.getId(), 1);
+    batch.setReducer("{}");
+    batchStore().saveBatch(batch);
+    var child = cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(store().tryPickUpJob(child.getId(), "result-worker"));
+    Instant now = Instant.now();
+    assertTrue(store().markJobSucceeded(child.getId(), "42", "java.lang.Long", now, now, 0L, 0L));
+    Instant cutoff = now.plusSeconds(3600);
+    long before = archiveStore().countJobsForArchiving(cutoff);
+    assertTrue(
+        archiveStore().findJobsForArchiving(cutoff, 100).stream()
+            .noneMatch(j -> j.getId().equals(child.getId())));
+    batchStore().closeBatch(parent.getId());
+    assertEquals(before + 1, archiveStore().countJobsForArchiving(cutoff));
+    assertTrue(
+        archiveStore().findJobsForArchiving(cutoff, 100).stream()
+            .anyMatch(j -> j.getId().equals(child.getId())));
+  }
 
   @BeforeEach
   @AfterEach

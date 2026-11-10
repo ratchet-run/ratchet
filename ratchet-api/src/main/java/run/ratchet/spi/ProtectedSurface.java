@@ -48,6 +48,9 @@ public enum ProtectedSurface {
   /** A persisted job result ({@code job_result}). AAD binds surface and job id. */
   RESULT,
 
+  /** The batch reducer and identity. AAD binds the parent job id. */
+  BATCH_REDUCER,
+
   /** The success-callback payload ({@code on_success_payload}). AAD binds surface and job id. */
   ON_SUCCESS_PAYLOAD,
 

@@ -36,6 +36,17 @@ class JobPayloadInputValidatorTest {
   }
 
   @Test
+  void dispatchedTasksCannotRetainRuntimeSlots() {
+    JobPayload unbound = runtimePayload(Arrays.asList((Object) null), List.of(0));
+    assertEquals(
+        "Batch success callback was never given the batch result",
+        assertThrows(
+                IllegalStateException.class,
+                () -> JobPayloadInputValidator.requireBoundTaskArguments(unbound))
+            .getMessage());
+  }
+
+  @Test
   void runtimeSlotsMustBeAlignedNonNegativeAndEmptyInStorage() {
     JobPayload valid = runtimePayload(Arrays.asList((Object) null), List.of(0));
     assertDoesNotThrow(() -> validator.validateAtCreation(valid));

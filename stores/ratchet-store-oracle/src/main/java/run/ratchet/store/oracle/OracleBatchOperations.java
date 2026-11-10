@@ -17,6 +17,8 @@ package run.ratchet.store.oracle;
 
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -27,6 +29,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -44,6 +47,59 @@ final class OracleBatchOperations implements BatchStore {
 
   OracleBatchOperations(OracleStoreContext ctx) {
     this.ctx = ctx;
+  }
+
+  @Override
+  public List<ChildResult> findSucceededChildResults(UUID batchId, UUID afterJobId, int limit) {
+    if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
+    try {
+      String cursor = afterJobId == null ? "" : " AND job_id > ?";
+      String sql =
+          """
+          SELECT job_id, job_result, result_type FROM scheduler_job
+          WHERE depends_on = ? AND job_type = 'BATCH_CHILD' AND terminal_status = 'SUCCEEDED'
+          %s ORDER BY job_id FETCH FIRST ? ROWS ONLY
+          """
+              .formatted(cursor);
+      var query =
+          ctx.em().createNativeQuery(sql).setParameter(1, UuidRawConverter.toBytes(batchId));
+      int parameter = 2;
+      if (afterJobId != null) query.setParameter(parameter++, UuidRawConverter.toBytes(afterJobId));
+      query.setParameter(parameter, limit);
+      List<?> rows = query.getResultList();
+      List<ChildResult> results = new ArrayList<>(rows.size());
+      for (Object value : rows) {
+        Object[] row = (Object[]) value;
+        results.add(
+            new ChildResult(
+                OracleJobRowMapper.uuidOrNull(row[0]),
+                RowValues.stringOrNull(row[1]),
+                RowValues.stringOrNull(row[2])));
+      }
+      return results;
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("read batch partial results", ex);
+    }
+  }
+
+  @Override
+  public boolean claimFold(UUID batchId, Instant now, Instant staleBefore) {
+    try {
+      return ctx.em()
+              .createNativeQuery(
+                  """
+                  UPDATE scheduler_batch SET fold_claimed_at = ?
+                  WHERE batch_id = ? AND completion_processed = FALSE
+                    AND (fold_claimed_at IS NULL OR fold_claimed_at < ?)
+                  """)
+              .setParameter(1, Timestamp.from(now))
+              .setParameter(2, UuidRawConverter.toBytes(batchId))
+              .setParameter(3, Timestamp.from(staleBefore))
+              .executeUpdate()
+          == 1;
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("claim batch fold", ex);
+    }
   }
 
   @Override
@@ -194,8 +250,8 @@ final class OracleBatchOperations implements BatchStore {
         String insertSql =
             """
             INSERT INTO scheduler_batch
-              (total_items, completed_items, failed_items, completion_processed, progress_hook, batch_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+              (total_items, completed_items, failed_items, completion_processed, progress_hook, reducer, fold_claimed_at, batch_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """;
         bindBatch(insertSql, batch).executeUpdate();
       }
@@ -212,7 +268,7 @@ final class OracleBatchOperations implements BatchStore {
         """
         UPDATE scheduler_batch
         SET total_items = ?, completed_items = ?, failed_items = ?, completion_processed = ?,
-            progress_hook = ?, version = version + 1
+            progress_hook = ?, reducer = ?, fold_claimed_at = ?, version = version + 1
         WHERE batch_id = ?
         """;
     return bindBatch(sql, batch).executeUpdate();
@@ -226,7 +282,10 @@ final class OracleBatchOperations implements BatchStore {
         .setParameter(3, batch.getFailedItems())
         .setParameter(4, Boolean.TRUE.equals(batch.getCompletionProcessed()))
         .setParameter(5, progressHookJson(batch.getProgressHook()))
-        .setParameter(6, UuidRawConverter.toBytes(batch.getId()));
+        .setParameter(6, batch.getReducer())
+        .setParameter(
+            7, batch.getFoldClaimedAt() == null ? null : Timestamp.from(batch.getFoldClaimedAt()))
+        .setParameter(8, UuidRawConverter.toBytes(batch.getId()));
   }
 
   @Override
@@ -246,7 +305,7 @@ final class OracleBatchOperations implements BatchStore {
     String sql =
         """
         SELECT batch_id, total_items, completed_items, failed_items,
-               completion_processed, version, progress_hook
+               completion_processed, version, progress_hook, reducer, fold_claimed_at
         FROM scheduler_batch
         WHERE batch_id IN (%s)
         """
@@ -477,6 +536,8 @@ final class OracleBatchOperations implements BatchStore {
     batch.setCompletionProcessed(asBoolean(row[4]));
     batch.setVersion(row[5] == null ? null : ((Number) row[5]).intValue());
     batch.setProgressHook(parseProgressHook(row[6]));
+    batch.setReducer(RowValues.stringOrNull(row[7]));
+    batch.setFoldClaimedAt(RowValues.instantOrNull(row[8]));
     return batch;
   }
 

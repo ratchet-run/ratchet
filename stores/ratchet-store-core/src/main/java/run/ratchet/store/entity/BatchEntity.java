@@ -21,6 +21,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.store.converter.JobPayloadConverter;
@@ -57,6 +58,28 @@ public class BatchEntity {
   @Convert(converter = JobPayloadConverter.class)
   @Column(name = "progress_hook")
   private JobPayload progressHook;
+
+  @Column(name = "reducer")
+  private String reducer;
+
+  @Column(name = "fold_claimed_at")
+  private Instant foldClaimedAt;
+
+  public String getReducer() {
+    return reducer;
+  }
+
+  public void setReducer(String reducer) {
+    this.reducer = reducer;
+  }
+
+  public Instant getFoldClaimedAt() {
+    return foldClaimedAt;
+  }
+
+  public void setFoldClaimedAt(Instant foldClaimedAt) {
+    this.foldClaimedAt = foldClaimedAt;
+  }
 
   public UUID getId() {
     return id;
