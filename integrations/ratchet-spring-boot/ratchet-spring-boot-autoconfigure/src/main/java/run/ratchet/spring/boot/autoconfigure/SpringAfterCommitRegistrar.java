@@ -16,7 +16,9 @@
 package run.ratchet.spring.boot.autoconfigure;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import org.apache.commons.logging.Log;
@@ -89,11 +91,26 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
 
   private static final class QueueSynchronization implements TransactionSynchronization {
     private final List<Runnable> actions = new ArrayList<>();
+    private final Map<Object, Integer> savepoints = new IdentityHashMap<>();
     private boolean completed;
     private final TransactionTemplate boundary;
 
     private QueueSynchronization(TransactionTemplate boundary) {
       this.boundary = boundary;
+    }
+
+    @Override
+    public void savepoint(Object savepoint) {
+      savepoints.put(savepoint, actions.size());
+    }
+
+    @Override
+    public void savepointRollback(Object savepoint) {
+      // Spring calls this before rollback, even if registration happened after savepoint creation.
+      // In that case every queued action belongs to work after the unobserved savepoint.
+      int position = savepoints.getOrDefault(savepoint, 0);
+      actions.subList(position, actions.size()).clear();
+      savepoints.values().removeIf(index -> index > position);
     }
 
     @Override
@@ -110,6 +127,7 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
     public void afterCompletion(int status) {
       TransactionSynchronizationManager.unbindResourceIfPossible(KEY);
       completed = true;
+      savepoints.clear();
       if (status != STATUS_COMMITTED) {
         actions.clear();
         return;

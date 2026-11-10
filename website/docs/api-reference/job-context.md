@@ -406,6 +406,7 @@ Ratchet accepts the value only after commit. Rollback drops it. The commit callb
 records the value in memory and does no store I/O. The background flusher saves the
 latest committed value. With no transaction, Ratchet saves it before the call returns.
 A transaction around the whole job cannot save intermediate positions before it commits.
+Spring drops checkpoints on nested savepoint rollback; Micronaut rejects checkpoints in nested savepoint scopes.
 
 `ratchet.execution.checkpoint-flush-interval-ms` defaults to `1000` milliseconds.
 Ratchet also tries to flush before the attempt ends. On a hard timeout, the watchdog saves the last

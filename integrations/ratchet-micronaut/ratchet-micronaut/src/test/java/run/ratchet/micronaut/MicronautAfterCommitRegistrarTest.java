@@ -105,6 +105,83 @@ class MicronautAfterCommitRegistrarTest {
   }
 
   @Test
+  void nestedRollbackRejectsActionsAndOuterCommitRunsOuterActions() {
+    assertNestedScopeRejected(true);
+  }
+
+  @Test
+  void nestedReleaseStillRejectsActionsAndOuterCommitRunsOuterActions() {
+    assertNestedScopeRejected(false);
+  }
+
+  private void assertNestedScopeRejected(boolean rollback) {
+    List<String> calls = new ArrayList<>();
+    transaction(
+        Propagation.REQUIRED,
+        outer -> {
+          execute(outer, "create table callback_work (id integer primary key)");
+          execute(outer, "insert into callback_work values (1)");
+          assertEquals(Result.REGISTERED, registrar.registerAfterCommit(() -> calls.add("before")));
+          manager.execute(
+              TransactionDefinition.of(Propagation.NESTED),
+              nested -> {
+                assertFalse(nested.isNewTransaction());
+                execute(nested, "insert into callback_work values (2)");
+                assertEquals(
+                    Result.REGISTRATION_FAILED,
+                    registrar.registerAfterCommit(() -> calls.add("nested")));
+                transaction(
+                    Propagation.REQUIRED,
+                    participant ->
+                        assertEquals(
+                            Result.REGISTRATION_FAILED,
+                            registrar.registerAfterCommit(() -> calls.add("participant"))));
+                if (rollback) nested.setRollbackOnly();
+                return null;
+              });
+          assertTrue(calls.isEmpty());
+          assertEquals(Result.REGISTERED, registrar.registerAfterCommit(() -> calls.add("after")));
+        });
+    assertEquals(List.of("before", "after"), calls);
+    transaction(Propagation.REQUIRED, status -> assertEquals(rollback ? 1 : 2, count(status)));
+  }
+
+  @Test
+  void nestedPropagationWithoutOuterTransactionRegistersNormally() {
+    List<String> calls = new ArrayList<>();
+    manager.execute(
+        TransactionDefinition.of(Propagation.NESTED),
+        status -> {
+          assertTrue(status.isNewTransaction());
+          assertEquals(
+              Result.REGISTERED, registrar.registerAfterCommit(() -> calls.add("committed")));
+          return null;
+        });
+    assertEquals(List.of("committed"), calls);
+  }
+
+  @Test
+  void requiresNewInsideNestedScopeHasAnIndependentQueue() {
+    List<String> calls = new ArrayList<>();
+    transaction(
+        Propagation.REQUIRED,
+        outer ->
+            manager.execute(
+                TransactionDefinition.of(Propagation.NESTED),
+                nested -> {
+                  transaction(
+                      Propagation.REQUIRES_NEW,
+                      independent ->
+                          assertEquals(
+                              Result.REGISTERED,
+                              registrar.registerAfterCommit(() -> calls.add("independent"))));
+                  nested.setRollbackOnly();
+                  return null;
+                }));
+    assertEquals(List.of("independent"), calls);
+  }
+
+  @Test
   void requiresNewHasItsOwnQueueAndOuterRollbackSuppressesItsCallbacks() {
     List<String> calls = new ArrayList<>();
     transaction(
