@@ -17,6 +17,7 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.gt;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Updates.combine;
@@ -59,6 +60,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -73,7 +76,6 @@ import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
-import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
@@ -612,25 +614,37 @@ final class MongoJobLifecycleOperations
           return transactionalStatusMutation(
               id,
               JobStatus.PENDING,
-              session ->
-                  ctx.jobs()
-                      .updateOne(
-                          session,
-                          and(eq(ID, id), eq(STATUS, "FAILED")),
-                          combine(
-                              set(STATUS, "PENDING"),
-                              set(ATTEMPTS, 0),
-                              set(CRASH_COUNT, 0),
-                              set(LAST_ERROR, null),
-                              set(SCHEDULED_TIME, DocumentMapper.toDate(now)),
-                              set(PICKED_BY, null),
-                              set(PICKED_AT, null),
-                              set(EXECUTION_START_TIME, null),
-                              set(EXECUTION_END_TIME, null),
-                              set(EXECUTION_DURATION_MS, null),
-                              unset(TERMINATED_AT),
-                              set(UPDATED_AT, DocumentMapper.toDate(now)),
-                              inc(VERSION, 1))));
+              session -> {
+                Document job =
+                    ctx.jobs().find(session, and(eq(ID, id), eq(STATUS, "FAILED"))).first();
+                if (!retryEligible(session, job)) {
+                  return UpdateResult.acknowledged(0, 0L, null);
+                }
+                UpdateResult result =
+                    ctx.jobs()
+                        .updateOne(
+                            session,
+                            and(eq(ID, id), eq(STATUS, "FAILED")),
+                            combine(
+                                set(STATUS, "PENDING"),
+                                set(ATTEMPTS, 0),
+                                set(CRASH_COUNT, 0),
+                                set(LAST_ERROR, null),
+                                set(SCHEDULED_TIME, DocumentMapper.toDate(now)),
+                                set(PICKED_BY, null),
+                                set(PICKED_AT, null),
+                                set(EXECUTION_START_TIME, null),
+                                set(EXECUTION_END_TIME, null),
+                                set(EXECUTION_DURATION_MS, null),
+                                unset(TERMINATED_AT),
+                                set(UPDATED_AT, DocumentMapper.toDate(now)),
+                                inc(VERSION, 1)));
+                if (result.getModifiedCount() > 0
+                    && "BATCH_CHILD".equals(job.getString(JOB_TYPE))) {
+                  decrementRetryFailures(session, job.get("depends_on", UUID.class), 1);
+                }
+                return result;
+              });
         });
   }
 
@@ -643,8 +657,7 @@ final class MongoJobLifecycleOperations
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
-            List<UUID> ids =
-                query.searchLive(session, failed, limit, 0).stream().map(JobEntity::getId).toList();
+            List<UUID> ids = query.findRetryableFailedJobIds(session, failed, limit);
             if (ids.isEmpty()) {
               return 0;
             }
@@ -682,6 +695,18 @@ final class MongoJobLifecycleOperations
             for (UUID id : ids) {
               reservations.syncForStoredJob(session, id, JobStatus.PENDING);
             }
+            Map<UUID, Integer> batchCounts = new TreeMap<>();
+            for (Document job :
+                ctx.jobs().find(session, and(in(ID, ids), eq(JOB_TYPE, "BATCH_CHILD")))) {
+              UUID batchId = job.get("depends_on", UUID.class);
+              if (!retryEligible(session, job)) {
+                throw new RatchetTransientStoreException(
+                    "Bulk retry selection changed concurrently: batch finished or missing");
+              }
+              batchCounts.merge(batchId, 1, Integer::sum);
+            }
+            batchCounts.forEach(
+                (batchId, count) -> decrementRetryFailures(session, batchId, count));
             return modified;
           });
     } catch (RatchetTransientStoreException e) {
@@ -790,6 +815,41 @@ final class MongoJobLifecycleOperations
           return Boolean.TRUE;
         },
         ignored -> "success");
+  }
+
+  private boolean retryEligible(ClientSession session, Document job) {
+    if (job == null || "BATCH_PARENT".equals(job.getString(JOB_TYPE))) {
+      return false;
+    }
+    if (!"BATCH_CHILD".equals(job.getString(JOB_TYPE))) {
+      return true;
+    }
+    UUID batchId = job.get("depends_on", UUID.class);
+    return batchId != null
+        && ctx.batches()
+                .find(session, and(eq(ID, batchId), eq("completion_processed", false)))
+                .first()
+            != null;
+  }
+
+  private void decrementRetryFailures(ClientSession session, UUID batchId, int count) {
+    if (count == 1) {
+      ctx.batches()
+          .updateOne(session, and(eq(ID, batchId), gt("failed_items", 0)), inc("failed_items", -1));
+    } else {
+      Document failures =
+          new Document(
+              "$max", List.of(0, new Document("$subtract", List.of("$failed_items", count))));
+      ctx.batches()
+          .updateOne(
+              session,
+              and(eq(ID, batchId), eq("completion_processed", false)),
+              List.of(new Document("$set", new Document("failed_items", failures))));
+    }
+    // Also write when the counter was already zero, fencing concurrent batch completion.
+    ctx.batches()
+        .updateOne(
+            session, and(eq(ID, batchId), eq("completion_processed", false)), inc(VERSION, 1));
   }
 
   private boolean transactionalStatusMutation(

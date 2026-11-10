@@ -359,7 +359,7 @@ final class SqlserverJobTerminalOperations {
       String selectSql =
           """
           SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
-                 execution_target, claim_seq
+                 execution_target, claim_seq, depends_on
           FROM scheduler_job WITH (UPDLOCK, ROWLOCK)
           WHERE job_id = ?
           """;
@@ -378,6 +378,14 @@ final class SqlserverJobTerminalOperations {
         return false;
       }
       String jobType = (String) row[1];
+      if ("BATCH_PARENT".equals(jobType)) {
+        return false;
+      }
+      UUID batchId =
+          "BATCH_CHILD".equals(jobType) ? SqlserverJobRowMapper.uuidOrNull(row[8]) : null;
+      if ("BATCH_CHILD".equals(jobType) && (batchId == null || !lockOpenRetryBatch(batchId))) {
+        return false;
+      }
       int priority = ((Number) row[2]).intValue();
       String businessKey = (String) row[3];
       int timeoutSec = ((Number) row[4]).intValue();
@@ -437,6 +445,9 @@ final class SqlserverJobTerminalOperations {
           throw e;
         }
       }
+      if (batchId != null) {
+        decrementRetryFailures(batchId, 1);
+      }
       return true;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("reset failed job to pending", e);
@@ -495,6 +506,26 @@ final class SqlserverJobTerminalOperations {
           """
               .formatted(placeholders);
       bindIds(reserveSql, ids).executeUpdate();
+      String batchSql =
+          """
+          SELECT depends_on, COUNT(*) FROM scheduler_job
+          WHERE job_type = 'BATCH_CHILD' AND job_id IN (%s)
+          GROUP BY depends_on ORDER BY depends_on
+          """
+              .formatted(placeholders);
+      @SuppressWarnings("unchecked")
+      List<Object[]> batchRows = bindIds(batchSql, ids).getResultList();
+      for (Object[] batchRow : batchRows) {
+        UUID batchId = SqlserverJobRowMapper.uuidOrNull(batchRow[0]);
+        if (batchId == null || !lockOpenRetryBatch(batchId)) {
+          throw new RatchetTransientStoreException(
+              "Bulk retry selection changed concurrently: batch finished or missing");
+        }
+      }
+      for (Object[] batchRow : batchRows) {
+        decrementRetryFailures(
+            SqlserverJobRowMapper.uuidOrNull(batchRow[0]), ((Number) batchRow[1]).intValue());
+      }
       return ids.size();
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
@@ -503,6 +534,39 @@ final class SqlserverJobTerminalOperations {
       }
       throw ctx.translateTransientStoreException("bulk reset failed jobs to pending", e);
     }
+  }
+
+  private boolean lockOpenRetryBatch(UUID batchId) {
+    String sql =
+        """
+        SELECT completion_processed FROM scheduler_batch WITH (UPDLOCK, ROWLOCK)
+        WHERE batch_id = ?
+        """;
+    List<?> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+            .getResultList();
+    if (rows.isEmpty()) {
+      return false;
+    }
+    Object processed = rows.get(0);
+    return Boolean.FALSE.equals(processed)
+        || processed instanceof Number number && number.intValue() == 0;
+  }
+
+  private void decrementRetryFailures(UUID batchId, int count) {
+    String sql =
+        """
+        UPDATE scheduler_batch SET failed_items = CASE WHEN failed_items > ? THEN failed_items - ? ELSE 0 END
+        WHERE batch_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, count)
+        .setParameter(2, count)
+        .setParameter(3, UuidByteArrayConverter.toBytes(batchId))
+        .executeUpdate();
   }
 
   private Query bindIds(String sql, List<UUID> ids) {

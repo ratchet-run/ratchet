@@ -8,6 +8,13 @@ description: BatchBuilder for in-memory collections and StreamingBatchBuilder fo
 
 Ratchet provides two batch processing APIs: `BatchBuilder` for in-memory collections and `StreamingBatchBuilder` for large datasets that shouldn't be loaded entirely into memory.
 
+## Retrying failed children
+
+You can retry a failed child while its batch is still running. The retry updates the batch's
+failure counter so later completion counts the child once. Batch parents and children of a
+finished batch cannot be retried. `retryJob` returns `false` for them. `retryJobs` skips them.
+Cancelling a child counts as a failure. The batch completes as soon as its last child ends.
+
 ## How Batches Work
 
 A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BATCH_CHILD). The parent tracks overall progress but performs no work itself. Each child executes independently and in parallel, following the normal job lifecycle. Retries are configured for all children on the builder; the default remains no retries.

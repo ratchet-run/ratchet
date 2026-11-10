@@ -141,7 +141,7 @@ final class PostgresqlJobLifecycleOperations
     if (failed == null) {
       return 0;
     }
-    List<UUID> ids = query.searchJobs(failed, limit, 0).stream().map(job -> job.getId()).toList();
+    List<UUID> ids = query.findRetryableFailedJobIds(failed, limit);
     return terminals.resetFailedToPending(ids);
   }
 

@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -193,6 +194,66 @@ class BatchServiceTest {
   }
 
   @Test
+  void completeIfFinishedCompletesParentThroughTransaction() {
+    UUID id = UUID.randomUUID();
+    JobEntity parent = parent(id);
+    when(batchStore.findBatchById(id)).thenReturn(Optional.of(batch(id, 2, 2, 0)));
+    when(jobCrudStore.findById(id)).thenReturn(Optional.of(parent));
+
+    assertTrue(batchService.completeIfFinished(id));
+    assertEquals(JobStatus.SUCCEEDED, parent.getStatus());
+    verify(batchCompletionTransaction).complete(any());
+    verify(jobTerminalStore).commitCompletion(any());
+  }
+
+  @Test
+  void completeIfFinishedLeavesIncompleteBatchPending() {
+    UUID id = UUID.randomUUID();
+    when(batchStore.findBatchById(id)).thenReturn(Optional.of(batch(id, 2, 1, 0)));
+
+    assertFalse(batchService.completeIfFinished(id));
+    verifyNoInteractions(jobCrudStore, jobTerminalStore);
+  }
+
+  @Test
+  void completeIfFinishedReturnsFalseForMissingBatch() {
+    assertFalse(batchService.completeIfFinished(UUID.randomUUID()));
+    verifyNoInteractions(jobCrudStore, jobTerminalStore);
+  }
+
+  @Test
+  void completeIfFinishedReturnsFalseForMissingParent() {
+    UUID id = UUID.randomUUID();
+    when(batchStore.findBatchById(id)).thenReturn(Optional.of(batch(id, 1, 1, 0)));
+
+    assertFalse(batchService.completeIfFinished(id));
+    verifyNoInteractions(jobTerminalStore);
+  }
+
+  @Test
+  void completeIfFinishedReturnsFalseWithoutBatchCapability() {
+    BatchService withoutBatches =
+        new BatchService(
+            (BatchStore) null,
+            jobCrudStore,
+            jobBatchStatusStore,
+            jobTerminalStore,
+            metricsCollector,
+            eventPublisher,
+            deadLetterService,
+            workflowScheduler,
+            classPolicy,
+            beanResolver,
+            FIXED_CLOCK,
+            new JakartaAfterCommitRegistrar(txRegistry),
+            batchCompletionTransaction,
+            null);
+
+    assertFalse(withoutBatches.completeIfFinished(UUID.randomUUID()));
+    verifyNoInteractions(batchCompletionTransaction, jobCrudStore, jobTerminalStore);
+  }
+
+  @Test
   void recoverySweepDelegatesEachBatchToASeparateTransaction() throws NoSuchMethodException {
     Transactional sweep =
         BatchService.class.getMethod("recoverStuckBatches").getAnnotation(Transactional.class);
@@ -204,6 +265,12 @@ class BatchServiceTest {
     assertNotNull(sweep);
     assertNotNull(unit);
     assertEquals(Transactional.TxType.NOT_SUPPORTED, sweep.value());
+    assertEquals(
+        Transactional.TxType.NOT_SUPPORTED,
+        BatchService.class
+            .getMethod("completeIfFinished", UUID.class)
+            .getAnnotation(Transactional.class)
+            .value());
     assertEquals(Transactional.TxType.REQUIRES_NEW, unit.value());
   }
 

@@ -349,7 +349,7 @@ final class PostgresqlJobTerminalOperations {
       String selectSql =
           """
           SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
-                 execution_target, claim_seq
+                 execution_target, claim_seq, depends_on
           FROM scheduler_job
           WHERE job_id = ?
           FOR UPDATE
@@ -366,6 +366,14 @@ final class PostgresqlJobTerminalOperations {
         return false;
       }
       String jobType = (String) row[1];
+      if ("BATCH_PARENT".equals(jobType)) {
+        return false;
+      }
+      UUID batchId =
+          "BATCH_CHILD".equals(jobType) ? PostgresqlJobRowMapper.uuidOrNull(row[8]) : null;
+      if ("BATCH_CHILD".equals(jobType) && (batchId == null || !lockOpenRetryBatch(batchId))) {
+        return false;
+      }
       int priority = ((Number) row[2]).intValue();
       String businessKey = (String) row[3];
       int timeoutSec = ((Number) row[4]).intValue();
@@ -418,6 +426,9 @@ final class PostgresqlJobTerminalOperations {
           }
           throw e;
         }
+      }
+      if (batchId != null) {
+        decrementRetryFailures(batchId, 1);
       }
       return true;
     } catch (RuntimeException e) {
@@ -475,6 +486,26 @@ final class PostgresqlJobTerminalOperations {
           """
               .formatted(placeholders);
       bindIds(reserveSql, ids).executeUpdate();
+      String batchSql =
+          """
+          SELECT depends_on, COUNT(*) FROM scheduler_job
+          WHERE job_type = 'BATCH_CHILD' AND job_id IN (%s)
+          GROUP BY depends_on ORDER BY depends_on
+          """
+              .formatted(placeholders);
+      @SuppressWarnings("unchecked")
+      List<Object[]> batchRows = bindIds(batchSql, ids).getResultList();
+      for (Object[] batchRow : batchRows) {
+        UUID batchId = PostgresqlJobRowMapper.uuidOrNull(batchRow[0]);
+        if (batchId == null || !lockOpenRetryBatch(batchId)) {
+          throw new RatchetTransientStoreException(
+              "Bulk retry selection changed concurrently: batch finished or missing");
+        }
+      }
+      for (Object[] batchRow : batchRows) {
+        decrementRetryFailures(
+            PostgresqlJobRowMapper.uuidOrNull(batchRow[0]), ((Number) batchRow[1]).intValue());
+      }
       return ids.size();
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
@@ -483,6 +514,30 @@ final class PostgresqlJobTerminalOperations {
       }
       throw ctx.translateTransientStoreException("bulk reset failed jobs to pending", e);
     }
+  }
+
+  private boolean lockOpenRetryBatch(UUID batchId) {
+    String sql =
+        """
+        SELECT completion_processed FROM scheduler_batch
+        WHERE batch_id = ? FOR UPDATE
+        """;
+    List<?> rows = ctx.em().createNativeQuery(sql).setParameter(1, batchId).getResultList();
+    if (rows.isEmpty()) {
+      return false;
+    }
+    Object processed = rows.get(0);
+    return Boolean.FALSE.equals(processed)
+        || processed instanceof Number number && number.intValue() == 0;
+  }
+
+  private void decrementRetryFailures(UUID batchId, int count) {
+    String sql =
+        """
+        UPDATE scheduler_batch SET failed_items = GREATEST(0, failed_items - ?)
+        WHERE batch_id = ?
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, count).setParameter(2, batchId).executeUpdate();
   }
 
   private Query bindIds(String sql, List<UUID> ids) {

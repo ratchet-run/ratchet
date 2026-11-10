@@ -21,18 +21,23 @@ import static com.mongodb.client.model.Filters.gt;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
+import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static com.mongodb.client.model.Sorts.orderBy;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 
 import com.mongodb.client.ClientSession;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -397,17 +402,65 @@ final class MongoJobQueryOperations {
     return liveCount + archiveCount;
   }
 
+  List<UUID> findRetryableFailedJobIds(ClientSession session, JobFilter filter, int limit) {
+    List<UUID> ids = new ArrayList<>();
+    int offset = 0;
+    while (ids.size() < limit) {
+      List<JobEntity> candidates = searchLive(session, filter, limit, offset, true);
+      if (candidates.isEmpty()) {
+        break;
+      }
+      List<UUID> batchIds =
+          candidates.stream()
+              .filter(job -> job.getJobType() == JobExecutionType.BATCH_CHILD)
+              .map(JobEntity::getDependsOn)
+              .filter(Objects::nonNull)
+              .distinct()
+              .toList();
+      Set<UUID> openBatches = new HashSet<>();
+      if (!batchIds.isEmpty()) {
+        for (Document batch :
+            ctx.batches().find(session, and(in(ID, batchIds), eq("completion_processed", false)))) {
+          openBatches.add(batch.get(ID, UUID.class));
+        }
+      }
+      for (JobEntity job : candidates) {
+        if (job.getJobType() != JobExecutionType.BATCH_CHILD
+            || openBatches.contains(job.getDependsOn())) {
+          ids.add(job.getId());
+          if (ids.size() == limit) {
+            break;
+          }
+        }
+      }
+      offset += candidates.size();
+      if (candidates.size() < limit) {
+        break;
+      }
+    }
+    return ids;
+  }
+
   private List<JobEntity> searchLive(JobFilter filter, int limit, int offset) {
     return searchLive(null, filter, limit, offset);
   }
 
   List<JobEntity> searchLive(ClientSession session, JobFilter filter, int limit, int offset) {
-    Bson query = buildFilter(filter);
+    return searchLive(session, filter, limit, offset, false);
+  }
+
+  private List<JobEntity> searchLive(
+      ClientSession session, JobFilter filter, int limit, int offset, boolean retry) {
+    Bson query =
+        retry ? and(buildFilter(filter), ne(JOB_TYPE, "BATCH_PARENT")) : buildFilter(filter);
     Bson sort = buildSort(filter);
     List<JobEntity> result = new ArrayList<>(limit);
     Iterable<Document> documents;
     if (hasPropertyFilters(filter)) {
       List<Bson> pipeline = propertyPipeline(filter);
+      if (retry) {
+        pipeline.add(new Document("$match", ne(JOB_TYPE, "BATCH_PARENT")));
+      }
       pipeline.add(new Document("$sort", sort));
       if (offset > 0) {
         pipeline.add(new Document("$skip", offset));

@@ -238,6 +238,24 @@ public class BatchService {
     return processBatchCompletion(parentId, batch);
   }
 
+  /** Checks committed counters and completes a batch whose last child has ended. */
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
+  public boolean completeIfFinished(UUID batchId) {
+    if (batchStore == null) {
+      return false;
+    }
+    return batchCompletionTransaction.complete(
+        () -> {
+          BatchEntity batch = batchStore.findBatchById(batchId).orElse(null);
+          if (batch == null
+              || batch.getCompletedItems() + batch.getFailedItems() < batch.getTotalItems()) {
+            return false;
+          }
+          JobEntity parent = jobCrudStore.findById(batchId).orElse(null);
+          return parent != null && recoverCompletedBatch(batchId, batch, parent);
+        });
+  }
+
   public boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
     JobStatus before = parent.getStatus();
     boolean scheduledNext = processBatchCompletion(batchId, batch, parent);
