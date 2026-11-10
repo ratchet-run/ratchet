@@ -30,6 +30,7 @@ import org.bson.Document;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.store.dto.OutboxEvent;
+import run.ratchet.store.dto.OutboxEventRead;
 import run.ratchet.store.dto.OutboxEventType;
 import run.ratchet.store.spi.EventOutboxStore;
 
@@ -61,36 +62,38 @@ final class MongoEventOutboxOperations implements EventOutboxStore {
   }
 
   @Override
-  public List<OutboxEvent> findEventsCreatedBefore(Instant cutoff, int limit) {
+  public List<OutboxEventRead> findEventsCreatedBefore(Instant cutoff, int limit) {
     Objects.requireNonNull(cutoff, "cutoff");
     if (limit < 1) throw new IllegalArgumentException("limit must be at least one");
-    List<OutboxEvent> events = new ArrayList<>();
+    List<OutboxEventRead> events = new ArrayList<>();
     for (Document row :
         ctx.eventOutbox()
             .find(lt("created_at", DocumentMapper.toDate(cutoff)))
             .sort(Sorts.ascending("created_at", "_id"))
             .limit(limit)) {
-      events.add(
-          new OutboxEvent(
-              row.get("_id", UUID.class),
-              OutboxEventType.valueOf(row.getString("event_type")),
-              row.get("job_id", UUID.class),
-              row.getString("business_key"),
-              row.get("recurring_master_id", UUID.class),
-              row.getString("job_type") == null ? null : JobType.valueOf(row.getString("job_type")),
-              row.getString("priority") == null
-                  ? null
-                  : JobPriority.valueOf(row.getString("priority")),
-              row.getString("node_id"),
-              row.getDate("event_ts").toInstant(),
-              row.get("execution_time_ms") == null
-                  ? null
-                  : ((Number) row.get("execution_time_ms")).longValue(),
-              row.getString("error_message"),
-              row.getInteger("retry_attempt"),
-              row.getDate("created_at").toInstant()));
+      UUID eventId = Objects.requireNonNull(row.get("_id", UUID.class), "eventId");
+      events.add(OutboxEventRead.decode(eventId, () -> read(eventId, row)));
     }
     return List.copyOf(events);
+  }
+
+  private static OutboxEvent read(UUID eventId, Document row) {
+    return new OutboxEvent(
+        eventId,
+        OutboxEventType.valueOf(row.getString("event_type")),
+        row.get("job_id", UUID.class),
+        row.getString("business_key"),
+        row.get("recurring_master_id", UUID.class),
+        row.getString("job_type") == null ? null : JobType.valueOf(row.getString("job_type")),
+        row.getString("priority") == null ? null : JobPriority.valueOf(row.getString("priority")),
+        row.getString("node_id"),
+        row.getDate("event_ts").toInstant(),
+        row.get("execution_time_ms") == null
+            ? null
+            : ((Number) row.get("execution_time_ms")).longValue(),
+        row.getString("error_message"),
+        row.getInteger("retry_attempt"),
+        row.getDate("created_at").toInstant());
   }
 
   @Override

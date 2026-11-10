@@ -28,6 +28,7 @@ import java.util.stream.IntStream;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.store.dto.OutboxEvent;
+import run.ratchet.store.dto.OutboxEventRead;
 import run.ratchet.store.dto.OutboxEventType;
 
 /** Native SQL outbox operations shared by the four SQL stores. Uses the caller's transaction. */
@@ -68,7 +69,8 @@ public final class SqlEventOutbox {
         .executeUpdate();
   }
 
-  public static List<OutboxEvent> find(EntityManager em, Instant cutoff, int limit) {
+  /** Reads bounded outbox results, retaining the event id when a snapshot cannot be decoded. */
+  public static List<OutboxEventRead> find(EntityManager em, Instant cutoff, int limit) {
     Objects.requireNonNull(cutoff, "cutoff");
     if (limit < 1) throw new IllegalArgumentException("limit must be at least one");
     List<?> rows =
@@ -83,12 +85,19 @@ public final class SqlEventOutbox {
             .setParameter(1, Timestamp.from(cutoff))
             .setMaxResults(limit)
             .getResultList();
-    return rows.stream().map(row -> read((Object[]) row)).toList();
+    return rows.stream()
+        .map(
+            value -> {
+              Object[] row = (Object[]) value;
+              UUID eventId = Objects.requireNonNull(RowValues.uuidOrNull(row[0]), "eventId");
+              return OutboxEventRead.decode(eventId, () -> read(eventId, row));
+            })
+        .toList();
   }
 
-  private static OutboxEvent read(Object[] row) {
+  private static OutboxEvent read(UUID eventId, Object[] row) {
     return new OutboxEvent(
-        RowValues.uuidOrNull(row[0]),
+        eventId,
         OutboxEventType.valueOf(RowValues.stringOrNull(row[1])),
         RowValues.uuidOrNull(row[2]),
         RowValues.stringOrNull(row[3]),

@@ -32,6 +32,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.store.dto.OutboxEvent;
+import run.ratchet.store.dto.OutboxEventRead;
 import run.ratchet.store.dto.OutboxEventType;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.spi.BatchStore;
@@ -78,7 +79,8 @@ class TerminalEventRelayTest {
     BatchMetricsEntity metrics = new BatchMetricsEntity();
     metrics.setTotalDurationMs(123L);
     when(batches.findBatchMetrics(row.jobId())).thenReturn(Optional.of(metrics));
-    when(store.findEventsCreatedBefore(now.minusSeconds(10), 100)).thenReturn(List.of(row));
+    when(store.findEventsCreatedBefore(now.minusSeconds(10), 100))
+        .thenReturn(List.of(OutboxEventRead.decoded(row)));
     relay.relayNow();
     verify(store, times(10)).findEventsCreatedBefore(now.minusSeconds(10), 100);
     ArgumentCaptor<JobCompletedEvent> event = ArgumentCaptor.forClass(JobCompletedEvent.class);
@@ -102,7 +104,8 @@ class TerminalEventRelayTest {
     OutboxEvent invalid = completedRow(-5L, now.minusSeconds(60));
     OutboxEvent valid = completedRow(7L, now.minusSeconds(50));
     when(store.findEventsCreatedBefore(now.minusSeconds(10), 100))
-        .thenReturn(List.of(invalid, valid), List.of());
+        .thenReturn(
+            List.of(OutboxEventRead.decoded(invalid), OutboxEventRead.decoded(valid)), List.of());
 
     relay.relayNow();
 
@@ -110,6 +113,35 @@ class TerminalEventRelayTest {
     verify(publisher).publish(event.capture());
     assertEquals(valid.eventId(), event.getValue().getEventId());
     verify(store).deleteEvents(List.of(invalid.eventId(), valid.eventId()));
+  }
+
+  @Test
+  void rowThatCannotBeDecodedIsDroppedWithoutBlockingLaterRows() {
+    when(leases.tryAcquire(eq("terminalEventRelay"), any()))
+        .thenReturn(Optional.of(new SingletonLease(null, "terminalEventRelay", "test-node")));
+    UUID malformedId = UUID.randomUUID();
+    var malformed =
+        OutboxEventRead.decode(
+            malformedId,
+            () -> {
+              throw new IllegalArgumentException("Unknown event_type");
+            });
+    OutboxEvent valid = completedRow(7L, now.minusSeconds(50));
+    when(store.findEventsCreatedBefore(now.minusSeconds(10), 100))
+        .thenReturn(List.of(malformed, OutboxEventRead.decoded(valid)), List.of());
+
+    relay.relayNow();
+    relay.relayNow();
+
+    ArgumentCaptor<JobCompletedEvent> event = ArgumentCaptor.forClass(JobCompletedEvent.class);
+    var order = inOrder(store, publisher);
+    order.verify(store).findEventsCreatedBefore(now.minusSeconds(10), 100);
+    order.verify(publisher).publish(event.capture());
+    order.verify(store).deleteEvents(List.of(malformedId, valid.eventId()));
+    assertEquals(valid.eventId(), event.getValue().getEventId());
+    verifyNoMoreInteractions(publisher);
+    verifyNoInteractions(batches);
+    verify(store).deleteEvents(any());
   }
 
   private static OutboxEvent completedRow(Long executionTimeMs, Instant createdAt) {

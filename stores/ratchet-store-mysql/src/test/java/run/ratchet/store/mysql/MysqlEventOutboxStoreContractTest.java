@@ -15,13 +15,14 @@
  */
 package run.ratchet.store.mysql;
 
+import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractEventOutboxStoreContract;
 
 class MysqlEventOutboxStoreContractTest extends AbstractEventOutboxStoreContract {
 
-  private final MysqlTestFixture fixture = new MysqlTestFixture();
+  private final Fixture fixture = new Fixture();
 
   @Override
   public JobStore store() {
@@ -41,5 +42,18 @@ class MysqlEventOutboxStoreContractTest extends AbstractEventOutboxStoreContract
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  protected void corruptOutboxEventType(UUID eventId) {
+    fixture.corruptOutboxEventType(eventId);
+  }
+
+  private static final class Fixture extends MysqlTestFixture {
+    void corruptOutboxEventType(UUID eventId) {
+      String id = "UNHEX('" + eventId.toString().replace("-", "") + "')";
+      executeNativeSql(
+          "UPDATE scheduler_event_outbox SET event_type = 'UNKNOWN_EVENT' WHERE event_id = " + id);
+    }
   }
 }

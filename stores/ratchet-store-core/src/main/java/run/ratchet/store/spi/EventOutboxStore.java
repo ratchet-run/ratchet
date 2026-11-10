@@ -20,7 +20,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
-import run.ratchet.store.dto.OutboxEvent;
+import run.ratchet.store.dto.OutboxEventRead;
 
 /**
  * Optional durable terminal-event outbox. Rows are inserted atomically by {@link
@@ -33,16 +33,25 @@ public interface EventOutboxStore {
   /**
    * Reads events created strictly before the cutoff, ordered by created_at then event_id.
    *
+   * <p>Every selected row counts toward the limit, including malformed snapshots. A snapshot
+   * decoding failure is returned with its event id so the caller can log the reason and delete that
+   * row while continuing with later events. Backing-store failures still propagate.
+   *
+   * <p>If the event id itself cannot be read as a non-null UUID, the read fails and leaves the
+   * batch untouched. The UUID-based delete API cannot safely identify that row; operator repair of
+   * the stored id is required before recovery can proceed.
+   *
    * <p>Transaction attribute: {@code REQUIRED}.
    *
    * @param cutoff exclusive creation-time bound; never null
    * @param limit maximum rows to return; at least one
-   * @return at most limit immutable event snapshots
+   * @return at most limit immutable results, each containing a snapshot or its decoding failure
    * @throws IllegalArgumentException when limit is less than one
    * @throws NullPointerException when cutoff is null
-   * @throws RuntimeException if the backing store cannot complete the read
+   * @throws RuntimeException if the backing store cannot complete the read or an event id is
+   *     unreadable
    */
-  List<OutboxEvent> findEventsCreatedBefore(Instant cutoff, int limit);
+  List<OutboxEventRead> findEventsCreatedBefore(Instant cutoff, int limit);
 
   /**
    * Deletes the supplied event ids, ignoring missing ids. An empty collection returns zero without

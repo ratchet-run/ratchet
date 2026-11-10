@@ -17,6 +17,8 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.tck.store.AbstractJobTerminalStoreContract.completionPlan;
@@ -35,6 +37,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.store.dto.JobCompletionPlan.BatchCompletion;
 import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.dto.OutboxEvent;
+import run.ratchet.store.dto.OutboxEventRead;
 import run.ratchet.store.dto.OutboxEventType;
 import run.ratchet.store.entity.JobEntity;
 
@@ -80,7 +83,9 @@ public abstract class AbstractEventOutboxStoreContract implements JobStoreContra
                     List.of(),
                     List.of(sparse, full)))
             .committed());
-    assertEquals(List.of(sparse, full), eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
+    assertEquals(
+        List.of(OutboxEventRead.decoded(sparse), OutboxEventRead.decoded(full)),
+        eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
   }
 
   @Test
@@ -143,7 +148,9 @@ public abstract class AbstractEventOutboxStoreContract implements JobStoreContra
                     List.of(),
                     List.of(event)))
             .committed());
-    assertEquals(List.of(event), eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
+    assertEquals(
+        List.of(OutboxEventRead.decoded(event)),
+        eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
     assertTrue(batchStore().findBatchById(parent.getId()).orElseThrow().getCompletionProcessed());
   }
 
@@ -171,12 +178,55 @@ public abstract class AbstractEventOutboxStoreContract implements JobStoreContra
                     List.of(later, third, atCutoff, second, first)))
             .committed());
     assertEquals(
-        List.of(first, second, third), eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
-    assertEquals(List.of(first, second), eventOutboxStore().findEventsCreatedBefore(CUTOFF, 2));
+        List.of(
+            OutboxEventRead.decoded(first),
+            OutboxEventRead.decoded(second),
+            OutboxEventRead.decoded(third)),
+        eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
+    assertEquals(
+        List.of(OutboxEventRead.decoded(first), OutboxEventRead.decoded(second)),
+        eventOutboxStore().findEventsCreatedBefore(CUTOFF, 2));
     assertTrue(eventOutboxStore().findEventsCreatedBefore(CREATED, 10).isEmpty());
     assertThrows(
         IllegalArgumentException.class,
         () -> eventOutboxStore().findEventsCreatedBefore(CUTOFF, 0));
+  }
+
+  /** Replaces the stored event type with an unknown value, bypassing snapshot validation. */
+  protected abstract void corruptOutboxEventType(UUID eventId);
+
+  @Test
+  void malformedSnapshotPreservesIdAndCanBeDeletedWithoutBlockingLaterRows() {
+    JobEntity job = runningJob();
+    OutboxEvent malformed = event(job.getId(), UUID.randomUUID(), CREATED);
+    OutboxEvent valid = event(job.getId(), UUID.randomUUID(), CREATED.plusSeconds(1));
+    assertTrue(
+        store()
+            .commitCompletion(
+                completionPlan(
+                    job,
+                    JobStatus.RUNNING,
+                    JobStatus.SUCCEEDED,
+                    null,
+                    List.of(),
+                    List.of(malformed, valid)))
+            .committed());
+    corruptOutboxEventType(malformed.eventId());
+
+    var rows = eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10);
+
+    assertEquals(2, rows.size());
+    assertEquals(malformed.eventId(), rows.get(0).eventId());
+    assertNull(rows.get(0).event());
+    assertNotNull(rows.get(0).decodingFailure());
+    assertEquals(OutboxEventRead.decoded(valid), rows.get(1));
+    assertEquals(1, eventOutboxStore().findEventsCreatedBefore(CUTOFF, 1).size());
+    assertEquals(1, eventOutboxStore().deleteEvents(List.of(rows.get(0).eventId())));
+    assertEquals(
+        List.of(OutboxEventRead.decoded(valid)),
+        eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
+    assertEquals(1, eventOutboxStore().deleteEvents(List.of(valid.eventId())));
+    assertTrue(eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10).isEmpty());
   }
 
   private static UUID highId() {
@@ -202,7 +252,9 @@ public abstract class AbstractEventOutboxStoreContract implements JobStoreContra
     assertEquals(0, eventOutboxStore().deleteEvents(List.of()));
     assertEquals(1, eventOutboxStore().deleteEvents(List.of(first.eventId(), UUID.randomUUID())));
     assertEquals(0, eventOutboxStore().deleteEvents(List.of(first.eventId())));
-    assertEquals(List.of(second), eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
+    assertEquals(
+        List.of(OutboxEventRead.decoded(second)),
+        eventOutboxStore().findEventsCreatedBefore(CUTOFF, 10));
     List<UUID> tooMany = IntStream.range(0, 501).mapToObj(i -> UUID.randomUUID()).toList();
     assertThrows(IllegalArgumentException.class, () -> eventOutboxStore().deleteEvents(tooMany));
     List<UUID> maximum = new ArrayList<>(tooMany.subList(0, 499));

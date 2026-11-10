@@ -15,13 +15,14 @@
  */
 package run.ratchet.store.postgresql;
 
+import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractEventOutboxStoreContract;
 
 class PostgresqlEventOutboxStoreContractTest extends AbstractEventOutboxStoreContract {
 
-  private final PostgresqlTestFixture fixture = new PostgresqlTestFixture();
+  private final Fixture fixture = new Fixture();
 
   @Override
   public JobStore store() {
@@ -41,5 +42,18 @@ class PostgresqlEventOutboxStoreContractTest extends AbstractEventOutboxStoreCon
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  protected void corruptOutboxEventType(UUID eventId) {
+    fixture.corruptOutboxEventType(eventId);
+  }
+
+  private static final class Fixture extends PostgresqlTestFixture {
+    void corruptOutboxEventType(UUID eventId) {
+      String id = "'" + eventId + "'";
+      executeNativeSql(
+          "UPDATE scheduler_event_outbox SET event_type = 'UNKNOWN_EVENT' WHERE event_id = " + id);
+    }
   }
 }

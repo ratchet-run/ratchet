@@ -40,7 +40,7 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
-import run.ratchet.store.dto.OutboxEvent;
+import run.ratchet.store.dto.OutboxEventRead;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -972,7 +972,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public List<OutboxEvent> findEventsCreatedBefore(Instant cutoff, int limit) {
+  public List<OutboxEventRead> findEventsCreatedBefore(Instant cutoff, int limit) {
     return SqlEventOutbox.find(em, cutoff, limit);
   }
 

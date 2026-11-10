@@ -15,13 +15,14 @@
  */
 package run.ratchet.store.oracle;
 
+import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractEventOutboxStoreContract;
 
 class OracleEventOutboxStoreContractTest extends AbstractEventOutboxStoreContract {
 
-  private final OracleTestFixture fixture = new OracleTestFixture();
+  private final Fixture fixture = new Fixture();
 
   @Override
   public JobStore store() {
@@ -41,5 +42,18 @@ class OracleEventOutboxStoreContractTest extends AbstractEventOutboxStoreContrac
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  protected void corruptOutboxEventType(UUID eventId) {
+    fixture.corruptOutboxEventType(eventId);
+  }
+
+  private static final class Fixture extends OracleTestFixture {
+    void corruptOutboxEventType(UUID eventId) {
+      String id = "HEXTORAW('" + eventId.toString().replace("-", "") + "')";
+      executeNativeSql(
+          "UPDATE scheduler_event_outbox SET event_type = 'UNKNOWN_EVENT' WHERE event_id = " + id);
+    }
   }
 }

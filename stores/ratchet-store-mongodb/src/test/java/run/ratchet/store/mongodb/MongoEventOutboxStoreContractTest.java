@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.mongodb;
 
+import java.util.UUID;
+import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
@@ -48,5 +50,15 @@ class MongoEventOutboxStoreContractTest extends AbstractEventOutboxStoreContract
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  protected void corruptOutboxEventType(UUID eventId) {
+    fixture
+        .database()
+        .getCollection("scheduler_event_outbox")
+        .updateOne(
+            new Document("_id", eventId),
+            new Document("$set", new Document("event_type", "UNKNOWN_EVENT")));
   }
 }

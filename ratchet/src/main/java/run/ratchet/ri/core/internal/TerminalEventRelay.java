@@ -32,6 +32,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.store.dto.OutboxEvent;
+import run.ratchet.store.dto.OutboxEventRead;
 import run.ratchet.store.dto.OutboxEventType;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.spi.BatchStore;
@@ -149,9 +150,17 @@ public class TerminalEventRelay {
                 .instant()
                 .minusSeconds(options.node().orphanGraceSeconds());
         for (int batch = 0; batch < 10 && !stopped; batch++) {
-          List<OutboxEvent> rows = store.findEventsCreatedBefore(cutoff, 100);
+          List<OutboxEventRead> rows = store.findEventsCreatedBefore(cutoff, 100);
           if (rows.isEmpty()) break;
-          for (OutboxEvent row : rows) {
+          for (OutboxEventRead result : rows) {
+            if (result.decodingFailure() != null) {
+              log.errorf(
+                  result.decodingFailure(),
+                  "Dropping outbox event %s: its snapshot cannot be decoded",
+                  result.eventId());
+              continue;
+            }
+            OutboxEvent row = result.event();
             Long duration = row.executionTimeMs();
             if (row.eventType() == OutboxEventType.JOB_COMPLETED
                 && row.jobType() == JobType.BATCH
@@ -179,7 +188,7 @@ public class TerminalEventRelay {
             publisher.publish(event);
             delivered++;
           }
-          store.deleteEvents(rows.stream().map(OutboxEvent::eventId).toList());
+          store.deleteEvents(rows.stream().map(OutboxEventRead::eventId).toList());
         }
       }
     } catch (RuntimeException failure) {
