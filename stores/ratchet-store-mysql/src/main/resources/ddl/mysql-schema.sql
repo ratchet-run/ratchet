@@ -532,8 +532,6 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
     error_message MEDIUMTEXT NULL,
     retry_attempt INT NOT NULL,
     created_at DATETIME(6) NOT NULL,
-    PRIMARY KEY (event_id)
+    PRIMARY KEY (event_id),
+    INDEX idx_event_outbox_created (created_at, event_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE INDEX idx_event_outbox_created
-    ON scheduler_event_outbox (created_at, event_id);
