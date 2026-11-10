@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,6 +53,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.ExecutionResult;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -97,6 +99,8 @@ class JobExecutorServiceTest {
             null,
             null,
             null,
+            mock(AfterCommitRegistrar.class),
+            mock(CheckpointFlusher.class),
             FIXED_CLOCK,
             null);
   }

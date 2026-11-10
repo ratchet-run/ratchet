@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.jboss.logging.Logger;
 import run.ratchet.api.AttemptToken;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
@@ -34,6 +35,23 @@ import run.ratchet.store.spi.JobClaimStore;
  * owner writes.
  */
 public final class JobAttemptControl {
+  private static final Logger log = Logger.getLogger(JobAttemptControl.class);
+  private volatile @Nullable Runnable checkpointFlush;
+
+  public void attachCheckpointFlush(Runnable hook) {
+    checkpointFlush = hook;
+  }
+
+  public void flushCheckpointsQuietly() {
+    Runnable hook = checkpointFlush;
+    if (hook == null) return;
+    try {
+      hook.run();
+    } catch (Throwable failure) {
+      log.warnf(failure, "Checkpoint flush failed for job %s", jobId);
+    }
+  }
+
   private final Object cancellationIdentity = new Object();
   private final UUID jobId;
   private final Instant deadline;

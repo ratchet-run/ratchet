@@ -73,6 +73,115 @@ class SpringAfterCommitRegistrarTest {
   }
 
   @Test
+  void nestedRollbackDropsActionsAndKeepsOuterActions() {
+    assertNestedScope(true, true);
+  }
+
+  @Test
+  void firstRegistrationInsideNestedRollbackIsDropped() {
+    assertNestedScope(true, false);
+  }
+
+  @Test
+  void nestedReleaseKeepsActionsUntilOuterCommit() {
+    assertNestedScope(false, true);
+  }
+
+  @Test
+  void firstRegistrationInsideNestedReleaseRunsAfterOuterCommit() {
+    assertNestedScope(false, false);
+  }
+
+  private void assertNestedScope(boolean rollback, boolean registerOuter) {
+    TransactionTemplate nested = new TransactionTemplate(manager);
+    nested.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+    JdbcTemplate jdbc = new JdbcTemplate(manager.getDataSource());
+    jdbc.execute("create table callback_work (id integer primary key)");
+    List<String> calls = new ArrayList<>();
+    new TransactionTemplate(manager)
+        .executeWithoutResult(
+            outer -> {
+              jdbc.update("insert into callback_work values (1)");
+              if (registerOuter) registrar.registerAfterCommit(() -> calls.add("before"));
+              nested.executeWithoutResult(
+                  inner -> {
+                    assertTrue(inner.hasSavepoint());
+                    jdbc.update("insert into callback_work values (2)");
+                    assertEquals(
+                        Result.REGISTERED,
+                        registrar.registerAfterCommit(() -> calls.add("nested")));
+                    if (rollback) inner.setRollbackOnly();
+                  });
+              assertTrue(calls.isEmpty());
+              registrar.registerAfterCommit(() -> calls.add("after"));
+            });
+    List<String> expected = new ArrayList<>();
+    if (registerOuter) expected.add("before");
+    if (!rollback) expected.add("nested");
+    expected.add("after");
+    assertEquals(expected, calls);
+    assertEquals(
+        rollback ? List.of(1) : List.of(1, 2),
+        jdbc.queryForList("select id from callback_work order by id", Integer.class));
+  }
+
+  @Test
+  void innerRollbackPreservesEnclosingNestedActions() {
+    TransactionTemplate nested = new TransactionTemplate(manager);
+    nested.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+    List<String> calls = new ArrayList<>();
+    new TransactionTemplate(manager)
+        .executeWithoutResult(
+            outer -> {
+              // The queue misses the enclosing savepoint's creation.
+              nested.executeWithoutResult(
+                  middle -> {
+                    registrar.registerAfterCommit(() -> calls.add("middle-before"));
+                    nested.executeWithoutResult(
+                        inner -> {
+                          registrar.registerAfterCommit(() -> calls.add("inner"));
+                          inner.setRollbackOnly();
+                        });
+                    registrar.registerAfterCommit(() -> calls.add("middle-after"));
+                  });
+              assertTrue(calls.isEmpty());
+              registrar.registerAfterCommit(() -> calls.add("outer-after"));
+            });
+    assertEquals(List.of("middle-before", "middle-after", "outer-after"), calls);
+  }
+
+  @Test
+  void enclosingRollbackDropsReleasedInnerActions() {
+    assertEnclosingRollback(true);
+  }
+
+  @Test
+  void enclosingRollbackDropsActionsWhenQueueMissedBothSavepoints() {
+    assertEnclosingRollback(false);
+  }
+
+  private void assertEnclosingRollback(boolean registerOuter) {
+    TransactionTemplate nested = new TransactionTemplate(manager);
+    nested.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+    List<String> calls = new ArrayList<>();
+    new TransactionTemplate(manager)
+        .executeWithoutResult(
+            outer -> {
+              if (registerOuter) registrar.registerAfterCommit(() -> calls.add("outer-before"));
+              nested.executeWithoutResult(
+                  middle -> {
+                    registrar.registerAfterCommit(() -> calls.add("middle"));
+                    nested.executeWithoutResult(
+                        inner -> registrar.registerAfterCommit(() -> calls.add("inner")));
+                    middle.setRollbackOnly();
+                  });
+              registrar.registerAfterCommit(() -> calls.add("outer-after"));
+            });
+    assertEquals(
+        registerOuter ? List.of("outer-before", "outer-after") : List.of("outer-after"), calls);
+  }
+
+  @Test
   void distinguishesNoTransactionFromAnActiveTransactionWithoutSynchronization() {
     assertEquals(Result.NO_ACTIVE_TRANSACTION, registrar.registerAfterCommit(() -> {}));
 

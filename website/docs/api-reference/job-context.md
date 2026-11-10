@@ -157,6 +157,23 @@ try {
 }
 ```
 
+The overload below seeds `lastCheckpoint()` for a retry test. Both `bindAttempt` overloads
+use an in-memory holder. It ignores transactions and does not write to a store. The
+five-argument overload starts with no checkpoint.
+
+```java
+public static JobContext bindAttempt(
+    UUID jobId,
+    JobLogger logger,
+    Map<String, String> params,
+    AttemptToken attemptToken,
+    BooleanSupplier currentAttempt,
+    String initialCheckpoint)
+```
+
+Pass `null` for an empty checkpoint. Read `lastCheckpoint()` to inspect values your job
+writes. Always call `JobContext.clear()` in a `finally` block.
+
 ### clear
 
 ```java
@@ -315,6 +332,26 @@ Returns `true` only while the store shows this job `RUNNING` under this attempt'
 
 Otherwise each call reads the store. A store error is thrown, never read as current. See [Attempt tokens](#attempt-tokens) for when to call it and what it does not guarantee.
 
+### checkpoint
+
+```java
+public void checkpoint(String value)
+```
+
+Saves a non-null position for this job. With no transaction, the write finishes before
+this method returns. Inside a transaction, Ratchet accepts the value after commit and
+saves it in a later flush. A rollback drops the value. See [Checkpoints](#checkpoints).
+
+### lastCheckpoint
+
+```java
+public Optional<String> lastCheckpoint()
+```
+
+Returns the latest committed value from this attempt, or the value saved by an earlier
+attempt. Returns empty if neither exists. It never returns an uncommitted or rolled-back
+value. Call it before doing work to check that the store supports checkpoints.
+
 ## Attempt tokens
 
 Every time a node claims a job, the claim gets a sequence number one higher than the job's last claim. An `AttemptToken` holds the job's ID and that sequence. A retry, or a reclaim after a node stops responding, gets a higher sequence. So does a job reset after it failed.
@@ -356,6 +393,63 @@ Compare tokens only for the same job. `isNewerThan` throws for tokens of differe
 On SQL stores each `isCurrentAttempt()` call runs a small read in its own transaction. If your job holds a database transaction at the time, the read needs a second connection from the pool, and it waits when the pool is empty. Call it at safe points, outside long transactions, and never in a tight loop. Leave headroom in the pool for these reads.
 
 The token is a value. You can pass it, or the `JobContext` itself, to threads your job starts. `isCurrentAttempt()` works from any thread that holds the context.
+
+## Checkpoints
+
+Use checkpoints to resume a job from a saved position. Execution is at least once:
+work since the last durable checkpoint can run again after a crash, timeout or reclaim.
+Make that work idempotent. Use the attempt token's sequence as a fence when your data
+must reject writes from an older attempt.
+
+Call `checkpoint()` on the thread whose transaction did the work. Within a transaction,
+Ratchet accepts the value only after commit. Rollback drops it. The commit callback
+records the value in memory and does no store I/O. The background flusher saves the
+latest committed value. With no transaction, Ratchet saves it before the call returns.
+A transaction around the whole job cannot save intermediate positions before it commits.
+Spring drops checkpoints on nested savepoint rollback. Micronaut has no savepoint callback,
+so inside a nested savepoint scope Ratchet cannot register the commit callback, and
+`checkpoint()` throws `IllegalStateException`.
+
+`ratchet.execution.checkpoint-flush-interval-ms` defaults to `1000` milliseconds.
+Ratchet also tries to flush before the attempt ends. On a hard timeout, the watchdog saves the last
+committed checkpoint before it retries or fails the job. A transaction that commits
+after the interrupt can still lose its checkpoint. A cooperative stop usually keeps the last committed
+value. Make repeated work safe in either case.
+
+Values must fit within 1 MiB, including JSON framing. Store keys and positions, rather
+than page contents. Ratchet encrypts checkpoints at rest when payload encryption is on.
+Checkpoint rows live until the job is archived or deleted.
+
+`checkpoint()` throws `AttemptSupersededException` from `run.ratchet.api.exception` when
+Ratchet knows a newer attempt has replaced this one, or when the synchronous store write
+rejects its claim. Stop doing work when this happens. Ratchet fences and ignores that
+attempt's outcome writes. A successful call inside a transaction does not prove ownership:
+the deferred write can still be rejected later.
+
+Both methods throw `UnsupportedOperationException` if the store has no `JobStateStore`
+capability. They throw `IllegalStateException` outside an executing persisted attempt.
+`checkpoint()` also throws `IllegalStateException` inside a transaction when Ratchet cannot
+register the commit callback, for example in a Micronaut nested savepoint scope.
+Lifecycle callbacks have no checkpoints. Plain `bind()` contexts have none either.
+`checkpoint(null)` throws `NullPointerException`; an oversized value throws
+`IllegalArgumentException` before Ratchet registers a commit callback.
+
+For example, inject a transaction helper and commit each page separately. The helper's
+`run` method has `@Transactional`; call it through its injected proxy.
+
+```java
+void importPages() {
+    JobContext ctx = JobContext.current();
+    int next = ctx.lastCheckpoint().map(Integer::parseInt).orElse(0);
+    for (int page = next; page < pageCount(); page++) {
+        int currentPage = page;
+        transactions.run(() -> {
+            importPageIdempotently(currentPage);
+            ctx.checkpoint(Integer.toString(currentPage + 1));
+        });
+    }
+}
+```
 
 ## Thread-local lifecycle
 

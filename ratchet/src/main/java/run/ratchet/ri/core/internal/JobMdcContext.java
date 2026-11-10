@@ -24,6 +24,7 @@ import org.jboss.logging.MDC;
 import run.ratchet.api.AttemptToken;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.internal.JobCheckpoints;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -126,7 +127,8 @@ final class JobMdcContext {
         () -> false,
         null,
         null,
-        () -> false);
+        () -> false,
+        null);
   }
 
   static void bindJobContext(
@@ -141,7 +143,8 @@ final class JobMdcContext {
       BooleanSupplier cancellationRequested,
       Object cancellationIdentity,
       @Nullable AttemptToken attemptToken,
-      BooleanSupplier currentAttempt) {
+      BooleanSupplier currentAttempt,
+      @Nullable JobCheckpoints checkpoints) {
     JobContext.bind(
         jobId,
         logger,
@@ -152,7 +155,8 @@ final class JobMdcContext {
         cancellationRequested,
         cancellationIdentity,
         attemptToken,
-        currentAttempt);
+        currentAttempt,
+        checkpoints);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
     }

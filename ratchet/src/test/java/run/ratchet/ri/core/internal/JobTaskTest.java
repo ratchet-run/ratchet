@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -59,6 +60,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.CircuitBreakerProtected;
@@ -76,6 +78,7 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
@@ -91,6 +94,7 @@ import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.spi.ClassPolicy;
@@ -117,6 +121,8 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.spi.JobStateStore;
+import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -142,6 +148,196 @@ class JobTaskTest {
       throw failure.get();
     }
     return "done";
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void checkpointsFlushBeforeSuccessAndCloseOnExit() throws Exception {
+    assertCheckpointFinalFlush(false, false, false);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void throwingFinalFlushDoesNotChangeSuccess() throws Exception {
+    assertCheckpointFinalFlush(false, true, false);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void checkpointsFlushBeforeFailureHandling() throws Exception {
+    assertCheckpointFinalFlush(true, false, false);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void checkpointsFlushBeforeFailureHandlingEvenWhenFlushThrows() throws Exception {
+    assertCheckpointFinalFlush(true, true, false);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void interruptedWorkerSkipsFinalFlush() throws Exception {
+    assertCheckpointFinalFlush(false, false, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertCheckpointFinalFlush(boolean failure, boolean flushThrows, boolean interrupted)
+      throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    JobStateStore stateStore = pendingCheckpointStore();
+    if (flushThrows) {
+      when(stateStore.initState(
+              eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L)))
+          .thenThrow(new IllegalStateException("store failed"));
+    }
+    RuntimeException error = new IllegalStateException("payload failed");
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            call -> {
+              JobContext.current().checkpoint("pending");
+              checkpointCommit.run();
+              if (interrupted) Thread.currentThread().interrupt();
+              if (failure) throw error;
+              return "done";
+            });
+    if (failure) {
+      when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+      when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    } else {
+      when(lifecycleFacade.completeSuccess(
+              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+          .thenReturn(true);
+    }
+    try {
+      Assertions.assertDoesNotThrow(jobTask::call);
+      ArgumentCaptor<JobCheckpointWriter> writer =
+          ArgumentCaptor.forClass(JobCheckpointWriter.class);
+      verify(checkpointFlusher).markDirty(writer.capture());
+      InOrder order = inOrder(stateStore, lifecycleFacade, checkpointFlusher);
+      if (interrupted) {
+        verify(stateStore, never()).initState(any(), anyString(), anyString(), anyLong());
+        verify(stateStore, never()).getState(any(), anyString());
+      } else {
+        order.verify(stateStore).getState(JOB_UUID, JobCheckpointWriter.NAMESPACE);
+        order
+            .verify(stateStore)
+            .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+      }
+      if (failure) order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+      else
+        order
+            .verify(lifecycleFacade)
+            .completeSuccess(
+                any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+      order.verify(checkpointFlusher).remove(writer.getValue());
+      Assertions.assertFalse(writer.getValue().hasUnflushed());
+      if (interrupted) {
+        // The worker has already closed the writer; the watchdog must still flush its pending
+        // value.
+        Thread.interrupted();
+        attempt.flushCheckpointsQuietly();
+        verify(stateStore)
+            .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+      }
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void tokenlessAttemptCreatesNoCheckpointWriter() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    jobTask.attach(
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1"));
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    AtomicReference<JobContext> context = new AtomicReference<>();
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            call -> {
+              context.set(JobContext.current());
+              return "done";
+            });
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+    jobTask.call();
+    Assertions.assertNotNull(context.get());
+    Assertions.assertThrows(IllegalStateException.class, () -> context.get().checkpoint("unbound"));
+    verify(jobStore, never()).capability(JobStateStore.class);
+    verify(checkpointFlusher, never()).remove(any());
+    verify(checkpointFlusher, never()).markDirty(any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void cooperativeCheckpointFlushOwnsTimeoutBeforeTransition() throws Exception {
+    JobTimeoutHandler timeout = mock(JobTimeoutHandler.class);
+    JobTask task = newJobTaskWithTimeoutHandler(timeout);
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(task, job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    task.attach(attempt);
+    attempt.requestCancellation();
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    JobStateStore stateStore = pendingCheckpointStore();
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(stateStore.initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L)))
+        .thenAnswer(
+            call -> {
+              watchdogClaimed.set(attempt.claimTimeoutForWatchdog());
+              return StateWriteResult.UPDATED;
+            });
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            call -> {
+              JobContext.current().checkpoint("pending");
+              checkpointCommit.run();
+              throw new CancellationRequestedException("stop");
+            });
+    task.call();
+    ArgumentCaptor<JobCheckpointWriter> writer = ArgumentCaptor.forClass(JobCheckpointWriter.class);
+    verify(checkpointFlusher).markDirty(writer.capture());
+    InOrder order = inOrder(stateStore, timeout, checkpointFlusher);
+    order
+        .verify(stateStore)
+        .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+    order.verify(timeout).processCooperativeTimeout(attempt);
+    order.verify(checkpointFlusher).remove(writer.getValue());
+    Assertions.assertEquals(
+        Boolean.FALSE, watchdogClaimed.get(), "worker must already own timeout");
+    verify(stateStore, times(1))
+        .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+  }
+
+  private JobStateStore pendingCheckpointStore() {
+    JobStateStore stateStore = mock(JobStateStore.class);
+    when(jobStore.capability(JobStateStore.class)).thenReturn(Optional.of(stateStore));
+    lenient()
+        .when(stateStore.getState(JOB_UUID, JobCheckpointWriter.NAMESPACE))
+        .thenReturn(Optional.empty());
+    lenient()
+        .when(
+            stateStore.initState(
+                eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L)))
+        .thenReturn(StateWriteResult.UPDATED);
+    when(checkpointRegistrar.registerAfterCommit(any()))
+        .thenAnswer(
+            call -> {
+              checkpointCommit = call.getArgument(0);
+              return AfterCommitRegistrar.Result.REGISTERED;
+            });
+    return stateStore;
   }
 
   @Test
@@ -479,6 +675,10 @@ class JobTaskTest {
   }
 
   private final ClassPolicy classPolicy = className -> true;
+  private Runnable checkpointCommit;
+
+  @Mock private AfterCommitRegistrar checkpointRegistrar;
+  @Mock private CheckpointFlusher checkpointFlusher;
   @Mock private JobStore jobStore;
   @Mock private ResourcePermitService resourcePermitService;
   @Mock private PostExecutionHandler lifecycleFacade;
@@ -589,6 +789,8 @@ class JobTaskTest {
                 null,
                 null,
                 null,
+                mock(AfterCommitRegistrar.class),
+                mock(CheckpointFlusher.class),
                 null,
                 null,
                 null));
@@ -636,6 +838,8 @@ class JobTaskTest {
             new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
+            checkpointRegistrar,
+            checkpointFlusher,
             null,
             Clock.systemUTC(),
             null);
@@ -945,27 +1149,191 @@ class JobTaskTest {
   }
 
   @Test
+  void watchdogClaimedCheckpointFailureDefersOutcomeBeforeMarker() throws Exception {
+    assertSupersededCheckpointFailure(false, false, false);
+  }
+
+  @Test
+  void watchdogClaimedWrappedCheckpointFailureDefersOutcomeBeforeMarker() throws Exception {
+    assertSupersededCheckpointFailure(true, false, false);
+  }
+
+  @Test
+  void watchdogClaimedNonRetryableCheckpointFailureDefersOutcome() throws Exception {
+    assertSupersededCheckpointFailure(false, true, false);
+  }
+
+  @Test
+  void supersededExecutionSaveFailureDoesNotForceAnOutcome() throws Exception {
+    assertSupersededCheckpointFailure(false, true, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertSupersededCheckpointFailure(
+      boolean wrapped, boolean nonRetryable, boolean saveFails) throws Exception {
+    CallbackRecorder.reset();
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.RUNNING);
+    job.setClaimSeq(7L);
+    job.setOnFailurePayload(
+        JobPayloadFactory.fromLambda(
+            (SerializableBiConsumer<JobContext, Throwable>) CallbackRecorder::failure));
+    JobTimeoutHandler timeout = mock(JobTimeoutHandler.class);
+    JobTask task = newJobTaskWithTimeoutHandler(timeout);
+    initJobTaskWithDefaultStubs(task, job);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    task.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    JobStateStore stateStore = pendingCheckpointStore();
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            call -> {
+              JobContext.current().checkpoint("committed");
+              checkpointCommit.run();
+              // Pause the watchdog after ownership is claimed, before cancellation and its marker.
+              Assertions.assertTrue(attempt.claimTimeoutForWatchdog());
+              AttemptSupersededException failure =
+                  Assertions.assertThrows(
+                      AttemptSupersededException.class,
+                      () -> JobContext.current().checkpoint("rolled back"));
+              if (wrapped) throw new RuntimeException("wrapped", failure);
+              throw failure;
+            });
+    lenient().when(validationFacade.shouldNotRetry(any())).thenReturn(nonRetryable);
+    lenient().when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    if (saveFails) {
+      doThrow(new IllegalStateException("execution store down"))
+          .when(observabilityFacade)
+          .saveExecution(any(JobExecutionEntity.class));
+    }
+
+    Assertions.assertDoesNotThrow(task::call);
+
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(
+        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+    Assertions.assertNotNull(execution.getValue().getEndedAt());
+    Assertions.assertEquals(
+        (wrapped ? RuntimeException.class : AttemptSupersededException.class).getName(),
+        execution.getValue().getErrorClass());
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(anyString(), anyString(), anyInt());
+    verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobRetryingEvent.class));
+    verify(timeout, never()).processCooperativeTimeout(any());
+    Assertions.assertNull(CallbackRecorder.context);
+    Assertions.assertEquals(JobStatus.RUNNING, job.getStatus());
+    verify(stateStore, never()).initState(any(), anyString(), anyString(), anyLong());
+    // The watchdog can still flush the committed value after the worker closes its writer.
+    attempt.flushCheckpointsQuietly();
+    verify(stateStore)
+        .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void supersededAttemptDefersOrdinaryFailureWithoutWatchdog() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            call -> {
+              attempt.markSuperseded();
+              throw new IllegalStateException("claim lost");
+            });
+
+    jobTask.call();
+
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(
+        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void supersededDuringFailureHandlingDoesNotForceAnOutcome() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException failure = new IllegalStateException("payload failed");
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(failure);
+    when(validationFacade.shouldNotRetry(failure))
+        .thenAnswer(
+            call -> {
+              Assertions.assertTrue(attempt.claimTimeoutForWatchdog());
+              throw new IllegalStateException("failure classification failed");
+            });
+
+    Assertions.assertDoesNotThrow(jobTask::call);
+
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(
+        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+  }
+
+  @Test
   void watchdogInterruptClosesExecutionWithHardTimeout() throws Exception {
-    assertWatchdogInterruptExecution(false);
+    assertWatchdogInterruptExecution(false, false);
+  }
+
+  @Test
+  void supersededWatchdogInterruptStillClosesExecutionWithHardTimeout() throws Exception {
+    assertWatchdogInterruptExecution(false, true);
   }
 
   @Test
   void deferredExecutionSaveFailureDoesNotEscapeOrChangeDeferral() throws Exception {
-    assertWatchdogInterruptExecution(true);
+    assertWatchdogInterruptExecution(true, false);
   }
 
   @SuppressWarnings("unchecked")
-  private void assertWatchdogInterruptExecution(boolean saveFails) throws Exception {
+  private void assertWatchdogInterruptExecution(boolean saveFails, boolean superseded)
+      throws Exception {
     JobEntity job = createTestJob();
     JobTimeoutHandler timeoutHandler = mock(JobTimeoutHandler.class);
     JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
     initJobTaskWithDefaultStubs(task, job);
-    task.attach(
-        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1"));
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1");
+    task.attach(attempt);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
-        .thenThrow(new InterruptedException("watchdog interrupt"));
+        .thenAnswer(
+            call -> {
+              if (superseded) Assertions.assertTrue(attempt.claimTimeoutForWatchdog());
+              throw new InterruptedException("watchdog interrupt");
+            });
     when(timeoutHandler.isWatchdogCancelled(JOB_UUID)).thenReturn(true);
     when(errorSanitizer.sanitize(any(Throwable.class)))
         .thenAnswer(invocation -> invocation.<Throwable>getArgument(0).getMessage());
@@ -1381,6 +1749,8 @@ class JobTaskTest {
             (jobId, result) -> SerializedJobResult.empty(),
             null,
             null,
+            mock(AfterCommitRegistrar.class),
+            mock(CheckpointFlusher.class),
             null,
             FIXED_CLOCK,
             null);
@@ -1425,6 +1795,8 @@ class JobTaskTest {
         (jobId, result) -> SerializedJobResult.empty(),
         null,
         null,
+        mock(AfterCommitRegistrar.class),
+        mock(CheckpointFlusher.class),
         null,
         FIXED_CLOCK,
         null);
@@ -1981,6 +2353,8 @@ class JobTaskTest {
             resultPersistenceStrategy,
             null,
             signalSerializer,
+            mock(AfterCommitRegistrar.class),
+            mock(CheckpointFlusher.class),
             null,
             Clock.systemUTC(),
             null);
@@ -2069,6 +2443,8 @@ class JobTaskTest {
             resultPersistenceStrategy,
             null,
             signalSerializer,
+            mock(AfterCommitRegistrar.class),
+            mock(CheckpointFlusher.class),
             null,
             Clock.systemUTC(),
             null);
@@ -2167,6 +2543,8 @@ class JobTaskTest {
             new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
+            mock(AfterCommitRegistrar.class),
+            mock(CheckpointFlusher.class),
             null,
             Clock.systemUTC(),
             resolver);
@@ -2269,7 +2647,9 @@ class JobTaskTest {
         context -> noopLogger(),
         resultPersistenceStrategy,
         null,
-        null,
+        new JsonbTestPayloadSerializer(),
+        checkpointRegistrar,
+        checkpointFlusher,
         timeoutHandler,
         FIXED_CLOCK,
         null);
@@ -2294,6 +2674,8 @@ class JobTaskTest {
         resultPersistenceStrategy,
         null,
         null,
+        mock(AfterCommitRegistrar.class),
+        mock(CheckpointFlusher.class),
         null,
         taskClock,
         null);

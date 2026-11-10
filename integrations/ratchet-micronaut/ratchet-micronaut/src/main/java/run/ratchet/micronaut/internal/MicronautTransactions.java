@@ -56,14 +56,32 @@ public final class MicronautTransactions {
 
   public static TransactionStatus<?> rootStatus(TransactionStatus<?> status) {
     while (status.getClass().getName().equals(EXISTING)) {
-      try {
-        status = (TransactionStatus<?>) existingTransactionField().get(status);
-      } catch (IllegalAccessException failure) {
-        throw new IllegalStateException(
-            "Unsupported Micronaut Data version: cannot unwrap transaction status", failure);
-      }
+      status = existingStatus(status);
     }
     return status;
+  }
+
+  /** Returns whether this scope or a participating parent uses a nested savepoint. */
+  public static boolean hasNestedTransaction(TransactionStatus<?> status) {
+    while (true) {
+      TransactionDefinition definition = status.getTransactionDefinition();
+      if (!status.isNewTransaction()
+          && definition != null
+          && definition.getPropagationBehavior() == Propagation.NESTED) {
+        return true;
+      }
+      if (!status.getClass().getName().equals(EXISTING)) return false;
+      status = existingStatus(status);
+    }
+  }
+
+  private static TransactionStatus<?> existingStatus(TransactionStatus<?> status) {
+    try {
+      return (TransactionStatus<?>) existingTransactionField().get(status);
+    } catch (IllegalAccessException failure) {
+      throw new IllegalStateException(
+          "Unsupported Micronaut Data version: cannot unwrap transaction status", failure);
+    }
   }
 
   public static boolean hasActiveTransaction(TransactionOperations<?> operations) {

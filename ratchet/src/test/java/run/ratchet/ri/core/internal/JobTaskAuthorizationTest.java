@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,6 +49,7 @@ import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -113,6 +115,8 @@ class JobTaskAuthorizationTest {
             resultPersistenceStrategy,
             authorizationPolicy,
             null,
+            mock(AfterCommitRegistrar.class),
+            mock(CheckpointFlusher.class),
             null,
             Clock.systemUTC(),
             null);
@@ -257,6 +261,8 @@ class JobTaskAuthorizationTest {
             new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
+            mock(AfterCommitRegistrar.class),
+            mock(CheckpointFlusher.class),
             null,
             Clock.systemUTC(),
             null);

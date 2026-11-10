@@ -60,6 +60,9 @@ class StaleOwnerChaosIT {
               .toList();
       assertEquals(1, stale.size(), "Expected one attempt from the stopped owner");
       assertEquals(1, current.size(), "Expected one attempt from the new owner");
+      assertEquals(
+          "superseded", stale.get(0).checkpointResult(), "Stale checkpoint must be fenced");
+      assertEquals("ok", current.get(0).checkpointResult(), "Current checkpoint must be stored");
       assertEquals("false", stale.get(0).currentAttempt(), "Stale owner must observe supersession");
       assertEquals(
           "true", current.get(0).currentAttempt(), "New owner must observe its live claim");

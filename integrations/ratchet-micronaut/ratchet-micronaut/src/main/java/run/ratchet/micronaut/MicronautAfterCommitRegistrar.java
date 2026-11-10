@@ -60,6 +60,12 @@ public final class MicronautAfterCommitRegistrar implements AfterCommitRegistrar
       LOG.warning("After-commit action suppressed; the transaction has already completed");
       return Result.REGISTRATION_FAILED;
     }
+    // Check every participating scope before unwrapping: REQUIRED can hide an enclosing NESTED.
+    // Micronaut exposes no savepoint synchronization hooks, so registration must fail closed.
+    if (MicronautTransactions.hasNestedTransaction(status)) {
+      LOG.warning("After-commit action suppressed; nested savepoint rollback cannot be tracked");
+      return Result.REGISTRATION_FAILED;
+    }
     status = MicronautTransactions.rootStatus(status);
     // JDBC leaves getTransaction() null even for a real transaction, and participating JPA
     // statuses need not copy it. Use the shared connection/session identity for the entire unit.

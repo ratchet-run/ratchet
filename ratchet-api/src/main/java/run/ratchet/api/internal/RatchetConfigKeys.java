@@ -80,6 +80,12 @@ public final class RatchetConfigKeys {
           "ratchet.worker.virtual-counter-accounting",
           "RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING",
           false);
+  public static final RatchetConfigKey<Long> CHECKPOINT_FLUSH_INTERVAL_MS =
+      longKey(
+          "ratchet.execution.checkpoint-flush-interval-ms",
+          "RATCHET_EXECUTION_CHECKPOINT_FLUSH_INTERVAL_MS",
+          1000L,
+          1L);
   public static final RatchetConfigKey<Integer> THREAD_POOL_QUEUE_SIZE =
       intKey("ratchet.thread-pool.queue-size", "RATCHET_THREAD_POOL_QUEUE_SIZE", 100, 0);
   public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_SINGLE =
