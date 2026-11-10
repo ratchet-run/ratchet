@@ -53,7 +53,8 @@ class ApiValueImmutabilityTest {
             null,
             null,
             history,
-            dependants);
+            dependants,
+            null);
 
     params.put("tenant", "b");
     trace.put("traceparent", "two");
@@ -71,7 +72,18 @@ class ApiValueImmutabilityTest {
   void jobDetailDefaultsNullCollectionsToEmptyLists() {
     JobDetail detail =
         new JobDetail(
-            summary(List.of("blue")), null, null, null, null, null, null, null, null, null, null);
+            summary(List.of("blue")),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     assertEquals(List.of(), detail.executionHistory());
     assertEquals(List.of(), detail.dependantJobIds());

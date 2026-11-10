@@ -41,7 +41,6 @@ import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.RetryBufferManager;
 import run.ratchet.ri.core.StoreBackedStartupCoordinator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
-import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultDrainController;
 import run.ratchet.ri.core.internal.DefaultJobArchivingService;
@@ -52,6 +51,7 @@ import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobPayloadInvoker;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
@@ -114,14 +114,16 @@ class RatchetRuntimeConfiguration {
       JobSubmissionService jobSubmissionService,
       PoolRegistry poolRegistry,
       DrainController drainController,
-      RatchetOptions options) {
+      RatchetOptions options,
+      JobStateFlusher jobStateFlusher) {
     return new RetryBufferDrainer(
         executorProvider,
         retryBufferManager,
         jobSubmissionService,
         poolRegistry,
         drainController,
-        options);
+        options,
+        jobStateFlusher);
   }
 
   @Bean(destroyMethod = "")
@@ -182,8 +184,8 @@ class RatchetRuntimeConfiguration {
 
   @Bean(destroyMethod = "")
   @ConditionalOnMissingBean
-  CheckpointFlusher checkpointFlusher(RatchetOptions options) {
-    return new CheckpointFlusher(options);
+  JobStateFlusher jobStateFlusher(RatchetOptions options) {
+    return new JobStateFlusher(options);
   }
 
   @Bean(destroyMethod = "")
@@ -297,7 +299,7 @@ class RatchetRuntimeConfiguration {
       RecurringScheduler recurring,
       OrphanRecoveryTimer orphanRecovery,
       BatchRecoveryTimer batchRecovery,
-      CheckpointFlusher checkpointFlusher,
+      JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetter,
       JobArchivingService archiving,
       LogPurgeTimer logPurge,
@@ -321,7 +323,7 @@ class RatchetRuntimeConfiguration {
             recurring,
             orphanRecovery,
             batchRecovery,
-            checkpointFlusher,
+            jobStateFlusher,
             deadLetter,
             archiving,
             logPurge,

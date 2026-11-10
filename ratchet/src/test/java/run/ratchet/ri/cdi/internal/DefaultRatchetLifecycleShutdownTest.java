@@ -44,9 +44,9 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
-import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
@@ -67,7 +67,7 @@ class DefaultRatchetLifecycleShutdownTest {
     fixture.lifecycle.onStartup(new Object());
 
     verify(fixture.jobExecutionCoordinator).initRetryBufferDrainer();
-    verify(fixture.checkpointFlusher).start(any(ScheduledExecutorService.class));
+    verify(fixture.jobStateFlusher).start(any(ScheduledExecutorService.class));
     verifyNoInteractions(
         fixture.deadLetterService, fixture.jobArchivingService, fixture.logPurgeTimer);
   }
@@ -89,9 +89,9 @@ class DefaultRatchetLifecycleShutdownTest {
     verify(fixture.jobArchivingService).stop();
     verify(fixture.logPurgeTimer).stop();
     verify(fixture.jobExecutionCoordinator).shutdown(Duration.ZERO);
-    InOrder checkpointOrder = inOrder(fixture.jobExecutionCoordinator, fixture.checkpointFlusher);
+    InOrder checkpointOrder = inOrder(fixture.jobExecutionCoordinator, fixture.jobStateFlusher);
     checkpointOrder.verify(fixture.jobExecutionCoordinator).shutdown(Duration.ZERO);
-    checkpointOrder.verify(fixture.checkpointFlusher).stop();
+    checkpointOrder.verify(fixture.jobStateFlusher).stop();
   }
 
   @Test
@@ -132,7 +132,7 @@ class DefaultRatchetLifecycleShutdownTest {
             mock(RecurringScheduler.class),
             mock(OrphanRecoveryTimer.class),
             mock(BatchRecoveryTimer.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             mock(DeadLetterService.class),
             mock(JobArchivingService.class),
             mock(LogPurgeTimer.class),
@@ -164,7 +164,7 @@ class DefaultRatchetLifecycleShutdownTest {
             mock(RecurringScheduler.class),
             mock(OrphanRecoveryTimer.class),
             mock(BatchRecoveryTimer.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             mock(DeadLetterService.class),
             mock(JobArchivingService.class),
             mock(LogPurgeTimer.class),
@@ -308,7 +308,7 @@ class DefaultRatchetLifecycleShutdownTest {
     final RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
     final OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
     final BatchRecoveryTimer batchRecoveryTimer = mock(BatchRecoveryTimer.class);
-    final CheckpointFlusher checkpointFlusher = mock(CheckpointFlusher.class);
+    final JobStateFlusher jobStateFlusher = mock(JobStateFlusher.class);
     final DeadLetterService deadLetterService = mock(DeadLetterService.class);
     final JobArchivingService jobArchivingService = mock(JobArchivingService.class);
     final LogPurgeTimer logPurgeTimer = mock(LogPurgeTimer.class);
@@ -324,7 +324,7 @@ class DefaultRatchetLifecycleShutdownTest {
               recurringScheduler,
               orphanRecoveryTimer,
               batchRecoveryTimer,
-              checkpointFlusher,
+              jobStateFlusher,
               deadLetterService,
               jobArchivingService,
               logPurgeTimer,

@@ -268,7 +268,7 @@ class JobTimeoutHandlerTest {
             })
         .when(hook)
         .run();
-    attempt.attachCheckpointFlush(hook);
+    attempt.attachStateFlush(hook);
     Future<?> future = mock(Future.class);
     invokeHardTimeout(attempt, future);
     var order = inOrder(future, hook, jobCrudStore, jobRetryStore);

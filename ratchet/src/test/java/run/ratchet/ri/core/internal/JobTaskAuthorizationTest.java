@@ -116,7 +116,7 @@ class JobTaskAuthorizationTest {
             authorizationPolicy,
             null,
             mock(AfterCommitRegistrar.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             null,
             Clock.systemUTC(),
             null);
@@ -262,7 +262,7 @@ class JobTaskAuthorizationTest {
             null,
             serializer,
             mock(AfterCommitRegistrar.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             null,
             Clock.systemUTC(),
             null);

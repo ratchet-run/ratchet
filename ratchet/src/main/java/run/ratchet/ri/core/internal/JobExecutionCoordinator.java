@@ -36,14 +36,14 @@ public class JobExecutionCoordinator {
   private final JobStateManager jobStateManager;
   private final RetryBufferDrainer retryBufferDrainer;
   private final JobExecutorService jobExecutorService;
-  private final CheckpointFlusher checkpointFlusher;
+  private final JobStateFlusher jobStateFlusher;
 
   protected JobExecutionCoordinator() {
     this.jobSubmissionService = null;
     this.jobStateManager = null;
     this.retryBufferDrainer = null;
     this.jobExecutorService = null;
-    this.checkpointFlusher = null;
+    this.jobStateFlusher = null;
   }
 
   @Inject
@@ -52,12 +52,12 @@ public class JobExecutionCoordinator {
       JobStateManager jobStateManager,
       RetryBufferDrainer retryBufferDrainer,
       JobExecutorService jobExecutorService,
-      CheckpointFlusher checkpointFlusher) {
+      JobStateFlusher jobStateFlusher) {
     this.jobSubmissionService = jobSubmissionService;
     this.jobStateManager = jobStateManager;
     this.retryBufferDrainer = retryBufferDrainer;
     this.jobExecutorService = jobExecutorService;
-    this.checkpointFlusher = checkpointFlusher;
+    this.jobStateFlusher = jobStateFlusher;
   }
 
   public void submit(JobEntity job) {
@@ -91,7 +91,7 @@ public class JobExecutionCoordinator {
       }
     }
     try {
-      checkpointFlusher.flushAll();
+      jobStateFlusher.flushAll();
     } catch (Throwable failure) {
       log.warn("Checkpoint flush during shutdown failed", failure);
     }

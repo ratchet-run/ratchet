@@ -205,6 +205,7 @@ public class RatchetOptions {
     builder.recurring.leaseTtlSeconds = recurring.leaseTtlSeconds();
 
     builder.execution.checkpointFlushIntervalMs = execution.checkpointFlushIntervalMs();
+    builder.execution.progressFlushIntervalMs = execution.progressFlushIntervalMs();
     builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
 
     builder.timeout.softTimeoutPercent = timeout.softTimeoutPercent();
@@ -553,6 +554,7 @@ public class RatchetOptions {
    *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
    * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
    *     virtual pool instead of the default semaphore bound
+   * @param progressFlushIntervalMs positive delay in milliseconds before flushing progress
    * @param checkpointFlushIntervalMs positive delay in milliseconds before flushing committed
    *     checkpoints
    */
@@ -567,7 +569,8 @@ public class RatchetOptions {
       String coordinatorThreadFactoryJndi,
       String virtualExecutorJndi,
       boolean virtualCounterAccounting,
-      long checkpointFlushIntervalMs) {
+      long checkpointFlushIntervalMs,
+      long progressFlushIntervalMs) {
 
     public ExecutionOptions(
         ThreadingMode defaultThreadingMode,
@@ -590,11 +593,13 @@ public class RatchetOptions {
           DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI,
           virtualExecutorJndi,
           virtualCounterAccounting,
-          1000L);
+          1000L,
+          10000L);
     }
 
     public ExecutionOptions {
       atLeast("checkpointFlushIntervalMs", checkpointFlushIntervalMs, 1L);
+      atLeast("progressFlushIntervalMs", progressFlushIntervalMs, 1L);
       maxConcurrency = Map.copyOf(maxConcurrency);
       virtualThreadLimits = Map.copyOf(virtualThreadLimits);
       rateLimitsPerMinute = Map.copyOf(rateLimitsPerMinute);
@@ -1074,6 +1079,13 @@ public class RatchetOptions {
     private String virtualExecutorJndi;
     private boolean virtualCounterAccounting;
     private long checkpointFlushIntervalMs = 1000L;
+    private long progressFlushIntervalMs = 10000L;
+
+    /** Sets the delay before flushing progress; defaults to 10000 ms. */
+    public ExecutionBuilder progressFlushIntervalMs(long intervalMs) {
+      progressFlushIntervalMs = atLeast("progressFlushIntervalMs", intervalMs, 1L);
+      return this;
+    }
 
     private ExecutionBuilder() {}
 
@@ -1186,7 +1198,8 @@ public class RatchetOptions {
           coordinatorThreadFactoryJndi,
           virtualExecutorJndi,
           virtualCounterAccounting,
-          checkpointFlushIntervalMs);
+          checkpointFlushIntervalMs,
+          progressFlushIntervalMs);
     }
   }
 

@@ -104,14 +104,15 @@ public class JobTask implements Callable<Void> {
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final AfterCommitRegistrar afterCommitRegistrar;
-  private final CheckpointFlusher checkpointFlusher;
+  private final JobStateFlusher jobStateFlusher;
   private final PayloadSerializer payloadSerializer;
   private final JobTimeoutHandler timeoutHandler;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
   private @Nullable JobAttemptControl attempt;
   private @Nullable JobCheckpointWriter checkpointWriter;
-  private boolean checkpointsFlushed;
+  private boolean stateFlushed;
+  private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -140,7 +141,7 @@ public class JobTask implements Callable<Void> {
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
     this.afterCommitRegistrar = null;
-    this.checkpointFlusher = null;
+    this.jobStateFlusher = null;
     this.payloadSerializer = null;
     this.timeoutHandler = null;
     this.clock = null;
@@ -166,7 +167,7 @@ public class JobTask implements Callable<Void> {
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
       AfterCommitRegistrar afterCommitRegistrar,
-      CheckpointFlusher checkpointFlusher,
+      JobStateFlusher jobStateFlusher,
       JobTimeoutHandler timeoutHandler,
       Clock clock,
       PreExecutionArgResolver argResolver) {
@@ -186,7 +187,7 @@ public class JobTask implements Callable<Void> {
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
     this.afterCommitRegistrar = afterCommitRegistrar;
-    this.checkpointFlusher = checkpointFlusher;
+    this.jobStateFlusher = jobStateFlusher;
     this.payloadSerializer = payloadSerializer;
     this.timeoutHandler = timeoutHandler;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
@@ -277,8 +278,15 @@ public class JobTask implements Callable<Void> {
               jobStore.capability(JobStateStore.class).orElse(null),
               afterCommitRegistrar,
               payloadSerializer,
-              checkpointFlusher);
-      attempt.attachCheckpointFlush(checkpointWriter::flush);
+              jobStateFlusher);
+      jobStore
+          .capability(JobStateStore.class)
+          .ifPresent(
+              store ->
+                  progressWriter =
+                      new JobProgressWriter(
+                          jobId, attempt, store, payloadSerializer, jobStateFlusher, clock));
+      attempt.attachStateFlush(this::flushWritersQuietly);
     }
     JobMdcContext.bindJobContext(
         jobId,
@@ -293,7 +301,8 @@ public class JobTask implements Callable<Void> {
         attempt != null ? attempt.cancellationIdentity() : null,
         attempt != null ? attempt.token().orElse(null) : null,
         attempt != null ? () -> attempt.isCurrent(jobStore) : () -> false,
-        checkpointWriter);
+        checkpointWriter,
+        progressWriter);
 
     // The JobContext/MDC bound above must be cleared on every exit. Open the clearing try right
     // after the bind so a throw from the startup observability calls (metrics, execution recording)
@@ -389,14 +398,14 @@ public class JobTask implements Callable<Void> {
                 target.exceptionFilter(),
                 () -> runPayload(invocationPayload));
 
-        flushCheckpointsQuietly();
+        flushStateQuietly();
         if (wasJobCanceledAfterExecution()) handleCanceledDuringExecution(start);
         else handleSuccess(start, jobResult);
       } catch (CircuitBreakerOpenException e) {
         log.infof(
             "Job %s rescheduled - circuit breaker OPEN for service: %s",
             jobId, resilienceServiceName);
-        flushCheckpointsQuietly();
+        flushStateQuietly();
         rescheduleForCircuitBreaker(jobEntity, resilienceServiceName, e);
       } catch (Throwable t) {
         handleFailureSafely(t);
@@ -411,21 +420,31 @@ public class JobTask implements Callable<Void> {
       // Must be Throwable, not Exception — Error must still clear MDC. See
       // JobMdcContextThrowableTest
       if (checkpointWriter != null) checkpointWriter.close();
+      if (progressWriter != null) progressWriter.close();
       JobMdcContext.clear();
     }
     return null;
   }
 
-  private void flushCheckpointsQuietly() {
-    if (checkpointsFlushed
-        || checkpointWriter == null
+  private void flushStateQuietly() {
+    if (stateFlushed
+        || attempt == null
         || attempt.isSuperseded()
         || Thread.currentThread().isInterrupted()) return;
+    stateFlushed = true;
+    flushWritersQuietly();
+  }
+
+  private void flushWritersQuietly() {
     try {
-      checkpointsFlushed = true;
-      checkpointWriter.flush();
+      if (checkpointWriter != null) checkpointWriter.flush();
     } catch (Throwable failure) {
-      log.warnf(failure, "Final checkpoint flush failed for job %s", job.getId());
+      log.warnf(failure, "Final checkpoint flush failed for job %s", getJobId());
+    }
+    try {
+      if (progressWriter != null) progressWriter.flush();
+    } catch (Throwable failure) {
+      log.warnf(failure, "Final progress flush failed for job %s", getJobId());
     }
   }
 
@@ -898,7 +917,7 @@ public class JobTask implements Callable<Void> {
     // Both paths retain the baseline so a committed increment is not repeated on a re-run.
     if (cooperativeStop) {
       if (attempt.claimTimeoutForWorker()) {
-        flushCheckpointsQuietly();
+        flushStateQuietly();
         log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());
         boolean executionSaved = false;
         try {
@@ -942,7 +961,7 @@ public class JobTask implements Callable<Void> {
       return;
     }
 
-    flushCheckpointsQuietly();
+    flushStateQuietly();
 
     // Non-retryable: skip retry count increment
     if (validationFacade.shouldNotRetry(ex)) {

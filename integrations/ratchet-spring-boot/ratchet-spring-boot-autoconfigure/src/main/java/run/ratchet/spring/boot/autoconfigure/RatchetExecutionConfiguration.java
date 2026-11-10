@@ -37,7 +37,6 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
-import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DefaultPollerScheduler;
@@ -49,6 +48,7 @@ import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobPayloadInvoker;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.JobSuccessFinalizer;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -255,13 +255,13 @@ class RatchetExecutionConfiguration {
       JobStateManager jobStateManager,
       RetryBufferDrainer retryBufferDrainer,
       JobExecutorService jobExecutorService,
-      CheckpointFlusher checkpointFlusher) {
+      JobStateFlusher jobStateFlusher) {
     return new JobExecutionCoordinator(
         jobSubmissionService,
         jobStateManager,
         retryBufferDrainer,
         jobExecutorService,
-        checkpointFlusher);
+        jobStateFlusher);
   }
 
   @Bean(destroyMethod = "")
@@ -317,7 +317,7 @@ class RatchetExecutionConfiguration {
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
       AfterCommitRegistrar afterCommitRegistrar,
-      CheckpointFlusher checkpointFlusher,
+      JobStateFlusher jobStateFlusher,
       Clock clock) {
     return new DefaultJobExecutorService(
         argResolver.getIfAvailable(),
@@ -341,7 +341,7 @@ class RatchetExecutionConfiguration {
         authorizationPolicy,
         payloadSerializer,
         afterCommitRegistrar,
-        checkpointFlusher,
+        jobStateFlusher,
         clock);
   }
 

@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,6 +50,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.dto.JobClaimDto;
@@ -65,6 +67,41 @@ class RetryBufferDrainerTest {
   @Mock private JobSubmissionService jobSubmissionService;
   @Mock private PoolRegistry poolRegistry;
   @Mock private DrainController drainController;
+  @Mock private JobStateFlusher jobStateFlusher;
+
+  @Test
+  void scheduledTickRetriesRejectedFlushBeforeCheckingDrainMode() {
+    Runnable task = startAndCaptureTask();
+    when(drainController.isDraining()).thenReturn(true);
+
+    task.run();
+
+    var order = inOrder(jobStateFlusher, drainController);
+    order.verify(jobStateFlusher).retryRejectedSchedule();
+    order.verify(drainController).isDraining();
+  }
+
+  @Test
+  void flushRetryFailureDoesNotStopBufferDraining() {
+    Runnable task = startAndCaptureTask();
+    RetryBufferManager.BufferedClaim claim = bufferedClaim(99L);
+    doThrow(new RuntimeException("flush retry failed"))
+        .when(jobStateFlusher)
+        .retryRejectedSchedule();
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(1));
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(1);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(true);
+    when(retryBufferManager.pollBatchFromBuffer(eq(JobExecutionType.SINGLE), any(), eq(1)))
+        .thenReturn(List.of(claim));
+
+    assertDoesNotThrow(task::run);
+
+    verify(jobStateFlusher).retryRejectedSchedule();
+    verify(jobSubmissionService).submitBuffered(claim.toClaimDto());
+  }
 
   @Test
   void rebufferedClaimsWaitForTheNextDrainTick() {
@@ -254,7 +291,8 @@ class RetryBufferDrainerTest {
             jobSubmissionService,
             poolRegistry,
             drainController,
-            RatchetOptions.defaults());
+            RatchetOptions.defaults(),
+            jobStateFlusher);
     ExecutorService executor = Executors.newFixedThreadPool(2);
     try {
       Future<?> start = executor.submit(drainer::start);
@@ -293,7 +331,8 @@ class RetryBufferDrainerTest {
             jobSubmissionService,
             poolRegistry,
             drainController,
-            options);
+            options,
+            jobStateFlusher);
     drainer.start();
     return taskCaptor.getValue();
   }

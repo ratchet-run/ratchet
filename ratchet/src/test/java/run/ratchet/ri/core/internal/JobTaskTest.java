@@ -191,6 +191,14 @@ class JobTaskTest {
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     JobStateStore stateStore = pendingCheckpointStore();
+    lenient()
+        .when(stateStore.getState(JOB_UUID, JobProgressWriter.NAMESPACE))
+        .thenReturn(Optional.empty());
+    lenient()
+        .when(
+            stateStore.initState(
+                eq(JOB_UUID), eq(JobProgressWriter.NAMESPACE), anyString(), eq(7L)))
+        .thenReturn(StateWriteResult.UPDATED);
     if (flushThrows) {
       when(stateStore.initState(
               eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L)))
@@ -202,6 +210,7 @@ class JobTaskTest {
             call -> {
               JobContext.current().checkpoint("pending");
               checkpointCommit.run();
+              JobContext.current().progress(5, 5);
               if (interrupted) Thread.currentThread().interrupt();
               if (failure) throw error;
               return "done";
@@ -218,8 +227,10 @@ class JobTaskTest {
       Assertions.assertDoesNotThrow(jobTask::call);
       ArgumentCaptor<JobCheckpointWriter> writer =
           ArgumentCaptor.forClass(JobCheckpointWriter.class);
-      verify(checkpointFlusher).markDirty(writer.capture());
-      InOrder order = inOrder(stateStore, lifecycleFacade, checkpointFlusher);
+      verify(jobStateFlusher).markDirty(writer.capture());
+      ArgumentCaptor<JobProgressWriter> progress = ArgumentCaptor.forClass(JobProgressWriter.class);
+      verify(jobStateFlusher).markDirty(progress.capture());
+      InOrder order = inOrder(stateStore, lifecycleFacade, jobStateFlusher);
       if (interrupted) {
         verify(stateStore, never()).initState(any(), anyString(), anyString(), anyLong());
         verify(stateStore, never()).getState(any(), anyString());
@@ -229,19 +240,28 @@ class JobTaskTest {
             .verify(stateStore)
             .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
       }
+      if (!interrupted) {
+        order
+            .verify(stateStore)
+            .initState(eq(JOB_UUID), eq(JobProgressWriter.NAMESPACE), anyString(), eq(7L));
+      }
       if (failure) order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
       else
         order
             .verify(lifecycleFacade)
             .completeSuccess(
                 any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
-      order.verify(checkpointFlusher).remove(writer.getValue());
+      order.verify(jobStateFlusher).remove(writer.getValue());
       Assertions.assertFalse(writer.getValue().hasUnflushed());
+      verify(jobStateFlusher).remove(progress.getValue());
       if (interrupted) {
         // The worker has already closed the writer; the watchdog must still flush its pending
         // value.
         Thread.interrupted();
-        attempt.flushCheckpointsQuietly();
+        attempt.markSuperseded();
+        attempt.flushStateQuietly();
+        verify(stateStore)
+            .initState(eq(JOB_UUID), eq(JobProgressWriter.NAMESPACE), anyString(), eq(7L));
         verify(stateStore)
             .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
       }
@@ -271,10 +291,32 @@ class JobTaskTest {
         .thenReturn(true);
     jobTask.call();
     Assertions.assertNotNull(context.get());
+    context.get().progress(5, 5);
     Assertions.assertThrows(IllegalStateException.class, () -> context.get().checkpoint("unbound"));
     verify(jobStore, never()).capability(JobStateStore.class);
-    verify(checkpointFlusher, never()).remove(any());
-    verify(checkpointFlusher, never()).markDirty(any());
+    verify(jobStateFlusher, never()).remove(any());
+    verify(jobStateFlusher, never()).markDirty(any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void missingStateCapabilityCreatesNoProgressWriter() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    jobTask.attach(
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1"));
+    when(jobStore.capability(JobStateStore.class)).thenReturn(Optional.empty());
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            call -> {
+              JobContext.current().progress(5, 5);
+              return "done";
+            });
+    jobTask.call();
+    verify(jobStateFlusher, never()).markDirty(any(JobProgressWriter.class));
+    verify(jobStateFlusher, never()).remove(any(JobProgressWriter.class));
   }
 
   @Test
@@ -307,13 +349,13 @@ class JobTaskTest {
             });
     task.call();
     ArgumentCaptor<JobCheckpointWriter> writer = ArgumentCaptor.forClass(JobCheckpointWriter.class);
-    verify(checkpointFlusher).markDirty(writer.capture());
-    InOrder order = inOrder(stateStore, timeout, checkpointFlusher);
+    verify(jobStateFlusher).markDirty(writer.capture());
+    InOrder order = inOrder(stateStore, timeout, jobStateFlusher);
     order
         .verify(stateStore)
         .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
     order.verify(timeout).processCooperativeTimeout(attempt);
-    order.verify(checkpointFlusher).remove(writer.getValue());
+    order.verify(jobStateFlusher).remove(writer.getValue());
     Assertions.assertEquals(
         Boolean.FALSE, watchdogClaimed.get(), "worker must already own timeout");
     verify(stateStore, times(1))
@@ -678,7 +720,7 @@ class JobTaskTest {
   private Runnable checkpointCommit;
 
   @Mock private AfterCommitRegistrar checkpointRegistrar;
-  @Mock private CheckpointFlusher checkpointFlusher;
+  @Mock private JobStateFlusher jobStateFlusher;
   @Mock private JobStore jobStore;
   @Mock private ResourcePermitService resourcePermitService;
   @Mock private PostExecutionHandler lifecycleFacade;
@@ -790,7 +832,7 @@ class JobTaskTest {
                 null,
                 null,
                 mock(AfterCommitRegistrar.class),
-                mock(CheckpointFlusher.class),
+                mock(JobStateFlusher.class),
                 null,
                 null,
                 null));
@@ -839,7 +881,7 @@ class JobTaskTest {
             null,
             serializer,
             checkpointRegistrar,
-            checkpointFlusher,
+            jobStateFlusher,
             null,
             Clock.systemUTC(),
             null);
@@ -1236,7 +1278,7 @@ class JobTaskTest {
     Assertions.assertEquals(JobStatus.RUNNING, job.getStatus());
     verify(stateStore, never()).initState(any(), anyString(), anyString(), anyLong());
     // The watchdog can still flush the committed value after the worker closes its writer.
-    attempt.flushCheckpointsQuietly();
+    attempt.flushStateQuietly();
     verify(stateStore)
         .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
   }
@@ -1750,7 +1792,7 @@ class JobTaskTest {
             null,
             null,
             mock(AfterCommitRegistrar.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             null,
             FIXED_CLOCK,
             null);
@@ -1796,7 +1838,7 @@ class JobTaskTest {
         null,
         null,
         mock(AfterCommitRegistrar.class),
-        mock(CheckpointFlusher.class),
+        mock(JobStateFlusher.class),
         null,
         FIXED_CLOCK,
         null);
@@ -2354,7 +2396,7 @@ class JobTaskTest {
             null,
             signalSerializer,
             mock(AfterCommitRegistrar.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             null,
             Clock.systemUTC(),
             null);
@@ -2444,7 +2486,7 @@ class JobTaskTest {
             null,
             signalSerializer,
             mock(AfterCommitRegistrar.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             null,
             Clock.systemUTC(),
             null);
@@ -2544,7 +2586,7 @@ class JobTaskTest {
             null,
             serializer,
             mock(AfterCommitRegistrar.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             null,
             Clock.systemUTC(),
             resolver);
@@ -2649,7 +2691,7 @@ class JobTaskTest {
         null,
         new JsonbTestPayloadSerializer(),
         checkpointRegistrar,
-        checkpointFlusher,
+        jobStateFlusher,
         timeoutHandler,
         FIXED_CLOCK,
         null);
@@ -2675,7 +2717,7 @@ class JobTaskTest {
         null,
         null,
         mock(AfterCommitRegistrar.class),
-        mock(CheckpointFlusher.class),
+        mock(JobStateFlusher.class),
         null,
         taskClock,
         null);
