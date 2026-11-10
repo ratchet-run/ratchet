@@ -103,7 +103,10 @@ public class DeadLetterService {
   @Transactional(TxType.NOT_SUPPORTED)
   public void recordPreparedBatchDlqTransition(JobEntity job, PreparedDlqEvents prepared) {
     job.setLastError(prepared.dlq().getErrorMessage());
-    durableEvents.publishNow(prepared.events());
+    if (durableEvents != null && durableEvents.enabled())
+      durableEvents.publishNow(prepared.events());
+    else if (eventPublisher != null)
+      publishAfterCommit(() -> prepared.events().forEach(eventPublisher::publish));
     log.warnf("Job %s moved to DLQ", job.getId());
   }
 
