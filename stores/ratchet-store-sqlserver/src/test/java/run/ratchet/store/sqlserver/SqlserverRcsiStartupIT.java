@@ -72,9 +72,11 @@ class SqlserverRcsiStartupIT {
                                 """)
                             .getSingleResult())
                     .intValue());
-            assertEquals(
-                "read committed",
-                em.createNativeQuery(SqlserverJobStoreImpl.ISOLATION_PROBE_SQL).getSingleResult());
+            Object[] settings =
+                (Object[])
+                    em.createNativeQuery(SqlserverJobStoreImpl.STARTUP_PROBE_SQL).getSingleResult();
+            assertEquals("read committed", settings[0]);
+            assertEquals("off", settings[1]);
 
             IsolationCheckFailedException failure =
                 assertThrows(

@@ -42,7 +42,7 @@ class SqlserverIsolationProbeTest {
   void isolationProbeReturnsReadCommitted() throws Exception {
     try (Connection conn = fixture.openConnection();
         Statement stmt = conn.createStatement();
-        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.ISOLATION_PROBE_SQL)) {
+        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.STARTUP_PROBE_SQL)) {
       assertTrue(rs.next(), "isolation probe returned no row");
       String level = rs.getString(1);
       assertNotNull(level, "isolation probe returned NULL — the CASE did not match a known level");
@@ -57,9 +57,9 @@ class SqlserverIsolationProbeTest {
   void rcsiProbeReturnsOn() throws Exception {
     try (Connection conn = fixture.openConnection();
         Statement stmt = conn.createStatement();
-        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.RCSI_PROBE_SQL)) {
+        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.STARTUP_PROBE_SQL)) {
       assertTrue(rs.next(), "RCSI probe returned no row");
-      assertEquals("on", rs.getString(1));
+      assertEquals("on", rs.getString(2));
     }
   }
 }

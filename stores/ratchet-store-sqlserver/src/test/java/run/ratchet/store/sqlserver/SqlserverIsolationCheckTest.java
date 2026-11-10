@@ -20,9 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,25 +45,15 @@ import run.ratchet.store.util.IsolationCheckFailedException;
 
 class SqlserverIsolationCheckTest {
 
-  private static final String RCSI_PROBE_SQL =
-      """
-      SELECT CASE is_read_committed_snapshot_on WHEN 1 THEN 'on' ELSE 'off' END
-      FROM sys.databases WHERE name = DB_NAME()
-      """;
-
   private EntityManager em;
-  private Query isolation;
-  private Query rcsi;
+  private Query probe;
 
   @BeforeEach
   void setUp() {
     em = mock(EntityManager.class);
-    isolation = mock(Query.class);
-    rcsi = mock(Query.class);
-    when(em.createNativeQuery(SqlserverJobStoreImpl.ISOLATION_PROBE_SQL)).thenReturn(isolation);
-    when(em.createNativeQuery(RCSI_PROBE_SQL)).thenReturn(rcsi);
-    when(isolation.getSingleResult()).thenReturn("read committed");
-    when(rcsi.getSingleResult()).thenReturn("off");
+    probe = mock(Query.class);
+    when(em.createNativeQuery(SqlserverJobStoreImpl.STARTUP_PROBE_SQL)).thenReturn(probe);
+    when(probe.getSingleResult()).thenReturn(new Object[] {"read committed", "off"});
   }
 
   @Test
@@ -89,15 +79,15 @@ class SqlserverIsolationCheckTest {
   }
 
   @Test
-  void disableSkipsBothProbes() {
+  void disableSkipsProbe() {
     store(IsolationCheckMode.DISABLE).checkIsolationLevel();
 
     verify(em, never()).createNativeQuery(anyString());
   }
 
   @Test
-  void throwingRcsiProbeLogsDetectionFailureAndContinues() {
-    when(rcsi.getSingleResult()).thenThrow(new PersistenceException("probe unavailable"));
+  void throwingProbeLogsDetectionFailureAndContinues() {
+    when(probe.getSingleResult()).thenThrow(new PersistenceException("probe unavailable"));
     try (LogCapture logs = new LogCapture()) {
       assertDoesNotThrow(() -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
 
@@ -110,31 +100,113 @@ class SqlserverIsolationCheckTest {
                               .contains("Could not check SQL Server READ_COMMITTED_SNAPSHOT")));
       assertTrue(logs.records.stream().noneMatch(r -> r.getLevel().equals(Level.WARNING)));
     }
-    verify(rcsi).getSingleResult();
+    verify(probe).getSingleResult();
   }
 
   @Test
-  void rcsiOnPassesAfterIsolationProbe() {
-    when(rcsi.getSingleResult()).thenReturn("on");
+  void rcsiOnPassesWithSupportedIsolation() {
+    when(probe.getSingleResult()).thenReturn(new Object[] {"read committed", "on"});
 
     assertDoesNotThrow(() -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
 
-    var probes = inOrder(em, isolation, rcsi);
-    probes.verify(em).createNativeQuery(SqlserverJobStoreImpl.ISOLATION_PROBE_SQL);
-    probes.verify(isolation).getSingleResult();
-    probes.verify(em).createNativeQuery(RCSI_PROBE_SQL);
-    probes.verify(rcsi).getSingleResult();
+    verify(probe).getSingleResult();
   }
 
   @Test
-  void unsupportedIsolationFailsBeforeRcsiProbe() {
-    when(isolation.getSingleResult()).thenReturn("serializable");
+  void startupUsesExactlyOneNativeQuery() {
+    when(probe.getSingleResult()).thenReturn(new Object[] {"read committed", "on"});
 
-    assertThrows(
-        IsolationCheckFailedException.class,
-        () -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+    store(IsolationCheckMode.FAIL).checkIsolationLevel();
 
-    verify(em, never()).createNativeQuery(RCSI_PROBE_SQL);
+    // OpenLiberty leaks a JTA transaction when this @PostConstruct runs two native queries.
+    verify(em, times(1)).createNativeQuery(anyString());
+    verify(probe, times(1)).getSingleResult();
+  }
+
+  @Test
+  void unsupportedIsolationFailsBeforeRcsiCheck() {
+    when(probe.getSingleResult()).thenReturn(new Object[] {"serializable", "off"});
+
+    IsolationCheckFailedException failure =
+        assertThrows(
+            IsolationCheckFailedException.class,
+            () -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+
+    assertTrue(failure.getMessage().contains("SQL Server session isolation is 'serializable'"));
+    assertTrue(failure.getMessage().contains("Clear any connection-pool isolation override"));
+  }
+
+  @Test
+  void nullProbeLogsDetectionFailureAndContinues() {
+    when(probe.getSingleResult()).thenReturn(null);
+    try (LogCapture logs = new LogCapture()) {
+      assertDoesNotThrow(() -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+
+      assertTrue(
+          logs.records.stream()
+              .anyMatch(
+                  r ->
+                      r.getLevel().equals(Level.FINE)
+                          && r.getMessage()
+                              .contains("Could not check SQL Server READ_COMMITTED_SNAPSHOT")));
+      assertTrue(logs.records.stream().noneMatch(r -> r.getLevel().equals(Level.WARNING)));
+    }
+  }
+
+  @Test
+  void nullIsolationStillChecksRcsi() {
+    when(probe.getSingleResult()).thenReturn(new Object[] {null, "off"});
+
+    IsolationCheckFailedException failure =
+        assertThrows(
+            IsolationCheckFailedException.class,
+            () -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+
+    assertRcsiRemediation(failure.getMessage());
+  }
+
+  @Test
+  void nullRcsiSkipsOnlyRcsiCheck() {
+    when(probe.getSingleResult()).thenReturn(new Object[] {"read committed", null});
+
+    assertDoesNotThrow(() -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+  }
+
+  @Test
+  void illegalStateProbeFailureIsSkipped() {
+    when(probe.getSingleResult()).thenThrow(new IllegalStateException("probe unavailable"));
+
+    assertDoesNotThrow(() -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+  }
+
+  @Test
+  void queryCreationFailureIsSkipped() {
+    when(em.createNativeQuery(SqlserverJobStoreImpl.STARTUP_PROBE_SQL))
+        .thenThrow(new PersistenceException("probe unavailable"));
+
+    assertDoesNotThrow(() -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+  }
+
+  @Test
+  void normalizesBothValues() {
+    when(probe.getSingleResult()).thenReturn(new Object[] {" READ-COMMITTED ", " ON "});
+
+    assertDoesNotThrow(() -> store(IsolationCheckMode.FAIL).checkIsolationLevel());
+  }
+
+  @Test
+  void warnsOnBothUnsupportedValues() {
+    when(probe.getSingleResult()).thenReturn(new Object[] {"serializable", "off"});
+    try (LogCapture logs = new LogCapture()) {
+      assertDoesNotThrow(() -> store(IsolationCheckMode.WARN).checkIsolationLevel());
+
+      List<LogRecord> warnings =
+          logs.records.stream().filter(r -> r.getLevel().equals(Level.WARNING)).toList();
+      assertEquals(2, warnings.size());
+      assertTrue(
+          warnings.get(0).getMessage().contains("SQL Server session isolation is 'serializable'"));
+      assertRcsiRemediation(warnings.get(1).getMessage());
+    }
   }
 
   @Test
@@ -151,14 +223,14 @@ class SqlserverIsolationCheckTest {
 
   @Test
   void factoryAcceptsRcsiOn() {
-    when(rcsi.getSingleResult()).thenReturn("on");
+    when(probe.getSingleResult()).thenReturn(new Object[] {"read committed", "on"});
 
     assertDoesNotThrow(
         () ->
             SqlserverJobStoreFactory.create(
                 em, RatchetOptions.defaults(), mock(MetricsCollector.class)));
 
-    verify(rcsi).getSingleResult();
+    verify(probe).getSingleResult();
   }
 
   private SqlserverJobStoreImpl store(IsolationCheckMode mode) {

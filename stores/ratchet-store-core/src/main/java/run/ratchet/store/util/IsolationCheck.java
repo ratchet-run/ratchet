@@ -20,6 +20,7 @@ import jakarta.persistence.PersistenceException;
 import java.util.List;
 import java.util.Locale;
 import org.jboss.logging.Logger;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
 
 /**
@@ -107,29 +108,6 @@ public final class IsolationCheck {
         mode);
   }
 
-  /**
-   * Verifies a database setting using the same mode and detection-failure handling as the session
-   * isolation check.
-   *
-   * @param em the entity manager used to issue native queries
-   * @param settingName human-readable setting name, including the database vendor, for messages
-   * @param queries native SQL probes tried in order until one returns a non-null result
-   * @param supportedValues supported setting values, compared using isolation-value normalization
-   * @param remediation operator-facing fix instructions
-   * @param mode whether to fail, warn, or skip the check
-   * @throws IsolationCheckFailedException if fail mode is active and an unsupported value is
-   *     detected
-   */
-  public static void verifySetting(
-      EntityManager em,
-      String settingName,
-      List<String> queries,
-      List<String> supportedValues,
-      String remediation,
-      RatchetOptions.IsolationCheckMode mode) {
-    verify(em, settingName, settingName, queries, supportedValues, remediation, mode);
-  }
-
   private static void verify(
       EntityManager em,
       String valueDescription,
@@ -169,6 +147,39 @@ public final class IsolationCheck {
       return;
     }
 
+    verifyValue(valueDescription, checkDescription, actual, supportedValues, remediation, mode);
+  }
+
+  /**
+   * Verifies an already-read database value without issuing a query. A null value is treated as a
+   * detection failure and skipped with a debug log.
+   *
+   * @param valueDescription human-readable value name used in mismatch messages
+   * @param checkDescription human-readable check name used in debug messages
+   * @param actualValue the probed value, or null if detection failed
+   * @param supportedValues supported values, compared using isolation-value normalization
+   * @param remediation operator-facing fix instructions
+   * @param mode whether to fail, warn, or skip the check
+   * @throws IsolationCheckFailedException if fail mode is active and an unsupported value is
+   *     detected
+   */
+  public static void verifyValue(
+      String valueDescription,
+      String checkDescription,
+      @Nullable Object actualValue,
+      List<String> supportedValues,
+      String remediation,
+      RatchetOptions.IsolationCheckMode mode) {
+    if (mode == RatchetOptions.IsolationCheckMode.DISABLE) {
+      log.debugf("%s check disabled by RatchetOptions", checkDescription);
+      return;
+    }
+    if (actualValue == null) {
+      log.debugf("Could not check %s: no result", checkDescription);
+      return;
+    }
+
+    String actual = actualValue.toString();
     String normalizedActual = normalize(actual);
     if (supportedValues.stream()
         .map(IsolationCheck::normalize)
