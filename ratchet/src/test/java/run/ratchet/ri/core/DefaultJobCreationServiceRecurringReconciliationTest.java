@@ -16,7 +16,9 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import java.time.Clock;
@@ -33,6 +35,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
@@ -187,6 +191,67 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
     assertEquals(1, store.size());
     assertEquals(1, store.updateCount());
     assertEquals("0 * * * * ?", store.onlyDefinition().cronExpr());
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "America/Chicago, 2026-11-01T06:45:00Z, 2026-11-02T07:30:00Z",
+    "Europe/London, 2026-10-25T00:45:00Z, 2026-10-26T01:30:00Z"
+  })
+  void submitRecurring_skipsRepeatedLocalTime_whenFirstSubmittedDuringOverlap(
+      String zoneName, String now, String expectedNextFire) {
+    FakeRecurringJobStore store = new FakeRecurringJobStore();
+    DefaultJobCreationService service =
+        newService(store, Clock.fixed(Instant.parse(now), ZoneOffset.UTC));
+
+    submit(service, "0 30 1 ? * *", ZoneId.of(zoneName), JobOptions.defaults(), BUSINESS_KEY);
+
+    assertEquals(Instant.parse(expectedNextFire), store.onlyDefinition().nextFire());
+    assertEquals(1, store.createCount());
+  }
+
+  @ParameterizedTest
+  @CsvSource({"0 0 1 ? * *, America/Chicago", "0 30 1 ? * *, UTC"})
+  void submitRecurring_skipsRepeatedLocalTime_whenCronOrZoneChangesDuringOverlap(
+      String originalCron, String originalZone) {
+    FakeRecurringJobStore store = new FakeRecurringJobStore();
+    DefaultJobCreationService service =
+        newService(store, Clock.fixed(Instant.parse("2026-11-01T06:45:00Z"), ZoneOffset.UTC));
+    UUID originalId =
+        submit(service, originalCron, ZoneId.of(originalZone), JobOptions.defaults(), BUSINESS_KEY)
+            .id();
+
+    JobHandle updated =
+        submit(
+            service,
+            "0 30 1 ? * *",
+            ZoneId.of("America/Chicago"),
+            JobOptions.defaults(),
+            BUSINESS_KEY);
+
+    assertEquals(originalId, updated.id());
+    assertEquals(1, store.updateCount());
+    assertEquals(Instant.parse("2026-11-02T07:30:00Z"), store.onlyDefinition().nextFire());
+  }
+
+  @Test
+  void submitRecurring_skipsRepeatedLocalTime_afterCancelByBusinessKey() {
+    FakeRecurringJobStore store = new FakeRecurringJobStore();
+    ZoneId zone = ZoneId.of("America/Chicago");
+    DefaultJobCreationService service =
+        newService(store, Clock.fixed(Instant.parse("2026-11-01T06:00:00Z"), ZoneOffset.UTC));
+    UUID originalId =
+        submit(service, "0 30 1 ? * *", zone, JobOptions.defaults(), BUSINESS_KEY).id();
+    assertEquals(Instant.parse("2026-11-01T06:30:00Z"), store.onlyDefinition().nextFire());
+    assertTrue(store.cancelRecurringJobByBusinessKey(BUSINESS_KEY));
+    service = newService(store, Clock.fixed(Instant.parse("2026-11-01T06:45:00Z"), ZoneOffset.UTC));
+
+    JobHandle replacement =
+        submit(service, "0 30 1 ? * *", zone, JobOptions.defaults(), BUSINESS_KEY);
+
+    assertNotEquals(originalId, replacement.id());
+    assertEquals(2, store.createCount());
+    assertEquals(Instant.parse("2026-11-02T07:30:00Z"), store.onlyDefinition().nextFire());
   }
 
   private static JobHandle submit(
@@ -453,7 +518,7 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
 
     @Override
     public boolean cancelRecurringJobByBusinessKey(String businessKey) {
-      throw new UnsupportedOperationException();
+      return definitionsByBusinessKey.remove(businessKey) != null;
     }
 
     @Override

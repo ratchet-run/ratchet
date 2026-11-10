@@ -24,7 +24,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -157,7 +156,7 @@ public class LogPurgeTimer {
 
     Instant now = effective().instant();
     Optional<Instant> next =
-        ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
+        RecurringFireTime.nextExecution(ExecutionTime.forCron(cron), now, zone);
 
     if (next.isEmpty()) {
       log.warn("Log purge timer found no next cron execution; purge scheduling has stopped");

@@ -37,6 +37,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -498,6 +500,77 @@ class RecurringJobExecutorGraceTest {
     verify(plannedMasters).advanceNextFire(master.id(), Instant.parse("2026-11-02T06:30:00Z"));
   }
 
+  @ParameterizedTest
+  @CsvSource({
+    "America/Chicago, 2026-10-30T06:30:00Z, 2026-11-01T06:45:00Z, 2026-11-02T07:30:00Z",
+    "Europe/London, 2026-10-23T00:30:00Z, 2026-10-25T00:45:00Z, 2026-10-26T01:30:00Z"
+  })
+  @SuppressWarnings("unchecked")
+  void overdueRecomputationSkipsRepeatedLocalTime(
+      String zoneName, String oldestFire, String now, String expectedNextFire) {
+    executor =
+        new RecurringJobExecutor(
+            jobBulkStore,
+            recurringJobStore,
+            state,
+            () -> NodeTagFilter.NONE,
+            Clock.fixed(Instant.parse(now), ZoneOffset.UTC));
+    state.markRegistrationComplete(Set.of("known-key"));
+    // One child exhausts the catch-up budget, forcing the fresh-from-now overdue path.
+    RecurringJobDefinition master =
+        recurringMasterInZone(
+            24L,
+            "known-key",
+            "0 30 1 ? * *",
+            zoneName,
+            Instant.parse(oldestFire),
+            RecurringMisfirePolicy.catchUp(1));
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(master));
+
+    assertEquals(1, executor.process(10, "node-A"));
+
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(plannedChildren).bulkInsert(children.capture());
+    assertEquals(List.of(Instant.parse(oldestFire)), scheduledTimes(children));
+    verify(plannedMasters).advanceNextFire(master.id(), Instant.parse(expectedNextFire));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void quarterHourlyCatchUpSkipsRepeatedLocalTimes() {
+    executor =
+        new RecurringJobExecutor(
+            jobBulkStore,
+            recurringJobStore,
+            state,
+            () -> NodeTagFilter.NONE,
+            Clock.fixed(Instant.parse("2026-11-01T07:50:00Z"), ZoneOffset.UTC));
+    state.markRegistrationComplete(Set.of("known-key"));
+    RecurringJobDefinition master =
+        recurringMasterInZone(
+            25L,
+            "known-key",
+            "0 */15 1 ? * *",
+            "America/Chicago",
+            Instant.parse("2026-11-01T06:00:00Z"));
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(master));
+
+    assertEquals(1, executor.process(10, "node-A"));
+
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(plannedChildren).bulkInsert(children.capture());
+    assertEquals(
+        List.of(
+            Instant.parse("2026-11-01T06:00:00Z"),
+            Instant.parse("2026-11-01T06:15:00Z"),
+            Instant.parse("2026-11-01T06:30:00Z"),
+            Instant.parse("2026-11-01T06:45:00Z")),
+        scheduledTimes(children));
+    verify(plannedMasters).advanceNextFire(master.id(), Instant.parse("2026-11-02T07:00:00Z"));
+  }
+
   private static List<Instant> scheduledTimes(ArgumentCaptor<List<JobEntity>> children) {
     return children.getValue().stream().map(JobEntity::getScheduledTime).toList();
   }
@@ -616,6 +689,17 @@ class RecurringJobExecutorGraceTest {
 
   private static RecurringJobDefinition recurringMasterInZone(
       long id, String businessKey, String cron, String zoneId, Instant nextFire) {
+    return recurringMasterInZone(
+        id, businessKey, cron, zoneId, nextFire, RecurringMisfirePolicy.defaults());
+  }
+
+  private static RecurringJobDefinition recurringMasterInZone(
+      long id,
+      String businessKey,
+      String cron,
+      String zoneId,
+      Instant nextFire,
+      RecurringMisfirePolicy policy) {
     ZoneId.of(zoneId);
     return new RecurringJobDefinition(
         new UUID(0L, id),
@@ -638,6 +722,6 @@ class RecurringJobExecutorGraceTest {
         FIXED_NOW,
         null,
         false,
-        RecurringMisfirePolicy.defaults());
+        policy);
   }
 }

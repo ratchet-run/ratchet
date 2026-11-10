@@ -154,7 +154,9 @@ public void nightlyJob() { ... }
 
 If no timezone is specified, UTC is used. When the clock jumps forward, a local time that does not
 exist is skipped. When the clock falls back and repeats a local time, Ratchet fires the first
-occurrence only. Use UTC when every nominal occurrence matters more than local wall-clock behavior.
+occurrence only. A job submitted or rescheduled after that first occurrence skips the repeated
+local time, including when re-enabled by cancelling and submitting again. Use UTC when every nominal
+occurrence matters more than local wall-clock behavior.
 
 ## The `enqueue` vs `schedule` vs `recurring` API
 

@@ -24,7 +24,6 @@ import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +32,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RecurringMisfirePolicy;
+import run.ratchet.ri.core.internal.RecurringFireTime;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.store.entity.JobEntity;
@@ -151,8 +151,7 @@ public class RecurringJobExecutor {
       ExecutionTime execTime = ExecutionTime.forCron(cron);
 
       Instant baseTime = master.nextFire() != null ? master.nextFire() : now;
-      Optional<Instant> nextOpt =
-          execTime.nextExecution(baseTime.atZone(zone)).map(ZonedDateTime::toInstant);
+      Optional<Instant> nextOpt = RecurringFireTime.nextExecution(execTime, baseTime, zone);
       boolean hasBacklog = nextOpt.isPresent() && nextOpt.get().isBefore(now);
       RecurringMisfirePolicy policy = master.misfirePolicy();
       int scheduledCount = 0;
@@ -168,8 +167,7 @@ public class RecurringJobExecutor {
             && scheduledCount < policy.maxCatchUpExecutions()) {
           children.add(createChildFromMaster(master, nextOpt.get()));
           scheduledCount++;
-          nextOpt =
-              execTime.nextExecution(nextOpt.get().atZone(zone)).map(ZonedDateTime::toInstant);
+          nextOpt = RecurringFireTime.nextExecution(execTime, nextOpt.get(), zone);
         }
       }
 
@@ -180,7 +178,7 @@ public class RecurringJobExecutor {
       }
 
       if (nextOpt.isPresent() && nextOpt.get().isBefore(now)) {
-        nextOpt = execTime.nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
+        nextOpt = RecurringFireTime.nextExecution(execTime, now, zone);
       }
 
       processedCount++;
