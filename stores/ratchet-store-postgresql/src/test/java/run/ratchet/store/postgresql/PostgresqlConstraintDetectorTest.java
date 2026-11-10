@@ -18,16 +18,59 @@ package run.ratchet.store.postgresql;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import jakarta.persistence.EntityManager;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.BusinessKeyReservationConflictException;
+import run.ratchet.store.entity.JobEntity;
 
 class PostgresqlConstraintDetectorTest {
 
   private final PostgresqlConstraintDetector detector = new PostgresqlConstraintDetector();
+
+  @Test
+  void translatesReservationConflictToPreciseSignal() {
+    RuntimeException failure =
+        new RuntimeException(
+            "hibernate",
+            new SQLException(
+                "duplicate key value violates unique constraint"
+                    + " \"scheduler_business_key_reservation_pkey\"",
+                "23505"));
+    EntityManager em = mock(EntityManager.class);
+    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    PostgresqlJobWriteOperations writes =
+        new PostgresqlJobWriteOperations(new PostgresqlStoreContext(em), null, null);
+    JobEntity job = new JobEntity();
+    job.setBusinessKey("order-1");
+
+    BusinessKeyReservationConflictException thrown =
+        assertThrows(BusinessKeyReservationConflictException.class, () -> writes.saveInsert(job));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void doesNotTranslateUnrelatedWriteFailureToReservationConflict() {
+    RuntimeException failure = new RuntimeException("unrelated write failure");
+    EntityManager em = mock(EntityManager.class);
+    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    PostgresqlJobWriteOperations writes =
+        new PostgresqlJobWriteOperations(new PostgresqlStoreContext(em), null, null);
+    JobEntity job = new JobEntity();
+    job.setBusinessKey("order-1");
+
+    assertSame(failure, assertThrows(RuntimeException.class, () -> writes.saveInsert(job)));
+  }
 
   @Test
   void extractsConstraintNameThroughWrappers() {

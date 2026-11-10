@@ -23,6 +23,7 @@ import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultClusterQueryService;
 import run.ratchet.ri.core.DefaultInvocationSubmissionService;
@@ -187,7 +188,8 @@ class RatchetSubmissionConfiguration {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar registrar,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      BatchCompletionTransaction conflictResolutionTransaction) {
     return new DefaultJobCreationService(
         batchService,
         store,
@@ -211,7 +213,8 @@ class RatchetSubmissionConfiguration {
         store.capability(ResourcePermitStore.class).isPresent(),
         options.callerPrincipalResolver(),
         registrar,
-        errorSanitizer);
+        errorSanitizer,
+        conflictResolutionTransaction);
   }
 
   @Bean

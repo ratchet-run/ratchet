@@ -45,6 +45,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
@@ -425,6 +426,10 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
                     tx.rollback();
                   }
                   em.clear();
+                  // A lost reservation race fails the same way on every attempt.
+                  if (transient_ instanceof BusinessKeyReservationConflictException) {
+                    throw transient_;
+                  }
                   lastTransient = transient_;
                 } catch (Throwable t) {
                   if (tx.isActive()) {

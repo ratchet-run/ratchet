@@ -20,7 +20,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.exception.SignalTimeoutException;
 
 /**
@@ -159,9 +161,20 @@ public interface JobBuilder {
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
    * only and do not participate in a transaction.
    *
+   * <p>A losing concurrent insert may leave the submission transaction rollback-only. No handle is
+   * returned from that failed transaction. If a custom idempotency key was supplied, conflict
+   * resolution reads the winner in a fresh transaction. If that read fails or finds no active
+   * holder, {@link RatchetTransientStoreException} is thrown; retry the same builder or keys in a
+   * fresh transaction to resolve the outcome.
+   *
    * @return a handle to the persisted job
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
-   *     key
+   *     key, including a reservation race using an auto-generated idempotency key
+   * @throws DuplicateIdempotencyKeyException if a concurrent submission wins the same idempotency
+   *     key; retry in a fresh transaction to obtain the original handle
+   * @throws RatchetTransientStoreException if a business-key reservation race with a custom
+   *     idempotency key cannot be resolved, or another transient store failure occurs; retry in a
+   *     fresh transaction
    * @throws PayloadTooLargeException if the task or a persisted callback/branch exceeds the
    *     configured serialized-payload limit
    */
@@ -287,7 +300,15 @@ public interface JobBuilder {
    * <p>Unlike {@link #withIdempotencyKey(String)}, multiple completed jobs may share the same key;
    * only active (PENDING/RUNNING/PAUSED/WAITING) jobs are blocked. {@link #submit()} throws {@link
    * DuplicateBusinessKeyException} while an active job holds the key, unless its idempotency key
-   * matches this builder's and the original job's handle is returned.
+   * matches this builder's and the original job's handle is returned before an insert is attempted.
+   *
+   * <p>If a concurrent insert loses the reservation race, {@code submit()} throws {@link
+   * DuplicateBusinessKeyException} when this builder uses its auto-generated idempotency key. With
+   * a custom idempotency key, a fresh-transaction lookup determines whether to throw {@link
+   * DuplicateIdempotencyKeyException} (matching key) or {@link DuplicateBusinessKeyException}
+   * (different key). If the lookup fails or finds no active holder, {@link
+   * RatchetTransientStoreException} is thrown. Retry in a fresh transaction; no handle is returned
+   * from the failed submission transaction.
    *
    * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
    * through {@code U+007E}). The portable subset has the same byte width under Oracle's

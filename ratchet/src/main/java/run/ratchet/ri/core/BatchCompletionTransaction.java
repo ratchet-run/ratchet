@@ -22,7 +22,7 @@ import java.util.function.Supplier;
 
 /**
  * Runs completion work (a job's terminal transition or a batch parent's completion) in its own new
- * transaction.
+ * transaction. Also used for conflict-resolution reads after a submission transaction has failed.
  */
 @ApplicationScoped
 public class BatchCompletionTransaction {

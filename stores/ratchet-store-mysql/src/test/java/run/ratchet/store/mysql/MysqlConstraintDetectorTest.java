@@ -18,15 +18,58 @@ package run.ratchet.store.mysql;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.mysql.cj.exceptions.CJCommunicationsException;
+import jakarta.persistence.EntityManager;
 import java.sql.SQLException;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.BusinessKeyReservationConflictException;
+import run.ratchet.store.entity.JobEntity;
 
 class MysqlConstraintDetectorTest {
 
   private final MysqlConstraintDetector detector = new MysqlConstraintDetector();
+
+  @Test
+  void translatesReservationConflictToPreciseSignal() {
+    RuntimeException failure =
+        new RuntimeException(
+            "hibernate",
+            new SQLException(
+                "Duplicate entry 'order-1' for key 'scheduler_business_key_reservation.PRIMARY'",
+                "23000",
+                1062));
+    EntityManager em = mock(EntityManager.class);
+    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    MysqlJobWriteOperations writes =
+        new MysqlJobWriteOperations(new MysqlStoreContext(em, null), null, null);
+    JobEntity job = new JobEntity();
+    job.setBusinessKey("order-1");
+
+    BusinessKeyReservationConflictException thrown =
+        assertThrows(BusinessKeyReservationConflictException.class, () -> writes.saveInsert(job));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void doesNotTranslateUnrelatedWriteFailureToReservationConflict() {
+    RuntimeException failure = new RuntimeException("unrelated write failure");
+    EntityManager em = mock(EntityManager.class);
+    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    MysqlJobWriteOperations writes =
+        new MysqlJobWriteOperations(new MysqlStoreContext(em, null), null, null);
+    JobEntity job = new JobEntity();
+    job.setBusinessKey("order-1");
+
+    assertSame(failure, assertThrows(RuntimeException.class, () -> writes.saveInsert(job)));
+  }
 
   @Test
   void extractsConstraintNameThroughWrappers() {

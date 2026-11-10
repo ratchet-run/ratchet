@@ -30,6 +30,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
@@ -208,7 +209,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
       persist(jobWithBusinessKey(bk));
       fail("Duplicate enqueue while RUNNING peer holds the business key must throw");
     } catch (RuntimeException expected) {
-      // expected
+      assertReservationConflict(expected);
     }
   }
 
@@ -222,7 +223,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
       persist(jobWithBusinessKey(bk));
       fail("Duplicate enqueue while PAUSED peer holds the business key must throw");
     } catch (RuntimeException expected) {
-      // expected
+      assertReservationConflict(expected);
     }
   }
 
@@ -239,8 +240,18 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
       persist(jobWithBusinessKey(bk));
       fail("Duplicate enqueue while WAITING peer holds the business key must throw");
     } catch (RuntimeException expected) {
-      // expected
+      assertReservationConflict(expected);
     }
+  }
+
+  /** The runtime maps only this store signal to a duplicate business key on submit. */
+  private static void assertReservationConflict(Throwable failure) {
+    for (Throwable t = failure; t != null; t = t.getCause()) {
+      if (t instanceof BusinessKeyReservationConflictException) {
+        return;
+      }
+    }
+    fail("Expected BusinessKeyReservationConflictException in the cause chain", failure);
   }
 
   // ───────────────────────── identity / lookup correctness ─────────────────────────

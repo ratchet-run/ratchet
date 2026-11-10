@@ -18,6 +18,7 @@ package run.ratchet.micronaut.internal.tx;
 import io.micronaut.core.annotation.Creator;
 import java.time.Clock;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -73,7 +74,8 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
       boolean resourcePermitCapabilityAvailable,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      BatchCompletionTransaction conflictResolutionTransaction) {
     super(
         batchService,
         jobCrudStore,
@@ -97,6 +99,7 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
         resourcePermitCapabilityAvailable,
         callerPrincipalResolver,
         afterCommitRegistrar,
-        errorSanitizer);
+        errorSanitizer,
+        conflictResolutionTransaction);
   }
 }
