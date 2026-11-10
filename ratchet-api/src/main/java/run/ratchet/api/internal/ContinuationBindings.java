@@ -26,10 +26,24 @@ public final class ContinuationBindings {
 
   private ContinuationBindings() {}
 
+  /**
+   * Installs the framework reader for a context's continuation request.
+   *
+   * @param contextReader reader installed by {@link JobContext}
+   * @throws NullPointerException if the reader is null
+   */
   public static void installContextReader(Function<JobContext, JobContinuation> contextReader) {
     reader = Objects.requireNonNull(contextReader);
   }
 
+  /**
+   * Returns the same continuation request instance that {@link JobContext#requestContinuation()}
+   * changes.
+   *
+   * @param context context to inspect, or null
+   * @return the continuation request, or null for a null context or a context without a persisted
+   *     attempt or checkpoint bindings
+   */
   public static @Nullable JobContinuation continuationOf(@Nullable JobContext context) {
     return context == null ? null : reader.apply(context);
   }

@@ -1087,6 +1087,13 @@ public class RatchetOptions {
     private long progressFlushIntervalMs = 10000L;
     private int maxContinuations = 1000;
 
+    /**
+     * Sets the maximum continuations across the life of a job, including retries; defaults to 1000.
+     *
+     * @param limit lifetime continuation limit, at least 1
+     * @return this builder
+     * @throws IllegalArgumentException if the limit is less than 1
+     */
     public ExecutionBuilder maxContinuations(int limit) {
       maxContinuations = atLeast("maxContinuations", limit, 1);
       return this;

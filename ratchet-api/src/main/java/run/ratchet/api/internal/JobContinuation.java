@@ -25,6 +25,11 @@ public final class JobContinuation {
   private volatile boolean supported = true;
   private @Nullable Duration delay;
 
+  /**
+   * Creates a continuation request for the job, initially with no delay requested.
+   *
+   * @param jobId job identifier used in unsupported-store errors
+   */
   public JobContinuation(UUID jobId) {
     this.jobId = jobId;
   }
@@ -36,6 +41,12 @@ public final class JobContinuation {
     this.supported = supported;
   }
 
+  /**
+   * Records the delay, replacing any previous continuation request.
+   *
+   * @param delay delay before the next execution
+   * @throws UnsupportedOperationException if the runtime store does not support job state
+   */
   public synchronized void request(Duration delay) {
     if (!supported) {
       throw new UnsupportedOperationException(
@@ -44,10 +55,20 @@ public final class JobContinuation {
     this.delay = delay;
   }
 
+  /**
+   * Clears the request. Ratchet calls this before each payload invocation it makes, including calls
+   * repeated by a resilience strategy. An interceptor that re-invokes the payload internally does
+   * not call this method.
+   */
   public synchronized void clear() {
     delay = null;
   }
 
+  /**
+   * Returns the currently requested delay.
+   *
+   * @return the delay, or null when no continuation is requested
+   */
   public synchronized @Nullable Duration delay() {
     return delay;
   }
