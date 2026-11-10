@@ -96,6 +96,9 @@ public class JobTask implements Callable<Void> {
    */
   private static final Duration UPGRADE_PENDING_BACKOFF = Duration.ofSeconds(30);
 
+  /** Delay before a batch child whose parent check failed can be claimed again. */
+  private static final Duration BATCH_CHECK_RETRY_BACKOFF = Duration.ofSeconds(30);
+
   private static final String CONTINUATION_NAMESPACE = "ratchet.continuation";
   private final int maxContinuations;
   private @Nullable JobContinuation continuation;
@@ -284,7 +287,7 @@ public class JobTask implements Callable<Void> {
         if (!jobStore.scheduleJobRetry(
             jobId,
             sanitizeError(e),
-            effective().instant(),
+            effective().instant().plus(BATCH_CHECK_RETRY_BACKOFF),
             claim != null ? claim.attempts() : jobEntity.getAttempts(),
             expectedClaimSeq())) {
           warnRejectedOwnerWrite();

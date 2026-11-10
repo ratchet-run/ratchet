@@ -2751,20 +2751,23 @@ class JobTaskTest {
 
   @Test
   void claimedBatchChildNeverStartsWhenParentCheckFails() throws Exception {
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW), eq(2), eq(7L)))
+    when(jobStore.scheduleJobRetry(
+            eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
         .thenReturn(true);
     assertBatchChildNeverStarts(
         parentId ->
             when(jobStore.getJobStatus(parentId))
                 .thenThrow(new IllegalStateException("store unavailable")),
         false);
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW), eq(2), eq(7L));
+    verify(jobStore)
+        .scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L));
   }
 
   @Test
   void parentCheckFailureLogsClaimReleaseFailureWithoutRethrowing() throws Exception {
     IllegalStateException releaseFailure = new IllegalStateException("release unavailable");
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW), eq(2), eq(7L)))
+    when(jobStore.scheduleJobRetry(
+            eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
         .thenThrow(releaseFailure);
     Logger logger = Logger.getLogger(JobTask.class.getName());
     Level originalLevel = logger.getLevel();
