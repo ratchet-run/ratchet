@@ -54,6 +54,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -2747,11 +2751,46 @@ class JobTaskTest {
 
   @Test
   void claimedBatchChildNeverStartsWhenParentCheckFails() throws Exception {
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW), eq(2), eq(7L)))
+        .thenReturn(true);
     assertBatchChildNeverStarts(
         parentId ->
             when(jobStore.getJobStatus(parentId))
                 .thenThrow(new IllegalStateException("store unavailable")),
         false);
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW), eq(2), eq(7L));
+  }
+
+  @Test
+  void parentCheckFailureLogsClaimReleaseFailureWithoutRethrowing() throws Exception {
+    IllegalStateException releaseFailure = new IllegalStateException("release unavailable");
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW), eq(2), eq(7L)))
+        .thenThrow(releaseFailure);
+    Logger logger = Logger.getLogger(JobTask.class.getName());
+    Level originalLevel = logger.getLevel();
+    Handler handler = mock(Handler.class);
+    logger.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    try {
+      assertBatchChildNeverStarts(
+          parentId ->
+              when(jobStore.getJobStatus(parentId))
+                  .thenThrow(new IllegalStateException("parent unavailable")),
+          false);
+
+      ArgumentCaptor<LogRecord> records = ArgumentCaptor.forClass(LogRecord.class);
+      verify(handler, atLeastOnce()).publish(records.capture());
+      Assertions.assertTrue(
+          records.getAllValues().stream()
+              .anyMatch(
+                  record ->
+                      record.getThrown() == releaseFailure
+                          && record.getLevel().intValue() >= Level.SEVERE.intValue()
+                          && record.getMessage().contains("could not release claim")));
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+    }
   }
 
   @Test
@@ -2783,7 +2822,23 @@ class JobTaskTest {
     job.setDependsOn(parentId);
     JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
     JobTask task = callbackTask(invoker);
-    task.initFromClaim(claimForNode("node-1"));
+    task.initFromClaim(
+        new JobClaimDto(
+            JOB_UUID,
+            JobStatus.RUNNING,
+            JobExecutionType.BATCH_CHILD,
+            job.getPriority(),
+            job.getScheduledTime(),
+            1,
+            30,
+            "node-1",
+            FIXED_NOW,
+            null,
+            2,
+            3,
+            null,
+            parentId,
+            7L));
     when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     stubParent.accept(parentId);

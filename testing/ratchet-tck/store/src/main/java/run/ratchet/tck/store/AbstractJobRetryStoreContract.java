@@ -91,6 +91,39 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void scheduleJobRetry_releasesClaimIntoPausedBatchUntilResume() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    JobEntity child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child.setAttempts(2);
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    long claimSeq = store().findById(child.getId()).orElseThrow().getClaimSeq();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+
+    assertFalse(store().scheduleJobRetry(child.getId(), "stale", Instant.now(), 99, claimSeq - 1));
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(child.getId()));
+    Instant retryTime = Instant.now().minusSeconds(1);
+    assertTrue(
+        store().scheduleJobRetry(child.getId(), "parent check failed", retryTime, 2, claimSeq));
+
+    JobEntity released = store().findById(child.getId()).orElseThrow();
+    assertEquals(JobStatus.PAUSED, released.getStatus());
+    assertEquals(JobStatus.PENDING, released.getPausedFromStatus());
+    assertEquals(2, released.getAttempts());
+    assertEquals(claimSeq, released.getClaimSeq().longValue());
+    assertNull(released.getPickedBy());
+    assertNull(released.getPickedAt());
+    assertFalse(store().tryPickUpJob(child.getId(), "node-2"));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().resumeBatchChildren(parent.getId()));
+    assertTrue(store().tryPickUpJob(child.getId(), "node-2"));
+  }
+
+  @Test
   void scheduleJobRetry_rejectsFailedTerminalRows() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);

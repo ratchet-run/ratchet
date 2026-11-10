@@ -273,13 +273,26 @@ public class JobTask implements Callable<Void> {
         return null;
       }
     } catch (RuntimeException e) {
-      // Do not run a batch child when the batch state is unknown. The claim stays RUNNING, and
-      // recovery hands it back to a worker that checks the parent again.
+      // The runner cancels its watchdog on return, and orphan recovery ignores live nodes.
+      // Release through the fenced retry path, which keeps children of paused batches paused.
       log.errorf(
           e,
           "Job %s not started: could not check or cancel it for batch %s",
           jobId,
           jobEntity.getDependsOn());
+      try {
+        if (!jobStore.scheduleJobRetry(
+            jobId,
+            sanitizeError(e),
+            effective().instant(),
+            claim != null ? claim.attempts() : jobEntity.getAttempts(),
+            expectedClaimSeq())) {
+          warnRejectedOwnerWrite();
+        }
+      } catch (RuntimeException releaseFailure) {
+        log.errorf(
+            releaseFailure, "Job %s could not release claim after batch check failed", jobId);
+      }
       JobMdcContext.clear();
       return null;
     }

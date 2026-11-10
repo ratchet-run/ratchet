@@ -197,15 +197,20 @@ final class PostgresqlJobTerminalOperations {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
+    boolean paused = retryIntoPausedBatch(id);
     // language=PostgreSQL
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
+        SET status = '%s', paused_from_status = %s,
+            last_error = ?, scheduled_time = ?, attempts = ?,
             picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp()
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
         """
-            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
+            .formatted(
+                paused ? "PAUSED" : "PENDING",
+                paused ? "'PENDING'" : "NULL",
+                expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     return ctx.timedStoreOperation(
             "schedule_retry",
             () ->
@@ -217,6 +222,23 @@ final class PostgresqlJobTerminalOperations {
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
+  }
+
+  private boolean retryIntoPausedBatch(UUID id) {
+    // Lock the parent before releasing the child, serializing with batch pause/resume sweeps.
+    String sql =
+        """
+        SELECT status FROM scheduler_job_queue
+        WHERE job_id = (
+          SELECT depends_on FROM scheduler_job WHERE job_id = ? AND job_type = 'BATCH_CHILD')
+        FOR UPDATE
+        """;
+    try {
+      List<?> parents = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
+      return !parents.isEmpty() && "PAUSED".equals(parents.get(0));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("read retry batch status", e);
+    }
   }
 
   boolean markJobFailedTerminal(

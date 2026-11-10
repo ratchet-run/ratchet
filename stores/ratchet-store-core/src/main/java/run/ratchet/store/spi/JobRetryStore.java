@@ -41,6 +41,10 @@ public interface JobRetryStore {
    * false} for missing rows and for jobs in every other status, including FAILED terminal rows.
    * Transaction attribute: {@code REQUIRED}.
    *
+   * <p>A batch child whose parent is PAUSED is released to PAUSED with a paused-from status of
+   * PENDING. Implementations serialize this decision with parent pause/resume transitions so the
+   * child cannot become runnable during a batch pause.
+   *
    * @param id job id to reschedule; never {@code null}
    * @param error last-error message to record alongside the new schedule; may be {@code null}
    * @param newScheduledTime instant at which the job becomes eligible for re-pickup; never {@code

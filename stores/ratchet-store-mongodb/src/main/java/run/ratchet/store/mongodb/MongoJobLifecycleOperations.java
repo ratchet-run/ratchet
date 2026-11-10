@@ -28,6 +28,7 @@ import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
+import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
 import static run.ratchet.store.mongodb.MongoFieldNames.ENDED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
@@ -402,23 +403,54 @@ final class MongoJobLifecycleOperations
     return booleanMutation(
         "schedule_retry",
         () -> {
-          UpdateResult result =
-              ctx.jobs()
-                  .updateOne(
+          try (ClientSession session = ctx.startSession()) {
+            return session.withTransaction(
+                () -> {
+                  Bson filter =
                       fenced(
                           and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
-                          expectedClaimSeq),
-                      combine(
-                          set(STATUS, "PENDING"),
-                          set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
-                          set(ATTEMPTS, attempts),
-                          set(LAST_ERROR, error),
-                          set(PICKED_BY, null),
-                          set(PICKED_AT, null),
-                          unset(TERMINATED_AT),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                          inc(VERSION, 1)));
-          return result.getModifiedCount() > 0;
+                          expectedClaimSeq);
+                  Document job =
+                      ctx.jobs()
+                          .find(session, filter)
+                          .projection(new Document(JOB_TYPE, 1).append(DEPENDS_ON, 1))
+                          .first();
+                  if (job == null) {
+                    return false;
+                  }
+                  boolean paused = false;
+                  UUID batchId = job.get(DEPENDS_ON, UUID.class);
+                  if ("BATCH_CHILD".equals(job.getString(JOB_TYPE)) && batchId != null) {
+                    // A write fence on the parent makes concurrent pause/resume retry this
+                    // transaction instead of releasing a child against a stale parent snapshot.
+                    Document parent =
+                        ctx.jobs()
+                            .findOneAndUpdate(
+                                session,
+                                eq(ID, batchId),
+                                inc(VERSION, 1),
+                                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+                    paused = parent != null && "PAUSED".equals(parent.getString(STATUS));
+                  }
+                  UpdateResult result =
+                      ctx.jobs()
+                          .updateOne(
+                              session,
+                              filter,
+                              combine(
+                                  set(STATUS, paused ? "PAUSED" : "PENDING"),
+                                  set(PAUSED_FROM_STATUS, paused ? "PENDING" : null),
+                                  set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
+                                  set(ATTEMPTS, attempts),
+                                  set(LAST_ERROR, error),
+                                  set(PICKED_BY, null),
+                                  set(PICKED_AT, null),
+                                  unset(TERMINATED_AT),
+                                  set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                                  inc(VERSION, 1)));
+                  return result.getModifiedCount() > 0;
+                });
+          }
         });
   }
 
