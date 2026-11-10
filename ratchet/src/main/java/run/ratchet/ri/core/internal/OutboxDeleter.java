@@ -64,6 +64,11 @@ public class OutboxDeleter {
     this.store = store;
   }
 
+  /** Returns whether an outbox store was resolved for deletion. */
+  public boolean hasStore() {
+    return store != null;
+  }
+
   public synchronized void start(ScheduledExecutorService executor) {
     this.executor = executor;
     schedule(0);

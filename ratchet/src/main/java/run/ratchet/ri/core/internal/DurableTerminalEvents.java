@@ -111,6 +111,17 @@ public class DurableTerminalEvents {
       throw new IllegalStateException("Durable events require EventOutboxStore");
     if (store.capability(LockStore.class).isEmpty())
       throw new IllegalStateException("Durable events require LockStore");
+    if ((deleter != null && !deleter.hasStore()) || (relay != null && !relay.hasStore()))
+      throw missingBeanType(EventOutboxStore.class);
+    if (leases == null || !leases.hasLockStore()) throw missingBeanType(LockStore.class);
+  }
+
+  private static IllegalStateException missingBeanType(Class<?> capability) {
+    return new IllegalStateException(
+        "Store implements "
+            + capability.getSimpleName()
+            + " but does not expose it as a bean type; list it on the store bean."
+            + " Per-store composites must list every capability.");
   }
 
   public void start(ScheduledExecutorService executor) {

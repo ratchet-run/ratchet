@@ -49,6 +49,93 @@ class DurableStartupGateTest {
     gate(false, false, true, false, null);
   }
 
+  @Test
+  void injectedDeleterWithoutOutboxFailsValidation() {
+    assertMissingBeanType(validation(true, false, true, true), "EventOutboxStore");
+  }
+
+  @Test
+  void injectedRelayWithoutOutboxFailsValidation() {
+    assertMissingBeanType(validation(true, true, false, true), "EventOutboxStore");
+  }
+
+  @Test
+  void leaseServiceWithoutLockStoreFailsValidation() {
+    assertMissingBeanType(validation(true, true, true, false), "LockStore");
+  }
+
+  @Test
+  void injectedCapabilitiesPassValidation() {
+    assertDoesNotThrow(validation(true, true, true, true)::validate);
+  }
+
+  @Test
+  void disabledModeIgnoresMissingInjectedCapabilities() {
+    assertDoesNotThrow(validation(false, false, false, false)::validate);
+  }
+
+  @Test
+  void nonCdiWorkersCanBeCreatedAtStartup() {
+    JobStore store = capableStore();
+    DurableTerminalEvents durable =
+        new DurableTerminalEvents(
+            RatchetOptions.builder().events(e -> e.durable(true)).build(),
+            store,
+            Clock.systemUTC(),
+            new InternalEventPublisher(),
+            mock(AfterCommitRegistrar.class),
+            new SingletonLeaseService((LockStore) store, mock(NodeIdentityProvider.class)));
+    assertDoesNotThrow(durable::validate);
+    ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+    try {
+      assertDoesNotThrow(() -> durable.start(executor));
+      assertTrue(durable.relay().hasStore());
+    } finally {
+      durable.stop();
+    }
+  }
+
+  private JobStore capableStore() {
+    return mock(
+        JobStore.class,
+        withSettings()
+            .extraInterfaces(EventOutboxStore.class, LockStore.class)
+            .defaultAnswer(CALLS_REAL_METHODS));
+  }
+
+  private DurableTerminalEvents validation(
+      boolean enabled, boolean deleterStore, boolean relayStore, boolean lockStore) {
+    JobStore store = capableStore();
+    RatchetOptions options = RatchetOptions.builder().events(e -> e.durable(enabled)).build();
+    SingletonLeaseService leases =
+        new SingletonLeaseService(
+            lockStore ? (LockStore) store : null, mock(NodeIdentityProvider.class));
+    InternalEventPublisher publisher = new InternalEventPublisher();
+    return new DurableTerminalEvents(
+        options,
+        store,
+        Clock.systemUTC(),
+        publisher,
+        mock(AfterCommitRegistrar.class),
+        leases,
+        new OutboxDeleter(deleterStore ? (EventOutboxStore) store : null),
+        new TerminalEventRelay(
+            relayStore ? (EventOutboxStore) store : null,
+            null,
+            leases,
+            publisher,
+            options,
+            Clock.systemUTC()));
+  }
+
+  private void assertMissingBeanType(DurableTerminalEvents durable, String capability) {
+    String message = assertThrows(IllegalStateException.class, durable::validate).getMessage();
+    assertTrue(message.contains(capability));
+    assertTrue(message.contains("implements"));
+    assertTrue(message.contains("does not expose it as a bean type"));
+    assertTrue(message.contains("list every capability"));
+  }
+
   private void gate(
       boolean outbox, boolean lock, boolean executorAvailable, boolean enabled, String message) {
     MockSettings settings = withSettings();
@@ -64,7 +151,8 @@ class DurableStartupGateTest {
             Clock.systemUTC(),
             new InternalEventPublisher(),
             mock(AfterCommitRegistrar.class),
-            mock(SingletonLeaseService.class));
+            new SingletonLeaseService(
+                lock ? (LockStore) store : null, mock(NodeIdentityProvider.class)));
     DeadLetterService deadLetter = mock(DeadLetterService.class);
     ExecutorProvider executor = mock(ExecutorProvider.class);
     if (executorAvailable)

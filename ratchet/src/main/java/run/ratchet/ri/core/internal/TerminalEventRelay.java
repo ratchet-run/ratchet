@@ -109,6 +109,11 @@ public class TerminalEventRelay {
     this.options = options;
   }
 
+  /** Returns whether an outbox store was resolved for recovery. */
+  public boolean hasStore() {
+    return store != null;
+  }
+
   public synchronized void start(ScheduledExecutorService executor) {
     long interval = options.node().orphanScanIntervalSeconds();
     handle =
