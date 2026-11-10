@@ -129,9 +129,10 @@ class SqlserverExceptionTranslationTest {
 
   @Test
   void deleteOperationsTranslateDeadlock() {
+    // The scan's first statement is the non-locking candidate read.
     var deletes =
         new SqlserverJobDeleteOperations(
-            new SqlserverStoreContext(entityManager(queryThrowingOnExecute())),
+            new SqlserverStoreContext(entityManager(queryThrowingOnResults())),
             new SqlserverBusinessKeyReservations(
                 new SqlserverStoreContext(entityManager(queryReturningUpdate(1)))));
 
