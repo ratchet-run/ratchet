@@ -25,9 +25,12 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.RatchetRuntime;
+import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.JobStateFlusher;
+import run.ratchet.ri.core.internal.JobTask;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.spi.ExecutorProvider;
@@ -101,6 +104,27 @@ class RatchetEngineWiringTest {
               assertThat(
                       context.getBean(RatchetOptions.class).execution().progressFlushIntervalMs())
                   .isEqualTo(250L);
+            });
+  }
+
+  @Test
+  void continuationLimitBindsThroughEngineOptions() {
+    runner()
+        .withPropertyValues("ratchet.execution.max-continuations=250")
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              assertThat(context.getBean(RatchetOptions.class).execution().maxContinuations())
+                  .isEqualTo(250);
+              // Inspect the task built by the framework's default executor without starting
+              // workers.
+              var executor = context.getBean(JobExecutorService.class);
+              var createTask = DefaultJobExecutorService.class.getDeclaredMethod("createTask");
+              createTask.setAccessible(true);
+              var task = createTask.invoke(executor);
+              var limit = JobTask.class.getDeclaredField("maxContinuations");
+              limit.setAccessible(true);
+              assertThat(limit.getInt(task)).isEqualTo(250);
             });
   }
 

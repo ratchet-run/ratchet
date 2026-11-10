@@ -34,6 +34,19 @@ import run.ratchet.spi.CallerPrincipalResolver;
 class RatchetOptionsTest {
 
   @Test
+  void continuationLimitDefaultsValidatesAndSurvivesCopy() {
+    assertEquals(1000, RatchetOptions.defaults().execution().maxContinuations());
+    RatchetOptions options = RatchetOptions.builder().execution(e -> e.maxContinuations(1)).build();
+    assertEquals(1, options.toBuilder().build().execution().maxContinuations());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().execution(e -> e.maxContinuations(0)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().execution(e -> e.maxContinuations(-1)));
+  }
+
+  @Test
   void defaultSlaHasInclusiveIntegerMaximum() {
     assertEquals(
         (long) Integer.MAX_VALUE,
@@ -480,7 +493,8 @@ class RatchetOptionsTest {
             null,
             false,
             1000L,
-            10000L);
+            10000L,
+            1000);
     RatchetOptions.CircuitBreakerProfileOptions profile =
         new RatchetOptions.CircuitBreakerProfileOptions(40.0f, 10, 5000L, 2, 3);
     RatchetOptions.CircuitBreakerOptions circuitBreaker =

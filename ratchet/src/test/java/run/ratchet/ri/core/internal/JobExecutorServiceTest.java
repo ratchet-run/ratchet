@@ -52,6 +52,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ExecutorProvider;
@@ -102,7 +103,8 @@ class JobExecutorServiceTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             FIXED_CLOCK,
-            null);
+            null,
+            RatchetOptions.builder().build());
   }
 
   @Test

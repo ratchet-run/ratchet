@@ -206,6 +206,7 @@ public class RatchetOptions {
 
     builder.execution.checkpointFlushIntervalMs = execution.checkpointFlushIntervalMs();
     builder.execution.progressFlushIntervalMs = execution.progressFlushIntervalMs();
+    builder.execution.maxContinuations = execution.maxContinuations();
     builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
 
     builder.timeout.softTimeoutPercent = timeout.softTimeoutPercent();
@@ -554,6 +555,7 @@ public class RatchetOptions {
    *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
    * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
    *     virtual pool instead of the default semaphore bound
+   * @param maxContinuations positive lifetime continuation limit
    * @param progressFlushIntervalMs positive delay in milliseconds before flushing progress
    * @param checkpointFlushIntervalMs positive delay in milliseconds before flushing committed
    *     checkpoints
@@ -570,7 +572,8 @@ public class RatchetOptions {
       String virtualExecutorJndi,
       boolean virtualCounterAccounting,
       long checkpointFlushIntervalMs,
-      long progressFlushIntervalMs) {
+      long progressFlushIntervalMs,
+      int maxContinuations) {
 
     public ExecutionOptions(
         ThreadingMode defaultThreadingMode,
@@ -594,12 +597,14 @@ public class RatchetOptions {
           virtualExecutorJndi,
           virtualCounterAccounting,
           1000L,
-          10000L);
+          10000L,
+          1000);
     }
 
     public ExecutionOptions {
       atLeast("checkpointFlushIntervalMs", checkpointFlushIntervalMs, 1L);
       atLeast("progressFlushIntervalMs", progressFlushIntervalMs, 1L);
+      atLeast("maxContinuations", maxContinuations, 1);
       maxConcurrency = Map.copyOf(maxConcurrency);
       virtualThreadLimits = Map.copyOf(virtualThreadLimits);
       rateLimitsPerMinute = Map.copyOf(rateLimitsPerMinute);
@@ -1080,6 +1085,19 @@ public class RatchetOptions {
     private boolean virtualCounterAccounting;
     private long checkpointFlushIntervalMs = 1000L;
     private long progressFlushIntervalMs = 10000L;
+    private int maxContinuations = 1000;
+
+    /**
+     * Sets the maximum continuations across the life of a job, including retries; defaults to 1000.
+     *
+     * @param limit lifetime continuation limit, at least 1
+     * @return this builder
+     * @throws IllegalArgumentException if the limit is less than 1
+     */
+    public ExecutionBuilder maxContinuations(int limit) {
+      maxContinuations = atLeast("maxContinuations", limit, 1);
+      return this;
+    }
 
     /** Sets the delay before flushing progress; defaults to 10000 ms. */
     public ExecutionBuilder progressFlushIntervalMs(long intervalMs) {
@@ -1199,7 +1217,8 @@ public class RatchetOptions {
           virtualExecutorJndi,
           virtualCounterAccounting,
           checkpointFlushIntervalMs,
-          progressFlushIntervalMs);
+          progressFlushIntervalMs,
+          maxContinuations);
     }
   }
 

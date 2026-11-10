@@ -120,6 +120,60 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void maxContinuationsDefaultsBindsAndValidates() {
+    assertEquals(1000, RatchetOptions.defaults().execution().maxContinuations());
+    RatchetOptions options =
+        RatchetOptions.builder().execution(execution -> execution.maxContinuations(250)).build();
+    assertEquals(250, options.execution().maxContinuations());
+    assertEquals(
+        375,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.execution.max-continuations", "375"), Map.of()))
+            .execution()
+            .maxContinuations());
+    // An invalid configured value falls back to the default, like every other config key.
+    assertEquals(
+        1000,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.execution.max-continuations", "0"), Map.of()))
+            .execution()
+            .maxContinuations());
+    assertEquals(250, options.toBuilder().build().execution().maxContinuations());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().execution(execution -> execution.maxContinuations(0)));
+  }
+
+  @Test
+  void continuationLimitEnvironmentAndInvalidValues() {
+    assertEquals(
+        1,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.execution.max-continuations", "1"), Map.of()))
+            .execution()
+            .maxContinuations());
+    assertEquals(
+        200,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(), Map.of("RATCHET_EXECUTION_MAX_CONTINUATIONS", "200")))
+            .execution()
+            .maxContinuations());
+    for (String value : List.of("0", "-1", "invalid")) {
+      assertEquals(
+          1000,
+          optionsFrom(
+                  new MapRatchetConfigSource(
+                      Map.of("ratchet.execution.max-continuations", value), Map.of()))
+              .execution()
+              .maxContinuations());
+    }
+  }
+
+  @Test
   void mapsCrashBudgetPropertyAndEnvironment() {
     assertEquals(3, RatchetOptions.builder().build().node().maxCrashRedeliveries());
     assertEquals(

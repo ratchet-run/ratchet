@@ -60,6 +60,7 @@ import run.ratchet.ri.core.SubmissionGateChecker;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
 import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
 import run.ratchet.ri.core.internal.ExecutionObserver;
@@ -69,6 +70,7 @@ import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.JobSuccessFinalizer;
+import run.ratchet.ri.core.internal.JobTask;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
@@ -130,6 +132,23 @@ class RatchetEngineWiringTest {
       context.start();
       assertEquals(
           250L, context.getBean(RatchetOptions.class).execution().progressFlushIntervalMs());
+    }
+  }
+
+  @Test
+  void continuationLimitBindsThroughEngineOptions() throws Exception {
+    try (ApplicationContext context =
+        TestContexts.engine(Map.of("ratchet.execution.max-continuations", 250))) {
+      context.start();
+      assertEquals(250, context.getBean(RatchetOptions.class).execution().maxContinuations());
+      // Inspect the task built by the framework's default executor without starting workers.
+      var executor = context.getBean(JobExecutorService.class);
+      var createTask = DefaultJobExecutorService.class.getDeclaredMethod("createTask");
+      createTask.setAccessible(true);
+      var task = createTask.invoke(executor);
+      var limit = JobTask.class.getDeclaredField("maxContinuations");
+      limit.setAccessible(true);
+      assertEquals(250, limit.getInt(task));
     }
   }
 

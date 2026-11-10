@@ -460,7 +460,8 @@ public class ExecutorClassLoaderTest {
               mock(AfterCommitRegistrar.class),
               mock(JobStateFlusher.class),
               Clock.systemUTC(),
-              null);
+              null,
+              RatchetOptions.builder().build());
     }
 
     ExecutionResult execute(AtomicReference<ClassLoader> observed) {

@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -33,8 +34,37 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.internal.CancellationIdentities;
+import run.ratchet.api.internal.ContinuationBindings;
 
 class JobContextTest {
+
+  @Test
+  void continuationValidatesAndLastCallWinsInTestAttempt() {
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 1), () -> true);
+    assertThrows(NullPointerException.class, () -> context.requestContinuation(null));
+    assertThrows(
+        IllegalArgumentException.class, () -> context.requestContinuation(Duration.ofNanos(-1)));
+    context.requestContinuation(Duration.ofSeconds(3));
+    assertEquals(Duration.ofSeconds(3), ContinuationBindings.continuationOf(context).delay());
+    context.requestContinuation();
+    assertEquals(Duration.ZERO, ContinuationBindings.continuationOf(context).delay());
+  }
+
+  @Test
+  void continuationRejectsPlainAndLifecycleContextsAndUnsupportedStore() {
+    UUID id = UUID.randomUUID();
+    JobContext plain = JobContext.bind(id, null);
+    assertThrows(IllegalStateException.class, plain::requestContinuation);
+    JobContext lifecycle = JobContext.bind(id, null, Map.of(), null, null);
+    assertThrows(IllegalStateException.class, lifecycle::requestContinuation);
+    JobContext unsupported =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 1), () -> true);
+    ContinuationBindings.continuationOf(unsupported).supported(false);
+    assertThrows(UnsupportedOperationException.class, unsupported::requestContinuation);
+    assertNull(ContinuationBindings.continuationOf(unsupported).delay());
+  }
 
   @Test
   void progressValidatesEvenWithoutSinkAndAcceptsEstimates() {
