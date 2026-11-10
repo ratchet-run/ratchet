@@ -49,6 +49,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -56,6 +57,8 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -469,6 +472,37 @@ class DeadLetterServiceTest {
     service.purge();
 
     verify(jobBulkStore).deleteDlqOlderThan(FIXED_NOW.minus(Duration.ofDays(7)));
+  }
+
+  @Test
+  @ResourceLock(Resources.TIME_ZONE)
+  void initSkipsRepeatedLocalTimeDuringFallBack() {
+    TimeZone original = TimeZone.getDefault();
+    try {
+      TimeZone.setDefault(TimeZone.getTimeZone("America/Chicago"));
+      Instant now = Instant.parse("2026-11-01T06:45:00Z");
+      Cron cron = CRON_PARSER.parse("0 30 1 ? * *");
+      when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+      service =
+          new DeadLetterService(
+              executorProvider,
+              jobBulkStore,
+              jobTerminalStore,
+              singletonLeaseService,
+              eventPublisher,
+              errorSanitizer,
+              Clock.fixed(now, ZoneOffset.UTC),
+              new JakartaAfterCommitRegistrar(txRegistry));
+      service.init(7, cron);
+
+      verify(scheduledExecutor)
+          .schedule(
+              any(Runnable.class),
+              eq(Duration.between(now, Instant.parse("2026-11-02T07:30:00Z")).toMillis()),
+              eq(TimeUnit.MILLISECONDS));
+    } finally {
+      TimeZone.setDefault(original);
+    }
   }
 
   @Test

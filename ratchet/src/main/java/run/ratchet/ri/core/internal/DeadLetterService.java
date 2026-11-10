@@ -25,7 +25,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -364,7 +363,7 @@ public class DeadLetterService {
     }
     Instant now = effective().instant();
     Optional<Instant> next =
-        ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
+        RecurringFireTime.nextExecution(ExecutionTime.forCron(cron), now, zone);
 
     next.ifPresent(
         instant ->

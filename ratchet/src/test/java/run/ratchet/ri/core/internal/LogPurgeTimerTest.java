@@ -35,11 +35,14 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Optional;
+import java.util.TimeZone;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.SingletonLease;
@@ -90,6 +93,33 @@ class LogPurgeTimerTest {
     timer.run();
 
     verify(jobLogStore).purgeLogsOlderThan(FIXED_NOW.minus(Duration.ofDays(7)));
+  }
+
+  @Test
+  @ResourceLock(Resources.TIME_ZONE)
+  void initSkipsRepeatedLocalTimeDuringFallBack() {
+    TimeZone original = TimeZone.getDefault();
+    try {
+      TimeZone.setDefault(TimeZone.getTimeZone("America/Chicago"));
+      Instant now = Instant.parse("2026-11-01T06:45:00Z");
+      Cron cron = CRON_PARSER.parse("0 30 1 ? * *");
+      when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+      timer =
+          new LogPurgeTimer(
+              jobLogStore,
+              singletonLeaseService,
+              executorProvider,
+              Clock.fixed(now, ZoneOffset.UTC));
+      timer.init(7, cron);
+
+      verify(scheduledExecutor)
+          .schedule(
+              any(Runnable.class),
+              eq(Duration.between(now, Instant.parse("2026-11-02T07:30:00Z")).toMillis()),
+              eq(TimeUnit.MILLISECONDS));
+    } finally {
+      TimeZone.setDefault(original);
+    }
   }
 
   @Test

@@ -25,7 +25,6 @@ import java.io.Serializable;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +56,7 @@ import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.RecurringFireTime;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
@@ -665,11 +665,8 @@ public class DefaultJobCreationService
 
     ExecutionTime executionTime = ExecutionTime.forCron(cron);
     Instant base = effective().instant();
-    ZonedDateTime now = base.atZone(builder.zone());
     Instant nextFire =
-        executionTime
-            .nextExecution(now)
-            .map(ZonedDateTime::toInstant)
+        RecurringFireTime.nextExecution(executionTime, base, builder.zone())
             .orElseThrow(
                 () ->
                     new IllegalArgumentException(
