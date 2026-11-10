@@ -308,7 +308,7 @@ ERROR: duplicate key value violates unique constraint "pk_scheduler_business_key
 
 An active job (PENDING, RUNNING, PAUSED, or WAITING) already holds the business key. When `submit()` finds that job with a different idempotency key, it throws `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state and releases the key.
 
-When two submissions race for the same business key, the loser's insert fails. Ratchet looks the key up again and throws `DuplicateBusinessKeyException` if another job holds it. On PostgreSQL the failed insert aborts the transaction, so that lookup can fail too; Ratchet then rethrows the original `RatchetTransientStoreException`. Retrying in a fresh transaction reports the conflict, or succeeds if the other job has already finished.
+When two submissions race for the same business key, the loser's insert fails on the reservation. If the losing builder uses its generated idempotency key, `submit()` throws `DuplicateBusinessKeyException` straight away. If you set a custom idempotency key, Ratchet reads the winner in a new transaction. A different key throws `DuplicateBusinessKeyException`, and the same key throws `DuplicateIdempotencyKeyException`. If that read fails or finds no active job, Ratchet rethrows the original `RatchetTransientStoreException`. Retrying in a fresh transaction reports the conflict, returns the original job for a matching idempotency key, or succeeds if the other job has already finished.
 
 If this is unexpected, query for the existing active job:
 
