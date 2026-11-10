@@ -49,6 +49,7 @@ import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
@@ -488,6 +489,9 @@ public class JobTimeoutHandler {
           "Job %s timeout retry increment was already applied (%s attempts)", jobId, newAttempts);
     }
     boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
+    if (retryAllowed && !lockRetryParent(job)) {
+      return Optional.empty();
+    }
     // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
     // attempts are part of commitCompletion, including for stores without ambient JTA.
     if (!incrementAlreadyApplied && retryAllowed) {
@@ -576,6 +580,19 @@ public class JobTimeoutHandler {
         timeoutEx, true, false, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
+  private boolean lockRetryParent(JobEntity job) {
+    if (job.getJobType() != JobExecutionType.BATCH_CHILD || job.getDependsOn() == null) {
+      return true;
+    }
+    // A same-status CAS holds the parent's queue lock in the completion transaction, before
+    // incrementRetryAttempt locks the child. A lost race is deferred to the next timeout scan.
+    UUID parentId = job.getDependsOn();
+    return jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null)
+        || jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+  }
+
   private boolean batchAllowsRetry(JobEntity job) {
     BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobCrudStore, job);
     if (parentState.closed()) {
@@ -599,6 +616,9 @@ public class JobTimeoutHandler {
     }
     int newAttempts = job.getAttempts() + 1;
     boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
+    if (retryAllowed && !lockRetryParent(job)) {
+      return Optional.empty();
+    }
     if (retryAllowed) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null);
       if (newAttempts < 0) {

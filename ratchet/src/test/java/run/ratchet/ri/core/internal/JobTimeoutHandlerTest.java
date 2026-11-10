@@ -214,12 +214,20 @@ class JobTimeoutHandlerTest {
     job.setDependsOn(parentId);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null))
+        .thenReturn(true);
     when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L)))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PENDING, JobStatus.PENDING, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
     verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L));
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
@@ -233,12 +241,23 @@ class JobTimeoutHandlerTest {
     job.setDependsOn(parentId);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PAUSED);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null))
+        .thenReturn(false);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PAUSED, JobStatus.PAUSED, null))
+        .thenReturn(true);
     when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L)))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
     verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L));
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
@@ -268,12 +287,20 @@ class JobTimeoutHandlerTest {
     job.setDependsOn(parentId);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null))
+        .thenReturn(true);
     when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull()))
         .thenReturn(true);
 
     handler.processSignalTimeout(job, Instant.now());
 
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PENDING, JobStatus.PENDING, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, null);
     verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
@@ -287,15 +314,45 @@ class JobTimeoutHandlerTest {
     job.setDependsOn(parentId);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PAUSED);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null))
+        .thenReturn(false);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PAUSED, JobStatus.PAUSED, null))
+        .thenReturn(true);
     when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull()))
         .thenReturn(true);
 
     handler.processSignalTimeout(job, Instant.now());
 
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, null);
     verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void signalTimeoutDefersRetryWhenParentLockLoses() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = waitingJobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING);
+
+    handler.processSignalTimeout(job, Instant.now());
+
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    assertEquals(JobStatus.WAITING, job.getStatus());
+    assertEquals(0, job.getAttempts());
   }
 
   @Test
