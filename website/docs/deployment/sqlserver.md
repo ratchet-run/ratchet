@@ -138,7 +138,7 @@ The SQL Server store keeps the same data model as the MySQL and PostgreSQL store
 
 ### Row-versioning is required
 
-The Ratchet database must have `READ_COMMITTED_SNAPSHOT ON`. SQL Server's default lock-based `READ COMMITTED` takes shared read locks — unlike the MVCC PostgreSQL and MySQL engines Ratchet targets — so concurrent claim and cancel paths deadlock. Row-versioning snapshot reads restore the non-blocking semantics the store assumes. The startup isolation check verifies the level is `READ COMMITTED`.
+The Ratchet database must have `READ_COMMITTED_SNAPSHOT ON`. SQL Server's default lock-based `READ COMMITTED` takes shared read locks — unlike the MVCC PostgreSQL and MySQL engines Ratchet targets — so concurrent claim and cancel paths deadlock. Row-versioning snapshot reads restore the non-blocking semantics the store assumes. At startup, the store checks both the session's `READ COMMITTED` isolation level and the current database's `READ_COMMITTED_SNAPSHOT` setting. `isolationCheckMode` applies to both checks: `FAIL` (the default) rejects a detected mismatch, `WARN` logs it and continues, and `DISABLE` skips the probes; a probe that cannot detect its value is logged at debug level and skipped.
 
 ### UUIDs as BINARY(16)
 

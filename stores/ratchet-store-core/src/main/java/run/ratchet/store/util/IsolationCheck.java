@@ -23,7 +23,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 
 /**
- * Verifies the database session isolation against the levels supported by a store.
+ * Verifies database session isolation and related settings against the values supported by a store.
  *
  * <p>Each store supplies its supported levels. MySQL supports READ COMMITTED and REPEATABLE READ;
  * other callers of {@link #verifyReadCommitted} retain their READ COMMITTED requirement. The check
@@ -97,8 +97,49 @@ public final class IsolationCheck {
       List<String> supportedValues,
       String remediation,
       RatchetOptions.IsolationCheckMode mode) {
+    verify(
+        em,
+        dbName + " session isolation",
+        dbName + " isolation level",
+        queries,
+        supportedValues,
+        remediation,
+        mode);
+  }
+
+  /**
+   * Verifies a database setting using the same mode and detection-failure handling as the session
+   * isolation check.
+   *
+   * @param em the entity manager used to issue native queries
+   * @param settingName human-readable setting name, including the database vendor, for messages
+   * @param queries native SQL probes tried in order until one returns a non-null result
+   * @param supportedValues supported setting values, compared using isolation-value normalization
+   * @param remediation operator-facing fix instructions
+   * @param mode whether to fail, warn, or skip the check
+   * @throws IsolationCheckFailedException if fail mode is active and an unsupported value is
+   *     detected
+   */
+  public static void verifySetting(
+      EntityManager em,
+      String settingName,
+      List<String> queries,
+      List<String> supportedValues,
+      String remediation,
+      RatchetOptions.IsolationCheckMode mode) {
+    verify(em, settingName, settingName, queries, supportedValues, remediation, mode);
+  }
+
+  private static void verify(
+      EntityManager em,
+      String valueDescription,
+      String checkDescription,
+      List<String> queries,
+      List<String> supportedValues,
+      String remediation,
+      RatchetOptions.IsolationCheckMode mode) {
     if (mode == RatchetOptions.IsolationCheckMode.DISABLE) {
-      log.debugf("%s isolation check disabled by RatchetOptions", dbName);
+      log.debugf("%s check disabled by RatchetOptions", checkDescription);
       return;
     }
 
@@ -121,9 +162,9 @@ public final class IsolationCheck {
       // operators investigating mysterious behavior can find the trail.
       String reason = lastFailure != null ? lastFailure.getMessage() : "no result";
       if (lastFailure != null) {
-        log.debugf(lastFailure, "Could not check %s isolation level: %s", dbName, reason);
+        log.debugf(lastFailure, "Could not check %s: %s", checkDescription, reason);
       } else {
-        log.debugf("Could not check %s isolation level: %s", dbName, reason);
+        log.debugf("Could not check %s: %s", checkDescription, reason);
       }
       return;
     }
@@ -134,8 +175,8 @@ public final class IsolationCheck {
         .noneMatch(normalizedActual::equals)) {
       String message =
           String.format(
-              "%s session isolation is '%s' — Ratchet requires %s. %s",
-              dbName, actual, String.join(" or ", supportedValues), remediation);
+              "%s is '%s' — Ratchet requires %s. %s",
+              valueDescription, actual, String.join(" or ", supportedValues), remediation);
       if (mode == RatchetOptions.IsolationCheckMode.FAIL) {
         throw new IsolationCheckFailedException(message);
       }

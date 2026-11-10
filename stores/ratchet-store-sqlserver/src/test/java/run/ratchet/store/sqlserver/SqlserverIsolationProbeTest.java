@@ -52,4 +52,14 @@ class SqlserverIsolationProbeTest {
           "default SQL Server session isolation should be READ COMMITTED (level 2)");
     }
   }
+
+  @Test
+  void rcsiProbeReturnsOn() throws Exception {
+    try (Connection conn = fixture.openConnection();
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(SqlserverJobStoreImpl.RCSI_PROBE_SQL)) {
+      assertTrue(rs.next(), "RCSI probe returned no row");
+      assertEquals("on", rs.getString(1));
+    }
+  }
 }

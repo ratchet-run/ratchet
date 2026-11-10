@@ -852,6 +852,14 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
           + " WHEN 4 THEN 'serializable' WHEN 5 THEN 'snapshot' END"
           + " FROM sys.dm_exec_sessions WHERE session_id = @@SPID";
 
+  // The connected login can always see the current database's own sys.databases row.
+  // language=SQL Server
+  static final String RCSI_PROBE_SQL =
+      """
+      SELECT CASE is_read_committed_snapshot_on WHEN 1 THEN 'on' ELSE 'off' END
+      FROM sys.databases WHERE name = DB_NAME()
+      """;
+
   @PostConstruct
   void checkIsolationLevel() {
     if (em == null) {
@@ -867,6 +875,18 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
             + " Server store relies on READ COMMITTED (the engine default; with"
             + " READ_COMMITTED_SNAPSHOT ON it still reports level 2). Clear any connection-pool"
             + " isolation override that raises the level.",
+        options.store().isolationCheckMode());
+    IsolationCheck.verifySetting(
+        em,
+        "SQL Server READ_COMMITTED_SNAPSHOT",
+        List.of(RCSI_PROBE_SQL),
+        List.of("on"),
+        "Lock-based READ COMMITTED takes shared read locks and causes lock waits and deadlocks"
+            + " in concurrent claim, cancel, and orphan-scan paths. Run ALTER DATABASE [<db>] SET"
+            + " READ_COMMITTED_SNAPSHOT ON (replace <db> with the Ratchet database name). This"
+            + " requires exclusive access; use a quiet moment or append WITH ROLLBACK IMMEDIATE"
+            + " to disconnect other sessions and roll back their transactions. See the SQL Server"
+            + " deployment guide section 'Row-versioning is required'.",
         options.store().isolationCheckMode());
     initDelegates();
   }
