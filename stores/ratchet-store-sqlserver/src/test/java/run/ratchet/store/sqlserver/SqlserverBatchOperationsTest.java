@@ -23,6 +23,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,53 @@ import run.ratchet.store.entity.BatchEntity;
 class SqlserverBatchOperationsTest {
 
   private static final UUID BATCH_ID = UUID.fromString("019ae3d1-3f82-7e18-9f09-a9f000000007");
+
+  @Test
+  void repairSweepsLockAndRevalidateParentBeforeSelectingChildren() {
+    for (String operation : List.of("pause", "resume")) {
+      for (String parentStatus : List.of("PAUSED", "PENDING")) {
+        List<String> statements = new ArrayList<>();
+        Query parent = statusQuery(List.of(parentStatus));
+        Query children = statusQuery(List.of());
+        EntityManager em =
+            (EntityManager)
+                Proxy.newProxyInstance(
+                    EntityManager.class.getClassLoader(),
+                    new Class<?>[] {EntityManager.class},
+                    (proxy, method, args) -> {
+                      if (method.getName().equals("createNativeQuery")) {
+                        String sql = (String) args[0];
+                        statements.add(sql);
+                        return sql.contains("SELECT status") ? parent : children;
+                      }
+                      throw new UnsupportedOperationException(method.getName());
+                    });
+        var operations = new SqlserverBatchOperations(new SqlserverStoreContext(em));
+        assertEquals(
+            0,
+            operation.equals("pause")
+                ? operations.pauseBatchChildren(BATCH_ID)
+                : operations.resumeBatchChildren(BATCH_ID));
+        boolean matches = parentStatus.equals(operation.equals("pause") ? "PAUSED" : "PENDING");
+        assertEquals(matches ? 2 : 1, statements.size());
+        assertTrue(statements.get(0).contains("SELECT status"));
+        assertTrue(statements.get(0).contains("UPDLOCK"));
+      }
+    }
+  }
+
+  private static Query statusQuery(List<?> rows) {
+    return (Query)
+        Proxy.newProxyInstance(
+            Query.class.getClassLoader(),
+            new Class<?>[] {Query.class},
+            (proxy, method, args) ->
+                switch (method.getName()) {
+                  case "setParameter" -> proxy;
+                  case "getResultList" -> rows;
+                  default -> throw new UnsupportedOperationException(method.getName());
+                });
+  }
 
   @Test
   void mapIncrementResultRejectsScalarResult() {

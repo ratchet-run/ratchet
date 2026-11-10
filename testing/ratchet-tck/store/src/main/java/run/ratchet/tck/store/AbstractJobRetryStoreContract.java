@@ -325,6 +325,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
       assertEquals(JobStatus.PENDING, reset.getPausedFromStatus());
     }
     assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
     assertEquals(2, batchStore().resumeBatchChildren(parent.getId()));
     for (JobEntity child : List.of(single, bulk)) {
       assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));

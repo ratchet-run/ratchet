@@ -44,15 +44,18 @@ public interface BatchStore {
   int cancelBatchChildren(UUID batchId);
 
   /**
-   * Pauses PENDING children, preserving their source status. REQUIRED; locks sorted child hot rows
-   * after the parent. Mongo uses a transaction per chunk. Never touches callbacks or the batch row.
+   * Pauses PENDING children, preserving their source status. Returns zero unless the parent is
+   * still PAUSED. REQUIRED; locks and rechecks the parent before sorted child hot rows, holding
+   * that lock through the updates. Mongo fences the expected parent status in each chunk's
+   * transaction. Never touches callbacks or the batch row.
    */
   int pauseBatchChildren(UUID batchId);
 
   /**
-   * Restores PAUSED children to their source status and clears it. REQUIRED; locks sorted child hot
-   * rows after the parent. Mongo uses a transaction per chunk. Never touches callbacks or batch
-   * rows.
+   * Restores PAUSED children to their source status and clears it. Returns zero unless the parent
+   * is still PENDING. REQUIRED; locks and rechecks the parent before sorted child hot rows, holding
+   * that lock through the updates. Mongo fences the expected parent status in each chunk's
+   * transaction. Never touches callbacks or batch rows.
    */
   int resumeBatchChildren(UUID batchId);
 

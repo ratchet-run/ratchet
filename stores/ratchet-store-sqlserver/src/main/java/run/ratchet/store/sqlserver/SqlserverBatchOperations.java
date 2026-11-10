@@ -75,6 +75,21 @@ final class SqlserverBatchOperations implements BatchStore {
   }
 
   private int changeBatchChildren(UUID batchId, String operation) {
+    if (!operation.equals("cancel")) {
+      // Hold the parent lock through the entire sweep, including repeated repair calls.
+      List<?> parents =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT status FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK) WHERE job_id = ?
+                  """)
+              .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+              .getResultList();
+      String expected = operation.equals("pause") ? "PAUSED" : "PENDING";
+      if (parents.isEmpty() || !expected.equals(parents.get(0))) {
+        return 0;
+      }
+    }
     String statuses =
         switch (operation) {
           case "cancel" -> "'PENDING', 'PAUSED', 'WAITING'";

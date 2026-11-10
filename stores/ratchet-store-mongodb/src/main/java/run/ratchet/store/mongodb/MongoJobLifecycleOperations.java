@@ -855,7 +855,12 @@ final class MongoJobLifecycleOperations
 
   private String retryParentStatus(ClientSession session, UUID batchId) {
     Document parent =
-        ctx.jobs().find(session, and(eq(ID, batchId), in(STATUS, "PENDING", "PAUSED"))).first();
+        ctx.jobs()
+            .findOneAndUpdate(
+                session,
+                and(eq(ID, batchId), in(STATUS, "PENDING", "PAUSED")),
+                inc(VERSION, 1),
+                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
     return parent == null ? null : parent.getString(STATUS);
   }
 

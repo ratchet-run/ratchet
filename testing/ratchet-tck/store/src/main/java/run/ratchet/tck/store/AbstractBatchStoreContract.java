@@ -117,11 +117,13 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     assertTrue(
         store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
     var waiting = cascadeChild(parent.getId(), JobStatus.WAITING);
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
     assertEquals(1, batchStore().pauseBatchChildren(parent.getId()));
     assertEquals(JobStatus.PAUSED, store().getJobStatus(pending.getId()));
     assertEquals(
         JobStatus.PENDING, store().findById(pending.getId()).orElseThrow().getPausedFromStatus());
     assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
     assertEquals(2, batchStore().resumeBatchChildren(parent.getId()));
     for (JobEntity child : List.of(pending, individuallyPaused)) {
       var reloaded = store().findById(child.getId()).orElseThrow();
@@ -132,6 +134,25 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     assertEquals(JobStatus.WAITING, store().getJobStatus(waiting.getId()));
     assertEquals(0, batchStore().resumeBatchChildren(parent.getId()));
     assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void repairSweepsRequireExpectedParentStatus() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    var child = cascadeChild(parent.getId(), JobStatus.PENDING);
+
+    // A delayed pause sweep must not run after resume has made the parent PENDING.
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().pauseBatchChildren(parent.getId()));
+    // A delayed resume sweep must not run after another pause has won.
+    assertEquals(0, batchStore().resumeBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(child.getId()));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().resumeBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
   }
 
   @Test

@@ -115,6 +115,19 @@ final class MongoBatchOperations implements BatchStore {
         changed =
             session.withTransaction(
                 () -> {
+                  if (!operation.equals("cancel")) {
+                    String expected = operation.equals("pause") ? "PAUSED" : "PENDING";
+                    // Fence every chunk against an opposite parent transition or repair sweep.
+                    if (ctx.jobs()
+                            .updateOne(
+                                session,
+                                and(eq(ID, batchId), eq(STATUS, expected)),
+                                inc(VERSION, 1))
+                            .getMatchedCount()
+                        == 0) {
+                      return 0;
+                    }
+                  }
                   List<UUID> ids = new ArrayList<>();
                   for (Document child :
                       ctx.jobs()
