@@ -489,8 +489,14 @@ public class JobTimeoutHandler {
           "Job %s timeout retry increment was already applied (%s attempts)", jobId, newAttempts);
     }
     boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
-    if (retryAllowed && !lockRetryParent(job)) {
-      return Optional.empty();
+    if (retryAllowed) {
+      RetryParentLock parentLock = lockRetryParent(job);
+      retryAllowed = parentLock == RetryParentLock.LOCKED;
+      if (parentLock == RetryParentLock.CONTENDED) {
+        log.warnf(
+            "Job %s hard timeout could not lock batch parent %s after 3 attempts; finalizing child",
+            jobId, job.getDependsOn());
+      }
     }
     // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
     // attempts are part of commitCompletion, including for stores without ambient JTA.
@@ -580,17 +586,29 @@ public class JobTimeoutHandler {
         timeoutEx, true, false, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
-  private boolean lockRetryParent(JobEntity job) {
+  private enum RetryParentLock {
+    LOCKED,
+    CLOSED,
+    CONTENDED
+  }
+
+  private RetryParentLock lockRetryParent(JobEntity job) {
     if (job.getJobType() != JobExecutionType.BATCH_CHILD || job.getDependsOn() == null) {
-      return true;
+      return RetryParentLock.LOCKED;
     }
     // A same-status CAS holds the parent's queue lock in the completion transaction, before
-    // incrementRetryAttempt locks the child. A lost race is deferred to the next timeout scan.
+    // incrementRetryAttempt locks the child. Re-read after a miss to handle pause/resume races.
     UUID parentId = job.getDependsOn();
-    return jobBatchStatusStore.compareAndSwapStatus(
-            parentId, JobStatus.PENDING, JobStatus.PENDING, null)
-        || jobBatchStatusStore.compareAndSwapStatus(
-            parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    for (int attempt = 0; attempt < 3; attempt++) {
+      JobStatus status = jobCrudStore.getJobStatus(parentId);
+      if (status != JobStatus.PENDING && status != JobStatus.PAUSED) {
+        return RetryParentLock.CLOSED;
+      }
+      if (jobBatchStatusStore.compareAndSwapStatus(parentId, status, status, null)) {
+        return RetryParentLock.LOCKED;
+      }
+    }
+    return RetryParentLock.CONTENDED;
   }
 
   private boolean batchAllowsRetry(JobEntity job) {
@@ -616,8 +634,15 @@ public class JobTimeoutHandler {
     }
     int newAttempts = job.getAttempts() + 1;
     boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
-    if (retryAllowed && !lockRetryParent(job)) {
-      return Optional.empty();
+    if (retryAllowed) {
+      RetryParentLock parentLock = lockRetryParent(job);
+      if (parentLock == RetryParentLock.CONTENDED) {
+        log.debugf(
+            "Job %s signal timeout could not lock batch parent %s after 3 attempts; deferring retry",
+            jobId, job.getDependsOn());
+        return Optional.empty();
+      }
+      retryAllowed = parentLock == RetryParentLock.LOCKED;
     }
     if (retryAllowed) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null);
