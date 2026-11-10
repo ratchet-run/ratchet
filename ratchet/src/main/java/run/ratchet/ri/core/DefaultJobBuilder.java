@@ -57,6 +57,7 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   private SerializableBiConsumer<JobContext, Throwable> onFailure;
   private boolean immediate = false;
   private String idempotencyKey;
+  private boolean explicitIdempotencyKey;
   private String businessKey;
   private String resourceName;
   private String executionTarget;
@@ -162,6 +163,7 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
     String normalized = IdempotencyKeyNormalizer.normalize(key);
     if (normalized != null) {
       this.idempotencyKey = normalized;
+      this.explicitIdempotencyKey = true;
     }
     // If null/blank, keep the auto-generated UUID
     return this;
@@ -275,6 +277,11 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   @Override
   public Duration delay() {
     return delay;
+  }
+
+  @Override
+  public boolean hasExplicitIdempotencyKey() {
+    return explicitIdempotencyKey;
   }
 
   @Override

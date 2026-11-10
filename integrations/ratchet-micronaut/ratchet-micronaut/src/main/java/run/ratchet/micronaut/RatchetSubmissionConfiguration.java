@@ -28,6 +28,7 @@ import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobCreationService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobSchedulerService;
 import run.ratchet.micronaut.internal.tx.MicronautJobCascadeService;
+import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultClusterQueryService;
 import run.ratchet.ri.core.DefaultInvocationSubmissionService;
@@ -192,7 +193,8 @@ class RatchetSubmissionConfiguration {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar registrar,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      BatchCompletionTransaction conflictResolutionTransaction) {
     return new MicronautDefaultJobCreationService(
         batchService,
         store,
@@ -216,7 +218,8 @@ class RatchetSubmissionConfiguration {
         store.capability(ResourcePermitStore.class).isPresent(),
         options.callerPrincipalResolver(),
         registrar,
-        errorSanitizer);
+        errorSanitizer,
+        conflictResolutionTransaction);
   }
 
   @Singleton

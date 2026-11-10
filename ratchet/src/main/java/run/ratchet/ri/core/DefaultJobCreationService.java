@@ -70,6 +70,7 @@ import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.entity.BatchEntity;
@@ -122,6 +123,7 @@ public class DefaultJobCreationService
   private final boolean resourcePermitCapabilityAvailable;
 
   private final AfterCommitRegistrar afterCommitRegistrar;
+  private final BatchCompletionTransaction conflictResolutionTransaction;
 
   protected DefaultJobCreationService() {
     this.jobCrudStore = null;
@@ -145,6 +147,7 @@ public class DefaultJobCreationService
     this.metricsCollector = null;
     this.clock = null;
     this.afterCommitRegistrar = null;
+    this.conflictResolutionTransaction = null;
     this.signalCapabilityAvailable = false;
     this.resourcePermitCapabilityAvailable = false;
   }
@@ -173,7 +176,8 @@ public class DefaultJobCreationService
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      BatchCompletionTransaction conflictResolutionTransaction) {
     this(
         batchService,
         jobCrudStore,
@@ -197,7 +201,8 @@ public class DefaultJobCreationService
         resourcePermitStore.isResolvable(),
         options != null ? options.callerPrincipalResolver() : null,
         afterCommitRegistrar,
-        errorSanitizer);
+        errorSanitizer,
+        conflictResolutionTransaction);
   }
 
   public DefaultJobCreationService(
@@ -224,6 +229,59 @@ public class DefaultJobCreationService
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
+    this(
+        batchService,
+        jobCrudStore,
+        jobBulkStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        payloadValidator,
+        callerPrincipalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        classPolicy,
+        eventPublisher,
+        metricsCollector,
+        clock,
+        signalCapabilityAvailable,
+        resourcePermitCapabilityAvailable,
+        callerPrincipalResolver,
+        afterCommitRegistrar,
+        errorSanitizer,
+        null);
+  }
+
+  /** Creates the service with the container-managed helper used for conflict-resolution reads. */
+  public DefaultJobCreationService(
+      BatchService batchService,
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      JobPayloadInputValidator payloadValidator,
+      CallerPrincipalProvider callerPrincipalProvider,
+      TracingCollector tracingCollector,
+      JobAuthorizationPolicy authorizationPolicy,
+      ClassPolicy classPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock,
+      boolean signalCapabilityAvailable,
+      boolean resourcePermitCapabilityAvailable,
+      CallerPrincipalResolver callerPrincipalResolver,
+      AfterCommitRegistrar afterCommitRegistrar,
+      ErrorSanitizer errorSanitizer,
+      BatchCompletionTransaction conflictResolutionTransaction) {
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
     this.batchStore = batchStore;
@@ -245,6 +303,7 @@ public class DefaultJobCreationService
     this.metricsCollector = metricsCollector;
     this.clock = clock;
     this.afterCommitRegistrar = afterCommitRegistrar;
+    this.conflictResolutionTransaction = conflictResolutionTransaction;
     this.signalCapabilityAvailable = signalCapabilityAvailable;
     this.resourcePermitCapabilityAvailable = resourcePermitCapabilityAvailable;
   }
@@ -338,15 +397,28 @@ public class DefaultJobCreationService
     JobEntity saved;
     try {
       saved = createJob(job);
-    } catch (RatchetTransientStoreException e) {
+    } catch (BusinessKeyReservationConflictException e) {
       if (businessKey == null) {
         throw e;
       }
+      if (!state.hasExplicitIdempotencyKey()) {
+        // The reservation duplicate proves the conflict; no read in the failed transaction is
+        // needed for a submission using its generated idempotency key.
+        throw new DuplicateBusinessKeyException(
+            businessKey, "Active job already exists with business key '" + businessKey + "'", e);
+      }
       Optional<JobEntity> raced;
       try {
-        raced = jobCrudStore.findActiveByBusinessKey(businessKey);
+        // Hibernate can mark JTA rollback-only even on MySQL. Suspend that transaction for the
+        // read, using the existing REQUIRES_NEW helper shared by all runtime adapters.
+        raced =
+            conflictResolutionTransaction != null
+                ? conflictResolutionTransaction.complete(
+                    () -> jobCrudStore.findActiveByBusinessKey(businessKey))
+                : jobCrudStore.findActiveByBusinessKey(businessKey);
       } catch (RuntimeException lookupFailure) {
-        // PostgreSQL aborts the transaction on a failed insert, so the lookup can also fail.
+        // If the winner cannot be read, its idempotency key is unknown. A fresh submission can
+        // resolve it; never guess which duplicate exception applies or return a handle here.
         e.addSuppressed(lookupFailure);
         throw e;
       }

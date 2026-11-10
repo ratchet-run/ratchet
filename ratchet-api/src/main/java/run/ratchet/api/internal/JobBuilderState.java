@@ -81,6 +81,13 @@ public interface JobBuilderState {
   String idempotencyKey();
 
   /**
+   * Returns whether a non-blank idempotency key was supplied by the caller.
+   *
+   * @return {@code true} if the generated UUID was overridden
+   */
+  boolean hasExplicitIdempotencyKey();
+
+  /**
    * Returns the business key, or {@code null} if not configured.
    *
    * @return the business key, or {@code null}
