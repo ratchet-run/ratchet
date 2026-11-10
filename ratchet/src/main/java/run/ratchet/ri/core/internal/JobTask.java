@@ -652,6 +652,10 @@ public class JobTask implements Callable<Void> {
     try {
       handleFailure(t);
     } catch (Throwable failureHandlingError) {
+      if (attempt != null && attempt.isSuperseded()) {
+        saveDeferredExecutionFailure(t);
+        return;
+      }
       log.errorf(
           failureHandlingError,
           "Job %s failure handling itself failed, forcing FAILED status",
@@ -852,6 +856,17 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleFailure(Throwable ex) {
+    // Watchdog ownership is claimed before the interrupt marker is published. A superseded
+    // worker must defer every failure, including checkpoint exceptions, throughout that window
+    // and after the marker is removed. The owner flushes checkpoints before changing the outcome.
+    if (attempt != null && attempt.isSuperseded()) {
+      log.infof("Job %s attempt superseded — deferring failure to its owner", job.getId());
+      saveDeferredExecutionFailure(
+          isWatchdogOwnedInterrupt(ex)
+              ? JobTimeoutHandler.hardTimeoutException(attempt.timeoutSeconds())
+              : ex);
+      return;
+    }
     boolean cooperativeStop =
         attempt != null
             && timeoutHandler != null
