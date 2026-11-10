@@ -23,6 +23,7 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -147,30 +148,28 @@ class BatchControlIT extends BaseRatchetIT {
             .thenOnBatchSuccess(BatchControlGate::success)
             .thenOnBatchFailure(BatchControlGate::failure)
             .submit();
-    List<UUID> running;
+    int started;
     try {
       awaitBlocked(parent);
-      // Let claimed workers enter the gate before taking the cancellation snapshot.
+      // The poller can claim more children than the executor has threads, so some RUNNING
+      // children may still be queued. Snapshot the attempts that entered the gate instead.
+      AtomicInteger previous = new AtomicInteger(-1);
       await()
           .during(Duration.ofSeconds(1))
           .atMost(Duration.ofSeconds(10))
           .until(
               () -> {
-                long count =
-                    dependants(parent.id()).stream()
-                        .filter(child -> child.getJobType() == JobExecutionType.BATCH_CHILD)
-                        .filter(child -> child.getStatus() == JobStatus.RUNNING)
-                        .count();
-                return count > 0 && count < 40 && count == BatchControlGate.started();
+                int count = BatchControlGate.started();
+                return count == previous.getAndSet(count)
+                    && count > 0
+                    && dependants(parent.id()).stream()
+                        .anyMatch(
+                            child ->
+                                child.getJobType() == JobExecutionType.BATCH_CHILD
+                                    && child.getStatus() == JobStatus.PENDING);
               });
-      running =
-          dependants(parent.id()).stream()
-              .filter(child -> child.getJobType() == JobExecutionType.BATCH_CHILD)
-              .filter(child -> child.getStatus() == JobStatus.RUNNING)
-              .map(JobEntity::getId)
-              .toList();
-      assertTrue(!running.isEmpty() && running.size() < 40);
-      assertEquals(running.size(), BatchControlGate.started());
+      started = BatchControlGate.started();
+      assertTrue(started > 0 && started < 40);
       assertTrue(scheduler.cancelJob(parent.id()));
     } finally {
       BatchControlGate.release();
@@ -199,9 +198,11 @@ class BatchControlIT extends BaseRatchetIT {
                     child.getStatus() == JobStatus.CANCELED
                         || child.getStatus() == JobStatus.FAILED);
               }
-              for (UUID id : running) {
-                assertEquals(JobStatus.FAILED, jobs.getJobStatus(id));
-              }
+              // Each attempt that entered the gate fails once; claimed children that never
+              // started are cancelled by the claim-time check.
+              assertEquals(
+                  started,
+                  children.stream().filter(child -> child.getStatus() == JobStatus.FAILED).count());
               var batch = batches.findBatchById(parent.id()).orElseThrow();
               assertTrue(batch.getCompletionProcessed());
               assertEquals(
@@ -212,7 +213,7 @@ class BatchControlIT extends BaseRatchetIT {
         .atMost(Duration.ofSeconds(6))
         .untilAsserted(
             () -> {
-              assertEquals(running.size(), BatchControlGate.started());
+              assertEquals(started, BatchControlGate.started());
               assertEquals(0, BatchControlGate.successes());
               assertEquals(0, BatchControlGate.failures());
             });
