@@ -406,7 +406,9 @@ Ratchet accepts the value only after commit. Rollback drops it. The commit callb
 records the value in memory and does no store I/O. The background flusher saves the
 latest committed value. With no transaction, Ratchet saves it before the call returns.
 A transaction around the whole job cannot save intermediate positions before it commits.
-Spring drops checkpoints on nested savepoint rollback; Micronaut rejects checkpoints in nested savepoint scopes.
+Spring drops checkpoints on nested savepoint rollback. Micronaut has no savepoint callback,
+so inside a nested savepoint scope Ratchet cannot register the commit callback, and
+`checkpoint()` throws `IllegalStateException`.
 
 `ratchet.execution.checkpoint-flush-interval-ms` defaults to `1000` milliseconds.
 Ratchet also tries to flush before the attempt ends. On a hard timeout, the watchdog saves the last
@@ -426,6 +428,8 @@ the deferred write can still be rejected later.
 
 Both methods throw `UnsupportedOperationException` if the store has no `JobStateStore`
 capability. They throw `IllegalStateException` outside an executing persisted attempt.
+`checkpoint()` also throws `IllegalStateException` inside a transaction when Ratchet cannot
+register the commit callback, for example in a Micronaut nested savepoint scope.
 Lifecycle callbacks have no checkpoints. Plain `bind()` contexts have none either.
 `checkpoint(null)` throws `NullPointerException`; an oversized value throws
 `IllegalArgumentException` before Ratchet registers a commit callback.
