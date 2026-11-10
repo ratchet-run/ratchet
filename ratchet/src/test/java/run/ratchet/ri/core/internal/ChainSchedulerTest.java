@@ -97,6 +97,39 @@ class ChainSchedulerTest {
   }
 
   @Test
+  void cancelBatchIncludesPausedCallbacksAndChainSteps() {
+    JobEntity parent = job(JobStatus.CANCELED);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    JobEntity callback = job(JobStatus.PAUSED);
+    callback.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    JobEntity step = job(JobStatus.PAUSED);
+    step.setJobType(JobExecutionType.CHAIN_STEP);
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(callback));
+    when(jobCrudStore.findDependants(eq(callback.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(step));
+
+    scheduler.cancelChain(parent);
+
+    verify(jobTerminalStore).cancelJob(callback.getId());
+    verify(jobTerminalStore).cancelJob(step.getId());
+  }
+
+  @Test
+  void cancelNonBatchRootStillSkipsPausedDependants() {
+    JobEntity root = job(JobStatus.FAILED);
+    root.setJobType(JobExecutionType.CHAIN_STEP);
+    JobEntity child = job(JobStatus.PAUSED);
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+    when(jobCrudStore.findDependants(eq(root.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child));
+
+    scheduler.cancelChain(root);
+
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
+  }
+
+  @Test
   void scheduleNext_noChildren_returnsFalse() {
     JobEntity finished = pendingJob();
     when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))

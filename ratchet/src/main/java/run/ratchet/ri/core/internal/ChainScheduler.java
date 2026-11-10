@@ -107,7 +107,10 @@ public class ChainScheduler {
             continue;
           }
           JobStatus status = child.getStatus();
-          if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
+          if (status == JobStatus.PENDING
+              || status == JobStatus.WAITING
+              || (failed.getJobType() == JobExecutionType.BATCH_PARENT
+                  && status == JobStatus.PAUSED)) {
             // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
             // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
             if (jobTerminalStore.cancelJob(child.getId())) {

@@ -123,6 +123,8 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -2750,6 +2752,24 @@ class JobTaskTest {
   }
 
   @Test
+  void staleBatchChildClaimCannotCancelNewerAttempt() throws Exception {
+    assertBatchChildNeverStarts(
+        parentId -> {
+          when(jobStore.getJobStatus(parentId)).thenReturn(JobStatus.CANCELED);
+          when(jobStore.commitCompletion(any()))
+              .thenAnswer(
+                  invocation -> {
+                    JobCompletionPlan plan = invocation.getArgument(0);
+                    // Recovery has issued claim 8 while this task still owns claim 7.
+                    Assertions.assertEquals(7L, plan.expectedClaimSeq());
+                    return JobCompletionResult.notCommitted();
+                  });
+        },
+        true);
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+  }
+
+  @Test
   void claimedBatchChildNeverStartsWhenParentCheckFails() throws Exception {
     when(jobStore.scheduleJobRetry(
             eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
@@ -2801,7 +2821,7 @@ class JobTaskTest {
     assertBatchChildNeverStarts(
         parentId -> {
           when(jobStore.getJobStatus(parentId)).thenReturn(JobStatus.CANCELED);
-          when(jobStore.cancelJob(JOB_UUID)).thenThrow(new IllegalStateException("deadlock"));
+          when(jobStore.commitCompletion(any())).thenThrow(new IllegalStateException("deadlock"));
         },
         true);
   }
@@ -2810,7 +2830,7 @@ class JobTaskTest {
     assertBatchChildNeverStarts(
         parentId -> {
           when(jobStore.getJobStatus(parentId)).thenReturn(parentStatus);
-          when(jobStore.cancelJob(JOB_UUID)).thenReturn(true);
+          when(jobStore.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
         },
         true);
   }
@@ -2853,7 +2873,18 @@ class JobTaskTest {
     Assertions.assertNull(MDC.get("jobId"));
     Assertions.assertNull(MDC.get("node"));
     verify(jobStore).getJobStatus(parentId);
-    verify(jobStore, expectCancel ? times(1) : never()).cancelJob(JOB_UUID);
+    if (expectCancel) {
+      ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+      verify(jobStore).commitCompletion(plan.capture());
+      Assertions.assertEquals(JOB_UUID, plan.getValue().jobId());
+      Assertions.assertEquals(JobStatus.RUNNING, plan.getValue().expectedStatus());
+      Assertions.assertEquals(JobStatus.CANCELED, plan.getValue().terminalStatus());
+      Assertions.assertEquals(7L, plan.getValue().expectedClaimSeq());
+      Assertions.assertEquals(parentId, plan.getValue().batchId());
+    } else {
+      verify(jobStore, never()).commitCompletion(any());
+    }
+    verify(jobStore, never()).cancelJob(any());
     verify(invoker, never()).invoke(any());
     verify(observabilityFacade, never()).recordJobStart(any());
     verify(observabilityFacade, never()).startExecution(any(), anyInt(), any());

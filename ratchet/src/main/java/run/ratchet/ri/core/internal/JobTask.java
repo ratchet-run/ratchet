@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -69,6 +70,7 @@ import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -266,9 +268,31 @@ public class JobTask implements Callable<Void> {
     try {
       BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobStore, jobEntity);
       if (parentState.closed()) {
-        // The store proxy performs the terminal cancel in its short REQUIRED transaction.
-        // It owns reservation release and batch counting; do not repeat either here.
-        jobStore.cancelJob(jobId);
+        // Completion fences the worker claim and atomically releases its reservation and
+        // counts the child. An older task must not cancel a recovered RUNNING attempt.
+        Instant now = effective().instant();
+        if (!jobStore
+            .commitCompletion(
+                new JobCompletionPlan(
+                    jobId,
+                    JobStatus.RUNNING,
+                    JobStatus.CANCELED,
+                    null,
+                    null,
+                    null,
+                    jobEntity.getAttempts(),
+                    now,
+                    now,
+                    0L,
+                    0L,
+                    jobEntity.getDependsOn(),
+                    null,
+                    List.of(),
+                    expectedClaimSeq(),
+                    List.of()))
+            .committed()) {
+          warnRejectedOwnerWrite();
+        }
         log.infof(
             "Job %s not started: batch %s is closed (parent %s)",
             jobId, jobEntity.getDependsOn(), parentState.description());
