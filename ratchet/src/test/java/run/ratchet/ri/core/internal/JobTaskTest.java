@@ -361,8 +361,92 @@ class JobTaskTest {
   }
 
   @Test
-  void conflictingCounterWriteDiscardsExecution() throws Exception {
-    assertRejectedContinuationCounter(StateWriteResult.VERSION_CONFLICT);
+  void conflictingCounterWriteRetriesWithFreshCounter() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(
+            Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)),
+            Optional.of(new JobStateStore.VersionedState("{\"count\":0}", 10)));
+    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L))
+        .thenReturn(StateWriteResult.VERSION_CONFLICT);
+    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 10, 7L))
+        .thenReturn(StateWriteResult.UPDATED);
+    when(jobStore.scheduleJobRetry(JOB_UUID, null, FIXED_NOW, 0, 7L)).thenReturn(true);
+    jobTask.call();
+    InOrder order = inOrder(scenario.store(), jobStore);
+    order.verify(scenario.store()).getState(JOB_UUID, CONTINUATION_NS);
+    order.verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L);
+    order.verify(scenario.store()).getState(JOB_UUID, CONTINUATION_NS);
+    order.verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 10, 7L);
+    order.verify(jobStore).scheduleJobRetry(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    Assertions.assertFalse(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @Test
+  void conflictingCounterInitializationRetriesWithPersistedCounter() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(
+            Optional.empty(), Optional.of(new JobStateStore.VersionedState("{\"count\":1}", 0)));
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L))
+        .thenReturn(StateWriteResult.VERSION_CONFLICT);
+    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2}", 0, 7L))
+        .thenReturn(StateWriteResult.UPDATED);
+    when(jobStore.scheduleJobRetry(JOB_UUID, null, FIXED_NOW, 0, 7L)).thenReturn(true);
+    jobTask.call();
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2}", 0, 7L);
+    Assertions.assertFalse(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @Test
+  void conflictingCounterWriteRechecksLimit() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 2);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(
+            Optional.of(new JobStateStore.VersionedState("{\"count\":1}", 9)),
+            Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 10)));
+    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2}", 9, 7L))
+        .thenReturn(StateWriteResult.VERSION_CONFLICT);
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+        .thenReturn(true);
+    jobTask.call();
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":0}", 10);
+    Assertions.assertFalse(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+  }
+
+  @Test
+  void exhaustedCounterWriteConflictsUseFailureHandling() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)));
+    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L))
+        .thenReturn(StateWriteResult.VERSION_CONFLICT);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(1);
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+        .thenReturn(true);
+    jobTask.call();
+    verify(scenario.store(), times(3)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store(), times(3))
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L);
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L);
+    Assertions.assertFalse(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(1, scenario.job().getAttempts());
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(
+        IllegalStateException.class.getName(), scenario.execution().getErrorClass());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
   }
 
   private void assertRejectedContinuationCounter(StateWriteResult result) throws Exception {
@@ -379,6 +463,8 @@ class JobTaskTest {
   @Test
   void pausedTransitionKeepsSpentCounterAndDoesNotFail() throws Exception {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(scenario.job())).thenReturn(scope);
     when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
         .thenReturn(StateWriteResult.UPDATED);
     when(jobStore.scheduleJobRetry(JOB_UUID, null, FIXED_NOW, 0, 7L))
@@ -405,6 +491,8 @@ class JobTaskTest {
     Assertions.assertEquals(JobStatus.PAUSED, scenario.job().getStatus());
     Assertions.assertTrue(scenario.attempt().isSuperseded());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(scope, never()).success(anyLong());
+    verify(scope).close();
   }
 
   @ParameterizedTest
