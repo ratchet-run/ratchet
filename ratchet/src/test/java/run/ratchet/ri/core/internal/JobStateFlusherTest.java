@@ -166,6 +166,97 @@ class JobStateFlusherTest {
   }
 
   @Test
+  void untouchedDueWritersFlushBeforeFailedBatchIsRetried() {
+    List<WriterFixture> writers = new ArrayList<>();
+    List<WriterFixture> failing = new ArrayList<>();
+    List<WriterFixture> attempts = new ArrayList<>();
+    for (int i = 0; i < 105; i++) {
+      WriterFixture fixture = writer();
+      writers.add(fixture);
+      when(fixture
+              .store()
+              .initState(eq(fixture.writer().jobId()), anyString(), anyString(), eq(7L)))
+          .thenAnswer(
+              call -> {
+                attempts.add(fixture);
+                // Whichever writers the first bounded drain picks keep failing on every attempt.
+                if (failing.size() < 100) failing.add(fixture);
+                if (failing.contains(fixture)) throw new IllegalStateException("store down");
+                return StateWriteResult.UPDATED;
+              });
+    }
+    flusher.start(executor);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    assertEquals(100, attempts.size());
+    assertEquals(100, failing.size());
+    assertTrue(writers.stream().allMatch(w -> w.writer().hasUnflushed()));
+    assertEquals(2, scheduled.size());
+    verify(executor).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
+
+    scheduled.get(1).run();
+
+    assertEquals(105, attempts.size());
+    assertEquals(105, attempts.stream().distinct().count());
+    for (WriterFixture fixture : writers) {
+      verifyWritten(fixture);
+      assertEquals(failing.contains(fixture), fixture.writer().hasUnflushed());
+    }
+    assertEquals(3, scheduled.size());
+    verify(executor, times(2))
+        .schedule(any(Runnable.class), eq(1_000_000_000L), eq(TimeUnit.NANOSECONDS));
+
+    now.set(2_000_000_000L);
+    scheduled.get(2).run();
+    assertEquals(205, attempts.size());
+    assertTrue(attempts.subList(105, 205).stream().allMatch(failing::contains));
+    assertTrue(failing.stream().allMatch(w -> w.writer().hasUnflushed()));
+  }
+
+  @Test
+  void untouchedDueWritersFlushAfterTimeBudgetBeforeSlowFailuresAreRetried() {
+    List<WriterFixture> writers = new ArrayList<>();
+    List<WriterFixture> slow = new ArrayList<>();
+    List<WriterFixture> attempts = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      WriterFixture fixture = writer();
+      writers.add(fixture);
+      when(fixture
+              .store()
+              .initState(eq(fixture.writer().jobId()), anyString(), anyString(), eq(7L)))
+          .thenAnswer(
+              call -> {
+                attempts.add(fixture);
+                if (slow.size() < 2) slow.add(fixture);
+                if (slow.contains(fixture)) {
+                  now.addAndGet(100_000_000L);
+                  throw new IllegalStateException("slow store down");
+                }
+                return StateWriteResult.UPDATED;
+              });
+    }
+    flusher.start(executor);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    assertEquals(2, attempts.size());
+    assertEquals(1_200_000_000L, now.get());
+    assertTrue(writers.stream().allMatch(w -> w.writer().hasUnflushed()));
+    assertEquals(2, scheduled.size());
+    verify(executor).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
+
+    scheduled.get(1).run();
+
+    assertEquals(5, attempts.size());
+    assertEquals(5, attempts.stream().distinct().count());
+    for (WriterFixture fixture : writers) {
+      verifyWritten(fixture);
+      assertEquals(slow.contains(fixture), fixture.writer().hasUnflushed());
+    }
+    assertEquals(3, scheduled.size());
+    verify(executor).schedule(any(Runnable.class), eq(900_000_000L), eq(TimeUnit.NANOSECONDS));
+  }
+
+  @Test
   void removeDeregistersWriter() {
     WriterFixture fixture = writer();
     flusher.remove(fixture.writer());
