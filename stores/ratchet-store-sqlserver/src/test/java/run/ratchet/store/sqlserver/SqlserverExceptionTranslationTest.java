@@ -177,7 +177,9 @@ class SqlserverExceptionTranslationTest {
 
   @Test
   void terminalOperationsTranslateDeadlock() {
-    var ctx = new SqlserverStoreContext(entityManager(queryThrowingOnExecute()));
+    var ctx =
+        new SqlserverStoreContext(
+            entityManager(queryReturning(List.of()), queryThrowingOnExecute()));
     var terminals =
         new SqlserverJobTerminalOperations(
             ctx, new SqlserverBusinessKeyReservations(ctx), new SqlserverBatchOperations(ctx));
