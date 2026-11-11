@@ -1159,8 +1159,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<PartitionSetEntity> findUnsealedSets(int limit) {
-    return partitions.findUnsealedSets(limit);
+  public List<PartitionSetEntity> findUnsealedSets(UUID afterSetId, int limit) {
+    return partitions.findUnsealedSets(afterSetId, limit);
   }
 
   @Override

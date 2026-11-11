@@ -121,6 +121,52 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
+  void callbackAndDependantLookupsReadThePrimary() {
+    IllegalStateException primaryRead = new IllegalStateException("primary read");
+    List<Object> readPreferences = new ArrayList<>();
+    MongoCollection<Document> primary =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                throw primaryRead;
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                readPreferences.add(args[0]);
+                return primary;
+              }
+              if ("find".equals(method.getName())) {
+                throw new AssertionError("read used the client's read preference");
+              }
+              return defaultValue(method);
+            });
+    MongoStoreContext ctx = contextWithJobs(collection);
+    MongoJobCrudOperations crud = new MongoJobCrudOperations(ctx);
+    MongoAuxiliaryOperations auxiliary = new MongoAuxiliaryOperations(ctx);
+
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> crud.findByIds(List.of(UUID.randomUUID()))));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> crud.findDependants(UUID.randomUUID(), 10, 0)));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class,
+            () -> auxiliary.findConditionsByParentJobId(UUID.randomUUID())));
+    assertEquals(
+        List.of(ReadPreference.primary(), ReadPreference.primary(), ReadPreference.primary()),
+        readPreferences);
+  }
+
+  @Test
   void closeStaleExecutionsTranslatesTransientFailure() {
     MongoSocketException failure = transientFailure();
     MongoCollection<Document> executions =

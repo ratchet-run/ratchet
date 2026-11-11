@@ -309,7 +309,9 @@ final class MongoJobCrudOperations {
       return List.of();
     }
     List<JobEntity> results = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(in(ID, ids))) {
+    // Read the primary even when the client prefers secondaries: a batch cancel loads callback
+    // branches here, and a lagging secondary could miss one written moments before.
+    for (Document doc : ctx.jobs().withReadPreference(ReadPreference.primary()).find(in(ID, ids))) {
       results.add(DocumentMapper.toJobEntity(doc));
     }
     return results;
@@ -331,8 +333,11 @@ final class MongoJobCrudOperations {
 
   List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
     List<JobEntity> results = new ArrayList<>();
+    // Read the primary even when the client prefers secondaries: chain scheduling and cancel act
+    // on these dependants, so a lagging secondary must not hide one written moments before.
     for (Document doc :
         ctx.jobs()
+            .withReadPreference(ReadPreference.primary())
             .find(eq(DEPENDS_ON, parentJobId))
             .sort(ascending(CREATED_AT, ID))
             .skip(offset)

@@ -24,7 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -314,12 +316,40 @@ public abstract class AbstractPartitionStoreContract implements JobStoreContract
   void findsUnsealedSetsWithinLimit() {
     var first = create(1);
     var second = create(1);
-    assertEquals(1, partitionStore().findUnsealedSets(1).size());
-    assertEquals(2, partitionStore().findUnsealedSets(10).size());
+    assertEquals(1, partitionStore().findUnsealedSets(null, 1).size());
+    assertEquals(2, partitionStore().findUnsealedSets(null, 10).size());
     partitionStore().markSealed(first.set().getSetId(), 1);
     assertEquals(
         List.of(second.set().getSetId()),
-        partitionStore().findUnsealedSets(10).stream().map(PartitionSetEntity::getSetId).toList());
+        partitionStore().findUnsealedSets(null, 10).stream()
+            .map(PartitionSetEntity::getSetId)
+            .toList());
+  }
+
+  @Test
+  void pagesEveryUnsealedSetExactlyOnce() {
+    Set<UUID> expected = new HashSet<>();
+    for (int i = 0; i < 8; i++) {
+      var write = create(1);
+      if (i % 3 == 0) partitionStore().markSealed(write.set().getSetId(), 1);
+      else expected.add(write.set().getSetId());
+    }
+    Set<UUID> seen = new HashSet<>();
+    UUID cursor = null;
+    int pages = 0;
+    while (true) {
+      var page = partitionStore().findUnsealedSets(cursor, 2);
+      if (page.isEmpty()) break;
+      assertTrue(++pages <= expected.size());
+      assertTrue(page.size() <= 2);
+      for (var set : page) {
+        assertTrue(expected.contains(set.getSetId()), "sealed set returned");
+        assertTrue(seen.add(set.getSetId()), "duplicate set returned");
+      }
+      cursor = page.get(page.size() - 1).getSetId();
+    }
+    assertTrue(pages > 1);
+    assertEquals(expected, seen);
   }
 
   @Test

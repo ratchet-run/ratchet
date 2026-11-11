@@ -88,7 +88,8 @@ class RatchetSubmissionConfiguration {
       BatchCompletionTransaction transactions,
       JobAuthorizationPolicy policy,
       CallerPrincipalProvider principal,
-      ObjectProvider<DefaultJobSchedulerService> scheduler) {
+      ObjectProvider<JobSchedulerService> scheduler,
+      ObjectProvider<BatchService> batchService) {
     PartitionService service =
         new PartitionService(
             store.capability(PartitionStore.class).orElse(null),
@@ -102,7 +103,14 @@ class RatchetSubmissionConfiguration {
             transactions,
             policy,
             principal);
-    service.configureCancellation(id -> scheduler.getObject().cancelJobAsSystem(id));
+    service.configureBatchCancellation(parent -> batchService.getObject().cancelBatch(parent));
+    service.configureCancellation(
+        id -> {
+          JobSchedulerService resolved = scheduler.getObject();
+          if (resolved instanceof DefaultJobSchedulerService defaults)
+            defaults.cancelJobAsSystem(id);
+          else resolved.cancelJob(id);
+        });
     return service;
   }
 

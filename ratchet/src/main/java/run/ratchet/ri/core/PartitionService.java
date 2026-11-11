@@ -72,6 +72,7 @@ public class PartitionService {
   private final JobAuthorizationPolicy policy;
   private final CallerPrincipalProvider principalProvider;
   private Consumer<UUID> cancel;
+  private Consumer<JobEntity> cancelBatch = parent -> {};
 
   protected PartitionService() {
     this(null, null, null, null, null, null, null, null, null, null, null);
@@ -90,7 +91,8 @@ public class PartitionService {
       BatchCompletionTransaction transactions,
       JobAuthorizationPolicy policy,
       CallerPrincipalProvider principalProvider,
-      Instance<DefaultJobSchedulerService> scheduler) {
+      Instance<DefaultJobSchedulerService> scheduler,
+      Instance<BatchService> batchService) {
     this(
         store.isResolvable() ? store.get() : null,
         jobs,
@@ -104,6 +106,7 @@ public class PartitionService {
         policy,
         principalProvider);
     cancel = id -> scheduler.get().cancelJobAsSystem(id);
+    cancelBatch = parent -> batchService.get().cancelBatch(parent);
   }
 
   public PartitionService(
@@ -133,6 +136,10 @@ public class PartitionService {
 
   public void configureCancellation(Consumer<UUID> cancel) {
     this.cancel = cancel;
+  }
+
+  public void configureBatchCancellation(Consumer<JobEntity> cancelBatch) {
+    this.cancelBatch = cancelBatch;
   }
 
   PartitionStore store() {
@@ -217,29 +224,36 @@ public class PartitionService {
   public int sweep() {
     if (store == null) return 0;
     int sealed = 0;
-    for (PartitionSetEntity set : store.findUnsealedSets(100)) {
-      try {
-        if (trySeal(set)) {
-          sealed++;
-          continue;
+    UUID afterSetId = null;
+    while (true) {
+      List<PartitionSetEntity> page = store.findUnsealedSets(afterSetId, 100);
+      if (page.isEmpty()) break;
+      for (PartitionSetEntity set : page) {
+        try {
+          JobEntity parent = jobs.findById(set.getLatestBatchId()).orElse(null);
+          if (parent != null && parent.getStatus() == JobStatus.CANCELED) {
+            cancelBatch.accept(parent);
+          }
+          if (trySeal(set)) {
+            sealed++;
+            continue;
+          }
+          if (parent == null || terminal(parent.getStatus())) continue;
+          var batch = batches.findBatchById(parent.getId());
+          if (batch.isPresent()
+              && store.countBatchChildren(parent.getId()) < batch.get().getTotalItems()
+              && set.getGenerationStartedAt()
+                  .isBefore(clock.instant().minus(options.maintenance().batchPartitionGrace()))) {
+            cancel.accept(parent.getId());
+            log.warnf(
+                "Canceled incomplete partition generation %s for set %s",
+                parent.getId(), set.getSetId());
+          }
+        } catch (Exception failure) {
+          log.warnf(failure, "Could not recover partition set %s", set.getSetId());
         }
-        JobEntity parent = jobs.findById(set.getLatestBatchId()).orElse(null);
-        if (parent == null
-            || (parent.getStatus() != JobStatus.PENDING && parent.getStatus() != JobStatus.PAUSED))
-          continue;
-        var batch = batches.findBatchById(parent.getId());
-        if (batch.isPresent()
-            && store.countBatchChildren(parent.getId()) < batch.get().getTotalItems()
-            && set.getGenerationStartedAt()
-                .isBefore(clock.instant().minus(options.maintenance().batchPartitionGrace()))) {
-          cancel.accept(parent.getId());
-          log.warnf(
-              "Canceled incomplete partition generation %s for set %s",
-              parent.getId(), set.getSetId());
-        }
-      } catch (Exception failure) {
-        log.warnf(failure, "Could not recover partition set %s", set.getSetId());
       }
+      afterSetId = page.get(page.size() - 1).getSetId();
     }
     return sealed;
   }
@@ -307,7 +321,13 @@ public class PartitionService {
     if (policy != null)
       policy.checkCancel(
           set.get().getLatestBatchId(), set.get().getOwnerPrincipal(), currentPrincipal());
-    if (!store.deletePartitionSet(set.get().getSetId()))
+    if (set.get().getSealedGeneration() < set.get().getLatestGeneration()) {
+      trySeal(set.get());
+      set = store.findPartitionSet(key(partitionKey));
+      if (set.isEmpty()) return false;
+    }
+    if (set.get().getSealedGeneration() < set.get().getLatestGeneration()
+        || !store.deletePartitionSet(set.get().getSetId()))
       throw new IllegalStateException("Partition generation is not sealed");
     return true;
   }

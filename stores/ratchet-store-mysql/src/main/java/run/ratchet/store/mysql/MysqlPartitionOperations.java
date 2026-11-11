@@ -230,14 +230,16 @@ final class MysqlPartitionOperations implements PartitionStore {
   }
 
   @Override
-  public List<PartitionSetEntity> findUnsealedSets(int limit) {
+  public List<PartitionSetEntity> findUnsealedSets(UUID afterSetId, int limit) {
     if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
+    String sql =
+        "SELECT "
+            + SET_COLUMNS
+            + " FROM scheduler_partition_set WHERE sealed_generation < latest_generation"
+            + (afterSetId == null ? "" : " AND set_id > ?")
+            + " ORDER BY set_id";
     List<?> rows =
-        query(
-                "SELECT "
-                    + SET_COLUMNS
-                    + " FROM scheduler_partition_set WHERE sealed_generation < latest_generation"
-                    + " ORDER BY created_at, set_id")
+        (afterSetId == null ? query(sql) : query(sql, id(afterSetId)))
             .setMaxResults(limit)
             .getResultList();
     List<PartitionSetEntity> result = new ArrayList<>();

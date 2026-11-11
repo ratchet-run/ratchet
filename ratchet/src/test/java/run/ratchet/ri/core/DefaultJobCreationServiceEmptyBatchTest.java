@@ -96,7 +96,9 @@ class DefaultJobCreationServiceEmptyBatchTest {
         .thenAnswer(
             invocation -> {
               JobEntity job = invocation.getArgument(0);
-              job.setId(UUID.randomUUID());
+              if (job.getId() == null) {
+                job.setId(UUID.randomUUID());
+              }
               return job;
             });
   }

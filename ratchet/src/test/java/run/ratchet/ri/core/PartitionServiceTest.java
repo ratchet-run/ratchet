@@ -23,6 +23,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -216,11 +217,11 @@ class PartitionServiceTest {
   }
 
   @Test
-  void sweepCancelsOnlyOldIncompletePendingOrPausedGenerations() {
+  void sweepCancelsOldIncompleteNonTerminalGenerations() {
     Consumer<UUID> cancel = mock(Consumer.class);
     service.configureCancellation(cancel);
     parent.setStatus(JobStatus.PENDING);
-    when(store.findUnsealedSets(100)).thenReturn(List.of(set));
+    when(store.findUnsealedSets(null, 100)).thenReturn(List.of(set));
     BatchEntity batch = new BatchEntity();
     batch.setTotalItems(4);
     when(batches.findBatchById(parent.getId())).thenReturn(Optional.of(batch));
@@ -236,10 +237,100 @@ class PartitionServiceTest {
     clearInvocations(cancel);
     parent.setStatus(JobStatus.RUNNING);
     service.sweep();
-    verifyNoInteractions(cancel);
+    verify(cancel).accept(parent.getId());
+    clearInvocations(cancel);
     parent.setStatus(JobStatus.PAUSED);
     service.sweep();
     verify(cancel).accept(parent.getId());
+    clearInvocations(cancel);
+    parent.setStatus(JobStatus.WAITING);
+    service.sweep();
+    verify(cancel).accept(parent.getId());
+    clearInvocations(cancel);
+    when(store.countUnfinishedBatchChildren(parent.getId())).thenReturn(1L);
+    for (JobStatus status : List.of(JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELED)) {
+      parent.setStatus(status);
+      service.sweep();
+    }
+    verifyNoInteractions(cancel);
+  }
+
+  @Test
+  void sweepCascadesCanceledParentBeforeSealingOnEveryTick() {
+    Consumer<JobEntity> cascade = mock(Consumer.class);
+    var recovery = spy(service);
+    recovery.configureBatchCancellation(cascade);
+    parent.setStatus(JobStatus.CANCELED);
+    when(store.findUnsealedSets(null, 100)).thenReturn(List.of(set));
+    doReturn(false).when(recovery).trySeal(set);
+    assertEquals(0, recovery.sweep());
+    var order = inOrder(cascade, recovery);
+    order.verify(cascade).accept(parent);
+    order.verify(recovery).trySeal(set);
+    doReturn(true).when(recovery).trySeal(set);
+    assertEquals(1, recovery.sweep());
+    order.verify(cascade).accept(parent);
+    order.verify(recovery).trySeal(set);
+    verify(cascade, times(2)).accept(parent);
+  }
+
+  @Test
+  void sweepDoesNotCascadeForOtherParentStatuses() {
+    Consumer<JobEntity> cascade = mock(Consumer.class);
+    service.configureBatchCancellation(cascade);
+    when(store.findUnsealedSets(null, 100)).thenReturn(List.of(set));
+    for (JobStatus status :
+        List.of(
+            JobStatus.PENDING,
+            JobStatus.RUNNING,
+            JobStatus.PAUSED,
+            JobStatus.WAITING,
+            JobStatus.SUCCEEDED,
+            JobStatus.FAILED)) {
+      parent.setStatus(status);
+      service.sweep();
+    }
+    verifyNoInteractions(cascade);
+  }
+
+  @Test
+  void sweepPagesPastOldUnsealedSetsAndContinuesAfterSetFailure() {
+    var recovery = spy(service);
+    List<PartitionSetEntity> first = new ArrayList<>();
+    for (int i = 0; i < 100; i++) {
+      var older = new PartitionSetEntity();
+      older.setSetId(UUID.randomUUID());
+      older.setLatestBatchId(UUID.randomUUID());
+      first.add(older);
+      doReturn(false).when(recovery).trySeal(older);
+    }
+    doThrow(new IllegalStateException("unavailable")).when(recovery).trySeal(first.get(0));
+    UUID cursor = first.get(99).getSetId();
+    when(store.findUnsealedSets(null, 100)).thenReturn(first);
+    when(store.findUnsealedSets(cursor, 100)).thenReturn(List.of(set));
+    when(store.findUnsealedSets(set.getSetId(), 100)).thenReturn(List.of());
+    assertEquals(1, recovery.sweep());
+    verify(store).markSealed(set.getSetId(), 1);
+    verify(store).findUnsealedSets(set.getSetId(), 100);
+  }
+
+  @Test
+  void deleteSealsFinishedGenerationAfterAuthorizationAndReloads() {
+    doAnswer(
+            invocation -> {
+              set.setSealedGeneration(1);
+              return true;
+            })
+        .when(store)
+        .markSealed(set.getSetId(), 1);
+    when(store.deletePartitionSet(set.getSetId())).thenReturn(true);
+    assertTrue(service.deletePartitionSet("set"));
+    var order = inOrder(policy, store);
+    order.verify(store).findPartitionSet("set");
+    order.verify(policy).checkCancel(parent.getId(), null, null);
+    order.verify(store).markSealed(set.getSetId(), 1);
+    order.verify(store).findPartitionSet("set");
+    order.verify(store).deletePartitionSet(set.getSetId());
   }
 
   @Test
@@ -272,6 +363,7 @@ class PartitionServiceTest {
     assertEquals(0, service.getBatchPartitions("unknown", 10, 0).totalCount());
     assertFalse(service.deletePartitionSet("unknown"));
     assertThrows(IllegalStateException.class, () -> service.deletePartitionSet("set"));
+    set.setSealedGeneration(1);
     when(store.deletePartitionSet(set.getSetId())).thenReturn(true);
     assertTrue(service.deletePartitionSet("set"));
     verify(policy, times(2)).checkCancel(parent.getId(), null, null);

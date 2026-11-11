@@ -641,6 +641,7 @@ public class DefaultJobCreationService
       throw new IllegalArgumentException("Too many partitions");
     if (builder.name() == null || builder.name().isBlank() || builder.name().length() > 255)
       throw new IllegalArgumentException("Partition set name must contain 1 to 255 characters");
+    requireWorkflowConditionCapability(builder.workflowBranches());
     String caller = resolveCallerPrincipal();
     Instant now = effective().instant();
     UUID parentId = UuidV7Factory.create();
@@ -747,10 +748,7 @@ public class DefaultJobCreationService
     batch.setFailedItems(0);
     if (builder.progressHook() != null)
       batch.setProgressHook(runtimePayload(builder.progressHook()));
-    if (!partitions.createOrAdvance(
-        new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
-      throw new IllegalStateException(
-          "Partition set '" + builder.partitionKey() + "' was submitted concurrently; retry");
+    bulkStore();
     List<JobEntity> children = new ArrayList<>();
     for (var row : rows) {
       JobEntity child = new JobEntity();
@@ -770,15 +768,33 @@ public class DefaultJobCreationService
       checkCreateAuthorization(child);
       children.add(child);
     }
+    List<PreparedWorkflowBranch> branches = new ArrayList<>();
+    for (int order = 0; order < builder.workflowBranches().size(); order++) {
+      branches.add(
+          prepareWorkflowBranch(
+              parentId,
+              builder.workflowBranches().get(order),
+              order,
+              builder.callbackOptions(),
+              builder.executionTarget(),
+              parent.isEncryptedPayload(),
+              caller,
+              false));
+    }
+    if (!partitions.createOrAdvance(
+        new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
+      throw new IllegalStateException(
+          "Partition set '" + builder.partitionKey() + "' was submitted concurrently; retry");
     bulkInsertJobs(children);
-    createWorkflowBranches(
-        parentId,
-        builder.workflowBranches(),
-        builder.callbackOptions(),
-        builder.executionTarget(),
-        parent.isEncryptedPayload(),
-        caller,
-        null);
+    for (PreparedWorkflowBranch branch : branches) {
+      persistWorkflowBranch(branch);
+    }
+    // Once children exist, the sweep's count < totalItems check cannot fire. A later cancel
+    // finds all callbacks already written and cancels them through its own cascade.
+    if (jobCrudStore.getJobStatus(parentId) == JobStatus.CANCELED) {
+      batchService.cancelBatch(parent);
+      log.warnf("Canceled late partition writes for parent %s in set %s", parentId, set.getSetId());
+    }
     wakeupService.notifyIfNeeded(
         JobExecutionType.BATCH_PARENT,
         JobPriority.NORMAL,
@@ -1313,25 +1329,22 @@ public class DefaultJobCreationService
       boolean parentEncrypted,
       String callerPrincipal,
       WorkflowBranch resultSlotBranch) {
-    if (workflowConditionStore == null && !branches.isEmpty()) {
-      throw new UnsupportedOperationException(
-          "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
-              + " capability");
-    }
+    requireWorkflowConditionCapability(branches);
     for (int definitionOrder = 0; definitionOrder < branches.size(); definitionOrder++) {
-      createWorkflowBranch(
-          parentId,
-          branches.get(definitionOrder),
-          definitionOrder,
-          options,
-          executionTarget,
-          parentEncrypted,
-          callerPrincipal,
-          branches.get(definitionOrder) == resultSlotBranch);
+      persistWorkflowBranch(
+          prepareWorkflowBranch(
+              parentId,
+              branches.get(definitionOrder),
+              definitionOrder,
+              options,
+              executionTarget,
+              parentEncrypted,
+              callerPrincipal,
+              branches.get(definitionOrder) == resultSlotBranch));
     }
   }
 
-  private void createWorkflowBranch(
+  private PreparedWorkflowBranch prepareWorkflowBranch(
       UUID parentId,
       WorkflowBranch branch,
       int definitionOrder,
@@ -1341,6 +1354,7 @@ public class DefaultJobCreationService
       String callerPrincipal,
       boolean allowResultSlot) {
     JobEntity branchJob = new JobEntity();
+    branchJob.setId(UuidV7Factory.create());
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(options.priority());
@@ -1356,11 +1370,10 @@ public class DefaultJobCreationService
     branchJob.setExecutionTarget(executionTarget);
     stampCallerPrincipal(branchJob, callerPrincipal);
     checkCreateAuthorization(branchJob);
-    JobEntity savedBranch = createJob(branchJob);
 
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
     condition.setParentJobId(parentId);
-    condition.setChildJobId(savedBranch.getId());
+    condition.setChildJobId(branchJob.getId());
     condition.setConditionType(branch.condition().type());
     condition.setConditionPriority(branch.condition().priority());
     condition.setDefinitionOrder(definitionOrder);
@@ -1389,7 +1402,22 @@ public class DefaultJobCreationService
         condition.setConditionExpression(expr.toString());
       }
     }
-    workflowConditionStore.saveCondition(condition);
+    return new PreparedWorkflowBranch(branchJob, condition);
+  }
+
+  private record PreparedWorkflowBranch(JobEntity job, WorkflowConditionEntity condition) {}
+
+  private void persistWorkflowBranch(PreparedWorkflowBranch branch) {
+    createJob(branch.job());
+    workflowConditionStore.saveCondition(branch.condition());
+  }
+
+  private void requireWorkflowConditionCapability(List<WorkflowBranch> branches) {
+    if (workflowConditionStore == null && !branches.isEmpty()) {
+      throw new UnsupportedOperationException(
+          "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
+              + " capability");
+    }
   }
 
   private JobPayload payload(Serializable callback) {

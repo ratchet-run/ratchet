@@ -23,6 +23,7 @@ import jakarta.inject.Singleton;
 import java.time.Clock;
 import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.JobQueryService;
+import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobCreationService;
@@ -93,7 +94,8 @@ class RatchetSubmissionConfiguration {
       BatchCompletionTransaction transactions,
       JobAuthorizationPolicy policy,
       CallerPrincipalProvider principal,
-      BeanProvider<DefaultJobSchedulerService> scheduler) {
+      BeanProvider<JobSchedulerService> scheduler,
+      BeanProvider<BatchService> batchService) {
     PartitionService service =
         new PartitionService(
             store.capability(PartitionStore.class).orElse(null),
@@ -107,7 +109,14 @@ class RatchetSubmissionConfiguration {
             transactions,
             policy,
             principal);
-    service.configureCancellation(id -> scheduler.get().cancelJobAsSystem(id));
+    service.configureBatchCancellation(parent -> batchService.get().cancelBatch(parent));
+    service.configureCancellation(
+        id -> {
+          JobSchedulerService resolved = scheduler.get();
+          if (resolved instanceof DefaultJobSchedulerService defaults)
+            defaults.cancelJobAsSystem(id);
+          else resolved.cancelJob(id);
+        });
     return service;
   }
 

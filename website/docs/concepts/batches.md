@@ -411,6 +411,9 @@ public void importRange(KeyRange range) {
 }
 ```
 
+Partition keys follow the store’s collation. Keys differing only in letter case may name the same
+set on MySQL and SQL Server, so use a consistent case.
+
 Resubmit with the same partition key and identical ranges to run only unfinished partitions.
 Each resumes from its saved checkpoint. A running generation returns its existing batch handle.
 A later generation can use a different action, options, arguments or callbacks.

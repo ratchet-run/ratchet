@@ -65,8 +65,11 @@ public interface PartitionStore {
    */
   boolean markSealed(UUID setId, int generation);
 
-  /** Finds sets whose latest generation is not sealed. Transaction attribute: {@code SUPPORTS}. */
-  List<PartitionSetEntity> findUnsealedSets(int limit);
+  /**
+   * Finds unsealed sets in ascending store-native set-id order, strictly after {@code afterSetId}.
+   * A null cursor starts at the beginning. Transaction attribute: {@code SUPPORTS}.
+   */
+  List<PartitionSetEntity> findUnsealedSets(UUID afterSetId, int limit);
 
   /** Finds a child partition row; empty when absent. Transaction attribute: {@code SUPPORTS}. */
   Optional<PartitionEntity> findPartitionByChild(UUID childJobId);

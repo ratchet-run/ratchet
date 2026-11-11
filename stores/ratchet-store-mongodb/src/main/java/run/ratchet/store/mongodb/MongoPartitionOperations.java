@@ -191,11 +191,17 @@ final class MongoPartitionOperations implements PartitionStore {
   }
 
   @Override
-  public List<PartitionSetEntity> findUnsealedSets(int limit) {
+  public List<PartitionSetEntity> findUnsealedSets(UUID afterSetId, int limit) {
     if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
     List<PartitionSetEntity> result = new ArrayList<>();
-    for (Document doc : sets().find(unsealed()).sort(ascending("created_at", "_id")).limit(limit))
-      result.add(mapSet(doc));
+    for (Document doc :
+        sets()
+            .find(
+                afterSetId == null
+                    ? unsealed()
+                    : and(unsealed(), new Document("_id", new Document("$gt", afterSetId))))
+            .sort(ascending("_id"))
+            .limit(limit)) result.add(mapSet(doc));
     return result;
   }
 

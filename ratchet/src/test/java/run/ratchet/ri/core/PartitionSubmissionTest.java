@@ -29,6 +29,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.KeyRange;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
@@ -42,11 +43,13 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.PartitionEntity;
 import run.ratchet.store.entity.PartitionOutcome;
 import run.ratchet.store.entity.PartitionSetEntity;
+import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.TagStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 
 class PartitionSubmissionTest {
   private final PartitionStore partitions = mock(PartitionStore.class);
@@ -55,20 +58,24 @@ class PartitionSubmissionTest {
   private final JobAuthorizationPolicy authorization = mock(JobAuthorizationPolicy.class);
   private final PartitionService partitionService = mock(PartitionService.class);
   private final List<KeyRange> ranges = List.of(new KeyRange(0, 10), new KeyRange(10, 20));
+  private WorkflowConditionStore conditions = mock(WorkflowConditionStore.class);
+  private final BatchService batchService = mock(BatchService.class);
   private DefaultJobCreationService service;
 
   public static void process(KeyRange range) {}
+
+  public static void callback() {}
 
   @BeforeEach
   void setup() {
     service =
         new DefaultJobCreationService(
-            mock(BatchService.class),
+            batchService,
             jobs,
             bulk,
             mock(BatchStore.class),
             mock(TagStore.class),
-            null,
+            conditions,
             null,
             mock(JobWakeupService.class),
             null,
@@ -131,6 +138,95 @@ class PartitionSubmissionTest {
     var capture = ArgumentCaptor.forClass(PartitionGenerationWrite.class);
     verify(partitions).createOrAdvance(capture.capture());
     return capture.getValue();
+  }
+
+  @Test
+  void deniedChildDoesNotAdvanceOrInsertJobs() {
+    doNothing()
+        .doThrow(new JobAuthorizationException(null, "create", null, "denied"))
+        .when(authorization)
+        .checkCreate(any(), isNull());
+    assertThrows(JobAuthorizationException.class, () -> builder().submit());
+    verify(partitions, never()).createOrAdvance(any());
+    verify(jobs, never()).create(any());
+    verifyNoInteractions(bulk, conditions);
+  }
+
+  @Test
+  void deniedCallbackDoesNotAdvanceOrInsertJobs() {
+    doNothing()
+        .doNothing()
+        .doNothing()
+        .doThrow(new JobAuthorizationException(null, "create", null, "denied"))
+        .when(authorization)
+        .checkCreate(any(), isNull());
+    var builder = builder();
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+    assertThrows(JobAuthorizationException.class, builder::submit);
+    verify(partitions, never()).createOrAdvance(any());
+    verify(jobs, never()).create(any());
+    verifyNoInteractions(bulk, conditions);
+  }
+
+  @Test
+  void preparedCallbackKeepsItsIdAndIsPersistedAfterChildren() {
+    var builder = builder();
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+    UUID parentId = builder.submit().id();
+    var branch = ArgumentCaptor.forClass(JobEntity.class);
+    var condition = ArgumentCaptor.forClass(WorkflowConditionEntity.class);
+    var order = inOrder(partitions, bulk, jobs, conditions);
+    order.verify(partitions).createOrAdvance(any());
+    order.verify(bulk).bulkInsert(anyList());
+    order.verify(jobs).create(branch.capture());
+    order.verify(conditions).saveCondition(condition.capture());
+    assertNotNull(branch.getValue().getId());
+    assertEquals(parentId, condition.getValue().getParentJobId());
+    assertEquals(branch.getValue().getId(), condition.getValue().getChildJobId());
+    verify(authorization).checkCreate(branch.getValue().getId(), null);
+  }
+
+  @Test
+  void canceledParentCascadesAfterAllBranchesAndStillReturnsHandle() {
+    when(jobs.getJobStatus(any())).thenReturn(JobStatus.CANCELED);
+    var builder = builder();
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+    builder.thenOnBatchFailure(PartitionSubmissionTest::callback);
+    UUID parentId = builder.submit().id();
+    var write = submitted();
+    assertEquals(write.parent().getId(), parentId);
+    var order = inOrder(partitions, bulk, jobs, conditions, batchService);
+    order.verify(partitions).createOrAdvance(any());
+    order.verify(bulk).bulkInsert(anyList());
+    order.verify(jobs).create(any());
+    order.verify(conditions).saveCondition(any());
+    order.verify(jobs).create(any());
+    order.verify(conditions).saveCondition(any());
+    order.verify(jobs).getJobStatus(parentId);
+    order.verify(batchService).cancelBatch(write.parent());
+    verify(batchService, times(1)).cancelBatch(any());
+  }
+
+  @Test
+  void pendingParentDoesNotCascade() {
+    when(jobs.getJobStatus(any())).thenReturn(JobStatus.PENDING);
+    var builder = builder();
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+    UUID parentId = builder.submit().id();
+    verify(jobs).getJobStatus(parentId);
+    verifyNoInteractions(batchService);
+  }
+
+  @Test
+  void missingCallbackCapabilityDoesNotAdvanceOrInsertJobs() {
+    conditions = null;
+    setup();
+    var builder = builder();
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+    assertThrows(UnsupportedOperationException.class, builder::submit);
+    verify(partitions, never()).createOrAdvance(any());
+    verify(jobs, never()).create(any());
+    verifyNoInteractions(bulk);
   }
 
   @Test

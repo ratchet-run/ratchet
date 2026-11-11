@@ -28,12 +28,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.CircuitBreakerProtectedInterceptor;
 import run.ratchet.micronaut.internal.NoTransactionOperations;
@@ -116,9 +118,51 @@ import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.PartitionSetEntity;
+import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
+  @Test
+  void partitionSweepCancelsThroughCustomScheduler() {
+    JobSchedulerService custom = mock(JobSchedulerService.class);
+    JobStore store = mock(JobStore.class);
+    UUID parentId = incompletePartitionGeneration(store);
+    try (var context = TestContexts.core(Map.of())) {
+      context.registerSingleton(JobStore.class, store);
+      context.registerSingleton(RatchetRuntime.class, mock(RatchetRuntime.class));
+      context.registerSingleton(JobSchedulerService.class, custom);
+      context.start();
+      context.getBean(PartitionService.class).sweep();
+      verify(custom).cancelJob(parentId);
+    }
+  }
+
+  private UUID incompletePartitionGeneration(JobStore store) {
+    PartitionStore partitions = mock(PartitionStore.class);
+    BatchStore batches = mock(BatchStore.class);
+    when(store.capability(PartitionStore.class)).thenReturn(Optional.of(partitions));
+    when(store.capability(BatchStore.class)).thenReturn(Optional.of(batches));
+    PartitionSetEntity set = new PartitionSetEntity();
+    set.setSetId(UUID.randomUUID());
+    set.setLatestBatchId(UUID.randomUUID());
+    set.setLatestGeneration(1);
+    set.setGenerationStartedAt(Instant.now().minus(Duration.ofHours(1)));
+    JobEntity parent = new JobEntity();
+    parent.setId(set.getLatestBatchId());
+    parent.setStatus(JobStatus.RUNNING);
+    BatchEntity batch = new BatchEntity();
+    batch.setTotalItems(2);
+    when(store.findById(parent.getId())).thenReturn(Optional.of(parent));
+    when(batches.findBatchById(parent.getId())).thenReturn(Optional.of(batch));
+    when(partitions.findUnsealedSets(null, 100)).thenReturn(List.of(set));
+    when(partitions.findUnsealedSets(set.getSetId(), 100)).thenReturn(List.of());
+    return parent.getId();
+  }
+
   @Test
   void partitionOptionsAndOptionalCapabilityBindThroughEngine() {
     try (var context =
