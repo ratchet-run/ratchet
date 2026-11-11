@@ -34,8 +34,9 @@ import run.ratchet.api.JobType;
 @Incubating
 public abstract class AbstractJobSchedulerEvent implements Serializable {
 
-  @Serial private static final long serialVersionUID = 6853988277084004625L;
+  @Serial private static final long serialVersionUID = 6853988277084004626L;
 
+  private final UUID eventId;
   private final UUID jobId;
   private final String businessKey;
   private final UUID recurringMasterId;
@@ -52,6 +53,27 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
       JobPriority priority,
       String nodeId,
       Instant timestamp) {
+    this(
+        UUID.randomUUID(),
+        jobId,
+        businessKey,
+        recurringMasterId,
+        jobType,
+        priority,
+        nodeId,
+        timestamp);
+  }
+
+  protected AbstractJobSchedulerEvent(
+      UUID eventId,
+      UUID jobId,
+      String businessKey,
+      UUID recurringMasterId,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId,
+      Instant timestamp) {
+    this.eventId = EventContract.requireNonNull(eventId, "eventId");
     this.jobId = EventContract.requireNonNull(jobId, "jobId");
     this.businessKey = businessKey;
     this.recurringMasterId = recurringMasterId;
@@ -75,6 +97,14 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
       JobPriority priority,
       String nodeId) {
     this(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, Instant.now());
+  }
+
+  /**
+   * Returns a unique id for this event. Durable terminal events retain it on redelivery so
+   * listeners can deduplicate deliveries. It says nothing about event order.
+   */
+  public UUID getEventId() {
+    return eventId;
   }
 
   /** Returns the job id affected by this event. */

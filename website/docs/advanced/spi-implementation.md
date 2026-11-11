@@ -671,7 +671,7 @@ Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations
 
 ### Optional Capabilities
 
-A store advertises each of these by implementing the interface; the engine probes with `capability()` and disables the feature when the capability is absent.
+A store advertises each of these by implementing the interface; the engine probes with `capability()` and disables the feature when the capability is absent. Explicitly enabling durable events instead fails startup without `EventOutboxStore` and `LockStore`.
 
 | Capability | Responsibility | Key Methods |
 |-----------|---------------|-------------|
@@ -680,6 +680,7 @@ A store advertises each of these by implementing the interface; the engine probe
 | `WorkflowConditionStore` | Workflow branch conditions | `saveCondition()`, `findConditionsByParentJobId()` |
 | `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
 | `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
+| `EventOutboxStore` | Durable terminal delivery | `findEventsCreatedBefore()`, `deleteEvents()` (at most 500 IDs); insert `JobCompletionPlan.outboxEvents()` atomically only when completion wins |
 | `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
 | `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
@@ -932,6 +933,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobBatchStatusStoreContract` | Non-terminal status and batch/orphan operations |
 | `AbstractJobBulkStoreContract` | Bulk recovery, stale job detection |
 | `AbstractBatchStoreContract` | Batch progress tracking |
+| `AbstractEventOutboxStoreContract` | Atomic completion rows, cutoff reads, bounded idempotent deletion |
 | `AbstractLockStoreContract` | Lock acquire, release, expiry |
 | `AbstractNodeStoreContract` | Node registration, heartbeat, dead node detection |
 | `AbstractArchiveStoreContract` | Job archiving and retrieval |

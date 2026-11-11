@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **67 fixed keys**.
+This build exposes **68 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -61,6 +61,7 @@ This build exposes **67 fixed keys**.
 | `ratchet.timeout.signal-timeout-lease-ttl-seconds` | `RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` | `120` | `SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` |
 | `ratchet.batch.recovery-interval-seconds` | `RATCHET_BATCH_RECOVERY_INTERVAL_SECONDS` | `900` | `BATCH_RECOVERY_INTERVAL_SECONDS` |
 | `ratchet.batch.recovery-lease-ttl-seconds` | `RATCHET_BATCH_RECOVERY_LEASE_TTL_SECONDS` | `900` | `BATCH_RECOVERY_LEASE_TTL_SECONDS` |
+| `ratchet.events.durable` | `RATCHET_EVENTS_DURABLE` | `false` | `EVENTS_DURABLE` |
 | `ratchet.dlq.purge-enabled` | `RATCHET_DLQ_PURGE_ENABLED` | `true` | `DLQ_PURGE_ENABLED` |
 | `ratchet.dlq.purge-cron` | `RATCHET_DLQ_PURGE_CRON` | `0 0 2 * * ?` | `DLQ_PURGE_CRON` |
 | `ratchet.dlq.purge-days` | `RATCHET_DLQ_PURGE_DAYS` | `90` | `DLQ_PURGE_DAYS` |

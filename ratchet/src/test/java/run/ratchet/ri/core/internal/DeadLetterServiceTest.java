@@ -69,6 +69,7 @@ import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.ri.core.SingletonLease;
+import run.ratchet.ri.core.internal.DurableTerminalEvents.PreparedDlqEvents;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
@@ -191,6 +192,34 @@ class DeadLetterServiceTest {
         .markJobFailedTerminal(eq(job.getId()), any(), anyInt(), eq(0L));
     verify(eventPublisher).publish(any(JobDlqEvent.class));
     verify(eventPublisher, never()).publish(any(JobFailedEvent.class));
+  }
+
+  @Test
+  void preparedBatchDlqPublishesWithoutDurableEvents() {
+    JobEntity job = jobWithAttempts(2);
+    job.setLastError("prepared terminal error");
+    JobDlqEvent dlq = service.prepareDlqEvent(job, null);
+    JobFailedEvent failed =
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getRecurringMasterId(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            FIXED_NOW,
+            dlq.getErrorMessage(),
+            job.getAttempts());
+    job.setLastError(null);
+
+    service.recordPreparedBatchDlqTransition(job, new PreparedDlqEvents(List.of(failed), dlq));
+
+    assertEquals("prepared terminal error", job.getLastError());
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(2)).publish(events.capture());
+    assertEquals(List.of(failed, dlq), events.getAllValues());
+    verify(jobTerminalStore, never())
+        .markJobFailedTerminal(eq(job.getId()), any(), anyInt(), eq(0L));
   }
 
   @Test

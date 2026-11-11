@@ -26,7 +26,7 @@ import run.ratchet.api.JobType;
 @Incubating
 public class JobCompletedEvent extends AbstractJobSchedulerEvent {
 
-  @Serial private static final long serialVersionUID = 6928539910648242733L;
+  @Serial private static final long serialVersionUID = 6928539910648242734L;
 
   private final Long executionTimeMs;
 
@@ -46,6 +46,21 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
       Instant timestamp,
       Long executionTimeMs) {
     super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
+    this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
+  }
+
+  /** Creates an event with a stable id and explicit timestamp for durable redelivery. */
+  public JobCompletedEvent(
+      UUID eventId,
+      UUID jobId,
+      String businessKey,
+      UUID recurringMasterId,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId,
+      Instant timestamp,
+      Long executionTimeMs) {
+    super(eventId, jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
 

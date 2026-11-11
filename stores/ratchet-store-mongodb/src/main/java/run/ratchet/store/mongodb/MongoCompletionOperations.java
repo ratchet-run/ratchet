@@ -154,6 +154,7 @@ final class MongoCompletionOperations {
                 combine(inc(CHILD_EXECUTION_MS, plan.durationMs()), inc(SUCCESS_COUNT, 1)));
       }
     }
+    for (var event : plan.outboxEvents()) MongoEventOutboxOperations.insert(ctx, session, event);
     return new JobCompletionResult(true, progress);
   }
 

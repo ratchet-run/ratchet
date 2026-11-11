@@ -486,3 +486,25 @@ CREATE TABLE scheduler_idempotency_key (
     reserved_at DATETIME2(6) NOT NULL,
     CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
 );
+
+-- Durable terminal event outbox
+CREATE TABLE scheduler_event_outbox
+(
+    event_id BINARY(16) NOT NULL,
+    event_type VARCHAR(32) NOT NULL,
+    job_id BINARY(16) NOT NULL,
+    business_key VARCHAR(512) NULL,
+    recurring_master_id BINARY(16) NULL,
+    job_type VARCHAR(32) NULL,
+    priority VARCHAR(16) NULL,
+    node_id VARCHAR(64) NULL,
+    event_ts DATETIME2(6) NOT NULL,
+    execution_time_ms BIGINT NULL,
+    error_message NVARCHAR(MAX) NULL,
+    retry_attempt INT NOT NULL,
+    created_at DATETIME2(6) NOT NULL,
+    CONSTRAINT pk_scheduler_event_outbox PRIMARY KEY (event_id)
+);
+
+CREATE INDEX idx_event_outbox_created
+    ON scheduler_event_outbox (created_at, event_id);

@@ -46,6 +46,11 @@ public interface JobTerminalStore {
    * committed calls is invalid. Batch child counters and duration are incremented only by the
    * winning primary transition. completedBatch also sets completion_processed and finalizes batch
    * metrics in this transaction.
+   *
+   * <p>A store implementing {@link EventOutboxStore} inserts {@code plan.outboxEvents()} in this
+   * same transaction only when the primary transition commits. A notCommitted result or a stale
+   * guard rollback leaves no outbox row. The engine sends a non-empty list only to stores that
+   * implement that capability.
    */
   JobCompletionResult commitCompletion(JobCompletionPlan plan);
 

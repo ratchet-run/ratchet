@@ -22,6 +22,7 @@ import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -59,7 +60,8 @@ public class MicronautBatchService extends BatchService {
       Clock clock,
       AfterCommitRegistrar afterCommitRegistrar,
       BatchCompletionTransaction batchCompletionTransaction,
-      PayloadSerializer payloadSerializer) {
+      PayloadSerializer payloadSerializer,
+      DurableTerminalEvents durableEvents) {
     super(
         batchStore,
         jobCrudStore,
@@ -74,6 +76,7 @@ public class MicronautBatchService extends BatchService {
         clock,
         afterCommitRegistrar,
         batchCompletionTransaction,
-        payloadSerializer);
+        payloadSerializer,
+        durableEvents);
   }
 }

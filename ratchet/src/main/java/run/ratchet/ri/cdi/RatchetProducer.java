@@ -199,7 +199,8 @@ public class RatchetProducer {
             observabilityFacade,
             clock,
             errorSanitizer),
-        options.timeout().signalTimeoutLeaseTtlSeconds());
+        options.timeout().signalTimeoutLeaseTtlSeconds(),
+        options.events().durable());
   }
 
   @Produces

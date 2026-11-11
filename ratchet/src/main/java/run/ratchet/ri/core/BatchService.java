@@ -33,15 +33,19 @@ import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DurableTerminalEvents;
+import run.ratchet.ri.core.internal.DurableTerminalEvents.PreparedDlqEvents;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.TerminalEventMapper;
 import run.ratchet.ri.core.internal.WorkflowCompletionPlan;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.payload.ArgumentCoercion;
@@ -82,6 +86,8 @@ public class BatchService {
   private final JobTerminalStore jobTerminalStore;
   private final MetricsCollector metricsCollector;
   private final InternalEventPublisher eventPublisher;
+  private final DurableTerminalEvents durableEvents;
+
   private final DeadLetterService deadLetterService;
   private final WorkflowScheduler workflowScheduler;
   private final ClassPolicy classPolicy;
@@ -92,6 +98,7 @@ public class BatchService {
   private final BatchCompletionTransaction batchCompletionTransaction;
 
   protected BatchService() {
+    this.durableEvents = null;
     this.batchStore = null;
     this.jobCrudStore = null;
     this.jobBatchStatusStore = null;
@@ -123,7 +130,8 @@ public class BatchService {
       Clock clock,
       AfterCommitRegistrar afterCommitRegistrar,
       BatchCompletionTransaction batchCompletionTransaction,
-      PayloadSerializer payloadSerializer) {
+      PayloadSerializer payloadSerializer,
+      DurableTerminalEvents durableEvents) {
     this(
         batchStore.isResolvable() ? batchStore.get() : null,
         jobCrudStore,
@@ -138,7 +146,8 @@ public class BatchService {
         clock,
         afterCommitRegistrar,
         batchCompletionTransaction,
-        payloadSerializer);
+        payloadSerializer,
+        durableEvents);
   }
 
   public BatchService(
@@ -156,6 +165,40 @@ public class BatchService {
       AfterCommitRegistrar afterCommitRegistrar,
       BatchCompletionTransaction batchCompletionTransaction,
       PayloadSerializer payloadSerializer) {
+    this(
+        batchStore,
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        metricsCollector,
+        eventPublisher,
+        deadLetterService,
+        workflowScheduler,
+        classPolicy,
+        beanResolver,
+        clock,
+        afterCommitRegistrar,
+        batchCompletionTransaction,
+        payloadSerializer,
+        null);
+  }
+
+  public BatchService(
+      BatchStore batchStore,
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      MetricsCollector metricsCollector,
+      InternalEventPublisher eventPublisher,
+      DeadLetterService deadLetterService,
+      WorkflowScheduler workflowScheduler,
+      ClassPolicy classPolicy,
+      BeanResolver beanResolver,
+      Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction batchCompletionTransaction,
+      PayloadSerializer payloadSerializer,
+      DurableTerminalEvents durableEvents) {
     this.batchStore = batchStore;
     this.jobCrudStore = jobCrudStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -166,10 +209,11 @@ public class BatchService {
     this.workflowScheduler = workflowScheduler;
     this.classPolicy = classPolicy;
     this.beanResolver = beanResolver;
-    this.payloadSerializer = payloadSerializer;
     this.clock = clock;
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.batchCompletionTransaction = batchCompletionTransaction;
+    this.payloadSerializer = payloadSerializer;
+    this.durableEvents = durableEvents;
   }
 
   @PreDestroy
@@ -357,14 +401,51 @@ public class BatchService {
       parent.setLastError(batchFailureMessage(batch));
     }
     WorkflowCompletionPlan workflow = workflowScheduler.planCompletion(parent, false);
-    JobCompletionResult committed =
-        jobTerminalStore.commitCompletion(
-            PostExecutionHandler.completionPlan(
-                parent,
-                JobStatus.PENDING,
-                new JobCompletionPlan.BatchCompletion(
-                    batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems()),
-                workflow));
+    DurableTerminalEvents durable = durableEvents;
+    boolean durableEnabled = durable != null && durable.enabled();
+    List<AbstractJobSchedulerEvent> terminalEvents = List.of();
+    PreparedDlqEvents preparedDlq = null;
+    if (durableEnabled) {
+      if (succeeded)
+        terminalEvents =
+            List.of(
+                new JobCompletedEvent(
+                    parent.getId(),
+                    parent.getBusinessKey(),
+                    parent.getRecurringMasterId(),
+                    parent.getPublicJobType(),
+                    parent.getPriority(),
+                    parent.getPickedBy(),
+                    nowTs,
+                    batch.getTotalItems() == 0 ? 0L : null));
+      else {
+        preparedDlq =
+            durable.prepareDlqEvents(
+                List.of(
+                    new JobFailedEvent(
+                        parent.getId(),
+                        parent.getBusinessKey(),
+                        parent.getRecurringMasterId(),
+                        parent.getPublicJobType(),
+                        parent.getPriority(),
+                        parent.getPickedBy(),
+                        nowTs,
+                        parent.getLastError(),
+                        parent.getAttempts())),
+                deadLetterService.prepareDlqEvent(parent, null));
+        terminalEvents = preparedDlq.events();
+      }
+      if (preparedDlq == null) terminalEvents = durable.prepare(terminalEvents);
+    }
+    JobCompletionPlan plan =
+        PostExecutionHandler.completionPlan(
+            parent,
+            JobStatus.PENDING,
+            new JobCompletionPlan.BatchCompletion(
+                batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems()),
+            workflow);
+    if (durableEnabled) plan = durable.withEvents(plan, terminalEvents);
+    JobCompletionResult committed = jobTerminalStore.commitCompletion(plan);
     if (!committed.committed()) {
       parent.setStatus(JobStatus.PENDING);
       return false;
@@ -383,7 +464,26 @@ public class BatchService {
       metricsCollector.jobCompleted(parentId, parent.getPublicJobType(), totalDurationMs);
     }
 
-    publishBatchEvents(batch, parent, succeeded, totalDurationMs);
+    if (durableEnabled) {
+      List<AbstractJobSchedulerEvent> published = terminalEvents;
+      Long duration = totalDurationMs;
+      if (succeeded) {
+        published =
+            List.of(
+                TerminalEventMapper.toEvent(
+                    TerminalEventMapper.toRow(terminalEvents.get(0), nowTs), duration));
+      }
+      List<AbstractJobSchedulerEvent> prepared = published;
+      PreparedDlqEvents dlqEvents = preparedDlq;
+      AfterCommitActions.runOrWarn(
+          afterCommitRegistrar,
+          "batch events",
+          () -> {
+            publishBatchEnvelope(batch, parent);
+            if (succeeded) durable.publishNow(prepared);
+            else deadLetterService.recordPreparedBatchDlqTransition(parent, dlqEvents);
+          });
+    } else publishBatchEvents(batch, parent, succeeded, totalDurationMs);
     workflowScheduler.publishCompletion(workflow);
 
     log.infof(
@@ -401,28 +501,7 @@ public class BatchService {
 
   private void publishBatchEventsNow(
       BatchEntity batch, JobEntity parent, boolean succeeded, Long totalDurationMs) {
-    eventPublisher.publish(
-        new BatchCompletingEvent(
-            batch.getId(),
-            parent.getBusinessKey(),
-            parent.getRecurringMasterId(),
-            parent.getPublicJobType(),
-            parent.getPriority(),
-            parent.getPickedBy(),
-            batch.getTotalItems(),
-            batch.getCompletedItems(),
-            batch.getFailedItems()));
-    eventPublisher.publish(
-        new BatchCompletedEvent(
-            batch.getId(),
-            parent.getBusinessKey(),
-            parent.getRecurringMasterId(),
-            parent.getPublicJobType(),
-            parent.getPriority(),
-            parent.getPickedBy(),
-            batch.getTotalItems(),
-            batch.getCompletedItems(),
-            batch.getFailedItems()));
+    publishBatchEnvelope(batch, parent);
     if (succeeded) {
       eventPublisher.publish(
           new JobCompletedEvent(
@@ -452,6 +531,31 @@ public class BatchService {
     // delegation here, after JobFailedEvent, so the synthetic parent's durable FAILED transition
     // is committed before the centralized JobDlqEvent path begins.
     deadLetterService.recordDlqTransition(parent, null);
+  }
+
+  private void publishBatchEnvelope(BatchEntity batch, JobEntity parent) {
+    eventPublisher.publish(
+        new BatchCompletingEvent(
+            batch.getId(),
+            parent.getBusinessKey(),
+            parent.getRecurringMasterId(),
+            parent.getPublicJobType(),
+            parent.getPriority(),
+            parent.getPickedBy(),
+            batch.getTotalItems(),
+            batch.getCompletedItems(),
+            batch.getFailedItems()));
+    eventPublisher.publish(
+        new BatchCompletedEvent(
+            batch.getId(),
+            parent.getBusinessKey(),
+            parent.getRecurringMasterId(),
+            parent.getPublicJobType(),
+            parent.getPriority(),
+            parent.getPickedBy(),
+            batch.getTotalItems(),
+            batch.getCompletedItems(),
+            batch.getFailedItems()));
   }
 
   private static String batchFailureMessage(BatchEntity batch) {

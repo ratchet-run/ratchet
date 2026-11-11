@@ -32,7 +32,7 @@ import run.ratchet.api.JobType;
 @Incubating
 public class JobFailedEvent extends AbstractJobSchedulerEvent {
 
-  @Serial private static final long serialVersionUID = -8745178784765705117L;
+  @Serial private static final long serialVersionUID = -8745178784765705116L;
 
   private final String errorMessage;
   private final int retryAttempt;
@@ -54,6 +54,23 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       int retryAttempt) {
     super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
+    this.errorMessage = errorMessage;
+    this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
+  }
+
+  /** Creates an event with a stable id and explicit timestamp for durable redelivery. */
+  public JobFailedEvent(
+      UUID eventId,
+      UUID jobId,
+      String businessKey,
+      UUID recurringMasterId,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId,
+      Instant timestamp,
+      String errorMessage,
+      int retryAttempt) {
+    super(eventId, jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
     this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
   }

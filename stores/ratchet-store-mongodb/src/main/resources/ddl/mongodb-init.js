@@ -163,3 +163,7 @@ db.scheduler_resource_permit.createIndex({ job_id: 1 }, { name: "idx_permit_job_
 db.scheduler_resource_permit.createIndex({ node_id: 1 }, { name: "idx_permit_node_id" });
 
 print("Ratchet MongoDB initialization complete.");
+
+// Durable terminal event recovery, ordered by creation time and event id.
+db.scheduler_event_outbox.createIndex(
+    {created_at: 1, _id: 1}, {name: "idx_event_outbox_created"});

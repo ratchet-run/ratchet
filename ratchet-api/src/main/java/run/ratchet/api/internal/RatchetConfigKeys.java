@@ -221,6 +221,13 @@ public final class RatchetConfigKeys {
           900L,
           1L);
 
+  /**
+   * Persists terminal events for at-least-once delivery. Requires EventOutboxStore and LockStore.
+   * Listeners must deduplicate on getEventId().
+   */
+  public static final RatchetConfigKey<Boolean> EVENTS_DURABLE =
+      boolKey("ratchet.events.durable", "RATCHET_EVENTS_DURABLE", false);
+
   public static final RatchetConfigKey<Boolean> DLQ_PURGE_ENABLED =
       boolKey("ratchet.dlq.purge-enabled", "RATCHET_DLQ_PURGE_ENABLED", true);
   public static final RatchetConfigKey<String> DLQ_PURGE_CRON =

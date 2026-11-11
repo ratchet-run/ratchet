@@ -515,3 +515,23 @@ CREATE TABLE IF NOT EXISTS scheduler_idempotency_key (
     reserved_at DATETIME(6) NOT NULL,
     CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
 );
+
+-- Durable terminal event outbox
+CREATE TABLE IF NOT EXISTS scheduler_event_outbox
+(
+    event_id BINARY(16) NOT NULL,
+    event_type VARCHAR(32) NOT NULL,
+    job_id BINARY(16) NOT NULL,
+    business_key VARCHAR(255) NULL,
+    recurring_master_id BINARY(16) NULL,
+    job_type VARCHAR(32) NULL,
+    priority VARCHAR(16) NULL,
+    node_id VARCHAR(64) NULL,
+    event_ts DATETIME(6) NOT NULL,
+    execution_time_ms BIGINT NULL,
+    error_message MEDIUMTEXT NULL,
+    retry_attempt INT NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (event_id),
+    INDEX idx_event_outbox_created (created_at, event_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

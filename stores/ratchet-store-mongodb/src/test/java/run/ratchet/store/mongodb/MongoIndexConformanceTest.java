@@ -45,6 +45,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -105,6 +106,20 @@ class MongoIndexConformanceTest {
   void tearDown() {
     database.drop();
     client.close();
+  }
+
+  @Test
+  void eventOutboxHasOrderedRecoveryIndex() {
+    Document index =
+        database
+            .getCollection("scheduler_event_outbox")
+            .listIndexes()
+            .into(new ArrayList<>())
+            .stream()
+            .filter(row -> "idx_event_outbox_created".equals(row.getString("name")))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(new Document("created_at", 1).append("_id", 1), index.get("key"));
   }
 
   @Test

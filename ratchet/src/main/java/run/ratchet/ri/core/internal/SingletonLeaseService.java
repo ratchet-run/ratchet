@@ -61,6 +61,11 @@ public class SingletonLeaseService {
     this.nodeIdentityProvider = nodeIdentityProvider;
   }
 
+  /** Returns whether a lock store was resolved for cluster-wide leases. */
+  public boolean hasLockStore() {
+    return lockStore != null;
+  }
+
   static String requireLeaseName(String leaseName) {
     String normalized = Objects.requireNonNull(leaseName, "leaseName must not be null").trim();
     if (normalized.isEmpty()) {

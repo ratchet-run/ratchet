@@ -43,6 +43,7 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
+import run.ratchet.store.dto.OutboxEventRead;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -62,6 +63,7 @@ import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.IsolationCheck;
+import run.ratchet.store.util.SqlEventOutbox;
 import run.ratchet.store.util.SqlJobCompletion;
 
 /**
@@ -1014,6 +1016,16 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Override
   public Map<String, String> getPropertiesByPrefix(UUID jobId, String prefix) {
     return extensions.getPropertiesByPrefix(jobId, prefix);
+  }
+
+  @Override
+  public List<OutboxEventRead> findEventsCreatedBefore(Instant cutoff, int limit) {
+    return SqlEventOutbox.find(em, cutoff, limit);
+  }
+
+  @Override
+  public int deleteEvents(Collection<UUID> eventIds) {
+    return SqlEventOutbox.delete(em, eventIds, UuidByteArrayConverter::toBytes);
   }
 
   // ---------- JobStateStore delegates ----------

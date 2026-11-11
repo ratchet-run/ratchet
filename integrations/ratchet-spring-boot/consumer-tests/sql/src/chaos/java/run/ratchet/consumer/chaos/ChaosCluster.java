@@ -38,6 +38,7 @@ import run.ratchet.consumer.sql.SqlDatabase;
 /** Independent Boot JVMs sharing one database and a database-clock fault timeline. */
 public final class ChaosCluster implements AutoCloseable {
   private final SqlDatabase database;
+  private final Map<String, Object> overrides;
   private final List<RuntimeProcess> nodes = new ArrayList<>();
   private final List<String> incarnations = new ArrayList<>();
   private final Set<Integer> stopped = ConcurrentHashMap.newKeySet();
@@ -56,6 +57,11 @@ public final class ChaosCluster implements AutoCloseable {
   }
 
   public ChaosCluster(int count) throws Exception {
+    this(count, Map.of());
+  }
+
+  public ChaosCluster(int count, Map<String, Object> overrides) throws Exception {
+    this.overrides = Map.copyOf(overrides);
     String store = System.getProperty("store", "postgresql");
     DbClock.expression(store); // Reject unsupported stores before starting a container.
     database = SqlDatabase.start(store);
@@ -108,6 +114,7 @@ public final class ChaosCluster implements AutoCloseable {
     properties.put("spring.main.web-application-type", "servlet");
     properties.put("server.port", 0);
     properties.put("server.shutdown", "graceful");
+    properties.putAll(overrides);
     Files.createDirectories(Path.of("target"));
     RuntimeProcess process =
         new RuntimeProcess(
@@ -314,6 +321,7 @@ public final class ChaosCluster implements AutoCloseable {
   private boolean eventSettled(String jobId, Map<String, String> statuses, Ledger ledger) {
     if ("CANCELED".equals(statuses.get(jobId))
         || ledger.commits().stream().anyMatch(c -> c.jobId().equals(jobId))) return true;
+    if (Boolean.parseBoolean(String.valueOf(overrides.get("ratchet.events.durable")))) return false;
     Ledger.Attempt latest = null;
     for (var attempt : ledger.attempts()) {
       if (attempt.jobId().equals(jobId)) latest = attempt;
