@@ -34,7 +34,9 @@ import static org.mockito.Mockito.when;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Type;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -91,6 +93,8 @@ class BatchFoldTest {
   private final UUID child = UUID.randomUUID();
   private final BatchEntity batch = new BatchEntity();
   private final JobEntity parent = new JobEntity();
+  private final MutableClock clock =
+      new MutableClock(Instant.parse("2026-11-10T00:00:00Z"), ZoneOffset.UTC);
   private BatchService service;
 
   @BeforeEach
@@ -125,7 +129,7 @@ class BatchFoldTest {
             workflow,
             policy,
             mock(BeanResolver.class),
-            Clock.fixed(Instant.parse("2026-11-10T00:00:00Z"), ZoneOffset.UTC),
+            clock,
             action -> Result.NO_ACTIVE_TRANSACTION,
             new BatchCompletionTransaction(),
             serializer);
@@ -140,6 +144,55 @@ class BatchFoldTest {
     assertEquals(JobStatus.SUCCEEDED, plan.getValue().terminalStatus());
     assertEquals("7", plan.getValue().resultJson());
     verify(workflow).planCompletion(parent, false, 7L);
+  }
+
+  @Test
+  void foldRenewsItsClaimAfterHalfTheTimeout() {
+    Instant start = clock.instant();
+    UUID secondChild = UUID.randomUUID();
+    batch.setTotalItems(2);
+    batch.setCompletedItems(2);
+    when(batches.findSucceededChildResults(id, null, 500))
+        .thenAnswer(
+            call -> {
+              clock.advance(Duration.ofMinutes(3));
+              return List.of(new ChildResult(child, "7", "java.lang.Long"));
+            });
+    when(batches.findSucceededChildResults(id, child, 500))
+        .thenReturn(List.of(new ChildResult(secondChild, "5", "java.lang.Long")));
+    when(batches.findSucceededChildResults(id, secondChild, 500)).thenReturn(List.of());
+
+    service.fold(id);
+
+    verify(batches).claimFold(id, start, start.minus(Duration.ofMinutes(5)));
+    verify(batches).claimFold(id, start.plus(Duration.ofMinutes(3)), start.plusMillis(1));
+    verify(batches, times(2)).claimFold(any(), any(), any());
+    var plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+    verify(terminal).commitCompletion(plan.capture());
+    assertEquals("12", plan.getValue().resultJson());
+  }
+
+  @Test
+  void foldStopsWhenRenewalFails() {
+    UUID secondChild = UUID.randomUUID();
+    batch.setTotalItems(2);
+    batch.setCompletedItems(2);
+    when(batches.claimFold(eq(id), any(), any())).thenReturn(true, false);
+    when(batches.findSucceededChildResults(id, null, 500))
+        .thenAnswer(
+            call -> {
+              clock.advance(Duration.ofMinutes(3));
+              return List.of(new ChildResult(child, "7", "java.lang.Long"));
+            });
+    when(batches.findSucceededChildResults(id, child, 500))
+        .thenReturn(List.of(new ChildResult(secondChild, "5", "java.lang.Long")));
+    when(batches.findSucceededChildResults(id, secondChild, 500)).thenReturn(List.of());
+
+    service.fold(id);
+
+    verify(batches, times(2)).claimFold(any(), any(), any());
+    verifyNoInteractions(terminal);
+    verify(batches, never()).findSucceededChildResults(id, secondChild, 500);
   }
 
   @Test
@@ -316,7 +369,7 @@ class BatchFoldTest {
             workflow,
             policy,
             mock(BeanResolver.class),
-            Clock.fixed(Instant.parse("2026-11-10T00:00:00Z"), ZoneOffset.UTC),
+            clock,
             action -> Result.NO_ACTIVE_TRANSACTION,
             new BatchCompletionTransaction(),
             throwing);
@@ -351,6 +404,35 @@ class BatchFoldTest {
     batch.setReducer(
         serializer.serialize(
             new BatchReducer.Stored(JobPayloadFactory.fromLambda(combiner), 0L, "java.lang.Long")));
+  }
+
+  private static class MutableClock extends Clock {
+    private Instant instant;
+    private final ZoneId zone;
+
+    private MutableClock(Instant instant, ZoneId zone) {
+      this.instant = instant;
+      this.zone = zone;
+    }
+
+    private void advance(Duration duration) {
+      instant = instant.plus(duration);
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return zone;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return new MutableClock(instant, zone);
+    }
+
+    @Override
+    public Instant instant() {
+      return instant;
+    }
   }
 
   public static Long broken(Long a, Long b) {

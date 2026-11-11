@@ -25,6 +25,7 @@ import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -858,6 +859,7 @@ public class BatchService {
   public void fold(UUID batchId) {
     BatchEntity batch;
     JobEntity parent;
+    Instant claimedAt;
     try {
       batch = batchStore.findBatchById(batchId).orElse(null);
       parent = jobCrudStore.findById(batchId).orElse(null);
@@ -865,9 +867,10 @@ public class BatchService {
           || parent == null
           || parent.getStatus() != JobStatus.PENDING
           || !readyForFold(batch)) return;
-      Instant now = effective().instant();
+      Instant now = effective().instant().truncatedTo(ChronoUnit.MILLIS);
       if (!batchCompletionTransaction.complete(
           () -> batchStore.claimFold(batchId, now, now.minus(foldTimeout)))) return;
+      claimedAt = now;
     } catch (RuntimeException ex) {
       log.warnf(ex, "Cannot claim batch fold %s; recovery will retry", batchId);
       return;
@@ -912,6 +915,11 @@ public class BatchService {
           if (acc == null) throw new IllegalArgumentException("Batch combiner returned null");
           read++;
           cursor = child.jobId();
+        }
+        claimedAt = renewFoldClaim(batchId, claimedAt);
+        if (claimedAt == null) {
+          log.warnf("Batch %s fold lost its claim to another fold; stopping", batchId);
+          return;
         }
       }
       if (read != batch.getCompletedItems()) {
@@ -964,6 +972,23 @@ public class BatchService {
     } catch (RuntimeException ex) {
       log.warnf(ex, "Batch %s fold completion deferred", batchId);
     }
+  }
+
+  /**
+   * Extends this fold's claim once half the fold timeout has passed, so recovery does not start a
+   * second fold of a long batch. {@code claimFold} matches only while the stored claim is not newer
+   * than ours, which makes it a compare-and-set on our own claim time. It fails when another fold
+   * took over or completion committed.
+   *
+   * @return the claim time to keep, or null when the claim is lost
+   */
+  private Instant renewFoldClaim(UUID batchId, Instant claimedAt) {
+    Instant now = effective().instant().truncatedTo(ChronoUnit.MILLIS);
+    if (now.isBefore(claimedAt.plus(foldTimeout.dividedBy(2)))) return claimedAt;
+    return batchCompletionTransaction.complete(
+            () -> batchStore.claimFold(batchId, now, claimedAt.plusMillis(1)))
+        ? now
+        : null;
   }
 
   private static boolean deferrable(Throwable failure) {
