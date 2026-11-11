@@ -45,9 +45,13 @@
 
     <entity class="run.ratchet.store.entity.BatchEntity">
         <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="progressHook"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="foldClaimedAt"/>
         <attributes>
             <basic name="progressHook">
                 <column name="progress_hook" column-definition="CLOB"/>
+            </basic>
+            <basic name="reducer">
+                <column name="reducer" column-definition="CLOB"/>
             </basic>
         </attributes>
     </entity>

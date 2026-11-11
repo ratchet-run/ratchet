@@ -33,6 +33,7 @@
     </entity>
 
     <entity class="run.ratchet.store.entity.BatchEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="foldClaimedAt"/>
         <attributes>
             <id name="id" jdbc-type-code="-2"><column name="batch_id" length="16"/></id>
         </attributes>
