@@ -781,6 +781,12 @@ public class RatchetOptions {
       long batchRecoveryIntervalSeconds,
       long batchRecoveryLeaseTtlSeconds,
       Duration batchFoldTimeout) {
+    public MaintenanceOptions {
+      Objects.requireNonNull(batchFoldTimeout, "batchFoldTimeout");
+      if (batchFoldTimeout.isZero() || batchFoldTimeout.isNegative())
+        throw new IllegalArgumentException("Fold timeout must be positive");
+    }
+
     @Incubating
     public Duration batchFoldTimeout() {
       return batchFoldTimeout;

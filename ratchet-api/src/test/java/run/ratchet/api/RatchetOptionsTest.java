@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Modifier;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
@@ -32,6 +33,32 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.spi.CallerPrincipalResolver;
 
 class RatchetOptionsTest {
+
+  @Test
+  void maintenanceOptionsRejectsMissingOrNonPositiveFoldTimeout() {
+    RatchetOptions.MaintenanceOptions m = RatchetOptions.builder().build().maintenance();
+    for (Duration invalid : Arrays.asList(null, Duration.ZERO, Duration.ofSeconds(-1))) {
+      Class<? extends RuntimeException> expected =
+          invalid == null ? NullPointerException.class : IllegalArgumentException.class;
+      assertThrows(
+          expected,
+          () ->
+              new RatchetOptions.MaintenanceOptions(
+                  m.dlqPurgeEnabled(),
+                  m.dlqPurgeCron(),
+                  m.dlqPurgeDays(),
+                  m.jobArchiveEnabled(),
+                  m.jobArchiveCron(),
+                  m.jobRetentionDays(),
+                  m.jobArchiveBatchSize(),
+                  m.logPurgeEnabled(),
+                  m.logPurgeCron(),
+                  m.logRetentionDays(),
+                  m.batchRecoveryIntervalSeconds(),
+                  m.batchRecoveryLeaseTtlSeconds(),
+                  invalid));
+    }
+  }
 
   @Test
   void continuationLimitDefaultsValidatesAndSurvivesCopy() {
