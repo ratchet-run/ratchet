@@ -25,6 +25,18 @@ passes on MySQL without a mapping file. Values, defaults and check constraints a
 `V010`, it copies each table and blocks writes to it until the copy finishes, so run it in a quiet
 window on a large installation.
 
+PostgreSQL and Oracle also gain `V013__batch_reducer.sql`. Besides adding two `scheduler_batch`
+columns, it rebuilds `idx_job_depends_on` on `scheduler_job` as `(depends_on, job_id)` so batch
+results can be read in pages. The migrator runs the PostgreSQL script in one transaction, so reads
+and writes on `scheduler_job` wait until the new index is built and the transaction commits. On
+Oracle, the index build blocks writes to `scheduler_job` while it runs, and the drop and the create
+each fail with ORA-00054 if another transaction is writing to the table at that moment. Oracle DDL
+commits as it goes, so if the script stops between the drop and the create, the index stays missing
+until the script runs again. Running it again is safe. On a large installation, plan a maintenance
+window for this migration, and on Oracle stop the nodes that write to `scheduler_job` first. MySQL
+and SQL Server only add the columns. MongoDB replaces the old single-field index of the same name
+when the store starts.
+
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.
 

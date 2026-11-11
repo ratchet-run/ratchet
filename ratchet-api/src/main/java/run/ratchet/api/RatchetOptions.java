@@ -787,6 +787,13 @@ public class RatchetOptions {
         throw new IllegalArgumentException("Fold timeout must be positive");
     }
 
+    /**
+     * Returns how long a batch-fold claim stays valid. After this time, batch recovery may retake a
+     * fold claim whose node stopped before finishing. This is a claim timeout, not a deadline that
+     * interrupts a running fold.
+     *
+     * @return the fold-claim timeout, always positive
+     */
     @Incubating
     public Duration batchFoldTimeout() {
       return batchFoldTimeout;
