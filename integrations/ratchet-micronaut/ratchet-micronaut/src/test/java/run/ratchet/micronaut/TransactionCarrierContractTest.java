@@ -54,7 +54,6 @@ import run.ratchet.micronaut.internal.tx.MicronautDefaultJobArchivingService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobCreationService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobSchedulerService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultRecurringAnnotationMaintenanceService;
-import run.ratchet.micronaut.internal.tx.MicronautJobCascadeService;
 import run.ratchet.micronaut.internal.tx.MicronautJobStateManager;
 import run.ratchet.micronaut.internal.tx.MicronautPollerCycleExecutor;
 import run.ratchet.micronaut.internal.tx.MicronautPostExecutionHandler;
@@ -64,7 +63,6 @@ import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
-import run.ratchet.ri.core.JobCascadeService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.internal.ChainScheduler;
@@ -91,7 +89,6 @@ class TransactionCarrierContractTest {
           Map.entry(
               MicronautDefaultRecurringAnnotationMaintenanceService.class,
               DefaultRecurringAnnotationMaintenanceService.class),
-          Map.entry(MicronautJobCascadeService.class, JobCascadeService.class),
           Map.entry(MicronautJobStateManager.class, JobStateManager.class),
           Map.entry(MicronautPollerCycleExecutor.class, PollerCycleExecutor.class),
           Map.entry(MicronautPostExecutionHandler.class, PostExecutionHandler.class),
@@ -110,7 +107,6 @@ class TransactionCarrierContractTest {
           DefaultJobCreationService.class,
           DefaultJobSchedulerService.class,
           DefaultRecurringAnnotationMaintenanceService.class,
-          JobCascadeService.class,
           JobStateManager.class,
           PollerCycleExecutor.class,
           PostExecutionHandler.class,

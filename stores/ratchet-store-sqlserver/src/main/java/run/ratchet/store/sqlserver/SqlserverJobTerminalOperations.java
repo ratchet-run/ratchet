@@ -19,6 +19,7 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
@@ -198,15 +199,20 @@ final class SqlserverJobTerminalOperations {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
+    boolean paused = retryIntoPausedBatch(id);
     // language=SQL Server
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
+        SET status = '%s', paused_from_status = %s,
+            last_error = ?, scheduled_time = ?, attempts = ?,
             picked_by = NULL, picked_at = NULL, updated_at = SYSUTCDATETIME()
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
         """
-            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
+            .formatted(
+                paused ? "PAUSED" : "PENDING",
+                paused ? "'PENDING'" : "NULL",
+                expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     return ctx.timedStoreOperation(
             "schedule_retry",
             () ->
@@ -218,6 +224,26 @@ final class SqlserverJobTerminalOperations {
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
+  }
+
+  private boolean retryIntoPausedBatch(UUID id) {
+    // Lock the parent before releasing the child, serializing with batch pause/resume sweeps.
+    String sql =
+        """
+        SELECT status FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK)
+        WHERE job_id = (
+          SELECT depends_on FROM scheduler_job WHERE job_id = ? AND job_type = 'BATCH_CHILD')
+        """;
+    try {
+      List<?> parents =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, UuidByteArrayConverter.toBytes(id))
+              .getResultList();
+      return !parents.isEmpty() && "PAUSED".equals(parents.get(0));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("read retry batch status", e);
+    }
   }
 
   boolean markJobFailedTerminal(
@@ -446,6 +472,7 @@ final class SqlserverJobTerminalOperations {
         }
       }
       if (batchId != null) {
+        pauseRetriedChildren(batchId, List.of(id));
         decrementRetryFailures(batchId, 1);
       }
       return true;
@@ -474,6 +501,25 @@ final class SqlserverJobTerminalOperations {
               .formatted(placeholders);
       int cleared = bindIds(clearTerminalSql, ids).executeUpdate();
       requireCompleteBulkSelection(ids, cleared);
+
+      // Lock each parent and batch before inserting hot rows: a batch cascade holding the
+      // parent scans hot rows and must not wait on rows this reset has not committed.
+      String batchSql =
+          """
+          SELECT depends_on, COUNT(*) FROM scheduler_job
+          WHERE job_type = 'BATCH_CHILD' AND job_id IN (%s)
+          GROUP BY depends_on ORDER BY depends_on
+          """
+              .formatted(placeholders);
+      @SuppressWarnings("unchecked")
+      List<Object[]> batchRows = bindIds(batchSql, ids).getResultList();
+      for (Object[] batchRow : batchRows) {
+        UUID batchId = SqlserverJobRowMapper.uuidOrNull(batchRow[0]);
+        if (batchId == null || !lockOpenRetryBatch(batchId)) {
+          throw new RatchetTransientStoreException(
+              "Bulk retry selection changed concurrently: batch finished or missing");
+        }
+      }
 
       // Same one-microsecond back-off as the single-job reset above.
       // language=SQL Server
@@ -506,23 +552,8 @@ final class SqlserverJobTerminalOperations {
           """
               .formatted(placeholders);
       bindIds(reserveSql, ids).executeUpdate();
-      String batchSql =
-          """
-          SELECT depends_on, COUNT(*) FROM scheduler_job
-          WHERE job_type = 'BATCH_CHILD' AND job_id IN (%s)
-          GROUP BY depends_on ORDER BY depends_on
-          """
-              .formatted(placeholders);
-      @SuppressWarnings("unchecked")
-      List<Object[]> batchRows = bindIds(batchSql, ids).getResultList();
       for (Object[] batchRow : batchRows) {
-        UUID batchId = SqlserverJobRowMapper.uuidOrNull(batchRow[0]);
-        if (batchId == null || !lockOpenRetryBatch(batchId)) {
-          throw new RatchetTransientStoreException(
-              "Bulk retry selection changed concurrently: batch finished or missing");
-        }
-      }
-      for (Object[] batchRow : batchRows) {
+        pauseRetriedChildren(SqlserverJobRowMapper.uuidOrNull(batchRow[0]), ids);
         decrementRetryFailures(
             SqlserverJobRowMapper.uuidOrNull(batchRow[0]), ((Number) batchRow[1]).intValue());
       }
@@ -537,6 +568,18 @@ final class SqlserverJobTerminalOperations {
   }
 
   private boolean lockOpenRetryBatch(UUID batchId) {
+    List<?> parents =
+        ctx.em()
+            .createNativeQuery(
+                """
+                SELECT status FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK)
+                WHERE job_id = ?
+                """)
+            .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+            .getResultList();
+    if (parents.isEmpty() || !List.of("PENDING", "PAUSED").contains(parents.get(0))) {
+      return false;
+    }
     String sql =
         """
         SELECT completion_processed FROM scheduler_batch WITH (UPDLOCK, ROWLOCK)
@@ -553,6 +596,46 @@ final class SqlserverJobTerminalOperations {
     Object processed = rows.get(0);
     return Boolean.FALSE.equals(processed)
         || processed instanceof Number number && number.intValue() == 0;
+  }
+
+  private void pauseRetriedChildren(UUID batchId, List<UUID> ids) {
+    // The reset already owns these child hot rows and has locked the parent and batch.
+    List<?> parents =
+        ctx.em()
+            .createNativeQuery(
+                """
+                SELECT status FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK) WHERE job_id = ?
+                """)
+            .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+            .getResultList();
+    if (parents.isEmpty() || !"PAUSED".equals(parents.get(0))) {
+      return;
+    }
+    String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
+    String selectionSql =
+        """
+        SELECT job_id FROM scheduler_job
+        WHERE job_id IN (%s) AND depends_on = ?
+        """
+            .formatted(placeholders);
+    List<?> childIds =
+        bindIds(selectionSql, ids)
+            .setParameter(ids.size() + 1, UuidByteArrayConverter.toBytes(batchId))
+            .getResultList();
+    if (childIds.isEmpty()) {
+      return;
+    }
+    String updateSql =
+        """
+        UPDATE scheduler_job_queue SET status = 'PAUSED', paused_from_status = 'PENDING'
+        WHERE job_id IN (%s)
+        """
+            .formatted(String.join(", ", Collections.nCopies(childIds.size(), "?")));
+    var update = ctx.em().createNativeQuery(updateSql);
+    for (int i = 0; i < childIds.size(); i++) {
+      update.setParameter(i + 1, childIds.get(i));
+    }
+    update.executeUpdate();
   }
 
   private void decrementRetryFailures(UUID batchId, int count) {

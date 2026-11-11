@@ -521,6 +521,26 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
+  public int cancelBatchChildren(UUID batchId) {
+    return batches.cancelBatchChildren(batchId);
+  }
+
+  @Override
+  public int pauseBatchChildren(UUID batchId) {
+    return batches.pauseBatchChildren(batchId);
+  }
+
+  @Override
+  public int resumeBatchChildren(UUID batchId) {
+    return batches.resumeBatchChildren(batchId);
+  }
+
+  @Override
+  public void closeBatch(UUID batchId) {
+    batches.closeBatch(batchId);
+  }
+
+  @Override
   public boolean markBatchCompleteIfReady(UUID batchId) {
     return batches.markBatchCompleteIfReady(batchId);
   }

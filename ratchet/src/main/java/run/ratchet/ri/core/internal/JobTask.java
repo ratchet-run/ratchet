@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -69,6 +70,7 @@ import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -95,6 +97,9 @@ public class JobTask implements Callable<Void> {
    * enough that an upgraded peer drains it promptly during a rolling upgrade.
    */
   private static final Duration UPGRADE_PENDING_BACKOFF = Duration.ofSeconds(30);
+
+  /** Delay before a batch child whose parent check failed can be claimed again. */
+  private static final Duration BATCH_CHECK_RETRY_BACKOFF = Duration.ofSeconds(30);
 
   private static final String CONTINUATION_NAMESPACE = "ratchet.continuation";
   private final int maxContinuations;
@@ -257,6 +262,64 @@ public class JobTask implements Callable<Void> {
       log.infof(
           "Job %s claim no longer owned by this node (status=%s, pickedBy=%s) - skipping execution",
           jobId, jobEntity.getStatus(), jobEntity.getPickedBy());
+      JobMdcContext.clear();
+      return null;
+    }
+    try {
+      BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobStore, jobEntity);
+      if (parentState.closed()) {
+        // Completion fences the worker claim and atomically releases its reservation and
+        // counts the child. An older task must not cancel a recovered RUNNING attempt.
+        Instant now = effective().instant();
+        if (!jobStore
+            .commitCompletion(
+                new JobCompletionPlan(
+                    jobId,
+                    JobStatus.RUNNING,
+                    JobStatus.CANCELED,
+                    null,
+                    null,
+                    null,
+                    jobEntity.getAttempts(),
+                    now,
+                    now,
+                    0L,
+                    0L,
+                    jobEntity.getDependsOn(),
+                    null,
+                    List.of(),
+                    expectedClaimSeq(),
+                    List.of()))
+            .committed()) {
+          warnRejectedOwnerWrite();
+        }
+        log.infof(
+            "Job %s not started: batch %s is closed (parent %s)",
+            jobId, jobEntity.getDependsOn(), parentState.description());
+        JobMdcContext.clear();
+        return null;
+      }
+    } catch (RuntimeException e) {
+      // The runner cancels its watchdog on return, and orphan recovery ignores live nodes.
+      // Release through the fenced retry path, which keeps children of paused batches paused.
+      log.errorf(
+          e,
+          "Job %s not started: could not check or cancel it for batch %s",
+          jobId,
+          jobEntity.getDependsOn());
+      try {
+        if (!jobStore.scheduleJobRetry(
+            jobId,
+            sanitizeError(e),
+            effective().instant().plus(BATCH_CHECK_RETRY_BACKOFF),
+            claim != null ? claim.attempts() : jobEntity.getAttempts(),
+            expectedClaimSeq())) {
+          warnRejectedOwnerWrite();
+        }
+      } catch (RuntimeException releaseFailure) {
+        log.errorf(
+            releaseFailure, "Job %s could not release claim after batch check failed", jobId);
+      }
       JobMdcContext.clear();
       return null;
     }
@@ -1006,11 +1069,24 @@ public class JobTask implements Callable<Void> {
     currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     logIfTimeout(ex);
 
-    if (attempt <= job.getMaxRetries() && retryPolicy.shouldRetry(attempt, ex)) {
+    if (attempt <= job.getMaxRetries()
+        && retryPolicy.shouldRetry(attempt, ex)
+        && batchAllowsRetry()) {
       scheduleRetry(ex, attempt, sanitized);
     } else {
       moveToDlq(ex, attempt, sanitized);
     }
+  }
+
+  private boolean batchAllowsRetry() {
+    BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobStore, job);
+    if (parentState.closed()) {
+      log.infof(
+          "Job %s not retried: batch %s is closed (parent %s)",
+          job.getId(), job.getDependsOn(), parentState.description());
+      return false;
+    }
+    return true;
   }
 
   /**

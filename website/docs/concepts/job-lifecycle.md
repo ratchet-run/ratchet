@@ -88,7 +88,7 @@ The job is queued and waiting for execution. A PENDING job becomes visible to th
 A worker has claimed the job and is actively executing it. The `picked_by` field records which node owns the job, and each claim advances a claim sequence. Owner writes must match that sequence, so a recovered job rejects outcomes and retry updates from an older execution. Delivery remains at least once: job bodies can overlap after recovery, so external side effects need idempotency.
 
 - **Visible to Poller:** No
-- **Transitions to:** SUCCEEDED (execution completes), FAILED (exception thrown or timeout), CANCELED (via `cancelJob()` -- checked mid-execution)
+- **Transitions to:** SUCCEEDED (execution completes), FAILED (exception thrown or timeout), CANCELED (via `cancelJob()` -- detected after the payload returns)
 - **Guard:** Only the current claim can persist owner writes
 
 ### SUCCEEDED
@@ -264,11 +264,14 @@ scheduler.cancelJob(jobId);
 
 Behavior depends on current state:
 - **PENDING:** Immediately transitions to CANCELED
-- **RUNNING:** Sets status to CANCELED. The executor periodically checks `wasJobCanceledDuringExecution()` and discards results if true
+- **RUNNING:** Sets status to CANCELED. The payload is not interrupted. After it returns, the executor checks cancellation and discards its result
 - **WAITING:** Cancels the signal wait and prevents future delivery from releasing the job
 - **Terminal states:** Returns `false` (cannot cancel completed jobs)
 
-For chain steps, cancellation cascades to all downstream dependents using depth-first traversal.
+For an ordinary job or chain step, `cancelJob` cancels that job only. It does not
+cancel downstream jobs. For a batch parent, it also cancels unstarted batch children
+and callback branches with their unstarted descendants. RUNNING batch children keep
+running and record their real results.
 
 ## Claim fencing
 

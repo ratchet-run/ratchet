@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -33,6 +34,8 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
@@ -43,6 +46,140 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
   @AfterEach
   void cleanupBatchFixture() {
     cleanupStore();
+  }
+
+  @Test
+  void cancelBatchChildrenOnlyCancelsEligibleChildrenAndReleasesReservations() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 6);
+    var pending = cascadeChild(parent.getId(), JobStatus.PENDING);
+    var paused = cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(store().transitionToPaused(paused.getId(), JobStatus.PENDING));
+    var waiting = cascadeChild(parent.getId(), JobStatus.WAITING);
+    var running = cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(
+        store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    var terminal = cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(store().cancelJob(terminal.getId()));
+    var otherParent = persist(newBatchParentJob());
+    persistBatch(otherParent.getId(), 1);
+    var other = cascadeChild(otherParent.getId(), JobStatus.PENDING);
+    var callback = newPendingJob();
+    callback.setDependsOn(parent.getId());
+    callback.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    callback = persist(callback);
+    int failures = batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems();
+
+    assertEquals(3, batchStore().cancelBatchChildren(parent.getId()));
+    for (JobEntity child : List.of(pending, paused, waiting)) {
+      assertEquals(JobStatus.CANCELED, store().getJobStatus(child.getId()));
+      assertFalse(store().tryPickUpJob(child.getId(), "cascade-worker"));
+      assertTrue(store().findActiveByBusinessKey(child.getBusinessKey()).isEmpty());
+      var replacement = newPendingJob();
+      replacement.setBusinessKey(child.getBusinessKey());
+      assertDoesNotThrow(() -> persist(replacement));
+    }
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(running.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(terminal.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(other.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(callback.getId()));
+    var batch = batchStore().findBatchById(parent.getId()).orElseThrow();
+    assertEquals(failures + 3, batch.getFailedItems());
+    assertFalse(batch.getCompletionProcessed());
+    assertEquals(0, batchStore().cancelBatchChildren(parent.getId()));
+    assertEquals(
+        failures + 3, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void cancelBatchChildrenDrainsMultipleChunks() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1200);
+    List<UUID> ids = new ArrayList<>();
+    for (int i = 0; i < 1200; i++) {
+      ids.add(cascadeChild(parent.getId(), JobStatus.PENDING).getId());
+    }
+    assertEquals(1200, batchStore().cancelBatchChildren(parent.getId()));
+    for (UUID id : ids) {
+      assertEquals(JobStatus.CANCELED, store().getJobStatus(id));
+    }
+    assertEquals(1200, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void pauseAndResumeBatchChildrenRestoresSourceStatusesAndSkipsRunning() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 4);
+    var pending = cascadeChild(parent.getId(), JobStatus.PENDING);
+    var individuallyPaused = cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(store().transitionToPaused(individuallyPaused.getId(), JobStatus.PENDING));
+    var running = cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(
+        store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    var waiting = cascadeChild(parent.getId(), JobStatus.WAITING);
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().pauseBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(pending.getId()));
+    assertEquals(
+        JobStatus.PENDING, store().findById(pending.getId()).orElseThrow().getPausedFromStatus());
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(2, batchStore().resumeBatchChildren(parent.getId()));
+    for (JobEntity child : List.of(pending, individuallyPaused)) {
+      var reloaded = store().findById(child.getId()).orElseThrow();
+      assertEquals(JobStatus.PENDING, reloaded.getStatus());
+      assertNull(reloaded.getPausedFromStatus());
+    }
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(running.getId()));
+    assertEquals(JobStatus.WAITING, store().getJobStatus(waiting.getId()));
+    assertEquals(0, batchStore().resumeBatchChildren(parent.getId()));
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void repairSweepsRequireExpectedParentStatus() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    var child = cascadeChild(parent.getId(), JobStatus.PENDING);
+
+    // A delayed pause sweep must not run after resume has made the parent PENDING.
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().pauseBatchChildren(parent.getId()));
+    // A delayed resume sweep must not run after another pause has won.
+    assertEquals(0, batchStore().resumeBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(child.getId()));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().resumeBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
+  }
+
+  @Test
+  void closeBatchPreservesFailuresAndRemovesItFromRecovery() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 3);
+    batchStore().incrementFailedAtomic(parent.getId());
+    batchStore().incrementCompletedAtomic(parent.getId());
+    batchStore().closeBatch(parent.getId());
+    var batch = batchStore().findBatchById(parent.getId()).orElseThrow();
+    assertEquals(1, batch.getFailedItems());
+    assertEquals(1, batch.getCompletedItems());
+    assertTrue(batch.getCompletionProcessed());
+    assertFalse(batchStore().findRecoverableBatchIds(100).contains(parent.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(parent.getId()));
+  }
+
+  private JobEntity cascadeChild(UUID batchId, JobStatus status) {
+    var child = newPendingJob();
+    child.setDependsOn(batchId);
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setBusinessKey("cascade-" + UUID.randomUUID());
+    child.setStatus(status);
+    if (status == JobStatus.WAITING) {
+      child.setSignalKey("cascade-signal-" + UUID.randomUUID());
+    }
+    return persist(child);
   }
 
   @Test

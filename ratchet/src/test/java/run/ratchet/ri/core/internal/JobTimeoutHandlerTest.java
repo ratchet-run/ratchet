@@ -190,6 +190,280 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void hardTimeoutOfCancelledBatchChildIsTerminal() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = jobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.CANCELED);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(eq(job), eq(JobStatus.RUNNING), eq(false), any(), any());
+  }
+
+  @Test
+  void hardTimeoutOfPendingBatchChildRetries() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = jobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null))
+        .thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L)))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PENDING, JobStatus.PENDING, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L));
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void hardTimeoutOfPausedBatchChildRetries() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = jobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PAUSED);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PAUSED, JobStatus.PAUSED, null))
+        .thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L)))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L));
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void hardTimeoutRetriesWhenParentResumesDuringLock() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = jobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId))
+        .thenReturn(JobStatus.PAUSED, JobStatus.PAUSED, JobStatus.PENDING);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PAUSED, JobStatus.PAUSED, null))
+        .thenReturn(false);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null))
+        .thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L)))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+
+    var order = inOrder(jobCrudStore, jobBatchStatusStore, jobRetryStore);
+    order.verify(jobCrudStore, times(2)).getJobStatus(parentId);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    order.verify(jobCrudStore).getJobStatus(parentId);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PENDING, JobStatus.PENDING, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L));
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void hardTimeoutFinalizesWhenParentClosesDuringLock() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = jobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId))
+        .thenReturn(JobStatus.PAUSED, JobStatus.PAUSED, JobStatus.CANCELED);
+    when(lifecycleFacade.completeTimeoutFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    verify(jobCrudStore, times(3)).getJobStatus(parentId);
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(eq(job), eq(JobStatus.RUNNING), eq(false), any(), any());
+    assertEquals(JobStatus.FAILED, job.getStatus());
+    assertSame(job, terminalTimeoutTransition.job());
+  }
+
+  @Test
+  void hardTimeoutFinalizesWhenParentLockKeepsLosing() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = jobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING);
+    when(lifecycleFacade.completeTimeoutFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+
+    verify(jobBatchStatusStore, times(3))
+        .compareAndSwapStatus(parentId, JobStatus.PENDING, JobStatus.PENDING, null);
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(eq(job), eq(JobStatus.RUNNING), eq(false), any(), any());
+    assertEquals(JobStatus.FAILED, job.getStatus());
+    assertSame(job, terminalTimeoutTransition.job());
+  }
+
+  @Test
+  void signalTimeoutOfCancelledBatchChildIsTerminal() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = waitingJobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.CANCELED);
+
+    handler.processSignalTimeout(job, Instant.now());
+
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(eq(job), eq(JobStatus.WAITING), eq(true), any(), any());
+  }
+
+  @Test
+  void signalTimeoutOfPendingBatchChildRetries() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = waitingJobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PENDING, JobStatus.PENDING, null))
+        .thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull()))
+        .thenReturn(true);
+
+    handler.processSignalTimeout(job, Instant.now());
+
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PENDING, JobStatus.PENDING, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, null);
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void signalTimeoutOfPausedBatchChildRetries() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = waitingJobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PAUSED);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            parentId, JobStatus.PAUSED, JobStatus.PAUSED, null))
+        .thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull()))
+        .thenReturn(true);
+
+    handler.processSignalTimeout(job, Instant.now());
+
+    var order = inOrder(jobBatchStatusStore, jobRetryStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    order.verify(jobRetryStore).incrementRetryAttempt(JOB_ID, null);
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void signalTimeoutDefersRetryWhenParentLockLoses() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = waitingJobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING);
+
+    handler.processSignalTimeout(job, Instant.now());
+
+    verify(jobBatchStatusStore, times(3))
+        .compareAndSwapStatus(parentId, JobStatus.PENDING, JobStatus.PENDING, null);
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    assertEquals(JobStatus.WAITING, job.getStatus());
+    assertEquals(0, job.getAttempts());
+  }
+
+  @Test
+  void signalTimeoutFinalizesWhenParentClosesDuringLock() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = waitingJobWithMaxRetries(3);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(parentId))
+        .thenReturn(JobStatus.PAUSED, JobStatus.PAUSED, JobStatus.CANCELED);
+    when(lifecycleFacade.completeTimeoutFailure(
+            eq(job), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(true);
+
+    handler.processSignalTimeout(job, Instant.now());
+
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(parentId, JobStatus.PAUSED, JobStatus.PAUSED, null);
+    verify(jobCrudStore, times(3)).getJobStatus(parentId);
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(eq(job), eq(JobStatus.WAITING), eq(true), any(), any());
+    assertEquals(JobStatus.FAILED, job.getStatus());
+    assertSame(job, terminalTimeoutTransition.job());
+  }
+
+  @Test
   void handedBackTimeoutTransitionsEvenWhenWorkerFutureIsDone() throws Exception {
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
@@ -205,6 +479,7 @@ class JobTimeoutHandlerTest {
     invokeHardTimeout(attempt, future);
 
     verify(future).cancel(true);
+    verify(jobCrudStore, never()).getJobStatus(any());
     verify(jobCrudStore).findById(JOB_ID);
     verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
     verify(jobRetryStore)

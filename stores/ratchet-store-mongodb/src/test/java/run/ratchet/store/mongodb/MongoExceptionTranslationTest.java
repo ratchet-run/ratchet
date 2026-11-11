@@ -53,6 +53,8 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.TransactionBody;
+import com.mongodb.client.model.FindOneAndUpdateOptions;
+import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.UpdateOneModel;
 import com.mongodb.client.result.UpdateResult;
 import java.lang.reflect.InvocationHandler;
@@ -77,6 +79,7 @@ import org.bson.codecs.UuidCodec;
 import org.bson.conversions.Bson;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -441,6 +444,148 @@ class MongoExceptionTranslationTest {
       return new MongoJobClaimOperations(contextWithJobs(jobs))
           .claimNextBatch(1, "node-1", NodeTagFilter.NONE);
     }
+  }
+
+  @Test
+  void singleManualRetryRetriesParentConflictAndObservesResume() {
+    assertManualRetryFencesParent(false);
+  }
+
+  @Test
+  void bulkManualRetryRetriesParentConflictAndObservesResume() {
+    assertManualRetryFencesParent(true);
+  }
+
+  private void assertManualRetryFencesParent(boolean bulk) {
+    UUID parentId = UUID.randomUUID();
+    UUID childId = UUID.randomUUID();
+    Document child =
+        new Document(ID, childId)
+            .append("job_type", "BATCH_CHILD")
+            .append("depends_on", parentId)
+            .append("status", "FAILED")
+            .append("priority", JobPriority.NORMAL.persistedCode())
+            .append("backoff_policy", "NONE");
+    Document pausedParent = new Document(ID, parentId).append("status", "PAUSED");
+    Document resumedParent = new Document(ID, parentId).append("status", "PENDING");
+    Document batch = new Document(ID, parentId).append("completion_processed", false);
+    AtomicInteger transactions = new AtomicInteger();
+    AtomicInteger fences = new AtomicInteger();
+    AtomicInteger pausedChildren = new AtomicInteger();
+    AtomicReference<ClientSession> activeSession = new AtomicReference<>();
+    MongoException conflict = new MongoException(112, "parent changed after snapshot");
+    conflict.addLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL);
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if (method.getName().equals("withTransaction")) {
+                activeSession.set((ClientSession) proxy);
+                TransactionBody<?> body = (TransactionBody<?>) args[0];
+                transactions.incrementAndGet();
+                try {
+                  return body.execute();
+                } catch (MongoException e) {
+                  assertSame(conflict, e);
+                  assertTrue(e.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL));
+                  transactions.incrementAndGet();
+                  return body.execute();
+                }
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if (args != null && args.length > 0 && args[0] instanceof ClientSession) {
+                assertSame(activeSession.get(), args[0]);
+              }
+              return switch (method.getName()) {
+                case "find" -> {
+                  String filter = bson((Bson) args[1]).toJson();
+                  Document result =
+                      filter.contains("completion_processed")
+                          ? batch
+                          : filter.contains("PAUSED") ? pausedParent : child;
+                  yield retryDocuments(List.of(result));
+                }
+                case "findOneAndUpdate" -> {
+                  String filter = bson((Bson) args[1]).toJson();
+                  assertTrue(filter.contains("PENDING") && filter.contains("PAUSED"));
+                  assertEquals(
+                      new BsonDocument("$inc", new BsonDocument("version", new BsonInt32(1))),
+                      bson((Bson) args[2]));
+                  assertEquals(
+                      ReturnDocument.AFTER,
+                      ((FindOneAndUpdateOptions) args[3]).getReturnDocument());
+                  if (fences.incrementAndGet() == 1) {
+                    throw conflict;
+                  }
+                  yield resumedParent;
+                }
+                case "updateOne" -> {
+                  if (args[2] instanceof Bson update && bson(update).toJson().contains("PAUSED")) {
+                    pausedChildren.incrementAndGet();
+                  }
+                  yield UpdateResult.acknowledged(1, 1L, null);
+                }
+                case "updateMany" -> UpdateResult.acknowledged(1, 1L, null);
+                default -> defaultValue(method);
+              };
+            });
+    MongoStoreContext ctx = contextWithJobsAndSession(jobs, session);
+    var lifecycle = new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
+
+    if (bulk) {
+      assertEquals(1, lifecycle.resetFailedToPending(JobFilter.builder().build(), 10));
+    } else {
+      assertTrue(lifecycle.resetFailedToPending(childId));
+    }
+    assertEquals(2, transactions.get(), "parent conflict must retry the entire transaction");
+    assertTrue(fences.get() >= 2);
+    assertEquals(0, pausedChildren.get(), "retry must use the resumed parent status");
+  }
+
+  @Test
+  void repairSweepsFenceExpectedParentBeforeReadingChildren() {
+    for (boolean pause : List.of(true, false)) {
+      AtomicInteger parentWrites = new AtomicInteger();
+      MongoCollection<Document> jobs =
+          mongoCollection(
+              (proxy, method, args) -> {
+                if (method.getName().equals("updateOne")) {
+                  String filter = bson((Bson) args[1]).toJson();
+                  assertTrue(filter.contains(pause ? "PAUSED" : "PENDING"));
+                  assertEquals(
+                      new BsonDocument("$inc", new BsonDocument("version", new BsonInt32(1))),
+                      bson((Bson) args[2]));
+                  parentWrites.incrementAndGet();
+                  return UpdateResult.acknowledged(0, 0L, null);
+                }
+                if (method.getName().equals("find")) {
+                  throw new AssertionError("A stale sweep must not select children");
+                }
+                return defaultValue(method);
+              });
+      var operations = new MongoBatchOperations(contextWithJobs(jobs));
+      assertEquals(
+          0,
+          pause
+              ? operations.pauseBatchChildren(UUID.randomUUID())
+              : operations.resumeBatchChildren(UUID.randomUUID()));
+      assertEquals(1, parentWrites.get());
+    }
+  }
+
+  private static FindIterable<Document> retryDocuments(List<Document> documents) {
+    return proxy(
+        FindIterable.class,
+        (proxy, method, args) ->
+            switch (method.getName()) {
+              case "sort", "limit", "skip", "projection" -> proxy;
+              case "first" -> documents.isEmpty() ? null : documents.get(0);
+              case "iterator", "cursor" -> cursor(documents, new AtomicBoolean());
+              default -> defaultValue(method);
+            });
   }
 
   @Test

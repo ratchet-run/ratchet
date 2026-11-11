@@ -49,6 +49,7 @@ import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
@@ -487,16 +488,26 @@ public class JobTimeoutHandler {
       log.infof(
           "Job %s timeout retry increment was already applied (%s attempts)", jobId, newAttempts);
     }
+    boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
+    if (retryAllowed) {
+      RetryParentLock parentLock = lockRetryParent(job);
+      retryAllowed = parentLock == RetryParentLock.LOCKED;
+      if (parentLock == RetryParentLock.CONTENDED) {
+        log.warnf(
+            "Job %s hard timeout could not lock batch parent %s after 3 attempts; finalizing child",
+            jobId, job.getDependsOn());
+      }
+    }
     // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
     // attempts are part of commitCompletion, including for stores without ambient JTA.
-    if (!incrementAlreadyApplied && newAttempts <= job.getMaxRetries()) {
+    if (!incrementAlreadyApplied && retryAllowed) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq);
       if (newAttempts < 0) {
         warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId, attempt);
         return Optional.empty();
       }
     }
-    if (newAttempts <= job.getMaxRetries()) {
+    if (retryAllowed && newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(
@@ -575,6 +586,42 @@ public class JobTimeoutHandler {
         timeoutEx, true, false, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
+  private enum RetryParentLock {
+    LOCKED,
+    CLOSED,
+    CONTENDED
+  }
+
+  private RetryParentLock lockRetryParent(JobEntity job) {
+    if (job.getJobType() != JobExecutionType.BATCH_CHILD || job.getDependsOn() == null) {
+      return RetryParentLock.LOCKED;
+    }
+    // A same-status CAS holds the parent's queue lock in the completion transaction, before
+    // incrementRetryAttempt locks the child. Re-read after a miss to handle pause/resume races.
+    UUID parentId = job.getDependsOn();
+    for (int attempt = 0; attempt < 3; attempt++) {
+      JobStatus status = jobCrudStore.getJobStatus(parentId);
+      if (status != JobStatus.PENDING && status != JobStatus.PAUSED) {
+        return RetryParentLock.CLOSED;
+      }
+      if (jobBatchStatusStore.compareAndSwapStatus(parentId, status, status, null)) {
+        return RetryParentLock.LOCKED;
+      }
+    }
+    return RetryParentLock.CONTENDED;
+  }
+
+  private boolean batchAllowsRetry(JobEntity job) {
+    BatchRetryGuard.ParentState parentState = BatchRetryGuard.check(jobCrudStore, job);
+    if (parentState.closed()) {
+      log.infof(
+          "Job %s not retried: batch %s is closed (parent %s)",
+          job.getId(), job.getDependsOn(), parentState.description());
+      return false;
+    }
+    return true;
+  }
+
   private Optional<TerminalTimeoutTransition> applySignalTimeoutTransition(
       UUID jobId, Instant now, String message) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
@@ -586,13 +633,24 @@ public class JobTimeoutHandler {
       return Optional.empty();
     }
     int newAttempts = job.getAttempts() + 1;
-    if (newAttempts <= job.getMaxRetries()) {
+    boolean retryAllowed = newAttempts <= job.getMaxRetries() && batchAllowsRetry(job);
+    if (retryAllowed) {
+      RetryParentLock parentLock = lockRetryParent(job);
+      if (parentLock == RetryParentLock.CONTENDED) {
+        log.debugf(
+            "Job %s signal timeout could not lock batch parent %s after 3 attempts; deferring retry",
+            jobId, job.getDependsOn());
+        return Optional.empty();
+      }
+      retryAllowed = parentLock == RetryParentLock.LOCKED;
+    }
+    if (retryAllowed) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null);
       if (newAttempts < 0) {
         return Optional.empty();
       }
     }
-    if (newAttempts <= job.getMaxRetries()) {
+    if (retryAllowed && newAttempts <= job.getMaxRetries()) {
       long backoffMs =
           job.getBackoffPolicy() != null
               ? BackoffPolicyHandler.computeDelay(

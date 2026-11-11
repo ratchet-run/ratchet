@@ -28,6 +28,7 @@ import static com.mongodb.client.model.Sorts.descending;
 import static com.mongodb.client.model.Sorts.orderBy;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 
 import com.mongodb.client.ClientSession;
 import java.time.Instant;
@@ -424,9 +425,16 @@ final class MongoJobQueryOperations {
           openBatches.add(batch.get(ID, UUID.class));
         }
       }
+      Set<UUID> activeParents = new HashSet<>();
+      if (!openBatches.isEmpty()) {
+        for (Document parent :
+            ctx.jobs().find(session, and(in(ID, openBatches), in(STATUS, "PENDING", "PAUSED")))) {
+          activeParents.add(parent.get(ID, UUID.class));
+        }
+      }
       for (JobEntity job : candidates) {
         if (job.getJobType() != JobExecutionType.BATCH_CHILD
-            || openBatches.contains(job.getDependsOn())) {
+            || activeParents.contains(job.getDependsOn())) {
           ids.add(job.getId());
           if (ids.size() == limit) {
             break;

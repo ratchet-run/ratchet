@@ -31,7 +31,6 @@ import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobQueryService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DrainController;
-import run.ratchet.ri.core.JobCascadeService;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
@@ -74,15 +73,6 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 /** Internal submission wiring imported by the engine auto-configuration. */
 @Configuration(proxyBeanMethods = false)
 class RatchetSubmissionConfiguration {
-  @Bean(destroyMethod = "")
-  @ConditionalOnMissingBean
-  JobCascadeService jobCascadeService(
-      JobStore store,
-      InternalEventPublisher eventPublisher,
-      Clock clock,
-      AfterCommitRegistrar afterCommitRegistrar) {
-    return new JobCascadeService(store, store, eventPublisher, clock, afterCommitRegistrar);
-  }
 
   @Bean(destroyMethod = "")
   @ConditionalOnMissingBean

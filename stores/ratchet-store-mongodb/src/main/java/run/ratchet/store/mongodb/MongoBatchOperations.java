@@ -20,6 +20,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.or;
+import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
@@ -28,13 +29,23 @@ import static run.ratchet.store.mongodb.MongoFieldNames.CHILD_EXECUTION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETED_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETION_PROCESSED;
+import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
 import static run.ratchet.store.mongodb.MongoFieldNames.FAILED_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.OVERHEAD_MS;
+import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.PAUSED_FROM_STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
 import static run.ratchet.store.mongodb.MongoFieldNames.STARTED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.SUCCESS_COUNT;
+import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
+import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.FindIterable;
@@ -73,6 +84,162 @@ final class MongoBatchOperations implements BatchStore {
   MongoBatchOperations(MongoStoreContext ctx, Clock clock) {
     this.ctx = ctx;
     this.clock = Objects.requireNonNull(clock, "clock");
+  }
+
+  @Override
+  public int cancelBatchChildren(UUID batchId) {
+    return changeBatchChildren(batchId, "cancel");
+  }
+
+  @Override
+  public int pauseBatchChildren(UUID batchId) {
+    return changeBatchChildren(batchId, "pause");
+  }
+
+  @Override
+  public int resumeBatchChildren(UUID batchId) {
+    return changeBatchChildren(batchId, "resume");
+  }
+
+  private int changeBatchChildren(UUID batchId, String operation) {
+    List<String> statuses =
+        switch (operation) {
+          case "cancel" -> List.of("PENDING", "PAUSED", "WAITING");
+          case "pause" -> List.of("PENDING");
+          default -> List.of("PAUSED");
+        };
+    int total = 0;
+    while (true) {
+      int changed;
+      try (ClientSession session = ctx.startSession()) {
+        changed =
+            session.withTransaction(
+                () -> {
+                  if (!operation.equals("cancel")) {
+                    String expected = operation.equals("pause") ? "PAUSED" : "PENDING";
+                    // Fence every chunk against an opposite parent transition or repair sweep.
+                    if (ctx.jobs()
+                            .updateOne(
+                                session,
+                                and(eq(ID, batchId), eq(STATUS, expected)),
+                                inc(VERSION, 1))
+                            .getMatchedCount()
+                        == 0) {
+                      return 0;
+                    }
+                  }
+                  List<UUID> ids = new ArrayList<>();
+                  for (Document child :
+                      ctx.jobs()
+                          .find(
+                              session,
+                              and(
+                                  eq(DEPENDS_ON, batchId),
+                                  eq(JOB_TYPE, "BATCH_CHILD"),
+                                  in(STATUS, statuses)))
+                          .sort(ascending(ID))
+                          .limit(1000)) {
+                    ids.add(child.get(ID, UUID.class));
+                  }
+                  if (ids.isEmpty()) {
+                    return 0;
+                  }
+                  var filter = and(in(ID, ids), in(STATUS, statuses));
+                  Date now = Date.from(clock.instant());
+                  long count;
+                  if (operation.equals("resume")) {
+                    count =
+                        ctx.jobs()
+                            .updateMany(
+                                session,
+                                filter,
+                                List.of(
+                                    new Document(
+                                        "$set",
+                                        new Document(
+                                                STATUS,
+                                                new Document(
+                                                    "$ifNull",
+                                                    List.of("$" + PAUSED_FROM_STATUS, "PENDING")))
+                                            .append(PAUSED_FROM_STATUS, null)
+                                            .append(UPDATED_AT, now)
+                                            .append(
+                                                VERSION,
+                                                new Document("$add", List.of("$" + VERSION, 1))))))
+                            .getModifiedCount();
+                  } else if (operation.equals("pause")) {
+                    count =
+                        ctx.jobs()
+                            .updateMany(
+                                session,
+                                filter,
+                                combine(
+                                    set(STATUS, "PAUSED"),
+                                    set(PAUSED_FROM_STATUS, "PENDING"),
+                                    set(UPDATED_AT, now),
+                                    inc(VERSION, 1)))
+                            .getModifiedCount();
+                  } else {
+                    count =
+                        ctx.jobs()
+                            .updateMany(
+                                session,
+                                filter,
+                                combine(
+                                    set(STATUS, "CANCELED"),
+                                    set(PICKED_BY, null),
+                                    set(PICKED_AT, null),
+                                    set(UPDATED_AT, now),
+                                    set(TERMINATED_AT, now),
+                                    inc(VERSION, 1)))
+                            .getModifiedCount();
+                    ctx.businessKeyReservations().deleteMany(session, in(OWNER_JOB_ID, ids));
+                    if (count > 0) {
+                      // An int keeps failed_items an Int32, as the per-child increments store it.
+                      ctx.batches()
+                          .updateOne(
+                              session, eq(ID, batchId), inc(FAILED_ITEMS, Math.toIntExact(count)));
+                    }
+                  }
+                  return Math.toIntExact(count);
+                });
+      }
+      total += changed;
+      if (changed == 0) {
+        return total;
+      }
+    }
+  }
+
+  @Override
+  public void closeBatch(UUID batchId) {
+    try (ClientSession session = ctx.startSession()) {
+      session.withTransaction(
+          () -> ctx.batches().updateOne(session, eq(ID, batchId), set(COMPLETION_PROCESSED, true)));
+    }
+  }
+
+  @Override
+  public List<UUID> findCancelledOpenBatchIds(int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
+    List<UUID> ids = new ArrayList<>();
+    List<Document> pipeline =
+        List.of(
+            new Document("$match", new Document(COMPLETION_PROCESSED, false)),
+            new Document(
+                "$lookup",
+                new Document("from", ctx.jobs().getNamespace().getCollectionName())
+                    .append("localField", ID)
+                    .append("foreignField", ID)
+                    .append("as", "parent")),
+            new Document("$match", new Document("parent." + STATUS, "CANCELED")),
+            new Document("$limit", limit));
+    for (Document batch : ctx.batches().aggregate(pipeline)) {
+      ids.add(batch.get(ID, UUID.class));
+    }
+    return ids;
   }
 
   @Override

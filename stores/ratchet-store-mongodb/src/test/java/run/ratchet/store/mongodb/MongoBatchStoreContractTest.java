@@ -15,7 +15,13 @@
  */
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractBatchStoreContract;
@@ -24,6 +30,19 @@ import run.ratchet.tck.store.AbstractBatchStoreContract;
 class MongoBatchStoreContractTest extends AbstractBatchStoreContract {
 
   private static final MongoTestFixture fixture = new MongoTestFixture();
+
+  @Test
+  void cancelledOpenBatchIsRepairableUntilClosed() {
+    var cancelled = persist(newBatchParentJob());
+    persistBatch(cancelled.getId(), 4);
+    var active = persist(newBatchParentJob());
+    persistBatch(active.getId(), 4);
+    assertTrue(store().cancelJob(cancelled.getId()));
+    assertEquals(List.of(cancelled.getId()), batchStore().findCancelledOpenBatchIds(1));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(active.getId()));
+    batchStore().closeBatch(cancelled.getId());
+    assertTrue(batchStore().findCancelledOpenBatchIds(100).isEmpty());
+  }
 
   @AfterAll
   static void closeFixture() {

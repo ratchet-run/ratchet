@@ -318,6 +318,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     var child = newPendingJob();
     child.setJobType(JobExecutionType.BATCH_CHILD);
     child.setDependsOn(parent.getId());
+    child.setBusinessKey("fenced-cancel-" + parent.getId());
     child = persist(child);
     assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
     var claimed = store().findById(child.getId()).orElseThrow();
@@ -340,6 +341,28 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             List.of(),
             claimed.getClaimSeq(),
             List.of());
+    var stale =
+        new JobCompletionPlan(
+            plan.jobId(),
+            plan.expectedStatus(),
+            plan.terminalStatus(),
+            null,
+            null,
+            null,
+            plan.attempts(),
+            now,
+            now,
+            0L,
+            0L,
+            parent.getId(),
+            null,
+            List.of(),
+            claimed.getClaimSeq() - 1,
+            List.of());
+    assertFalse(store().commitCompletion(stale).committed());
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(child.getId()));
+    assertTrue(store().findActiveByBusinessKey(child.getBusinessKey()).isPresent());
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
     var completed = store().commitCompletion(plan);
     assertTrue(completed.committed());
     assertNotNull(completed.batchProgress());
@@ -348,6 +371,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     assertEquals(0, completed.batchProgress().completedItems());
     assertEquals(1, completed.batchProgress().failedItems());
     assertEquals(JobStatus.CANCELED, store().findById(child.getId()).orElseThrow().getStatus());
+    assertTrue(store().findActiveByBusinessKey(child.getBusinessKey()).isEmpty());
     assertFalse(store().commitCompletion(plan).committed());
     var batch = batchStore().findBatchById(parent.getId()).orElseThrow();
     assertEquals(0, batch.getCompletedItems());
@@ -470,6 +494,26 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     assertEquals(1, reloaded.getAttempts(), "Terminal row must preserve hot-row attempts");
     assertTerminalTiming(reloaded.getExecutionStartTime(), reloaded.getExecutionEndTime());
     assertNotNull(reloaded.getExecutionDurationMs(), "Terminal duration should be persisted");
+  }
+
+  @Test
+  void cancelJob_pausedDependantReleasesReservation() {
+    var root = persist(newBatchParentJob());
+    var callback = newPendingJob();
+    callback.setDependsOn(root.getId());
+    callback.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    callback.setBusinessKey("paused-callback-" + root.getId());
+    callback = persist(callback);
+    assertTrue(store().transitionToPaused(callback.getId(), JobStatus.PENDING));
+    assertTrue(store().findActiveByBusinessKey(callback.getBusinessKey()).isPresent());
+
+    assertTrue(store().cancelJob(callback.getId()));
+
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(callback.getId()));
+    assertTrue(store().findActiveByBusinessKey(callback.getBusinessKey()).isEmpty());
+    var replacement = newPendingJob();
+    replacement.setBusinessKey(callback.getBusinessKey());
+    persist(replacement);
   }
 
   @Test

@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -48,6 +49,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
@@ -117,6 +119,97 @@ class WorkflowSchedulerTest {
               }
               return jobs;
             });
+  }
+
+  @Test
+  void batchCancellationCancelsCallbackDescendantsAndSkipsBatchChildren() {
+    JobEntity parent = job(UUID.randomUUID(), JobStatus.CANCELED);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    JobEntity child = job(UUID.randomUUID(), JobStatus.CANCELED);
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    JobEntity callback = job(UUID.randomUUID(), JobStatus.PENDING);
+    callback.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    JobEntity step = job(UUID.randomUUID(), JobStatus.WAITING);
+    step.setJobType(JobExecutionType.CHAIN_STEP);
+    when(conditionStore.findConditionsByParentJobId(parent.getId()))
+        .thenReturn(List.of(condition(parent.getId(), callback.getId(), 1)));
+    when(jobCrudStore.findById(callback.getId())).thenReturn(Optional.of(callback));
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child, callback));
+    when(jobCrudStore.findDependants(eq(callback.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(step));
+    when(jobTerminalStore.cancelJob(callback.getId()))
+        .thenAnswer(
+            invocation -> {
+              callback.setStatus(JobStatus.CANCELED);
+              return true;
+            });
+    when(jobTerminalStore.cancelJob(step.getId())).thenReturn(true);
+
+    assertEquals(1, scheduler.cancelBatchCallbacks(parent));
+    verify(jobTerminalStore).cancelJob(callback.getId());
+    verify(jobTerminalStore).cancelJob(step.getId());
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
+    verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
+  }
+
+  @Test
+  void batchCancellationProcessesPagesAndPreservesCallbackAndLinearDescendants() {
+    JobEntity parent = job(UUID.randomUUID(), JobStatus.CANCELED);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    JobEntity linear = job(UUID.randomUUID(), JobStatus.PENDING);
+    JobEntity callback = job(UUID.randomUUID(), JobStatus.PENDING);
+    JobEntity linearDescendant = job(UUID.randomUUID(), JobStatus.WAITING);
+    JobEntity callbackDescendant = job(UUID.randomUUID(), JobStatus.PENDING);
+    List<JobEntity> firstPage = new ArrayList<>();
+    for (int i = 0; i < JobCrudStore.DEFAULT_PAGE_LIMIT - 1; i++) {
+      JobEntity child = job(UUID.randomUUID(), JobStatus.CANCELED);
+      child.setJobType(JobExecutionType.BATCH_CHILD);
+      firstPage.add(child);
+    }
+    firstPage.add(linear);
+    when(conditionStore.findConditionsByParentJobId(parent.getId()))
+        .thenReturn(List.of(condition(parent.getId(), callback.getId(), 1)));
+    when(jobCrudStore.findById(callback.getId())).thenReturn(Optional.of(callback));
+    when(jobCrudStore.findDependants(parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0))
+        .thenReturn(firstPage);
+    when(jobCrudStore.findDependants(
+            parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, JobCrudStore.DEFAULT_PAGE_LIMIT))
+        .thenReturn(List.of(callback));
+    when(jobCrudStore.findDependants(eq(linear.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(linearDescendant));
+    when(jobCrudStore.findDependants(eq(callback.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(callbackDescendant));
+    when(jobCrudStore.findDependants(eq(linearDescendant.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of());
+    when(jobCrudStore.findDependants(eq(callbackDescendant.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of());
+    when(jobTerminalStore.cancelJob(any(UUID.class)))
+        .thenAnswer(
+            invocation -> {
+              if (callback.getId().equals(invocation.getArgument(0))) {
+                callback.setStatus(JobStatus.CANCELED);
+              }
+              return true;
+            });
+
+    assertEquals(1, scheduler.cancelBatchCallbacks(parent));
+
+    InOrder order = inOrder(jobCrudStore, jobTerminalStore);
+    order.verify(jobCrudStore).findDependants(parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
+    order.verify(jobTerminalStore).cancelJob(linear.getId());
+    order
+        .verify(jobCrudStore)
+        .findDependants(
+            parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, JobCrudStore.DEFAULT_PAGE_LIMIT);
+    verify(jobTerminalStore).cancelJob(callback.getId());
+    verify(jobTerminalStore).cancelJob(linearDescendant.getId());
+    verify(jobTerminalStore).cancelJob(callbackDescendant.getId());
+    for (JobEntity child : firstPage) {
+      if (child.getJobType() == JobExecutionType.BATCH_CHILD) {
+        verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
+      }
+    }
   }
 
   @Test

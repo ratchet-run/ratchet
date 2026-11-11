@@ -283,9 +283,11 @@ final class OracleJobQueryOperations {
       String eligibility =
           """
           c.job_type <> 'BATCH_PARENT'
-          AND (c.job_type <> 'BATCH_CHILD' OR EXISTS (
+          AND (c.job_type <> 'BATCH_CHILD' OR (EXISTS (
             SELECT 1 FROM scheduler_batch b
-            WHERE b.batch_id = c.depends_on AND b.completion_processed = FALSE))
+            WHERE b.batch_id = c.depends_on AND b.completion_processed = FALSE)
+            AND EXISTS (SELECT 1 FROM scheduler_job_queue p
+              WHERE p.job_id = c.depends_on AND p.status IN ('PENDING','PAUSED'))))
           """;
       String sql =
           "SELECT c.job_id "
@@ -470,10 +472,9 @@ final class OracleJobQueryOperations {
     return "SELECT * FROM ("
         + "SELECT "
         + OracleJobRowMapper.HYDRATION_SELECT
-        + ", COALESCE(q.status, c.terminal_status) AS sort_status,"
-        + " COALESCE(q.scheduled_time, c.execution_start_time, c.created_at) AS sort_scheduled_time,"
-        + " COALESCE(q.updated_at, c.terminated_at, c.created_at) AS sort_updated_at"
-        + " "
+        + ", COALESCE(q.status, c.terminal_status) AS sort_status, COALESCE(q.scheduled_time,"
+        + " c.execution_start_time, c.created_at) AS sort_scheduled_time, COALESCE(q.updated_at,"
+        + " c.terminated_at, c.created_at) AS sort_updated_at "
         + HYDRATION_FROM
         + liveWhere
         + " UNION ALL "

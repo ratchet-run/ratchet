@@ -178,7 +178,9 @@ class PostgresqlExceptionTranslationTest {
 
   @Test
   void terminalOperationsTranslateDeadlock() {
-    var ctx = new PostgresqlStoreContext(entityManager(queryThrowingOnExecute()));
+    var ctx =
+        new PostgresqlStoreContext(
+            entityManager(queryReturning(List.of()), queryThrowingOnExecute()));
     var terminals =
         new PostgresqlJobTerminalOperations(
             ctx, new PostgresqlBusinessKeyReservations(ctx), new PostgresqlBatchOperations(ctx));

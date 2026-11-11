@@ -114,6 +114,47 @@ class BatchServiceTest {
   }
 
   @Test
+  void cancellationDelegatesChildrenThenCallbacksThenClose() {
+    UUID id = UUID.randomUUID();
+    JobEntity parent = parent(id);
+    when(batchStore.cancelBatchChildren(id)).thenReturn(8);
+    batchService.cancelBatch(parent);
+    InOrder order = inOrder(batchStore, workflowScheduler);
+    order.verify(batchStore).cancelBatchChildren(id);
+    order.verify(workflowScheduler).cancelBatchCallbacks(parent);
+    order.verify(batchStore).closeBatch(id);
+  }
+
+  @Test
+  void cancelledBatchSweepUsesCompletionTransaction() {
+    UUID id = UUID.randomUUID();
+    when(batchStore.cancelBatchChildren(id)).thenReturn(2);
+    assertEquals(2, batchService.sweepCancelledBatch(id));
+    verify(batchCompletionTransaction).complete(any());
+    verify(batchStore).cancelBatchChildren(id);
+    verifyNoInteractions(workflowScheduler);
+  }
+
+  @Test
+  void recoveryRepairsCancelledOpenBatchInOwnTransactionAndContinuesAfterFailure() {
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    when(batchStore.findCancelledOpenBatchIds(100)).thenReturn(List.of(first, second));
+    JobEntity broken = parent(first);
+    JobEntity repairable = parent(second);
+    broken.setStatus(JobStatus.CANCELED);
+    repairable.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(first)).thenReturn(Optional.of(broken));
+    when(jobCrudStore.findById(second)).thenReturn(Optional.of(repairable));
+    when(batchStore.cancelBatchChildren(first))
+        .thenThrow(new IllegalStateException("repair failed"));
+    when(batchStore.cancelBatchChildren(second)).thenReturn(2);
+    assertEquals(1, batchService.recoverStuckBatches());
+    verify(batchStore).closeBatch(second);
+    verify(batchCompletionTransaction, times(2)).complete(any());
+  }
+
+  @Test
   void progressHookBindsContextBesideCapturedValueAndSupportsMethodReference() throws Exception {
     when(classPolicy.isAllowed(Hooks.class.getName())).thenReturn(true);
     BatchContext ctx = new BatchContext(UUID.randomUUID(), 3, 1, 0);
@@ -259,7 +300,10 @@ class BatchServiceTest {
             null);
 
     assertFalse(withoutBatches.completeIfFinished(UUID.randomUUID()));
-    verifyNoInteractions(batchCompletionTransaction, jobCrudStore, jobTerminalStore);
+    withoutBatches.cancelBatch(parent(UUID.randomUUID()));
+    assertEquals(0, withoutBatches.sweepCancelledBatch(UUID.randomUUID()));
+    verifyNoInteractions(
+        batchCompletionTransaction, jobCrudStore, jobTerminalStore, workflowScheduler);
   }
 
   @Test

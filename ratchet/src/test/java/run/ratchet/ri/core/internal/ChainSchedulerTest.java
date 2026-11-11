@@ -36,6 +36,7 @@ import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -93,6 +94,39 @@ class ChainSchedulerTest {
             null,
             new JakartaAfterCommitRegistrar(txRegistry));
     lenient().when(jobTerminalStore.cancelJob(any(UUID.class))).thenReturn(true);
+  }
+
+  @Test
+  void cancelBatchIncludesPausedCallbacksAndChainSteps() {
+    JobEntity parent = job(JobStatus.CANCELED);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    JobEntity callback = job(JobStatus.PAUSED);
+    callback.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    JobEntity step = job(JobStatus.PAUSED);
+    step.setJobType(JobExecutionType.CHAIN_STEP);
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(callback));
+    when(jobCrudStore.findDependants(eq(callback.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(step));
+
+    scheduler.cancelChain(parent);
+
+    verify(jobTerminalStore).cancelJob(callback.getId());
+    verify(jobTerminalStore).cancelJob(step.getId());
+  }
+
+  @Test
+  void cancelNonBatchRootStillSkipsPausedDependants() {
+    JobEntity root = job(JobStatus.FAILED);
+    root.setJobType(JobExecutionType.CHAIN_STEP);
+    JobEntity child = job(JobStatus.PAUSED);
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+    when(jobCrudStore.findDependants(eq(root.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child));
+
+    scheduler.cancelChain(root);
+
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
   }
 
   @Test
@@ -327,6 +361,63 @@ class ChainSchedulerTest {
     scheduler.cancelChain(failed);
 
     verify(jobTerminalStore, never()).cancelJob(any(UUID.class));
+  }
+
+  @Test
+  void cancelBatchChainProcessesPagesBeforeLoadingMoreDependants() {
+    JobEntity parent = job(JobStatus.CANCELED);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    JobEntity first = pendingJob();
+    JobEntity second = job(JobStatus.WAITING);
+    JobEntity descendant = pendingJob();
+    List<JobEntity> children = new ArrayList<>();
+    for (int i = 0; i < JobCrudStore.DEFAULT_PAGE_LIMIT - 1; i++) {
+      JobEntity batchChild = pendingJob();
+      batchChild.setJobType(JobExecutionType.BATCH_CHILD);
+      children.add(batchChild);
+    }
+    children.add(first);
+    children.add(second);
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenAnswer(
+            invocation -> {
+              int limit = invocation.getArgument(1);
+              int offset = invocation.getArgument(2);
+              // Canceling changes status, but leaves rows in this ordered result set.
+              return List.copyOf(
+                  children.subList(offset, Math.min(offset + limit, children.size())));
+            });
+    when(jobCrudStore.findDependants(eq(second.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(descendant));
+    when(jobTerminalStore.cancelJob(any(UUID.class)))
+        .thenAnswer(
+            invocation -> {
+              UUID id = invocation.getArgument(0);
+              for (JobEntity child : List.of(first, second, descendant)) {
+                if (child.getId().equals(id)) {
+                  child.setStatus(JobStatus.CANCELED);
+                }
+              }
+              return true;
+            });
+
+    scheduler.cancelChain(parent);
+
+    InOrder order = inOrder(jobCrudStore, jobTerminalStore);
+    order.verify(jobCrudStore).findDependants(parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
+    order.verify(jobTerminalStore).cancelJob(first.getId());
+    order
+        .verify(jobCrudStore)
+        .findDependants(
+            parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, JobCrudStore.DEFAULT_PAGE_LIMIT);
+    verify(jobTerminalStore).cancelJob(second.getId());
+    verify(jobTerminalStore).cancelJob(descendant.getId());
+    for (JobEntity child : children) {
+      if (child.getJobType() == JobExecutionType.BATCH_CHILD) {
+        verify(jobTerminalStore, never()).cancelJob(child.getId());
+        verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
+      }
+    }
   }
 
   @Test

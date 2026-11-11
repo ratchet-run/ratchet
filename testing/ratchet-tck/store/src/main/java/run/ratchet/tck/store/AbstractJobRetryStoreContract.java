@@ -91,6 +91,39 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void scheduleJobRetry_releasesClaimIntoPausedBatchUntilResume() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    JobEntity child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child.setAttempts(2);
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    long claimSeq = store().findById(child.getId()).orElseThrow().getClaimSeq();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+
+    assertFalse(store().scheduleJobRetry(child.getId(), "stale", Instant.now(), 99, claimSeq - 1));
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(child.getId()));
+    Instant retryTime = Instant.now().minusSeconds(1);
+    assertTrue(
+        store().scheduleJobRetry(child.getId(), "parent check failed", retryTime, 2, claimSeq));
+
+    JobEntity released = store().findById(child.getId()).orElseThrow();
+    assertEquals(JobStatus.PAUSED, released.getStatus());
+    assertEquals(JobStatus.PENDING, released.getPausedFromStatus());
+    assertEquals(2, released.getAttempts());
+    assertEquals(claimSeq, released.getClaimSeq().longValue());
+    assertNull(released.getPickedBy());
+    assertNull(released.getPickedAt());
+    assertFalse(store().tryPickUpJob(child.getId(), "node-2"));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().resumeBatchChildren(parent.getId()));
+    assertTrue(store().tryPickUpJob(child.getId(), "node-2"));
+  }
+
+  @Test
   void scheduleJobRetry_rejectsFailedTerminalRows() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
@@ -266,6 +299,58 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
     assertFalse(store().resetFailedToPending(child.getId()));
     assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void retriesOfPausedBatchChildrenStayPausedUntilResume() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 2);
+    JobEntity single =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    JobEntity bulk =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    batchStore().incrementFailedAtomic(parent.getId());
+    batchStore().incrementFailedAtomic(parent.getId());
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+
+    assertTrue(store().resetFailedToPending(single.getId()));
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertEquals(
+        1,
+        store().resetFailedToPending(JobFilter.builder().parentJobId(parent.getId()).build(), 100));
+    for (JobEntity child : List.of(single, bulk)) {
+      JobEntity reset = store().findById(child.getId()).orElseThrow();
+      assertEquals(JobStatus.PAUSED, reset.getStatus());
+      assertEquals(JobStatus.PENDING, reset.getPausedFromStatus());
+    }
+    assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(2, batchStore().resumeBatchChildren(parent.getId()));
+    for (JobEntity child : List.of(single, bulk)) {
+      assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
+    }
+  }
+
+  @Test
+  void retryChildOfCancelledOpenBatchChangesNothing() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    JobEntity child =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    batchStore().incrementFailedAtomic(parent.getId());
+    assertTrue(store().cancelJob(parent.getId()));
+
+    assertFalse(store().resetFailedToPending(child.getId()));
+    assertEquals(
+        0,
+        store().resetFailedToPending(JobFilter.builder().parentJobId(parent.getId()).build(), 100));
+    assertEquals(JobStatus.FAILED, store().getJobStatus(child.getId()));
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertEquals(
+        Boolean.FALSE,
+        batchStore().findBatchById(parent.getId()).orElseThrow().getCompletionProcessed());
   }
 
   @Test

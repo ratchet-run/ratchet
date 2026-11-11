@@ -20,6 +20,7 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,6 +44,140 @@ final class PostgresqlBatchOperations implements BatchStore {
 
   PostgresqlBatchOperations(PostgresqlStoreContext ctx) {
     this.ctx = ctx;
+  }
+
+  @Override
+  public int cancelBatchChildren(UUID batchId) {
+    try {
+      return changeBatchChildren(batchId, "cancel");
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("cancel batch children", ex);
+    }
+  }
+
+  @Override
+  public int pauseBatchChildren(UUID batchId) {
+    try {
+      return changeBatchChildren(batchId, "pause");
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("pause batch children", ex);
+    }
+  }
+
+  @Override
+  public int resumeBatchChildren(UUID batchId) {
+    try {
+      return changeBatchChildren(batchId, "resume");
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("resume batch children", ex);
+    }
+  }
+
+  private int changeBatchChildren(UUID batchId, String operation) {
+    if (!operation.equals("cancel")) {
+      // Hold the parent lock through the entire sweep, including repeated repair calls.
+      List<?> parents =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT status FROM scheduler_job_queue WHERE job_id = ? FOR UPDATE
+                  """)
+              .setParameter(1, batchId)
+              .getResultList();
+      String expected = operation.equals("pause") ? "PAUSED" : "PENDING";
+      if (parents.isEmpty() || !expected.equals(parents.get(0))) {
+        return 0;
+      }
+    }
+    String statuses =
+        switch (operation) {
+          case "cancel" -> "'PENDING', 'PAUSED', 'WAITING'";
+          case "pause" -> "'PENDING'";
+          default -> "'PAUSED'";
+        };
+    int total = 0;
+    while (true) {
+      String selectSql =
+          """
+          SELECT q.job_id FROM scheduler_job_queue q JOIN scheduler_job c ON c.job_id = q.job_id
+          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s)
+          ORDER BY q.job_id LIMIT 500 FOR UPDATE OF q
+          """
+              .formatted(statuses);
+      var selection = ctx.em().createNativeQuery(selectSql).setParameter(1, batchId);
+
+      List<?> ids = selection.getResultList();
+      if (ids.isEmpty()) {
+        if (operation.equals("cancel") && total > 0) {
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  UPDATE scheduler_batch SET failed_items = failed_items + ?
+                  WHERE batch_id = ?
+                  """)
+              .setParameter(1, total)
+              .setParameter(2, batchId)
+              .executeUpdate();
+        }
+        return total;
+      }
+      String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
+      String sql;
+      if (operation.equals("cancel")) {
+        sql =
+            """
+            UPDATE scheduler_job SET terminal_status = 'CANCELED', terminated_at = statement_timestamp()
+            WHERE terminal_status IS NULL AND job_id IN (%s)
+            """
+                .formatted(placeholders);
+      } else {
+        String assignments =
+            operation.equals("pause")
+                ? "status = 'PAUSED', paused_from_status = 'PENDING'"
+                : "status = COALESCE(paused_from_status, 'PENDING'), paused_from_status = NULL";
+        sql =
+            """
+            UPDATE scheduler_job_queue SET %s, updated_at = statement_timestamp()
+            WHERE job_id IN (%s)
+            """
+                .formatted(assignments, placeholders);
+      }
+      var update = ctx.em().createNativeQuery(sql);
+      for (int i = 0; i < ids.size(); i++) {
+        update.setParameter(i + 1, ids.get(i));
+      }
+      total += update.executeUpdate();
+      if (operation.equals("cancel")) {
+        for (String target :
+            List.of(
+                "scheduler_job_queue WHERE job_id",
+                "scheduler_business_key_reservation WHERE owner_job_id")) {
+          var delete =
+              ctx.em().createNativeQuery("DELETE FROM " + target + " IN (" + placeholders + ")");
+          for (int i = 0; i < ids.size(); i++) {
+            delete.setParameter(i + 1, ids.get(i));
+          }
+          delete.executeUpdate();
+        }
+      }
+    }
+  }
+
+  @Override
+  public void closeBatch(UUID batchId) {
+    try {
+      ctx.em()
+          .createNativeQuery(
+              """
+              UPDATE scheduler_batch
+              SET completion_processed = TRUE
+              WHERE batch_id = ?
+              """)
+          .setParameter(1, batchId)
+          .executeUpdate();
+    } catch (RuntimeException ex) {
+      throw ctx.translateTransientStoreException("close batch", ex);
+    }
   }
 
   @Override
@@ -127,10 +262,10 @@ final class PostgresqlBatchOperations implements BatchStore {
     String sql =
         String.format(
             """
-        UPDATE scheduler_batch SET %1$s = %1$s + 1
-        WHERE batch_id = ?
-        RETURNING completed_items, failed_items, total_items, progress_hook
-        """,
+            UPDATE scheduler_batch SET %1$s = %1$s + 1
+            WHERE batch_id = ?
+            RETURNING completed_items, failed_items, total_items, progress_hook
+            """,
             counter.columnName);
     try {
       Object result = ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();

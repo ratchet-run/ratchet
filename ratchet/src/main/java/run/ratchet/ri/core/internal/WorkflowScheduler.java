@@ -154,6 +154,24 @@ public class WorkflowScheduler extends ChainScheduler {
     }
   }
 
+  /** Cancels batch callback branches and their unstarted descendants. */
+  public int cancelBatchCallbacks(JobEntity parent) {
+    List<WorkflowConditionEntity> conditions =
+        conditionStore == null
+            ? List.of()
+            : conditionStore.findConditionsByParentJobId(parent.getId());
+    Map<UUID, JobEntity> children = loadChildJobs(conditions);
+    int count = 0;
+    for (JobEntity child : children.values()) {
+      if ((child.getStatus() == JobStatus.PENDING || child.getStatus() == JobStatus.WAITING)
+          && jobTerminalStore.cancelJob(child.getId())) {
+        count++;
+      }
+    }
+    cancelChain(parent);
+    return count;
+  }
+
   /**
    * {@inheritDoc}
    *

@@ -51,8 +51,13 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -118,6 +123,8 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -1596,7 +1603,60 @@ class JobTaskTest {
     jobTask.call();
 
     verify(retryPolicy).shouldRetry(1, error);
+    verify(jobStore, never()).getJobStatus(argThat(id -> !JOB_UUID.equals(id)));
     verify(errorSanitizer, times(1)).sanitize(error);
+  }
+
+  @Test
+  void cancelledBatchChildDoesNotRetryFailure() throws Exception {
+    assertBatchChildFailureRetry(JobStatus.CANCELED);
+  }
+
+  @Test
+  void pendingBatchChildRetriesFailure() throws Exception {
+    assertBatchChildFailureRetry(JobStatus.PENDING);
+  }
+
+  @Test
+  void pausedBatchChildRetriesFailure() throws Exception {
+    assertBatchChildFailureRetry(JobStatus.PAUSED);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertBatchChildFailureRetry(JobStatus parentStatus) throws Exception {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = createTestJob();
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    job.setMaxRetries(3);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(parentId)).thenReturn(JobStatus.PENDING, parentStatus);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException error = new RuntimeException("batch failure");
+    when(errorSanitizer.sanitize(error)).thenReturn("batch failure");
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(false);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, error)).thenReturn(true);
+    if (parentStatus != JobStatus.CANCELED) {
+      when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+      when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L)))
+          .thenReturn(true);
+    } else {
+      when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+          .thenReturn(true);
+    }
+
+    jobTask.call();
+
+    verify(jobStore, times(2)).getJobStatus(parentId);
+    if (parentStatus != JobStatus.CANCELED) {
+      verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L));
+    } else {
+      verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+      verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    }
   }
 
   @Test
@@ -2679,6 +2739,213 @@ class JobTaskTest {
         .scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(0L));
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(resourcePermitService, never()).release(anyString(), any(UUID.class));
+  }
+
+  @Test
+  void claimedBatchChildOfCancelledParentNeverStarts() throws Exception {
+    assertClosedBatchChildNeverStarts(JobStatus.CANCELED);
+  }
+
+  @Test
+  void claimedBatchChildOfMissingParentNeverStarts() throws Exception {
+    assertClosedBatchChildNeverStarts(null);
+  }
+
+  @Test
+  void staleBatchChildClaimCannotCancelNewerAttempt() throws Exception {
+    assertBatchChildNeverStarts(
+        parentId -> {
+          when(jobStore.getJobStatus(parentId)).thenReturn(JobStatus.CANCELED);
+          when(jobStore.commitCompletion(any()))
+              .thenAnswer(
+                  invocation -> {
+                    JobCompletionPlan plan = invocation.getArgument(0);
+                    // Recovery has issued claim 8 while this task still owns claim 7.
+                    Assertions.assertEquals(7L, plan.expectedClaimSeq());
+                    return JobCompletionResult.notCommitted();
+                  });
+        },
+        true);
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+  }
+
+  @Test
+  void claimedBatchChildNeverStartsWhenParentCheckFails() throws Exception {
+    when(jobStore.scheduleJobRetry(
+            eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
+        .thenReturn(true);
+    assertBatchChildNeverStarts(
+        parentId ->
+            when(jobStore.getJobStatus(parentId))
+                .thenThrow(new IllegalStateException("store unavailable")),
+        false);
+    verify(jobStore)
+        .scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L));
+  }
+
+  @Test
+  void parentCheckFailureLogsClaimReleaseFailureWithoutRethrowing() throws Exception {
+    IllegalStateException releaseFailure = new IllegalStateException("release unavailable");
+    when(jobStore.scheduleJobRetry(
+            eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
+        .thenThrow(releaseFailure);
+    Logger logger = Logger.getLogger(JobTask.class.getName());
+    Level originalLevel = logger.getLevel();
+    Handler handler = mock(Handler.class);
+    logger.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    try {
+      assertBatchChildNeverStarts(
+          parentId ->
+              when(jobStore.getJobStatus(parentId))
+                  .thenThrow(new IllegalStateException("parent unavailable")),
+          false);
+
+      ArgumentCaptor<LogRecord> records = ArgumentCaptor.forClass(LogRecord.class);
+      verify(handler, atLeastOnce()).publish(records.capture());
+      Assertions.assertTrue(
+          records.getAllValues().stream()
+              .anyMatch(
+                  record ->
+                      record.getThrown() == releaseFailure
+                          && record.getLevel().intValue() >= Level.SEVERE.intValue()
+                          && record.getMessage().contains("could not release claim")));
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+    }
+  }
+
+  @Test
+  void claimedBatchChildNeverStartsWhenCancelFails() throws Exception {
+    assertBatchChildNeverStarts(
+        parentId -> {
+          when(jobStore.getJobStatus(parentId)).thenReturn(JobStatus.CANCELED);
+          when(jobStore.commitCompletion(any())).thenThrow(new IllegalStateException("deadlock"));
+        },
+        true);
+  }
+
+  private void assertClosedBatchChildNeverStarts(JobStatus parentStatus) throws Exception {
+    assertBatchChildNeverStarts(
+        parentId -> {
+          when(jobStore.getJobStatus(parentId)).thenReturn(parentStatus);
+          when(jobStore.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
+        },
+        true);
+  }
+
+  private void assertBatchChildNeverStarts(Consumer<UUID> stubParent, boolean expectCancel)
+      throws Exception {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy("node-1");
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parentId);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    task.initFromClaim(
+        new JobClaimDto(
+            JOB_UUID,
+            JobStatus.RUNNING,
+            JobExecutionType.BATCH_CHILD,
+            job.getPriority(),
+            job.getScheduledTime(),
+            1,
+            30,
+            "node-1",
+            FIXED_NOW,
+            null,
+            2,
+            3,
+            null,
+            parentId,
+            7L));
+    when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    stubParent.accept(parentId);
+    MDC.put("jobId", "previous-job");
+    MDC.put("node", "previous-node");
+
+    task.call();
+
+    Assertions.assertNull(MDC.get("jobId"));
+    Assertions.assertNull(MDC.get("node"));
+    verify(jobStore).getJobStatus(parentId);
+    if (expectCancel) {
+      ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+      verify(jobStore).commitCompletion(plan.capture());
+      Assertions.assertEquals(JOB_UUID, plan.getValue().jobId());
+      Assertions.assertEquals(JobStatus.RUNNING, plan.getValue().expectedStatus());
+      Assertions.assertEquals(JobStatus.CANCELED, plan.getValue().terminalStatus());
+      Assertions.assertEquals(7L, plan.getValue().expectedClaimSeq());
+      Assertions.assertEquals(parentId, plan.getValue().batchId());
+    } else {
+      verify(jobStore, never()).commitCompletion(any());
+    }
+    verify(jobStore, never()).cancelJob(any());
+    verify(invoker, never()).invoke(any());
+    verify(observabilityFacade, never()).recordJobStart(any());
+    verify(observabilityFacade, never()).startExecution(any(), anyInt(), any());
+    verify(observabilityFacade, never()).publishEvent(any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    Assertions.assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void claimedBatchChildOfPendingParentRunsNormally() throws Exception {
+    assertClaimedJobRuns(JobExecutionType.BATCH_CHILD, JobStatus.PENDING);
+  }
+
+  @Test
+  void claimedBatchChildOfPausedParentRunsNormally() throws Exception {
+    assertClaimedJobRuns(JobExecutionType.BATCH_CHILD, JobStatus.PAUSED);
+  }
+
+  @Test
+  void claimedSingleJobDoesNotLookUpParent() throws Exception {
+    assertClaimedJobRuns(JobExecutionType.SINGLE, null);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertClaimedJobRuns(JobExecutionType type, JobStatus parentStatus)
+      throws Exception {
+    UUID parentId = UUID.randomUUID();
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy("node-1");
+    job.setJobType(type);
+    job.setDependsOn(parentId);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    initJobTaskWithDefaultStubs(task, job);
+    task.initFromClaim(claimForNode("node-1"));
+    when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    if (type == JobExecutionType.BATCH_CHILD) {
+      when(jobStore.getJobStatus(parentId)).thenReturn(parentStatus);
+    }
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    task.call();
+
+    verify(invoker).invoke(job.getPayload());
+    verify(observabilityFacade).recordJobStart(job);
+    verify(observabilityFacade).startExecution(eq(JOB_UUID), eq(1), eq("node-1"));
+    verify(observabilityFacade).publishEvent(any(JobStartedEvent.class));
+    verify(jobStore, never()).cancelJob(any());
+    if (type == JobExecutionType.BATCH_CHILD) {
+      verify(jobStore).getJobStatus(parentId);
+    } else {
+      verify(jobStore, never()).getJobStatus(parentId);
+    }
   }
 
   @Test
