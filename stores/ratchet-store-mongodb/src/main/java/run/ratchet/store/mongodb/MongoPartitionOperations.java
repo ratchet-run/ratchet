@@ -205,9 +205,9 @@ final class MongoPartitionOperations implements PartitionStore {
   }
 
   @Override
-  public Optional<String> findSeedByChild(UUID childJobId) {
+  public Optional<PartitionEntity> findPartitionByChild(UUID childJobId) {
     Document row = rows().find(eq("child_job_id", childJobId)).first();
-    return row == null ? Optional.empty() : Optional.ofNullable(row.getString("checkpoint_json"));
+    return row == null ? Optional.empty() : Optional.of(mapRow(row));
   }
 
   @Override

@@ -323,26 +323,35 @@ public abstract class AbstractPartitionStoreContract implements JobStoreContract
   }
 
   @Test
-  void findsSeedByChildAndRoundTripsLargeMultibyteCheckpoint() {
+  void findsPartitionByChildAndRoundTripsLargeMultibyteCheckpoint() {
     var write = generation(this, UUID.randomUUID().toString(), 2);
     String checkpoint = "界".repeat(40000);
     write.rows().get(0).setCheckpoint(checkpoint);
     assertTrue(partitionStore().createOrAdvance(write));
     UUID child = write.rows().get(0).getChildJobId();
-    assertEquals(checkpoint, partitionStore().findSeedByChild(child).orElseThrow());
-    assertTrue(partitionStore().findSeedByChild(write.rows().get(1).getChildJobId()).isEmpty());
-    assertTrue(partitionStore().findSeedByChild(UUID.randomUUID()).isEmpty());
+    var found = partitionStore().findPartitionByChild(child).orElseThrow();
+    assertEquals(write.set().getSetId(), found.getSetId());
+    assertEquals(0, found.getPartitionIndex());
+    assertEquals(checkpoint, found.getCheckpoint());
+    assertNull(
+        partitionStore()
+            .findPartitionByChild(write.rows().get(1).getChildJobId())
+            .orElseThrow()
+            .getCheckpoint());
+    assertTrue(partitionStore().findPartitionByChild(UUID.randomUUID()).isEmpty());
     var row = write.rows().get(0);
     row.setOutcome(PartitionOutcome.FAILED);
     row.setCheckpoint(checkpoint + "続");
     partitionStore().sealPartitions(write.set().getSetId(), 1, List.of(row));
-    assertEquals(checkpoint + "続", partitionStore().findSeedByChild(child).orElseThrow());
+    assertEquals(
+        checkpoint + "続",
+        partitionStore().findPartitionByChild(child).orElseThrow().getCheckpoint());
     var advance = next(write, 0);
     assertTrue(partitionStore().createOrAdvance(advance));
     assertEquals(
         checkpoint + "続",
         partitionStore().findPartitions(write.set().getSetId(), -1, 10).get(0).getCheckpoint());
-    assertTrue(partitionStore().findSeedByChild(child).isEmpty());
+    assertTrue(partitionStore().findPartitionByChild(child).isEmpty());
   }
 
   @Test

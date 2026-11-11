@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -26,6 +27,7 @@ import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.JobExecutorService;
+import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DurableTerminalEvents;
@@ -38,6 +40,23 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.spi.JobStore;
 
 class RatchetEngineWiringTest {
+  @Test
+  void partitionOptionsAndOptionalCapabilityBindThroughEngine() {
+    runner()
+        .withPropertyValues("ratchet.batch.max-partitions=23", "ratchet.batch.partition-grace=PT2M")
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              var options = context.getBean(RatchetOptions.class);
+              assertThat(options.maintenance().batchMaxPartitions()).isEqualTo(23);
+              assertThat(options.maintenance().batchPartitionGrace())
+                  .isEqualTo(Duration.ofMinutes(2));
+              assertThat(context).hasSingleBean(PartitionService.class);
+              assertThat(context.getBean(PartitionService.class).getPartitionSet("unknown"))
+                  .isEmpty();
+            });
+  }
+
   @Test
   void durableConfigurationAndSharedServiceAreWired() {
     runner()

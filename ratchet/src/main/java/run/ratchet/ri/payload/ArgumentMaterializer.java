@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import run.ratchet.api.KeyRange;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobPayload;
@@ -106,6 +107,14 @@ public final class ArgumentMaterializer {
         requireGenericAllowed(genericType, classPolicy);
       } else {
         requireAllowed(parameterTypes[i], classPolicy);
+      }
+      if (rawType == KeyRange.class && value instanceof Map<?, ?> range) {
+        if (restored == original) restored = original.clone();
+        restored[i] =
+            new KeyRange(
+                new BigDecimal(range.get("from").toString()).longValueExact(),
+                new BigDecimal(range.get("to").toString()).longValueExact());
+        continue;
       }
       if (serializer == null) {
         throw new IllegalStateException(

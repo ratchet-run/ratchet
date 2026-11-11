@@ -68,10 +68,8 @@ public interface PartitionStore {
   /** Finds sets whose latest generation is not sealed. Transaction attribute: {@code SUPPORTS}. */
   List<PartitionSetEntity> findUnsealedSets(int limit);
 
-  /**
-   * Finds a child checkpoint; empty when absent or null. Transaction attribute: {@code SUPPORTS}.
-   */
-  Optional<String> findSeedByChild(UUID childJobId);
+  /** Finds a child partition row; empty when absent. Transaction attribute: {@code SUPPORTS}. */
+  Optional<PartitionEntity> findPartitionByChild(UUID childJobId);
 
   /**
    * Counts only BATCH_CHILD jobs depending on the batch parent. Transaction attribute: {@code

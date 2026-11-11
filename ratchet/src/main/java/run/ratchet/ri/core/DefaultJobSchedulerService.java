@@ -91,6 +91,14 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   // Used when the caller principal can't be resolved (e.g. no Elytron context in tests).
   // JobSignaledEvent's contract requires non-null signalDeliveredBy.
   private static final String DEFAULT_SIGNAL_DELIVERED_BY = "system";
+  private PartitionService partitionService;
+
+  /** Connects partition generation support. */
+  @Inject
+  public void configurePartitions(PartitionService service) {
+    this.partitionService = service;
+  }
+
   private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
   private final InternalEventPublisher eventPublisher;
   private final JobBatchStatusStore jobBatchStatusStore;
@@ -255,6 +263,12 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
 
   @Override
   @Transactional
+  public boolean deletePartitionSet(String key) {
+    return partitionService != null && partitionService.deletePartitionSet(key);
+  }
+
+  @Override
+  @Transactional
   public boolean cancelJob(UUID jobId) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     // Recurring masters do not live in scheduler_job. Fall back to RecurringJobStore so the
@@ -274,6 +288,16 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       authorizationPolicy.checkCancel(jobId, ownerPrincipal, currentPrincipal);
     }
 
+    return cancelLoadedJob(jobId, job);
+  }
+
+  /** Cancels as the recovery system, using the same transition, event and cascade path. */
+  @Transactional
+  public boolean cancelJobAsSystem(UUID jobId) {
+    return cancelLoadedJob(jobId, jobCrudStore.findById(jobId).orElse(null));
+  }
+
+  private boolean cancelLoadedJob(UUID jobId, JobEntity job) {
     // Try PENDING → CANCELED first (most common case)
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {

@@ -19,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.jboss.logging.Logger;
+import run.ratchet.api.KeyRange;
 import run.ratchet.spi.ClassPolicy;
 
 /**
@@ -211,7 +212,7 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
    */
   @Override
   public boolean isAllowed(String className) {
-    return matches(className, allowedPackages);
+    return KeyRange.class.getName().equals(className) || matches(className, allowedPackages);
   }
 
   /**

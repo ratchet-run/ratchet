@@ -538,3 +538,26 @@ workflow conditions.
 The trusted invocation SPI accepts a per-item invocation factory. A reducing invocation stream
 stages its items and resolved invocations in memory so all target return types can be checked
 before any rows are written. Lambda-based reducing streams retain chunked input consumption.
+
+
+## forEachPartition and PartitionedBatchBuilder
+
+`forEachPartition(String partitionKey, List<KeyRange> partitions,
+SerializableConsumer<KeyRange> action)` selects durable partition processing. It returns a
+`PartitionedBatchBuilder`, a narrowed view of the same builder. It supports child options,
+resources, executor selection, progress hooks and the ordinary batch callbacks. It cannot mix
+with `forEach`, invocation items, reduction or streaming.
+
+`KeyRange` describes `[from, to)`. `KeyRange.split(from, to, size)` creates consecutive ranges.
+Invalid bounds or nonpositive sizes throw `IllegalArgumentException`. Addition overflow throws
+`ArithmeticException`. List position defines the partition index, even when ranges are unsorted.
+
+`reopen(Collection<Integer> indexes)` reruns those partitions with no checkpoint. Duplicate
+indexes are ignored. Invalid indexes throw `IllegalArgumentException`. Reopening requires a
+submission idempotency key and a sealed previous generation. It cannot reopen a new set.
+
+A later submit with the same partition key resumes unfinished partitions and keeps successful
+ones. Callbacks and progress apply to the submitted generation. Query with
+`JobQueryService.getPartitionSet(key)` and `getBatchPartitions(key, limit, offset)`.
+`JobSchedulerService.deletePartitionSet(key)` rejects an open generation and returns false for
+an unknown key. The latest batch id may refer to an archived job.

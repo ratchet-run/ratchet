@@ -1115,8 +1115,8 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
-  public Optional<String> findSeedByChild(UUID childJobId) {
-    return partitions.findSeedByChild(childJobId);
+  public Optional<PartitionEntity> findPartitionByChild(UUID childJobId) {
+    return partitions.findPartitionByChild(childJobId);
   }
 
   @Override

@@ -80,6 +80,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.ExtensionValidation;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -356,7 +357,26 @@ public class JobTask implements Callable<Void> {
               jobStore.capability(JobStateStore.class).orElse(null),
               afterCommitRegistrar,
               payloadSerializer,
-              jobStateFlusher);
+              jobStateFlusher,
+              jobEntity.getJobType() == JobExecutionType.BATCH_CHILD
+                  ? jobStore
+                      .capability(PartitionStore.class)
+                      .<CheckpointSeedSource>map(
+                          store ->
+                              childId ->
+                                  store
+                                      .findPartitionByChild(childId)
+                                      .map(
+                                          row ->
+                                              row.getCheckpoint() == null
+                                                  ? null
+                                                  : PayloadEncryptor.decryptJsonColumn(
+                                                      row.getCheckpoint(),
+                                                      EncryptionTarget.partitionCheckpoint(
+                                                          row.getSetId(),
+                                                          row.getPartitionIndex()))))
+                      .orElse(null)
+                  : null);
       jobStore
           .capability(JobStateStore.class)
           .ifPresent(

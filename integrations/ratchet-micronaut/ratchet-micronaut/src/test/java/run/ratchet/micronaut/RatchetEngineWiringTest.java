@@ -22,6 +22,7 @@ import io.micronaut.context.ApplicationContext;
 import jakarta.inject.Singleton;
 import java.lang.reflect.Method;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +48,7 @@ import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
 import run.ratchet.ri.core.JobTypeRateLimiter;
+import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.ri.core.RecurringJobExecutor;
@@ -117,6 +119,19 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.spi.JobStore;
 
 class RatchetEngineWiringTest {
+  @Test
+  void partitionOptionsAndOptionalCapabilityBindThroughEngine() {
+    try (var context =
+        TestContexts.engine(
+            Map.of("ratchet.batch.max-partitions", 23, "ratchet.batch.partition-grace", "PT2M"))) {
+      context.start();
+      var options = context.getBean(RatchetOptions.class);
+      assertEquals(23, options.maintenance().batchMaxPartitions());
+      assertEquals(Duration.ofMinutes(2), options.maintenance().batchPartitionGrace());
+      assertTrue(context.getBean(PartitionService.class).getPartitionSet("unknown").isEmpty());
+    }
+  }
+
   @Test
   void checkpointIntervalBindsThroughEngineOptions() {
     try (ApplicationContext context =

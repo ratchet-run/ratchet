@@ -41,6 +41,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.JobType;
+import run.ratchet.api.KeyRange;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableFunction;
@@ -76,15 +77,20 @@ import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
+import run.ratchet.store.dto.PartitionGenerationWrite;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.entity.PartitionEntity;
+import run.ratchet.store.entity.PartitionOutcome;
+import run.ratchet.store.entity.PartitionSetEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
@@ -98,6 +104,14 @@ import run.ratchet.store.util.PayloadEncryptor;
 @ApplicationScoped
 public class DefaultJobCreationService
     implements JobSubmitter, BatchSubmitter, StreamingBatchSubmitter, RecurringJobSubmitter {
+
+  private PartitionService partitionService;
+
+  /** Connects partition generation support. */
+  @Inject
+  public void configurePartitions(PartitionService service) {
+    this.partitionService = service;
+  }
 
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
@@ -520,8 +534,6 @@ public class DefaultJobCreationService
   }
 
   private JobHandle submitPrepared(DefaultBatchBuilder builder) {
-    requireBatchCapability();
-    requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
     String idempotencyKey = builder.idempotencyKey();
     if (idempotencyKey != null) {
       Optional<UUID> existingByKey = jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
@@ -533,6 +545,9 @@ public class DefaultJobCreationService
         return () -> existingId;
       }
     }
+    requireBatchCapability();
+    requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
+    if (builder.partitionKey() != null) return submitPartitions(builder);
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
       validateReducingChildren(builder);
@@ -610,6 +625,165 @@ public class DefaultJobCreationService
     log.infof(
         "Batch '%s' submitted with %s children (id=%s)",
         builder.name(), builder.children().size(), parentId);
+    return () -> parentId;
+  }
+
+  private JobHandle submitPartitions(DefaultBatchBuilder builder) {
+    PartitionStore partitions = partitionService == null ? null : partitionService.store();
+    if (partitions == null)
+      throw new UnsupportedOperationException(
+          "Partitioned batches require a store advertising the PartitionStore capability");
+    if (builder.reducer() != null)
+      throw new IllegalStateException("Partitions cannot reduce results");
+    if (!builder.reopened().isEmpty() && builder.idempotencyKey() == null)
+      throw new IllegalStateException("Reopening partitions requires an idempotency key");
+    if (builder.partitions().size() > partitionService.maxPartitions())
+      throw new IllegalArgumentException("Too many partitions");
+    if (builder.name() == null || builder.name().isBlank() || builder.name().length() > 255)
+      throw new IllegalArgumentException("Partition set name must contain 1 to 255 characters");
+    String caller = resolveCallerPrincipal();
+    Instant now = effective().instant();
+    UUID parentId = UuidV7Factory.create();
+    PartitionSetEntity set = partitions.findPartitionSet(builder.partitionKey()).orElse(null);
+    Integer expectedVersion = null;
+    List<PartitionEntity> rows = new ArrayList<>();
+    if (set == null) {
+      if (!builder.reopened().isEmpty())
+        throw new IllegalArgumentException("Cannot reopen a new partition set");
+      set = new PartitionSetEntity();
+      set.setSetId(UuidV7Factory.create());
+      set.setSetKey(builder.partitionKey());
+      set.setName(builder.name());
+      set.setPartitionCount(builder.partitions().size());
+      set.setLatestGeneration(1);
+      set.setSealedGeneration(0);
+      set.setCreatedAt(now);
+      set.setOwnerPrincipal(caller);
+      for (int index = 0; index < builder.partitions().size(); index++) {
+        KeyRange range = builder.partitions().get(index);
+        PartitionEntity row = new PartitionEntity();
+        row.setSetId(set.getSetId());
+        row.setPartitionIndex(index);
+        row.setRangeFrom(range.from());
+        row.setRangeTo(range.to());
+        rows.add(row);
+      }
+    } else {
+      if (authorizationPolicy != null)
+        authorizationPolicy.checkRetry(set.getLatestBatchId(), set.getOwnerPrincipal(), caller);
+      List<PartitionEntity> stored = new ArrayList<>();
+      int after = -1;
+      while (true) {
+        List<PartitionEntity> page = partitions.findPartitions(set.getSetId(), after, 500);
+        if (page.isEmpty()) break;
+        stored.addAll(page);
+        after = page.get(page.size() - 1).getPartitionIndex();
+      }
+      if (stored.size() != builder.partitions().size())
+        throw new IllegalArgumentException("Partition ranges changed");
+      for (int index = 0; index < stored.size(); index++) {
+        var row = stored.get(index);
+        var range = builder.partitions().get(index);
+        if (row.getPartitionIndex() != index
+            || row.getRangeFrom() != range.from()
+            || row.getRangeTo() != range.to())
+          throw new IllegalArgumentException("Partition ranges changed");
+      }
+      if (set.getSealedGeneration() < set.getLatestGeneration()) {
+        partitionService.trySeal(set);
+        set = partitions.findPartitionSet(builder.partitionKey()).orElseThrow();
+        if (set.getSealedGeneration() < set.getLatestGeneration()) {
+          if (!builder.reopened().isEmpty())
+            throw new IllegalStateException(
+                "the previous generation of partition set '"
+                    + builder.partitionKey()
+                    + "' is still running");
+          UUID latest = set.getLatestBatchId();
+          return () -> latest;
+        }
+        // Lazy sealing updated outcomes and checkpoints; reload before choosing targets.
+        stored.clear();
+        after = -1;
+        while (true) {
+          var page = partitions.findPartitions(set.getSetId(), after, 500);
+          if (page.isEmpty()) break;
+          stored.addAll(page);
+          after = page.get(page.size() - 1).getPartitionIndex();
+        }
+      }
+      for (var row : stored) {
+        boolean reopen = builder.reopened().contains(row.getPartitionIndex());
+        if (row.getOutcome() != PartitionOutcome.SUCCEEDED || reopen) {
+          if (reopen) row.setCheckpoint(null);
+          rows.add(row);
+        }
+      }
+      if (rows.isEmpty()) {
+        UUID latest = set.getLatestBatchId();
+        return () -> latest;
+      }
+      expectedVersion = set.getVersion();
+      set.setLatestGeneration(set.getLatestGeneration() + 1);
+    }
+    set.setLatestBatchId(parentId);
+    set.setGenerationStartedAt(now);
+    set.setUpdatedAt(now);
+    for (var row : rows) {
+      row.setGeneration(set.getLatestGeneration());
+      row.setChildJobId(UuidV7Factory.create());
+      row.setOutcome(null);
+      row.setLastError(null);
+    }
+    JobEntity parent = newBatchParent(caller, builder.idempotencyKey());
+    parent.setId(parentId);
+    parent.setExecutionTarget(builder.executionTarget());
+    checkCreateAuthorization(parent);
+    BatchEntity batch = new BatchEntity();
+    batch.setId(parentId);
+    batch.setPartitionSetId(set.getSetId());
+    batch.setGeneration(set.getLatestGeneration());
+    batch.setTotalItems(rows.size());
+    batch.setCompletedItems(0);
+    batch.setFailedItems(0);
+    if (builder.progressHook() != null)
+      batch.setProgressHook(runtimePayload(builder.progressHook()));
+    if (!partitions.createOrAdvance(
+        new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
+      throw new IllegalStateException(
+          "Partition set '" + builder.partitionKey() + "' was submitted concurrently; retry");
+    List<JobEntity> children = new ArrayList<>();
+    for (var row : rows) {
+      JobEntity child = new JobEntity();
+      child.setId(row.getChildJobId());
+      child.setJobType(JobExecutionType.BATCH_CHILD);
+      child.setStatus(JobStatus.PENDING);
+      child.setPriority(JobPriority.NORMAL);
+      child.setScheduledTime(now);
+      child.setPayload(
+          validate(builder.partitionPayload(new KeyRange(row.getRangeFrom(), row.getRangeTo()))));
+      child.setIdempotencyKey(UUID.randomUUID().toString());
+      child.setDependsOn(parentId);
+      child.setExecutionTarget(builder.executionTarget());
+      child.setResourceName(builder.childResourceName());
+      applyOptions(child, builder.childOptions());
+      stampCallerPrincipal(child, caller);
+      checkCreateAuthorization(child);
+      children.add(child);
+    }
+    bulkInsertJobs(children);
+    createWorkflowBranches(
+        parentId,
+        builder.workflowBranches(),
+        builder.callbackOptions(),
+        builder.executionTarget(),
+        parent.isEncryptedPayload(),
+        caller,
+        null);
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.BATCH_PARENT,
+        JobPriority.NORMAL,
+        Duration.ZERO,
+        builder.executionTarget());
     return () -> parentId;
   }
 

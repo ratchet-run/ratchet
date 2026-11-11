@@ -40,6 +40,13 @@ import java.util.UUID;
  */
 @Incubating
 public interface JobQueryService {
+  /** Returns durable set metadata. Authorization may refer to an archived latest batch id. */
+  @Incubating
+  Optional<PartitionSetSummary> getPartitionSet(String partitionKey);
+
+  /** Pages partitions in index order without sealing or changing their state. */
+  @Incubating
+  JobPage<BatchPartition> getBatchPartitions(String partitionKey, int limit, int offset);
 
   /** Default page size used by convenience query methods that do not accept a limit parameter. */
   int DEFAULT_PAGE_LIMIT = 100;

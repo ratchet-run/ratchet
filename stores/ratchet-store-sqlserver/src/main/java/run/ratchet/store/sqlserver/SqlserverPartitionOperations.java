@@ -123,8 +123,8 @@ final class SqlserverPartitionOperations implements PartitionStore {
               id(row.getChildJobId()));
           // Bind opaque large text only in a plain UPDATE SET, including Oracle CLOBs.
           update(
-              "UPDATE scheduler_partition SET outcome = ?, last_error = ?, checkpoint_json = ? WHERE"
-                  + " set_id = ? AND partition_index = ?",
+              "UPDATE scheduler_partition SET outcome = ?, last_error = ?, checkpoint_json = ?"
+                  + " WHERE set_id = ? AND partition_index = ?",
               row.getOutcome() == null ? null : row.getOutcome().name(),
               row.getLastError(),
               row.getCheckpoint(),
@@ -251,16 +251,14 @@ final class SqlserverPartitionOperations implements PartitionStore {
   }
 
   @Override
-  public Optional<String> findSeedByChild(UUID childJobId) {
+  public Optional<PartitionEntity> findPartitionByChild(UUID childJobId) {
     List<?> rows =
         query(
-                "SELECT checkpoint_json FROM scheduler_partition WHERE child_job_id = ?",
+                "SELECT " + PARTITION_COLUMNS + " FROM scheduler_partition WHERE child_job_id = ?",
                 id(childJobId))
             .setMaxResults(1)
             .getResultList();
-    return rows.isEmpty()
-        ? Optional.empty()
-        : Optional.ofNullable(RowValues.stringOrNull(rows.get(0)));
+    return rows.isEmpty() ? Optional.empty() : Optional.of(mapPartition((Object[]) rows.get(0)));
   }
 
   @Override
