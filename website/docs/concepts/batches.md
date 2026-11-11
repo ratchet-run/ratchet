@@ -302,8 +302,8 @@ the cancel. No batch callback runs after cancellation.
 
 `pauseJob` pauses PENDING children. RUNNING children finish and count toward the batch.
 Callbacks stay locked, and the parent cannot complete while paused. This pauses the
-children that are pending at that moment. A running child's automatic retry, or a
-retry that races the pause, may become PENDING and run during the pause.
+children that are pending at that moment. A child retried during the pause, whether
+automatically or by `retryJob`, comes back PAUSED and runs when the batch resumes.
 
 `resumeJob` restores all PAUSED children to their previous status. This includes
 children paused one by one before the batch pause. It also checks whether the batch
