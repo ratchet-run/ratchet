@@ -53,7 +53,9 @@ import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import static run.ratchet.store.mongodb.MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH;
 
 import com.mongodb.MongoWriteConcernException;
+import com.mongodb.TransactionOptions;
 import com.mongodb.client.ClientSession;
+import com.mongodb.client.TransactionBody;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.result.UpdateResult;
@@ -913,7 +915,7 @@ final class MongoJobLifecycleOperations
   private boolean transactionalStatusMutation(
       UUID id, JobStatus status, Function<ClientSession, UpdateResult> mutation) {
     try (ClientSession session = ctx.startSession()) {
-      return session.withTransaction(
+      TransactionBody<Boolean> body =
           () -> {
             UpdateResult result = mutation.apply(session);
             if (result.getModifiedCount() == 0) {
@@ -934,7 +936,15 @@ final class MongoJobLifecycleOperations
             }
             reservations.syncForStoredJob(session, id, status);
             return true;
-          });
+          };
+      if (status == JobStatus.CANCELED) {
+        // The claim-time parent check reads majority, so cancellation must commit with majority.
+        // Do not undo an unacknowledged cancel: it is the requested outcome, and batch recovery
+        // finishes the child cascade if the parent is CANCELED while its batch is still open.
+        return session.withTransaction(
+            body, TransactionOptions.builder().writeConcern(ctx.claimWriteConcern()).build());
+      }
+      return session.withTransaction(body);
     }
   }
 
