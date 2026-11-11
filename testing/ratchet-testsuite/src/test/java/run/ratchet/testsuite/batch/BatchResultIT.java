@@ -35,6 +35,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializableBinaryOperator;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.TypeRef;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.BatchControlGate;
 import run.ratchet.testsuite.app.BatchResultJobs;
@@ -143,7 +144,23 @@ class BatchResultIT extends BaseRatchetIT {
       await().atMost(Duration.ofSeconds(20)).until(() -> BatchControlGate.started() > 0);
       assertTrue(scheduler.pauseJob(handle.id()));
       BatchControlGate.release();
-      assertEquals(0, BatchResultJobs.successes());
+      // Wait for the children that were already running to finish. If the pause did not hold the
+      // rest, they would run too, and the batch would fold and deliver during the quiet period.
+      await()
+          .atMost(Duration.ofSeconds(20))
+          .until(
+              () ->
+                  jobs.findDependants(handle.id(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0).stream()
+                      .filter(child -> child.getJobType() == JobExecutionType.BATCH_CHILD)
+                      .noneMatch(child -> child.getStatus() == JobStatus.RUNNING));
+      await()
+          .during(Duration.ofSeconds(3))
+          .atMost(Duration.ofSeconds(6))
+          .untilAsserted(
+              () -> {
+                assertEquals(JobStatus.PAUSED, jobs.getJobStatus(handle.id()));
+                assertEquals(0, BatchResultJobs.successes());
+              });
       assertTrue(scheduler.resumeJob(handle.id()));
       assertDelivered(handle, 3240L);
     } finally {
