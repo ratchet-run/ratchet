@@ -32,6 +32,11 @@ public abstract class TypeRef<T> {
     type = parameterized.getActualTypeArguments()[0];
   }
 
+  /**
+   * Returns the captured result type, including generic arguments.
+   *
+   * @return the captured type
+   */
   @Incubating
   public final Type getType() {
     return type;

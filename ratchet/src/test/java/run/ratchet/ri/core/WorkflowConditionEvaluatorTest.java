@@ -741,6 +741,33 @@ class WorkflowConditionEvaluatorTest {
   }
 
   @Test
+  void resultValue_deniedGenericTypeFallsBackToNativeList() {
+    ClassPolicy policy = className -> !className.equals("com.example.Denied");
+    WorkflowConditionEvaluator restrictedEvaluator =
+        new WorkflowConditionEvaluator(batchStore, beanResolver, policy, payloadSerializer);
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    parent.setJobResult("[1,2]");
+    parent.setResultType("java.util.List<com.example.Denied>");
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<Object>) WorkflowConditionEvaluatorTest::isNativeNumberList);
+
+    assertTrue(
+        restrictedEvaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.RESULT_VALUE, expression),
+            parent));
+  }
+
+  public static boolean isNativeNumberList(Object value) {
+    return value instanceof List<?> values
+        && values.size() == 2
+        && values.get(0) instanceof Number first
+        && first.intValue() == 1
+        && values.get(1) instanceof Number second
+        && second.intValue() == 2;
+  }
+
+  @Test
   void resultValue_invocationAllowedButNotResultRegistered_isNotInstantiated() {
     // The class is on the invocation allowlist (isAllowed -> true) but NOT on the narrower
     // result-type allowlist (isAllowedForResultType -> false). The stored result_type must not be

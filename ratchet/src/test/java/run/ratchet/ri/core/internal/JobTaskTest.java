@@ -2048,6 +2048,7 @@ class JobTaskTest {
     JobEntity job = createTestJob();
     JobPayload original = job.getPayload();
     job.setMaxRetries(10);
+    job.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     job.setPayload(
         new JobPayload(
             original.target(),
@@ -2065,6 +2066,10 @@ class JobTaskTest {
     verify(lifecycleFacade).moveToDlqAndHandlePermanentFailure(eq(job), failure.capture());
     Assertions.assertEquals(
         "Batch success callback was never given the batch result", failure.getValue().getMessage());
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(ExecutionStatus.FAILED, execution.getValue().getStatus());
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
   }

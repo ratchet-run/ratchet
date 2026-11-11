@@ -46,6 +46,7 @@ import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.JobInvocation;
+import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobPayload;
 
 /** {@inheritDoc} */
@@ -58,6 +59,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   private final String name;
   private final StreamingBatchSubmitter submitter;
+  private final JobInvocationResolver jobInvocationResolver;
 
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
   private final BatchChildOptions childOptionState = new BatchChildOptions();
@@ -84,8 +86,14 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   }
 
   DefaultStreamingBatchBuilder(String name, StreamingBatchSubmitter submitter) {
+    this(name, submitter, new DefaultJobInvocationResolver());
+  }
+
+  DefaultStreamingBatchBuilder(
+      String name, StreamingBatchSubmitter submitter, JobInvocationResolver jobInvocationResolver) {
     this.name = name;
     this.submitter = submitter;
+    this.jobInvocationResolver = jobInvocationResolver;
   }
 
   @Override
@@ -140,7 +148,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   private JobPayload runtimeResultPayload(Serializable callback) {
     if (callback instanceof InvocationAdapter adapter)
       return JobPayloadFactory.fromInvocation(adapter.invocation());
-    return JobPayloadFactory.fromInvocation(new DefaultJobInvocationResolver().resolve(callback));
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
   }
 
   void resultAction(Serializable action) {

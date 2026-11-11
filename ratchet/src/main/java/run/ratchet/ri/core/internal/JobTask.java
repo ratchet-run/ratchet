@@ -469,6 +469,10 @@ public class JobTask implements Callable<Void> {
           JobPayloadInputValidator.requireBoundTaskArguments(jobEntity.getPayload());
         } catch (IllegalStateException unbound) {
           try {
+            if (currentExecution != null) {
+              currentExecution.markFailed(unbound.getClass().getName(), sanitizeError(unbound));
+              observabilityFacade.saveExecution(currentExecution);
+            }
             if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
               markAttemptSuperseded();
             }

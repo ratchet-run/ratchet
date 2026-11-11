@@ -20,6 +20,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Type;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -412,8 +413,13 @@ public class WorkflowConditionEvaluator {
             jobResultJson, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
     try {
       if (resultType != null && resultType.indexOf('<') >= 0) {
-        return payloadSerializer.deserialize(
-            jobResultJson, BatchResultTypes.parse(resultType, classPolicy));
+        Type type;
+        try {
+          type = BatchResultTypes.parse(resultType, classPolicy);
+        } catch (IllegalArgumentException denied) {
+          return payloadSerializer.deserialize(jobResultJson, Object.class);
+        }
+        return payloadSerializer.deserialize(jobResultJson, type);
       }
       if (resultType != null
           && classPolicy != null

@@ -96,7 +96,7 @@ class MongoCollectionInitializer {
    * the batch reducer has a single-field index under the same name; MongoDB rejects the new key
    * shape for that name (IndexOptionsConflict 85 / IndexKeySpecsConflict 86), so replace it.
    */
-  private void createDependsOnIndex(MongoCollection<Document> coll) {
+  void createDependsOnIndex(MongoCollection<Document> coll) {
     Bson keys = Indexes.ascending(DEPENDS_ON, "_id");
     if (creating) {
       try {
@@ -107,7 +107,13 @@ class MongoCollectionInitializer {
           log.warnf(e, "Index creation error: idx_job_depends_on on %s", coll.getNamespace());
           return;
         }
-        coll.dropIndex("idx_job_depends_on");
+        try {
+          coll.dropIndex("idx_job_depends_on");
+        } catch (MongoCommandException dropFailure) {
+          if (dropFailure.getErrorCode() != 27) {
+            throw dropFailure;
+          }
+        }
       }
     }
     createIndex(coll, keys, "idx_job_depends_on");

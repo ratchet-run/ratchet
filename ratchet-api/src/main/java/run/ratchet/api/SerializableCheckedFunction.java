@@ -21,6 +21,13 @@ import java.io.Serializable;
 @Incubating
 @FunctionalInterface
 public interface SerializableCheckedFunction<T, R> extends Serializable {
+  /**
+   * Applies this function to the supplied value.
+   *
+   * @param value input value
+   * @return the function result
+   * @throws Exception if processing fails
+   */
   @Incubating
   R apply(T value) throws Exception;
 }

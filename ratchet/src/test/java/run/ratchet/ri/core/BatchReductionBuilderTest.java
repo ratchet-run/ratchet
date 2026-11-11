@@ -35,14 +35,34 @@ import run.ratchet.api.SerializableBinaryOperator;
 import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.TypeRef;
+import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobPayload;
 
 class BatchReductionBuilderTest {
   private final ClassPolicy policy = mock(ClassPolicy.class);
   private final PayloadSerializer serializer = mock(PayloadSerializer.class);
+
+  @Test
+  void streamingReductionUsesConfiguredResolverForCombinerAndCallback() {
+    JobInvocationResolver resolver = mock(JobInvocationResolver.class);
+    var defaults = new DefaultJobInvocationResolver();
+    SerializableBinaryOperator<Long> combiner = Long::sum;
+    SerializableConsumer<Long> callback = BatchReductionBuilderTest::receive;
+    when(resolver.resolve(combiner)).thenReturn(defaults.resolve(combiner));
+    when(resolver.resolve(callback)).thenReturn(defaults.resolve(callback));
+    var builder =
+        new DefaultStreamingBatchBuilder<String>(
+            "reduce", mock(StreamingBatchSubmitter.class), resolver);
+
+    builder.reducing(0L, combiner).thenOnBatchSuccess(callback);
+
+    verify(resolver).resolve(combiner);
+    verify(resolver).resolve(callback);
+  }
 
   @Test
   void reducingMustPrecedeItemsProcessingAndSuccess() {
