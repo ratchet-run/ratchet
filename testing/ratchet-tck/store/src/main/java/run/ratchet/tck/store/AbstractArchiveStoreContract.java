@@ -23,11 +23,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 /** Base contract tests for {@code ArchiveStore}. */
 public abstract class AbstractArchiveStoreContract implements JobStoreContractFixture {
@@ -36,6 +38,43 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   @AfterEach
   void cleanupArchiveFixture() {
     cleanupStore();
+  }
+
+  @Test
+  void unsealedPartitionGenerationProtectsParentAndChildrenFromArchiveAndDlq() {
+    var write = AbstractPartitionStoreContract.generation(this, UUID.randomUUID().toString(), 1);
+    assertTrue(partitionStore().createOrAdvance(write));
+    var child = newPendingJob();
+    child.setId(write.rows().get(0).getChildJobId());
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(write.parent().getId());
+    child = store().create(child);
+    var branch = newPendingJob();
+    branch.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    branch.setDependsOn(write.parent().getId());
+    branch = persist(branch);
+    for (JobEntity job : List.of(write.parent(), child, branch)) {
+      assertTrue(
+          store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+      assertTrue(store().markJobFailedTerminal(job.getId(), "partition failure", 1, null));
+    }
+    Instant cutoff = Instant.now().plusSeconds(60);
+    var candidates = archiveStore().findJobsForArchiving(cutoff, 100);
+    assertEquals(List.of(branch.getId()), candidates.stream().map(JobEntity::getId).toList());
+    assertEquals(candidates.size(), archiveStore().countJobsForArchiving(cutoff));
+    assertEquals(1, archiveStore().archiveAndDeleteJobsBatch(candidates, "partition-test", "tck"));
+    assertEquals(0, store().deleteDlqOlderThan(cutoff));
+    assertTrue(store().findById(write.parent().getId()).isPresent());
+    assertTrue(store().findById(child.getId()).isPresent());
+    assertTrue(partitionStore().markSealed(write.set().getSetId(), 1));
+    candidates = archiveStore().findJobsForArchiving(cutoff, 100);
+    assertEquals(2, candidates.size());
+    assertEquals(2, archiveStore().countJobsForArchiving(cutoff));
+    assertEquals(2, store().deleteDlqOlderThan(cutoff));
+    assertTrue(store().findById(write.parent().getId()).isEmpty());
+    assertTrue(store().findById(child.getId()).isEmpty());
+    assertTrue(partitionStore().findPartitionSetById(write.set().getSetId()).isPresent());
+    assertEquals(1, partitionStore().findPartitions(write.set().getSetId(), -1, 10).size());
   }
 
   @Test

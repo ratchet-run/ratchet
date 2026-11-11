@@ -257,7 +257,10 @@ final class MongoArchiveOperations implements ArchiveStore {
             .projection(new Document(ID, 1))) {
       unfinished.add(batch.get(ID, UUID.class));
     }
-    return and(terminalOlderThan(olderThan), nin("depends_on", unfinished));
+    return and(
+        terminalOlderThan(olderThan),
+        nin("depends_on", unfinished),
+        MongoPartitionOperations.unprotectedJobs(ctx));
   }
 
   static Bson terminalOlderThan(Instant olderThan) {

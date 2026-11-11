@@ -187,6 +187,22 @@ class MongoCollectionInitializer {
     }
     createRecurringJobArchiveIndexes();
     createBatchIndexes();
+    createRequiredIndex(
+        database.getCollection("scheduler_partition_set"),
+        Indexes.ascending("set_key"),
+        new IndexOptions().name("uq_partition_set_key").unique(true));
+    createRequiredIndex(
+        database.getCollection("scheduler_partition"),
+        Indexes.ascending("set_id", "partition_index"),
+        new IndexOptions().name("uq_partition_index").unique(true));
+    createRequiredIndex(
+        database.getCollection("scheduler_partition"),
+        Indexes.ascending("child_job_id"),
+        new IndexOptions().name("idx_partition_child"));
+    createIndex(
+        database.getCollection("scheduler_batch"),
+        Indexes.ascending("partition_set_id"),
+        "idx_batch_partition_set");
     createBatchMetricsIndexes();
     createExecutionIndexes();
     createLogIndexes();

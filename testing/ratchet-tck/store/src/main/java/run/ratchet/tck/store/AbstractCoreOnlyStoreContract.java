@@ -40,6 +40,7 @@ import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.NodeStore;
+import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
@@ -59,6 +60,7 @@ public abstract class AbstractCoreOnlyStoreContract {
       List.of(
           RecurringJobStore.class,
           BatchStore.class,
+          PartitionStore.class,
           WorkflowConditionStore.class,
           SignalStore.class,
           ResourcePermitStore.class,

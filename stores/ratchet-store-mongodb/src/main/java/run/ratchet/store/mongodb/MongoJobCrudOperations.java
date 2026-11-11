@@ -143,27 +143,22 @@ final class MongoJobCrudOperations {
   }
 
   JobEntity create(JobEntity job) {
-    if (job.getId() == null) {
-      job.setId(UuidV7Factory.create());
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(() -> create(session, job));
     }
+  }
+
+  JobEntity create(ClientSession session, JobEntity job) {
+    if (job.getId() == null) job.setId(UuidV7Factory.create());
     Instant now = Instant.now();
     job.setCreatedAt(now);
     job.setUpdatedAt(now);
-    if (job.getVersion() == null) {
-      job.setVersion(0);
-    }
+    if (job.getVersion() == null) job.setVersion(0);
     truncateInstantsToMillis(job);
     try {
-      Document doc = DocumentMapper.toDocument(job);
-      try (ClientSession session = ctx.startSession()) {
-        session.withTransaction(
-            () -> {
-              MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
-              reservations.syncForJob(session, job);
-              ctx.jobs().insertOne(session, doc);
-              return true;
-            });
-      }
+      MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
+      reservations.syncForJob(session, job);
+      ctx.jobs().insertOne(session, DocumentMapper.toDocument(job));
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
@@ -666,6 +661,7 @@ final class MongoJobCrudOperations {
   int deleteDlqOlderThan(Instant cutoff) {
     Bson filter =
         and(
+            MongoPartitionOperations.unprotectedJobs(ctx),
             eq(STATUS, STATUS_FAILED),
             or(
                 lt(TERMINATED_AT, DocumentMapper.toDate(cutoff)),

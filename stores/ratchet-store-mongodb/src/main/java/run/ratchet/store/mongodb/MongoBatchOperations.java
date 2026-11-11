@@ -289,6 +289,16 @@ final class MongoBatchOperations implements BatchStore {
     return batch;
   }
 
+  BatchEntity saveBatch(ClientSession session, BatchEntity batch) {
+    ctx.batches()
+        .replaceOne(
+            session,
+            eq(ID, batch.getId()),
+            DocumentMapper.toDocument(batch),
+            new ReplaceOptions().upsert(true));
+    return batch;
+  }
+
   @Override
   public Optional<BatchEntity> findBatchById(UUID batchId) {
     Document doc = ctx.batches().find(eq(ID, batchId)).first();
