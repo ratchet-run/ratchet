@@ -198,22 +198,25 @@ class BatchControlIT extends BaseRatchetIT {
                     child.getStatus() == JobStatus.CANCELED
                         || child.getStatus() == JobStatus.FAILED);
               }
-              // Each attempt that entered the gate fails once; claimed children that never
-              // started are cancelled by the claim-time check.
+              // A child can pass the parent check before cancellation and enter the gate later.
+              // Count those failures too, but no item may enter a second attempt.
               assertEquals(
-                  started,
+                  BatchControlGate.started(),
                   children.stream().filter(child -> child.getStatus() == JobStatus.FAILED).count());
+              assertTrue(BatchControlGate.maxEntriesPerItem() <= 1);
               var batch = batches.findBatchById(parent.id()).orElseThrow();
               assertTrue(batch.getCompletionProcessed());
               assertEquals(
                   batch.getTotalItems(), batch.getFailedItems() + batch.getCompletedItems());
             });
+    int entered = BatchControlGate.started();
     await()
         .during(Duration.ofSeconds(3))
         .atMost(Duration.ofSeconds(6))
         .untilAsserted(
             () -> {
-              assertEquals(started, BatchControlGate.started());
+              assertEquals(entered, BatchControlGate.started());
+              assertTrue(BatchControlGate.maxEntriesPerItem() <= 1);
               assertEquals(0, BatchControlGate.successes());
               assertEquals(0, BatchControlGate.failures());
             });
