@@ -47,25 +47,31 @@ class SqlJobCompletionTest {
 
   @Test
   void dependencyPayloadWriterRunsOnlyAfterAllSnapshotGuards() {
-    exercisePayloadGuard(false);
-    exercisePayloadGuard(true);
+    exercisePayloadGuard(false, false);
+    exercisePayloadGuard(true, false);
+    exercisePayloadGuard(false, true);
   }
 
   @SuppressWarnings("unchecked")
-  private void exercisePayloadGuard(boolean stale) {
+  private void exercisePayloadGuard(boolean staleDependency, boolean staleBatch) {
+    boolean stale = staleDependency || staleBatch;
     EntityManager em = mock(EntityManager.class);
     JobStore store = mock(JobStore.class);
     Query primary = mock(Query.class, RETURNS_SELF);
     Query dependent = mock(Query.class, RETURNS_SELF);
+    Query batch = mock(Query.class, RETURNS_SELF);
     Query update = mock(Query.class, RETURNS_SELF);
     UUID id = new UUID(0L, 1L);
     UUID child = new UUID(0L, 2L);
     Instant now = Instant.now();
-    when(em.createNativeQuery(startsWith("SELECT "))).thenReturn(primary, dependent);
+    when(em.createNativeQuery(startsWith("SELECT "))).thenReturn(primary, dependent, batch);
     when(primary.getResultList())
         .thenReturn(List.<Object[]>of(new Object[] {"RUNNING", 0, now, 1, 1L}));
     when(dependent.getResultList())
-        .thenReturn(List.<Object[]>of(new Object[] {"PENDING", stale ? 4 : 3, now, 0, 0L}));
+        .thenReturn(
+            List.<Object[]>of(new Object[] {"PENDING", staleDependency ? 4 : 3, now, 0, 0L}));
+    // Another node processed this batch's completion after the plan's snapshot was taken.
+    when(batch.getResultList()).thenReturn(List.<Object[]>of(new Object[] {2, 2, 0, 1}));
     when(em.createNativeQuery(startsWith("UPDATE "))).thenReturn(update);
     when(update.executeUpdate()).thenReturn(1);
     when(store.markJobSucceeded(eq(id), any(), any(), any(), any(), any(), any())).thenReturn(true);
@@ -94,7 +100,7 @@ class SqlJobCompletionTest {
             0L,
             0L,
             null,
-            null,
+            staleBatch ? new JobCompletionPlan.BatchCompletion(2, 2, 0) : null,
             List.of(dependency),
             null,
             List.of());
