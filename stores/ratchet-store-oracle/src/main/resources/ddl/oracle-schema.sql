@@ -528,6 +528,6 @@ CREATE TABLE IF NOT EXISTS scheduler_partition (
     CONSTRAINT fk_partition_set FOREIGN KEY (set_id) REFERENCES scheduler_partition_set (set_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_partition_child ON scheduler_partition (child_job_id);
+CREATE INDEX IF NOT EXISTS idx_partition_child ON scheduler_partition (child_job_id);
 
-CREATE INDEX idx_batch_partition_set ON scheduler_batch (partition_set_id);
+CREATE INDEX IF NOT EXISTS idx_batch_partition_set ON scheduler_batch (partition_set_id);

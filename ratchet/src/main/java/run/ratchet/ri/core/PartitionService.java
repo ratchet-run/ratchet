@@ -37,7 +37,6 @@ import run.ratchet.api.PartitionSetSummary;
 import run.ratchet.api.PartitionStatus;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
-import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.ri.core.internal.JobCheckpointWriter;
 import run.ratchet.ri.core.internal.JobProgressWriter;
 import run.ratchet.ri.security.CallerPrincipalProvider;
@@ -156,9 +155,19 @@ public class PartitionService {
         .orElse(null);
   }
 
-  private static String key(String value) {
-    String normalized = IdempotencyKeyNormalizer.normalize(value);
-    if (normalized == null) throw new IllegalArgumentException("Partition key must not be blank");
+  static String normalizeKey(String value) {
+    String normalized = value == null ? null : value.trim();
+    if (normalized == null || normalized.isBlank())
+      throw new IllegalArgumentException("Partition key must not be blank");
+    if (normalized.length() > 36)
+      throw new IllegalArgumentException(
+          "Partition key must be at most 36 characters, got " + normalized.length());
+    for (int i = 0; i < normalized.length(); i++) {
+      char c = normalized.charAt(i);
+      if (c < 0x20 || c > 0x7E)
+        throw new IllegalArgumentException(
+            "Partition key must contain only printable ASCII characters (U+0020-U+007E)");
+    }
     return normalized;
   }
 
@@ -277,7 +286,7 @@ public class PartitionService {
     if (store == null) return Optional.empty();
     try {
       return store
-          .findPartitionSet(key(partitionKey))
+          .findPartitionSet(normalizeKey(partitionKey))
           .map(
               set -> {
                 if (policy != null) {
@@ -300,7 +309,7 @@ public class PartitionService {
     if (limit < 1 || limit > 1000 || offset < 0)
       throw new IllegalArgumentException("Invalid page request");
     Optional<PartitionSetEntity> found =
-        store == null ? Optional.empty() : store.findPartitionSet(key(partitionKey));
+        store == null ? Optional.empty() : store.findPartitionSet(normalizeKey(partitionKey));
     if (found.isEmpty()) return new JobPage<>(List.of(), 0, limit, offset, false, null);
     var set = found.get();
     try {
@@ -342,14 +351,14 @@ public class PartitionService {
   /** The authorization policy may receive an archived latestBatchId. */
   public boolean deletePartitionSet(String partitionKey) {
     if (store == null) return false;
-    var set = store.findPartitionSet(key(partitionKey));
+    var set = store.findPartitionSet(normalizeKey(partitionKey));
     if (set.isEmpty()) return false;
     if (policy != null)
       policy.checkCancel(
           set.get().getLatestBatchId(), set.get().getOwnerPrincipal(), currentPrincipal());
     if (set.get().getSealedGeneration() < set.get().getLatestGeneration()) {
       trySeal(set.get());
-      set = store.findPartitionSet(key(partitionKey));
+      set = store.findPartitionSet(normalizeKey(partitionKey));
       if (set.isEmpty()) return false;
     }
     if (set.get().getSealedGeneration() < set.get().getLatestGeneration()

@@ -181,6 +181,72 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
+  void partitionReadsUseThePrimary() {
+    IllegalStateException primaryRead = new IllegalStateException("primary read");
+    List<Object> readPreferences = new ArrayList<>();
+    MongoCollection<Document> primary =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName()) || "countDocuments".equals(method.getName())) {
+                throw primaryRead;
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                readPreferences.add(args[0]);
+                return primary;
+              }
+              if ("find".equals(method.getName()) || "countDocuments".equals(method.getName())) {
+                throw new AssertionError("read used the client's read preference");
+              }
+              return defaultValue(method);
+            });
+    MongoDatabase database =
+        mongoDatabase(
+            (proxy, method, args) -> {
+              if ("getCollection".equals(method.getName())) {
+                return collection;
+              }
+              return defaultValue(method);
+            });
+    MongoStoreContext ctx = new MongoStoreContext(mongoClient(null), database);
+    MongoPartitionOperations partitions = new MongoPartitionOperations(ctx, null, null);
+    UUID id = UUID.randomUUID();
+
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitionSet("set")));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitionSetById(id)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitions(id, -1, 10)));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> partitions.findGenerationPartitions(id, 1, -1, 10)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findUnsealedSets(null, 10)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitionByChild(id)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.countBatchChildren(id)));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> partitions.countUnfinishedBatchChildren(id)));
+    assertEquals(8, readPreferences.size());
+    assertTrue(readPreferences.stream().allMatch(ReadPreference.primary()::equals));
+  }
+
+  @Test
   void partitionProtectionReadsSetsAndBatchesFromPrimary() {
     List<Object> preferences = new ArrayList<>();
     MongoCollection<Document> primarySets =

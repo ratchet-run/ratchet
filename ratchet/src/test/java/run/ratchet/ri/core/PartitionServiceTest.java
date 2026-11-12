@@ -125,6 +125,12 @@ class PartitionServiceTest {
   }
 
   @Test
+  void rejectsNonAsciiPartitionKeyBeforeStoreLookup() {
+    assertThrows(IllegalArgumentException.class, () -> service.getPartitionSet("konto-år"));
+    verifyNoInteractions(store);
+  }
+
+  @Test
   void cancelGenerationRequiresConfiguredCancellation() {
     IllegalStateException failure =
         assertThrows(IllegalStateException.class, () -> service.cancelGeneration(parent.getId()));

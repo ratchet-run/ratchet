@@ -546,7 +546,8 @@ before any rows are written. Lambda-based reducing streams retain chunked input 
 SerializableConsumer<KeyRange> action)` selects durable partition processing. It returns a
 `PartitionedBatchBuilder`, a narrowed view of the same builder. It supports child options,
 resources, executor selection, progress hooks and the ordinary batch callbacks. It cannot mix
-with `forEach`, invocation items, reduction or streaming.
+with `forEach`, invocation items, reduction or streaming. After trimming, the partition key must
+contain 1 to 36 printable ASCII characters (`U+0020` through `U+007E`).
 
 `KeyRange` describes `[from, to)`. `KeyRange.split(from, to, size)` creates consecutive ranges.
 Invalid bounds or nonpositive sizes throw `IllegalArgumentException`. Addition overflow throws

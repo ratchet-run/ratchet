@@ -65,6 +65,26 @@ class PartitionedBatchBuilderTest {
   }
 
   @Test
+  void rejectsNonAsciiControlAndOverlongPartitionKeys() {
+    for (String key : List.of("konto-år", "a\u0001b", "a".repeat(37))) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              builder()
+                  .forEachPartition(
+                      key, List.of(new KeyRange(0, 1)), PartitionedBatchBuilderTest::process));
+    }
+  }
+
+  @Test
+  void accepts36CharacterAsciiPartitionKey() {
+    var state = builder();
+    String key = "a".repeat(36);
+    state.forEachPartition(key, List.of(new KeyRange(0, 1)), PartitionedBatchBuilderTest::process);
+    assertEquals(key, state.partitionKey());
+  }
+
+  @Test
   void validatesReopenAndPreservesInputOrder() {
     var state = builder();
     var narrowed =

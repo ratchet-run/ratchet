@@ -100,8 +100,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
       String key, List<KeyRange> ranges, SerializableConsumer<KeyRange> action) {
     if (itemsConfigured || reducer != null || partitionKey != null)
       throw new IllegalStateException("Partition configuration must be exclusive");
-    String normalized = IdempotencyKeyNormalizer.normalize(key);
-    if (normalized == null) throw new IllegalArgumentException("Partition key must not be blank");
+    String normalized = PartitionService.normalizeKey(key);
     if (ranges != null && ranges.size() > submitter.maxPartitions()) {
       throw new IllegalArgumentException("Too many partitions");
     }

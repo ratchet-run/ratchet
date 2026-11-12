@@ -31,7 +31,9 @@ import run.ratchet.api.exception.PayloadTooLargeException;
 @Incubating
 public interface BatchBuilder {
   /**
-   * Configures nonoverlapping partition ranges. Indexes follow the supplied list order.
+   * Configures nonoverlapping partition ranges. Indexes follow the supplied list order. After
+   * trimming, the key must contain 1 to 36 printable ASCII characters ({@code U+0020} through
+   * {@code U+007E}).
    *
    * @throws IllegalArgumentException if the key or ranges are invalid
    * @throws IllegalStateException if items or reduction were already configured

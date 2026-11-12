@@ -411,8 +411,9 @@ public void importRange(KeyRange range) {
 }
 ```
 
-Partition keys follow the store’s collation. Keys differing only in letter case may name the same
-set on MySQL and SQL Server, so use a consistent case.
+After trimming, partition keys must contain 1 to 36 printable ASCII characters (`U+0020` through
+`U+007E`). They follow the store’s collation, so keys differing only in letter case may name the
+same set on MySQL and SQL Server. Use a consistent case.
 
 Resubmit with the same partition key and identical ranges to run only unfinished partitions.
 Each resumes from its saved checkpoint. A running generation returns its existing batch handle.

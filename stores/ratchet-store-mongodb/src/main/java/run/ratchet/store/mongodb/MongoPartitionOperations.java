@@ -59,12 +59,17 @@ final class MongoPartitionOperations implements PartitionStore {
     this.batches = batches;
   }
 
+  // Read the latest committed generation; a lagging secondary can return the previous generation.
   private MongoCollection<Document> sets() {
-    return ctx.database().getCollection("scheduler_partition_set");
+    return ctx.database()
+        .getCollection("scheduler_partition_set")
+        .withReadPreference(ReadPreference.primary());
   }
 
   private MongoCollection<Document> rows() {
-    return ctx.database().getCollection("scheduler_partition");
+    return ctx.database()
+        .getCollection("scheduler_partition")
+        .withReadPreference(ReadPreference.primary());
   }
 
   @Override
@@ -234,12 +239,15 @@ final class MongoPartitionOperations implements PartitionStore {
 
   @Override
   public long countBatchChildren(UUID batchId) {
-    return ctx.jobs().countDocuments(and(eq("depends_on", batchId), eq("job_type", "BATCH_CHILD")));
+    return ctx.jobs()
+        .withReadPreference(ReadPreference.primary())
+        .countDocuments(and(eq("depends_on", batchId), eq("job_type", "BATCH_CHILD")));
   }
 
   @Override
   public long countUnfinishedBatchChildren(UUID batchId) {
     return ctx.jobs()
+        .withReadPreference(ReadPreference.primary())
         .countDocuments(
             and(
                 eq("depends_on", batchId),
