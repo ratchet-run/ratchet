@@ -15,10 +15,10 @@
  */
 package run.ratchet.store.oracle;
 
-import run.ratchet.tck.store.AbstractJpaResourcePermitClaimRaceContract;
 import run.ratchet.tck.store.JpaContainerFixture;
+import run.ratchet.tck.store.sql.AbstractSqlResourcePermitClaimRaceTest;
 
-class OracleResourcePermitClaimRaceContractTest extends AbstractJpaResourcePermitClaimRaceContract {
+class OracleResourcePermitClaimRaceTest extends AbstractSqlResourcePermitClaimRaceTest {
 
   private final OracleTestFixture fixture = new OracleTestFixture();
 
