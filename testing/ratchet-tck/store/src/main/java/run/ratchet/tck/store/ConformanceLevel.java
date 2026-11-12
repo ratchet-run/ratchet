@@ -73,8 +73,8 @@ public enum ConformanceLevel {
       "Bulk operations, business-key uniqueness, and the dual-write storage invariant are core. The"
           + " optional contracts apply only to stores that advertise the capability: archival,"
           + " distributed locks, resource permits, indexed properties, and — for SQL stores —"
-          + " schema conformance, schema migration, JPA recurring-claim concurrency, and JTA"
-          + " transaction boundaries.",
+          + " schema conformance, schema migration, JPA recurring-claim concurrency, JPA permit claim"
+          + " races, and JTA transaction boundaries.",
       List.of(
           "AbstractJobBulkStoreContract",
           "AbstractActiveBusinessKeyContract",
@@ -87,6 +87,7 @@ public enum ConformanceLevel {
           "AbstractSchemaConformanceContract",
           "AbstractSchemaMigratorContract",
           "AbstractJpaRecurringClaimConcurrencyContract",
+          "AbstractJpaResourcePermitClaimRaceContract",
           "AbstractJobStoreTransactionBoundaryContract"));
 
   private static final Map<String, ConformanceLevel> BY_CONTRACT = buildIndex();

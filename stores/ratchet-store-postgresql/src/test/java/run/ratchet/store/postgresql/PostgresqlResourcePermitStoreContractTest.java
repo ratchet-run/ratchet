@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.postgresql;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -60,6 +61,7 @@ class PostgresqlResourcePermitStoreContractTest extends AbstractResourcePermitSt
     assertTrue(start >= 0, "tryAcquirePermit method should exist in source");
     assertTrue(end > start, "releasePermit should appear after tryAcquirePermit in source");
     String method = source.substring(start, end);
+    assertFalse(method.contains("SET id = ?"));
 
     assertTrue(
         method.contains("INSERT INTO scheduler_resource_permit")

@@ -705,20 +705,20 @@ that claim:
 
 - Check that the resource is configured first, and throw `IllegalArgumentException` when it is not.
 - Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq`.
-- A job holds at most one permit per resource. A repeat call by the same claim returns
-  `ACQUIRED`. A call by a newer claim takes over the older claim's permit, including its node id,
-  and uses no more capacity.
-- Otherwise insert a permit when the resource has capacity (`ACQUIRED`), or return `AT_CAPACITY`.
-- `releasePermit` removes only the permit that belongs to the given claim. After a takeover, the
-  older claim's release removes nothing.
-- `cleanupOrphanedPermits` removes permits by the node id they carry now, so a permit that a
-  newer claim took over survives the clean-up of the old node.
+- A repeat call by the same claim returns `ACQUIRED` and uses no more capacity.
+- Otherwise insert a permit for the claim when the resource has capacity (`ACQUIRED`), or return
+  `AT_CAPACITY`. Count every permit of the resource, including one that an older claim of the
+  same job still holds. A retry never reuses its earlier attempt's permit. When the resource is
+  full, the retry waits until that permit is released or cleaned up. When a slot is free, the
+  retry takes it, and the job holds two permits until the older one goes.
+- `releasePermit` removes only the permit that belongs to the given claim.
+- `cleanupOrphanedPermits` removes permits by the node id they carry.
 
 The bundled stores record the claim in the permit's id, a name-based UUID of resource, job and
-claim, so the permit table needs no claim column. A MongoDB-style store whose transactions read a
-snapshot must write a document on every successful acquire path, including the same-claim
-repeat, so that a stale snapshot ends in a write conflict instead of a permit that no longer
-exists.
+claim, so the permit table needs no claim column. Do not add a unique key on resource and job:
+a job can hold one permit per claim. The capacity check and the insert must be atomic against
+other acquires of the same resource. The SQL stores lock the resource-limit row, and the MongoDB
+store increments a counter on it.
 
 ### Current claim
 

@@ -133,6 +133,7 @@ Most contracts use `JobStoreContractFixture`. These conditional profiles need ad
 |----------|-----------------|
 | `AbstractRecurringJobStoreContract` | `RecurringJobStore`, `TagStore`, a no-op `JobPayload`, the common fixture, and recurring-data cleanup |
 | `AbstractJpaRecurringClaimConcurrencyContract` | `JpaContainerFixture`, `RecurringJobStore`, a no-op payload, and cleanup |
+| `AbstractJpaResourcePermitClaimRaceContract` | `JpaContainerFixture` of a store that advertises `ResourcePermitStore` |
 | `AbstractSchemaConformanceContract` | A JDBC connection and `DialectTypeMapper` |
 | `AbstractSchemaMigratorContract` | A `DataSource`, `SchemaMigrationDialect`, database reset, and a new JDBC connection |
 | `AbstractJobStoreTransactionBoundaryContract` | The concrete JPA store implementation class whose annotations are inspected |

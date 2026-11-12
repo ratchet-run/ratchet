@@ -262,7 +262,7 @@ final class MysqlAuxiliaryOperations
           ctx.em()
               .createNativeQuery(
                   """
-                  SELECT id, job_id FROM scheduler_resource_permit
+                  SELECT id FROM scheduler_resource_permit
                   WHERE resource_name = ? FOR UPDATE
                   """)
               .setParameter(1, resource)
@@ -270,22 +270,7 @@ final class MysqlAuxiliaryOperations
       int active = permits.size();
       UUID permitId = ResourcePermitEntity.idFor(resource, jobId, claimSeq);
       for (Object row : permits) {
-        Object[] permit = (Object[]) row;
-        if (jobId.equals(MysqlJobRowMapper.uuidOrNull(permit[1]))) {
-          UUID previousId = MysqlJobRowMapper.uuidOrNull(permit[0]);
-          if (!permitId.equals(previousId)) {
-            ctx.em()
-                .createNativeQuery(
-                    """
-                    UPDATE scheduler_resource_permit SET id = ?, node_id = ?, acquired_at = ?
-                    WHERE id = ?
-                    """)
-                .setParameter(1, UuidByteArrayConverter.toBytes(permitId))
-                .setParameter(2, nodeId)
-                .setParameter(3, Timestamp.from(Instant.now()))
-                .setParameter(4, UuidByteArrayConverter.toBytes(previousId))
-                .executeUpdate();
-          }
+        if (permitId.equals(MysqlJobRowMapper.uuidOrNull(row))) {
           return AcquireResult.ACQUIRED;
         }
       }

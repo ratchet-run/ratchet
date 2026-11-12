@@ -37,10 +37,10 @@ public interface ResourcePermitStore {
    * Attempts to acquire capacity for a configured resource.
    *
    * <p>An unconfigured resource throws before checking the claim. A job must still be RUNNING under
-   * the supplied claim, otherwise the result is SUPERSEDED and nothing is written. A job holds at
-   * most one permit per resource: the same claim acquires idempotently, while a newer claim takes
-   * over the row and its node identity without consuming more capacity. Otherwise a new permit is
-   * inserted only when capacity is available.
+   * the supplied claim, otherwise the result is SUPERSEDED and nothing is written. The same claim
+   * acquires idempotently. An older claim's permit of the same job counts against capacity like any
+   * other permit: when the resource is full, a newer claim gets AT_CAPACITY until that permit is
+   * released or cleaned up. A new permit is inserted only when capacity is available.
    *
    * <p>SQL stores that implement this with row locks require the caller's store operation to run in
    * one active transaction so the capacity check and permit insert observe the same locked resource
@@ -58,8 +58,7 @@ public interface ResourcePermitStore {
 
   /**
    * Releases only the permit belonging to the supplied resource, job and claim. Missing permits are
-   * a no-op. An older claim cannot release a permit taken over by a newer claim, but can still
-   * release its own permit if the newer attempt never took it over.
+   * a no-op. A permit that another claim of the same job holds stays in place.
    *
    * @param resource configured resource name to release against; never {@code null}
    * @param jobId job id that owns the permit; never {@code null}
@@ -101,8 +100,7 @@ public interface ResourcePermitStore {
   void configureResource(String name, int maxConcurrent, int retryDelayMs, String description);
 
   /**
-   * Cleans permits carrying a stale node id now. A permit taken over by a newer claim carries its
-   * new node id and is kept. Transaction attribute: {@code REQUIRED}.
+   * Removes permits by the node id they carry. Transaction attribute: {@code REQUIRED}.
    *
    * @param staleNodeIds node ids whose permits should be released; never {@code null}, may be empty
    *     (no-op when empty)

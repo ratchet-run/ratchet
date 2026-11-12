@@ -240,30 +240,18 @@ final class MongoAuxiliaryOperations {
               return AcquireResult.SUPERSEDED;
             }
             UUID permitId = ResourcePermitEntity.idFor(resource, jobId, claimSeq);
-            Document existing =
-                ctx.resourcePermits()
-                    .find(session, and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)))
-                    .first();
+            Document existing = ctx.resourcePermits().find(session, eq(ID, permitId)).first();
             if (existing != null) {
-              if (permitId.equals(existing.get(ID))) {
-                Date acquiredAt = Date.from(Instant.now());
-                Date previous = existing.getDate("acquired_at");
-                if (previous != null && !acquiredAt.after(previous)) {
-                  acquiredAt = new Date(previous.getTime() + 1);
-                }
-                ctx.resourcePermits()
-                    .updateOne(
-                        session,
-                        eq(ID, permitId),
-                        combine(set(NODE_ID, nodeId), set("acquired_at", acquiredAt)));
-              } else {
-                ctx.resourcePermits().deleteOne(session, eq(ID, existing.get(ID)));
-                ctx.resourcePermits()
-                    .insertOne(
-                        session,
-                        DocumentMapper.toDocument(
-                            ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId)));
+              Date acquiredAt = Date.from(Instant.now());
+              Date previous = existing.getDate("acquired_at");
+              if (previous != null && !acquiredAt.after(previous)) {
+                acquiredAt = new Date(previous.getTime() + 1);
               }
+              ctx.resourcePermits()
+                  .updateOne(
+                      session,
+                      eq(ID, permitId),
+                      combine(set(NODE_ID, nodeId), set("acquired_at", acquiredAt)));
               return AcquireResult.ACQUIRED;
             }
 

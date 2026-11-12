@@ -36,9 +36,19 @@ class MysqlAuxiliaryOperationsTest {
   void tryAcquirePermit_sameJobExistingPermitIsIdempotent() {
     UUID jobId = UUID.fromString("01900000-0000-7000-8000-000000000001");
     MysqlAuxiliaryOperations operations =
-        new MysqlAuxiliaryOperations(entityManagerWithExistingPermit(jobId));
+        new MysqlAuxiliaryOperations(entityManagerWithExistingPermit(jobId, 0L));
 
     assertEquals(AcquireResult.ACQUIRED, operations.tryAcquirePermit("res", jobId, 0L, "node-1"));
+  }
+
+  @Test
+  void tryAcquirePermit_olderClaimCountsAgainstCapacity() {
+    UUID jobId = UUID.fromString("01900000-0000-7000-8000-000000000001");
+    MysqlAuxiliaryOperations operations =
+        new MysqlAuxiliaryOperations(entityManagerWithExistingPermit(jobId, 1L));
+
+    assertEquals(
+        AcquireResult.AT_CAPACITY, operations.tryAcquirePermit("res", jobId, 1L, "node-1"));
   }
 
   @Test
@@ -75,7 +85,8 @@ class MysqlAuxiliaryOperationsTest {
             });
   }
 
-  private static MysqlStoreContext entityManagerWithExistingPermit(UUID expectedJobId) {
+  private static MysqlStoreContext entityManagerWithExistingPermit(
+      UUID expectedJobId, long claimSeq) {
     EntityManager em =
         (EntityManager)
             Proxy.newProxyInstance(
@@ -84,7 +95,7 @@ class MysqlAuxiliaryOperationsTest {
                 (proxy, method, args) -> {
                   return switch (method.getName()) {
                     case "createNativeQuery" ->
-                        queryReturningExistingPermit(expectedJobId, (String) args[0]);
+                        queryReturningExistingPermit(expectedJobId, claimSeq, (String) args[0]);
                     case "persist" ->
                         throw new AssertionError("existing permit must not insert another row");
                     default -> throw new UnsupportedOperationException(method.getName());
@@ -93,7 +104,7 @@ class MysqlAuxiliaryOperationsTest {
     return new MysqlStoreContext(em, null);
   }
 
-  private static Query queryReturningExistingPermit(UUID expectedJobId, String sql) {
+  private static Query queryReturningExistingPermit(UUID expectedJobId, long claimSeq, String sql) {
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
@@ -103,15 +114,12 @@ class MysqlAuxiliaryOperationsTest {
                 case "setParameter" -> proxy;
                 case "getResultList" ->
                     sql.contains("scheduler_job_queue")
-                        ? Collections.singletonList(new Object[] {"RUNNING", 0L})
+                        ? Collections.singletonList(new Object[] {"RUNNING", claimSeq})
                         : sql.contains("max_concurrent")
-                            ? List.of(2)
+                            ? List.of(1)
                             : Collections.singletonList(
-                                new Object[] {
-                                  UuidByteArrayConverter.toBytes(
-                                      ResourcePermitEntity.idFor("res", expectedJobId, 0L)),
-                                  UuidByteArrayConverter.toBytes(expectedJobId)
-                                });
+                                UuidByteArrayConverter.toBytes(
+                                    ResourcePermitEntity.idFor("res", expectedJobId, 0L)));
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

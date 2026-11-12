@@ -53,9 +53,7 @@ public class ResourcePermitEntity implements UuidV7EntityListener.UuidV7Assignab
   @Column(name = "acquired_at", nullable = false)
   private Instant acquiredAt;
 
-  /**
-   * Names the claim holding the permit so release and takeover distinguish claims without a column.
-   */
+  /** Names the claim holding the permit so release distinguishes claims without a column. */
   public static UUID idFor(String resourceName, UUID jobId, long claimSeq) {
     return UUID.nameUUIDFromBytes((resourceName + '\n' + jobId + '\n' + claimSeq).getBytes(UTF_8));
   }

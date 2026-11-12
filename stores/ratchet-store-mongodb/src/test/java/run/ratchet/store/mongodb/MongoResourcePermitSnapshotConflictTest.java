@@ -29,6 +29,7 @@ import java.lang.reflect.Proxy;
 import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,23 +53,56 @@ class MongoResourcePermitSnapshotConflictTest {
   }
 
   @Test
-  void sameClaimAcquire_retriesAfterPermitWasReplacedAndReleased() {
-    assertStaleSnapshotCannotAcquire(true);
+  void sameClaimAcquire_staleSnapshotHoldsPermitUntilItReleases() {
+    ResourcePermitStore permits = fixture.resourcePermitStore();
+    permits.configureResource("one", 1, 100, "test");
+    JobEntity first = claimNewJob();
+    assertEquals(
+        ACQUIRED, permits.tryAcquirePermit("one", first.getId(), first.getClaimSeq(), "old"));
+    AtomicBoolean hookRan = new AtomicBoolean();
+    AtomicReference<JobEntity> retry = new AtomicReference<>();
+    Runnable hook =
+        () -> {
+          if (!hookRan.compareAndSet(false, true)) {
+            return;
+          }
+          assertEquals(
+              1,
+              fixture.store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+          JobEntity reclaimed = fixture.store().claimNextBatch(1, "new").get(0);
+          assertEquals(first.getId(), reclaimed.getId());
+          assertTrue(reclaimed.getClaimSeq() > first.getClaimSeq());
+          retry.set(reclaimed);
+          assertEquals(
+              AT_CAPACITY,
+              permits.tryAcquirePermit("one", reclaimed.getId(), reclaimed.getClaimSeq(), "new"));
+          JobEntity second = claimNewJob();
+          assertEquals(
+              AT_CAPACITY,
+              permits.tryAcquirePermit("one", second.getId(), second.getClaimSeq(), "other"));
+        };
+    MongoAuxiliaryOperations wrapped = fixture.auxiliaryOperations(wrapDatabase(hook));
+    assertEquals(
+        ACQUIRED, wrapped.tryAcquirePermit("one", first.getId(), first.getClaimSeq(), "old"));
+    assertTrue(hookRan.get());
+    JobEntity reclaimed = retry.get();
+    assertEquals(
+        AT_CAPACITY,
+        permits.tryAcquirePermit("one", reclaimed.getId(), reclaimed.getClaimSeq(), "new"));
+    permits.releasePermit("one", first.getId(), first.getClaimSeq());
+    assertEquals(
+        ACQUIRED,
+        permits.tryAcquirePermit("one", reclaimed.getId(), reclaimed.getClaimSeq(), "new"));
+    JobEntity third = claimNewJob();
+    assertEquals(
+        AT_CAPACITY, permits.tryAcquirePermit("one", third.getId(), third.getClaimSeq(), "third"));
   }
 
   @Test
   void newPermitAcquire_retriesAfterClaimWasSuperseded() {
-    assertStaleSnapshotCannotAcquire(false);
-  }
-
-  private void assertStaleSnapshotCannotAcquire(boolean existingPermit) {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("one", 1, 100, "test");
     JobEntity first = claimNewJob();
-    if (existingPermit) {
-      assertEquals(
-          ACQUIRED, permits.tryAcquirePermit("one", first.getId(), first.getClaimSeq(), "old"));
-    }
     AtomicBoolean hookRan = new AtomicBoolean();
     Runnable hook =
         () -> {
@@ -81,12 +115,6 @@ class MongoResourcePermitSnapshotConflictTest {
           JobEntity retry = fixture.store().claimNextBatch(1, "new").get(0);
           assertEquals(first.getId(), retry.getId());
           assertTrue(retry.getClaimSeq() > first.getClaimSeq());
-          if (existingPermit) {
-            assertEquals(
-                ACQUIRED,
-                permits.tryAcquirePermit("one", retry.getId(), retry.getClaimSeq(), "new"));
-            permits.releasePermit("one", retry.getId(), retry.getClaimSeq());
-          }
           JobEntity second = claimNewJob();
           assertEquals(
               ACQUIRED,

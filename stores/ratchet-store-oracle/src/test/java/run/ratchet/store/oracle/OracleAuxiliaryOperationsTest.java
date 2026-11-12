@@ -17,11 +17,13 @@ package run.ratchet.store.oracle;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.sql.Timestamp;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -49,10 +51,9 @@ class OracleAuxiliaryOperationsTest {
     Map<Integer, Object> update = bound.get("update");
     assertArrayEquals(
         UuidRawConverter.toBytes(ResourcePermitEntity.idFor("res", jobId, 7L)),
-        (byte[]) update.get(1));
-    assertEquals("node-1", update.get(2));
-    assertEquals("res", update.get(4));
-    assertArrayEquals(jobBytes, (byte[]) update.get(5));
+        (byte[]) update.get(3));
+    assertEquals("node-1", update.get(1));
+    assertInstanceOf(Timestamp.class, update.get(2));
   }
 
   @Test

@@ -37,8 +37,7 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
  * Base contract tests for {@code ResourcePermitStore}.
  *
  * <p>A permit belongs to the claim that took it. Only the attempt whose claim is RUNNING can take
- * one, a newer claim of the same job takes over the older claim's permit, and a release by an older
- * claim or a stale-node cleanup must leave the newer claim's permit in place.
+ * one. An older claim's permit counts against capacity until it is released or cleaned up.
  */
 public abstract class AbstractResourcePermitStoreContract implements JobStoreContractFixture {
 
@@ -215,7 +214,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   }
 
   @Test
-  void staleNodeCleanup_keepsPermitOfNewerAttempt() {
+  void newerClaimWaitsUntilDeadNodeCleanup() {
     resourcePermitStore().configureResource("res-reclaim", 1, 1000, "orphan reclaim");
     var first = claimNewJob("dead-node");
     assertEquals(ACQUIRED, acquire("res-reclaim", first, "dead-node"));
@@ -223,58 +222,76 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
     var retry = reclaim(first, "live-node");
     assertEquals(
-        ACQUIRED,
+        AT_CAPACITY,
         acquire("res-reclaim", retry, "live-node"),
-        "the new attempt takes over the dead attempt's permit");
+        "the dead attempt's permit still counts");
     resourcePermitStore().cleanupOrphanedPermits(List.of("dead-node"));
-
+    assertEquals(ACQUIRED, acquire("res-reclaim", retry, "live-node"));
     var other = claimNewJob("other-node");
+    assertEquals(AT_CAPACITY, acquire("res-reclaim", other, "other-node"));
+    resourcePermitStore().cleanupOrphanedPermits(List.of("dead-node"));
     assertEquals(
         AT_CAPACITY,
         acquire("res-reclaim", other, "other-node"),
-        "cleanup of the dead node must not free the permit the new attempt holds");
+        "cleanup of the dead node must not free the live retry's permit");
     release("res-reclaim", retry);
-    assertEquals(
-        ACQUIRED,
-        acquire("res-reclaim", other, "other-node"),
-        "the new attempt's release frees the permit it took over");
+    assertEquals(ACQUIRED, acquire("res-reclaim", other, "other-node"));
   }
 
   @Test
-  void staleAttemptRelease_keepsPermitOfNewerAttempt() {
-    resourcePermitStore().configureResource("res-timeout", 1, 1000, "timeout retry");
+  void newerClaimWaitsUntilOlderClaimReleases() {
+    resourcePermitStore().configureResource("res-timeout", 1, 1000, "retry");
     var first = claimNewJob("node-a");
     assertEquals(ACQUIRED, acquire("res-timeout", first, "node-a"));
 
     scheduleImmediateRetry(first);
     var retry = reclaim(first, "node-b");
-    assertEquals(ACQUIRED, acquire("res-timeout", retry, "node-b"));
-    // The timed-out attempt's thread ends later and runs its release.
+    assertEquals(AT_CAPACITY, acquire("res-timeout", retry, "node-b"));
     release("res-timeout", first);
-
+    assertEquals(ACQUIRED, acquire("res-timeout", retry, "node-b"));
+    release("res-timeout", first);
     var other = claimNewJob("node-c");
     assertEquals(
         AT_CAPACITY,
         acquire("res-timeout", other, "node-c"),
-        "the old attempt's release must not free the permit the new attempt holds");
+        "the older claim's release must not free the newer claim's own permit");
   }
 
   @Test
-  void staleAttemptRelease_onSameNodeKeepsPermitOfNewerAttempt() {
-    resourcePermitStore().configureResource("res-same-node", 1, 1000, "same-node retry");
+  void newerClaimOnSameNodeWaitsUntilOlderClaimReleases() {
+    resourcePermitStore().configureResource("res-same-node", 1, 1000, "retry");
     var first = claimNewJob("node-a");
     assertEquals(ACQUIRED, acquire("res-same-node", first, "node-a"));
 
     scheduleImmediateRetry(first);
     var retry = reclaim(first, "node-a");
+    assertEquals(AT_CAPACITY, acquire("res-same-node", retry, "node-a"));
+    release("res-same-node", first);
     assertEquals(ACQUIRED, acquire("res-same-node", retry, "node-a"));
     release("res-same-node", first);
-
     var other = claimNewJob("node-c");
     assertEquals(
         AT_CAPACITY,
         acquire("res-same-node", other, "node-c"),
-        "a release by the older claim on the same node must not free the newer claim's permit");
+        "the older claim's release must not free the newer claim's own permit");
+  }
+
+  @Test
+  void newerClaimCountsOlderClaimPermitAgainstCapacity() {
+    resourcePermitStore().configureResource("res-two", 2, 1000, "two slots");
+    var first = claimNewJob("node-a");
+    assertEquals(ACQUIRED, acquire("res-two", first, "node-a"));
+    scheduleImmediateRetry(first);
+    var retry = reclaim(first, "node-b");
+    assertEquals(ACQUIRED, acquire("res-two", retry, "node-b"), "a free slot admits the retry");
+    assertEquals(ACQUIRED, acquire("res-two", retry, "node-b"));
+    var third = claimNewJob("node-c");
+    assertEquals(
+        AT_CAPACITY,
+        acquire("res-two", third, "node-c"),
+        "the older claim's permit and the retry's permit fill both slots");
+    release("res-two", first);
+    assertEquals(ACQUIRED, acquire("res-two", third, "node-c"));
   }
 
   @Test

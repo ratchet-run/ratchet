@@ -276,17 +276,15 @@ final class SqlserverAuxiliaryOperations
           ctx.em()
               .createNativeQuery(
                   """
-                  UPDATE scheduler_resource_permit SET id = ?, node_id = ?, acquired_at = ?
-                  WHERE resource_name = ? AND job_id = ?
+                  UPDATE scheduler_resource_permit SET node_id = ?, acquired_at = ?
+                  WHERE id = ?
                   """)
+              .setParameter(1, nodeId)
+              .setParameter(2, Timestamp.from(Instant.now()))
               .setParameter(
-                  1,
+                  3,
                   UuidByteArrayConverter.toBytes(
                       ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
-              .setParameter(2, nodeId)
-              .setParameter(3, Timestamp.from(Instant.now()))
-              .setParameter(4, resource)
-              .setParameter(5, UuidByteArrayConverter.toBytes(jobId))
               .executeUpdate();
       if (updated > 0) {
         return AcquireResult.ACQUIRED;
