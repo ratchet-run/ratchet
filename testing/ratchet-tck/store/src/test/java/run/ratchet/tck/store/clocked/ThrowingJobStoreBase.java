@@ -58,6 +58,7 @@ import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -726,12 +727,12 @@ public abstract class ThrowingJobStoreBase
   // ----- ResourcePermitStore -----
 
   @Override
-  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
+  public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
     return fail("tryAcquirePermit");
   }
 
   @Override
-  public void releasePermit(String resource, UUID jobId) {
+  public void releasePermit(String resource, UUID jobId, long claimSeq) {
     fail("releasePermit");
   }
 

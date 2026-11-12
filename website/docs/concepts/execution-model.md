@@ -197,6 +197,8 @@ The `ResilienceStrategy` SPI is consulted to check if the target service is avai
 
 If the job specifies a `resourceName`, the `ResourcePermitService` attempts to acquire a permit. If the resource is at capacity, the job is rescheduled with a configurable delay. This is not a failure; no retry is consumed.
 
+A permit belongs to the attempt's claim. An attempt whose job is no longer RUNNING under its claim takes no permit and stops; this happens when orphan recovery or a timeout has rescheduled the job, or when the job has ended. When a new attempt of the same job finds a permit that an older attempt still holds, it takes that permit over. The older attempt's release, and the clean-up of a dead node, then leave it alone, so another job cannot start while the new attempt runs. One case is not covered: an attempt that ignores its timeout interrupt shares its permit with the retry. Once the retry finishes and releases the permit, another job can start while the old attempt is still running.
+
 **7. Security Validation**
 
 The `PreExecutionValidator` invokes the `ClassPolicy` SPI to verify the target class is allowed. The default `PackagePrefixClassPolicy` is deny-all until you provide an `@Alternative` bean with your application's package prefixes, and `RatchetProducer` fails deployment by default so this misconfiguration is caught at startup.

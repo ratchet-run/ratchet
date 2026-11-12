@@ -48,6 +48,7 @@ import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.OrphanRecovery;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 /**
  * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that supports the
@@ -651,12 +652,13 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // ----- ResourcePermitStore (no-op so production permit-check is permissive) -----
 
   @Override
-  public synchronized boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
-    return true;
+  public synchronized AcquireResult tryAcquirePermit(
+      String resource, UUID jobId, long claimSeq, String nodeId) {
+    return AcquireResult.ACQUIRED;
   }
 
   @Override
-  public synchronized void releasePermit(String resource, UUID jobId) {
+  public synchronized void releasePermit(String resource, UUID jobId, long claimSeq) {
     // No-op
   }
 

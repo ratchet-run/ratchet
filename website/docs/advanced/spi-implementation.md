@@ -698,6 +698,28 @@ Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Re
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
 
+### Claim-owned resource permits
+
+`tryAcquirePermit` and `releasePermit` take the attempt's `claimSeq`, and a permit belongs to
+that claim:
+
+- Check that the resource is configured first, and throw `IllegalArgumentException` when it is not.
+- Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq`.
+- A job holds at most one permit per resource. A repeat call by the same claim returns
+  `ACQUIRED`. A call by a newer claim takes over the older claim's permit, including its node id,
+  and uses no more capacity.
+- Otherwise insert a permit when the resource has capacity (`ACQUIRED`), or return `AT_CAPACITY`.
+- `releasePermit` removes only the permit that belongs to the given claim. After a takeover, the
+  older claim's release removes nothing.
+- `cleanupOrphanedPermits` removes permits by the node id they carry now, so a permit that a
+  newer claim took over survives the clean-up of the old node.
+
+The bundled stores record the claim in the permit's id, a name-based UUID of resource, job and
+claim, so the permit table needs no claim column. A MongoDB-style store whose transactions read a
+snapshot must write a document on every successful acquire path, including the same-claim
+repeat, so that a stale snapshot ends in a write conflict instead of a permit that no longer
+exists.
+
 ### Current claim
 
 `JobClaimStore.currentClaim(UUID)` backs `JobContext.isCurrentAttempt()`. It returns the status

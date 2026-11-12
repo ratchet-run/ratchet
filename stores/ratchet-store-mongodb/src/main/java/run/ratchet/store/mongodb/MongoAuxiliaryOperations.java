@@ -29,6 +29,7 @@ import static com.mongodb.client.model.Updates.setOnInsert;
 import static run.ratchet.store.mongodb.MongoFieldNames.ACTIVE_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CHILD_JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
@@ -41,6 +42,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.NODE_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.PARENT_JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 import static run.ratchet.store.mongodb.MongoFieldNames.RETRY_DELAY_MS;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 
@@ -55,6 +57,7 @@ import com.mongodb.client.model.WriteModel;
 import com.mongodb.client.result.DeleteResult;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +71,7 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.util.WorkflowConditionOrdering;
 
 /**
@@ -216,7 +220,7 @@ final class MongoAuxiliaryOperations {
     return ctx.workflowConditions().countDocuments(eq(PARENT_JOB_ID, parentJobId));
   }
 
-  boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
+  AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
@@ -228,11 +232,39 @@ final class MongoAuxiliaryOperations {
               throw new IllegalArgumentException("Resource is not configured: " + resource);
             }
 
-            if (ctx.resourcePermits()
-                    .find(session, and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)))
+            if (ctx.jobs()
+                    .find(
+                        session, and(eq(ID, jobId), eq(STATUS, "RUNNING"), eq(CLAIM_SEQ, claimSeq)))
                     .first()
-                != null) {
-              return true;
+                == null) {
+              return AcquireResult.SUPERSEDED;
+            }
+            UUID permitId = ResourcePermitEntity.idFor(resource, jobId, claimSeq);
+            Document existing =
+                ctx.resourcePermits()
+                    .find(session, and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)))
+                    .first();
+            if (existing != null) {
+              if (permitId.equals(existing.get(ID))) {
+                Date acquiredAt = Date.from(Instant.now());
+                Date previous = existing.getDate("acquired_at");
+                if (previous != null && !acquiredAt.after(previous)) {
+                  acquiredAt = new Date(previous.getTime() + 1);
+                }
+                ctx.resourcePermits()
+                    .updateOne(
+                        session,
+                        eq(ID, permitId),
+                        combine(set(NODE_ID, nodeId), set("acquired_at", acquiredAt)));
+              } else {
+                ctx.resourcePermits().deleteOne(session, eq(ID, existing.get(ID)));
+                ctx.resourcePermits()
+                    .insertOne(
+                        session,
+                        DocumentMapper.toDocument(
+                            ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId)));
+              }
+              return AcquireResult.ACQUIRED;
             }
 
             Document result =
@@ -252,13 +284,13 @@ final class MongoAuxiliaryOperations {
 
             if (result == null) {
               // Resource exists (validated above) but is at capacity.
-              return false;
+              return AcquireResult.AT_CAPACITY;
             }
 
-            ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-            permit.setId(UuidV7Factory.create());
+            ResourcePermitEntity permit =
+                ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId);
             ctx.resourcePermits().insertOne(session, DocumentMapper.toDocument(permit));
-            return true;
+            return AcquireResult.ACQUIRED;
           });
     } catch (IllegalArgumentException e) {
       throw e;
@@ -267,13 +299,14 @@ final class MongoAuxiliaryOperations {
     }
   }
 
-  void releasePermit(String resource, UUID jobId) {
+  void releasePermit(String resource, UUID jobId, long claimSeq) {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {
             DeleteResult dr =
                 ctx.resourcePermits()
-                    .deleteOne(session, and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)));
+                    .deleteOne(
+                        session, eq(ID, ResourcePermitEntity.idFor(resource, jobId, claimSeq)));
             if (dr.getDeletedCount() > 0) {
               ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
             }

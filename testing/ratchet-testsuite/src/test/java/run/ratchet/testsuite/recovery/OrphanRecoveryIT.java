@@ -33,6 +33,7 @@ import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.NodeStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestDataManipulator;
 import run.ratchet.testsuite.app.TestJobService;
@@ -90,11 +91,15 @@ class OrphanRecoveryIT extends BaseRatchetIT {
     JobHandle liveOwned = jobService.enqueueNow(SimpleJob::execute);
     assertTrue(jobBatchStatusStore.tryPickUpJob(orphan.id(), DEAD_NODE));
     assertTrue(jobBatchStatusStore.tryPickUpJob(liveOwned.id(), liveNode));
+    long orphanClaim = jobCrudStore.findById(orphan.id()).orElseThrow().getClaimSeq();
+    long liveClaim = jobCrudStore.findById(liveOwned.id()).orElseThrow().getClaimSeq();
     dataManipulator.setJobPickedAt(orphan.id(), stale);
     dataManipulator.setJobPickedAt(liveOwned.id(), stale);
 
     resourcePermitService.configureResource(RESOURCE, 1, 0, "Orphan recovery integration test");
-    assertTrue(resourcePermitService.tryAcquire(RESOURCE, orphan.id(), DEAD_NODE));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        resourcePermitService.tryAcquire(RESOURCE, orphan.id(), orphanClaim, DEAD_NODE));
 
     orphanRecoveryTimer.recoverNow();
 
@@ -102,8 +107,10 @@ class OrphanRecoveryIT extends BaseRatchetIT {
     assertEquals(JobStatus.RUNNING, jobCrudStore.getJobStatus(liveOwned.id()));
     assertTrue(nodeStore.findNodeById(DEAD_NODE).isEmpty());
     assertTrue(nodeStore.findNodeById(liveNode).isPresent());
-    assertTrue(resourcePermitService.tryAcquire(RESOURCE, liveOwned.id(), liveNode));
-    resourcePermitService.release(RESOURCE, liveOwned.id());
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        resourcePermitService.tryAcquire(RESOURCE, liveOwned.id(), liveClaim, liveNode));
+    resourcePermitService.release(RESOURCE, liveOwned.id(), liveClaim);
 
     pollerScheduler.start();
     try {

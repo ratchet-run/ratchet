@@ -27,11 +27,13 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
+import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.WorkflowConditionOrdering;
@@ -240,7 +242,7 @@ final class OracleAuxiliaryOperations
   }
 
   @Override
-  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
+  public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
     try {
       // Lock the resource-limit row in its own statement so concurrent acquirers for the same
       // resource serialize on it, then let the capacity check ride inside the INSERT rather than a
@@ -259,19 +261,39 @@ final class OracleAuxiliaryOperations
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
 
-      // language=Oracle
-      String existingForJobSql =
-          "SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
-      int existingForJob =
-          ((Number)
-                  ctx.em()
-                      .createNativeQuery(existingForJobSql)
-                      .setParameter(1, resource)
-                      .setParameter(2, UuidRawConverter.toBytes(jobId))
-                      .getSingleResult())
-              .intValue();
-      if (existingForJob > 0) {
-        return true;
+      List<?> claims =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT status, claim_seq FROM scheduler_job_queue WHERE job_id = ?
+                  """)
+              .setParameter(1, UuidRawConverter.toBytes(jobId))
+              .getResultList();
+      if (claims.isEmpty()) {
+        return AcquireResult.SUPERSEDED;
+      }
+      Object[] claim = (Object[]) claims.get(0);
+      if (!"RUNNING".equals(claim[0].toString()) || ((Number) claim[1]).longValue() != claimSeq) {
+        return AcquireResult.SUPERSEDED;
+      }
+
+      int updated =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  UPDATE scheduler_resource_permit SET id = ?, node_id = ?, acquired_at = ?
+                  WHERE resource_name = ? AND job_id = ?
+                  """)
+              .setParameter(
+                  1,
+                  UuidRawConverter.toBytes(ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
+              .setParameter(2, nodeId)
+              .setParameter(3, Timestamp.from(Instant.now()))
+              .setParameter(4, resource)
+              .setParameter(5, UuidRawConverter.toBytes(jobId))
+              .executeUpdate();
+      if (updated > 0) {
+        return AcquireResult.ACQUIRED;
       }
 
       // language=Oracle
@@ -287,13 +309,15 @@ final class OracleAuxiliaryOperations
       int inserted =
           ctx.em()
               .createNativeQuery(insertSql)
-              .setParameter(1, UuidRawConverter.toBytes(UuidV7Factory.create()))
+              .setParameter(
+                  1,
+                  UuidRawConverter.toBytes(ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
               .setParameter(2, UuidRawConverter.toBytes(jobId))
               .setParameter(3, nodeId)
               .setParameter(4, resource)
               .setParameter(5, resource)
               .executeUpdate();
-      return inserted > 0;
+      return inserted > 0 ? AcquireResult.ACQUIRED : AcquireResult.AT_CAPACITY;
     } catch (IllegalArgumentException e) {
       throw e;
     } catch (RuntimeException e) {
@@ -302,14 +326,19 @@ final class OracleAuxiliaryOperations
   }
 
   @Override
-  public void releasePermit(String resource, UUID jobId) {
+  public void releasePermit(String resource, UUID jobId, long claimSeq) {
     try {
       // language=Oracle
-      String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
+      String sql =
+          """
+          DELETE FROM scheduler_resource_permit WHERE id = ? AND resource_name = ? AND job_id = ?
+          """;
       ctx.em()
           .createNativeQuery(sql)
-          .setParameter(1, resource)
-          .setParameter(2, UuidRawConverter.toBytes(jobId))
+          .setParameter(
+              1, UuidRawConverter.toBytes(ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
+          .setParameter(2, resource)
+          .setParameter(3, UuidRawConverter.toBytes(jobId))
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("release resource permit", e);

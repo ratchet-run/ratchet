@@ -57,7 +57,7 @@ class MongoResourcePermitConfigCheckOrderingTest {
     String resource = "never-configured";
 
     // Insert a stray permit directly: no SPI call can create a permit for an unconfigured resource.
-    ResourcePermitEntity stray = ResourcePermitEntity.create(resource, job.getId(), "node-1");
+    ResourcePermitEntity stray = ResourcePermitEntity.create(resource, job.getId(), 0L, "node-1");
     stray.setId(UuidV7Factory.create());
     fixture
         .database()
@@ -66,7 +66,7 @@ class MongoResourcePermitConfigCheckOrderingTest {
 
     assertThrows(
         IllegalArgumentException.class,
-        () -> fixture.resourcePermitStore().tryAcquirePermit(resource, job.getId(), "node-1"),
+        () -> fixture.resourcePermitStore().tryAcquirePermit(resource, job.getId(), 0L, "node-1"),
         "an unconfigured resource must fail hard even when a stray permit row already exists");
   }
 }

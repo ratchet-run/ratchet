@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.entity;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -51,8 +53,17 @@ public class ResourcePermitEntity implements UuidV7EntityListener.UuidV7Assignab
   @Column(name = "acquired_at", nullable = false)
   private Instant acquiredAt;
 
-  public static ResourcePermitEntity create(String resourceName, UUID jobId, String nodeId) {
+  /**
+   * Names the claim holding the permit so release and takeover distinguish claims without a column.
+   */
+  public static UUID idFor(String resourceName, UUID jobId, long claimSeq) {
+    return UUID.nameUUIDFromBytes((resourceName + '\n' + jobId + '\n' + claimSeq).getBytes(UTF_8));
+  }
+
+  public static ResourcePermitEntity create(
+      String resourceName, UUID jobId, long claimSeq, String nodeId) {
     ResourcePermitEntity entity = new ResourcePermitEntity();
+    entity.setId(idFor(resourceName, jobId, claimSeq));
     entity.setResourceName(resourceName);
     entity.setJobId(jobId);
     entity.setNodeId(nodeId);

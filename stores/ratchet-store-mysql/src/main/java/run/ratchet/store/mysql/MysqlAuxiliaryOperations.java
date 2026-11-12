@@ -33,6 +33,7 @@ import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.WorkflowConditionOrdering;
@@ -226,7 +227,7 @@ final class MysqlAuxiliaryOperations
   }
 
   @Override
-  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
+  public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
     try {
       // language=MySQL
       String sql =
@@ -238,43 +239,85 @@ final class MysqlAuxiliaryOperations
       if (limits.isEmpty()) {
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
+      List<?> claims =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT status, claim_seq FROM scheduler_job_queue WHERE job_id = ?
+                  """)
+              .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+              .getResultList();
+      if (claims.isEmpty()) {
+        return AcquireResult.SUPERSEDED;
+      }
+      Object[] claim = (Object[]) claims.get(0);
+      if (!"RUNNING".equals(claim[0].toString()) || ((Number) claim[1]).longValue() != claimSeq) {
+        return AcquireResult.SUPERSEDED;
+      }
+
       int maxConcurrent = ((Number) limits.get(0)).intValue();
       // The resource row serializes acquisitions. Read permits after taking that lock, using a
       // current read: a REPEATABLE READ snapshot may predate a different owner's committed permit.
       List<?> permits =
           ctx.em()
               .createNativeQuery(
-                  "SELECT job_id FROM scheduler_resource_permit WHERE resource_name = ? FOR UPDATE")
+                  """
+                  SELECT id, job_id FROM scheduler_resource_permit
+                  WHERE resource_name = ? FOR UPDATE
+                  """)
               .setParameter(1, resource)
               .getResultList();
       int active = permits.size();
-      boolean existingForJob =
-          permits.stream().anyMatch(id -> jobId.equals(MysqlJobRowMapper.uuidOrNull(id)));
-
-      if (existingForJob) {
-        return true;
+      UUID permitId = ResourcePermitEntity.idFor(resource, jobId, claimSeq);
+      for (Object row : permits) {
+        Object[] permit = (Object[]) row;
+        if (jobId.equals(MysqlJobRowMapper.uuidOrNull(permit[1]))) {
+          UUID previousId = MysqlJobRowMapper.uuidOrNull(permit[0]);
+          if (!permitId.equals(previousId)) {
+            ctx.em()
+                .createNativeQuery(
+                    """
+                    UPDATE scheduler_resource_permit SET id = ?, node_id = ?, acquired_at = ?
+                    WHERE id = ?
+                    """)
+                .setParameter(1, UuidByteArrayConverter.toBytes(permitId))
+                .setParameter(2, nodeId)
+                .setParameter(3, Timestamp.from(Instant.now()))
+                .setParameter(4, UuidByteArrayConverter.toBytes(previousId))
+                .executeUpdate();
+          }
+          return AcquireResult.ACQUIRED;
+        }
       }
       if (active >= maxConcurrent) {
-        return false;
+        return AcquireResult.AT_CAPACITY;
       }
 
-      ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
+      ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId);
       ctx.em().persist(permit);
-      return true;
+      return AcquireResult.ACQUIRED;
+    } catch (IllegalArgumentException e) {
+      throw e;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("try acquire permit", e);
     }
   }
 
   @Override
-  public void releasePermit(String resource, UUID jobId) {
+  public void releasePermit(String resource, UUID jobId, long claimSeq) {
     try {
       // language=MySQL
-      String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
+      String sql =
+          """
+          DELETE FROM scheduler_resource_permit WHERE id = ? AND resource_name = ? AND job_id = ?
+          """;
       ctx.em()
           .createNativeQuery(sql)
-          .setParameter(1, resource)
-          .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+          .setParameter(
+              1,
+              UuidByteArrayConverter.toBytes(ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
+          .setParameter(2, resource)
+          .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("release resource permit", e);

@@ -67,6 +67,7 @@ import run.ratchet.store.spi.RecurringClaim;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 /**
  * MongoDB implementation of the {@link MongoJobStore} API.
@@ -829,13 +830,13 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
-    return auxiliary.tryAcquirePermit(resource, jobId, nodeId);
+  public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
+    return auxiliary.tryAcquirePermit(resource, jobId, claimSeq, nodeId);
   }
 
   @Override
-  public void releasePermit(String resource, UUID jobId) {
-    auxiliary.releasePermit(resource, jobId);
+  public void releasePermit(String resource, UUID jobId, long claimSeq) {
+    auxiliary.releasePermit(resource, jobId, claimSeq);
   }
 
   @Override

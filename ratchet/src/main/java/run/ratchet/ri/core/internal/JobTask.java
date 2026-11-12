@@ -41,6 +41,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
@@ -80,6 +81,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.ExtensionValidation;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -835,43 +837,55 @@ public class JobTask implements Callable<Void> {
     }
 
     try {
-      boolean acquired =
-          resourcePermitService.tryAcquire(resourceName, job.getId(), nodeIdProvider.getNodeId());
+      long claimSeq = expectedClaimSeq();
+      AcquireResult result =
+          resourcePermitService.tryAcquire(
+              resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId());
 
-      if (!acquired) {
-        int retryDelay = resourcePermitService.getRetryDelay(resourceName);
-        Instant newScheduledTime = effective().instant().plusMillis(retryDelay);
+      if (result == AcquireResult.ACQUIRED) {
+        permitAcquired = true;
+        log.infof("Job %s acquired permit for resource '%s'", job.getId(), resourceName);
+        return true;
+      }
 
-        if (currentExecution != null) {
-          ResourceCapacityException capacityFailure =
-              new ResourceCapacityException(
-                  "Resource '" + resourceName + "' at capacity - rescheduling");
-          currentExecution.markFailed(
-              capacityFailure.getClass().getName(), sanitizeError(capacityFailure));
-          observabilityFacade.saveExecution(currentExecution);
-        }
+      boolean superseded = result == AcquireResult.SUPERSEDED;
+      if (superseded) {
+        saveDeferredExecutionFailure(
+            new AttemptSupersededException(
+                "The attempt's claim no longer owns the job, so it took no permit for resource "
+                    + resourceName));
+      } else if (currentExecution != null) {
+        ResourceCapacityException capacityFailure =
+            new ResourceCapacityException(
+                "Resource '" + resourceName + "' at capacity - rescheduling");
+        currentExecution.markFailed(
+            capacityFailure.getClass().getName(), sanitizeError(capacityFailure));
+        observabilityFacade.saveExecution(currentExecution);
+      }
 
-        if (!jobStore.scheduleJobRetry(
-            job.getId(),
-            "Waiting for resource: " + resourceName,
-            newScheduledTime,
-            job.getAttempts(),
-            expectedClaimSeq())) {
-          warnRejectedOwnerWrite();
-          return false;
-        }
-
-        log.infof(
-            "Job %s waiting for resource '%s' - rescheduled for %sms",
-            job.getId(), resourceName, retryDelay);
-
+      // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
+      // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
+      int retryDelay = resourcePermitService.getRetryDelay(resourceName);
+      if (!jobStore.scheduleJobRetry(
+          job.getId(),
+          "Waiting for resource: " + resourceName,
+          effective().instant().plusMillis(retryDelay),
+          job.getAttempts(),
+          claimSeq)) {
+        warnRejectedOwnerWrite();
         return false;
       }
 
-      permitAcquired = true;
-      log.infof("Job %s acquired permit for resource '%s'", job.getId(), resourceName);
-      return true;
-
+      if (superseded) {
+        log.warnf(
+            "Store reported job %s claim %s superseded but its reschedule succeeded",
+            job.getId(), claimSeq);
+      } else {
+        log.infof(
+            "Job %s waiting for resource '%s' - rescheduled for %sms",
+            job.getId(), resourceName, retryDelay);
+      }
+      return false;
     } catch (IllegalArgumentException e) {
       log.errorf(e, "Job %s references unconfigured resource: %s", job.getId(), resourceName);
       handleFailure(e);
@@ -883,7 +897,7 @@ public class JobTask implements Callable<Void> {
     String resourceName = job.getResourceName();
     if (resourceName != null) {
       try {
-        resourcePermitService.release(resourceName, job.getId());
+        resourcePermitService.release(resourceName, job.getId(), expectedClaimSeq());
         log.infof("Job %s released permit for resource '%s'", job.getId(), resourceName);
       } catch (Exception e) {
         log.warnf(e, "Permit release error for job %s", job.getId());

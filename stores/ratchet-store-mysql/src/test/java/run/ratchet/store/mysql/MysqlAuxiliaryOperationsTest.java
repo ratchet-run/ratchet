@@ -16,7 +16,6 @@
 package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -27,7 +26,9 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.ResourceLimitEntity;
+import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 class MysqlAuxiliaryOperationsTest {
 
@@ -37,7 +38,7 @@ class MysqlAuxiliaryOperationsTest {
     MysqlAuxiliaryOperations operations =
         new MysqlAuxiliaryOperations(entityManagerWithExistingPermit(jobId));
 
-    assertTrue(operations.tryAcquirePermit("res", jobId, "node-1"));
+    assertEquals(AcquireResult.ACQUIRED, operations.tryAcquirePermit("res", jobId, 0L, "node-1"));
   }
 
   @Test
@@ -83,8 +84,7 @@ class MysqlAuxiliaryOperationsTest {
                 (proxy, method, args) -> {
                   return switch (method.getName()) {
                     case "createNativeQuery" ->
-                        queryReturningExistingPermit(
-                            expectedJobId, ((String) args[0]).contains("max_concurrent"));
+                        queryReturningExistingPermit(expectedJobId, (String) args[0]);
                     case "persist" ->
                         throw new AssertionError("existing permit must not insert another row");
                     default -> throw new UnsupportedOperationException(method.getName());
@@ -93,7 +93,7 @@ class MysqlAuxiliaryOperationsTest {
     return new MysqlStoreContext(em, null);
   }
 
-  private static Query queryReturningExistingPermit(UUID expectedJobId, boolean limit) {
+  private static Query queryReturningExistingPermit(UUID expectedJobId, String sql) {
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
@@ -102,9 +102,16 @@ class MysqlAuxiliaryOperationsTest {
               return switch (method.getName()) {
                 case "setParameter" -> proxy;
                 case "getResultList" ->
-                    limit
-                        ? List.of(2)
-                        : Collections.singletonList(UuidByteArrayConverter.toBytes(expectedJobId));
+                    sql.contains("scheduler_job_queue")
+                        ? Collections.singletonList(new Object[] {"RUNNING", 0L})
+                        : sql.contains("max_concurrent")
+                            ? List.of(2)
+                            : Collections.singletonList(
+                                new Object[] {
+                                  UuidByteArrayConverter.toBytes(
+                                      ResourcePermitEntity.idFor("res", expectedJobId, 0L)),
+                                  UuidByteArrayConverter.toBytes(expectedJobId)
+                                });
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });
