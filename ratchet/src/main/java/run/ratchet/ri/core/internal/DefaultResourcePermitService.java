@@ -78,7 +78,7 @@ public class DefaultResourcePermitService implements ResourcePermitService {
    * <p>TX attribute: REQUIRED. SQL stores depend on the caller's active transaction so the capacity
    * check and permit insert share the same locked resource row.
    *
-   * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim no longer owns the job
+   * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim did not own the job at the check
    */
   @Override
   public AcquireResult tryAcquire(String resourceName, UUID jobId, long claimSeq, String nodeId) {

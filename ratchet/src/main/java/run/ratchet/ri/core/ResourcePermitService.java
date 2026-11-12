@@ -31,7 +31,11 @@ public interface ResourcePermitService {
   /**
    * Attempts to acquire a permit atomically using pessimistic locking.
    *
-   * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim no longer owns the job
+   * <p>The capacity check is atomic, but the claim check is point in time. A claim change that
+   * commits after it does not stop the write, so the earlier claim can still get ACQUIRED and holds
+   * the permit until it releases it.
+   *
+   * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim did not own the job at the check
    */
   AcquireResult tryAcquire(String resourceName, UUID jobId, long claimSeq, String nodeId);
 

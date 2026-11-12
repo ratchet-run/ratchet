@@ -36,8 +36,10 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
 /**
  * Base contract tests for {@code ResourcePermitStore}.
  *
- * <p>A permit belongs to the claim that took it. Only the attempt whose claim is RUNNING can take
- * one. An older claim's permit counts against capacity until it is released or cleaned up.
+ * <p>A permit belongs to the claim that took it. Only an attempt whose claim is RUNNING when the
+ * store checks it can take one. That check is point in time, so these contracts change the claim
+ * only before or after an acquire. An older claim's permit counts against capacity until it is
+ * released or cleaned up.
  */
 public abstract class AbstractResourcePermitStoreContract implements JobStoreContractFixture {
 

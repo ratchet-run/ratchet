@@ -91,6 +91,7 @@
             <!--
               Publishes the clocked in-memory store in the tests classifier so its globally enabled
               CDI alternative is available to test consumers without shipping in the main TCK jar.
+              The sql package holds tests the bundled SQL stores share that are not contracts.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -104,6 +105,7 @@
                         <configuration>
                             <includes>
                                 <include>run/ratchet/tck/store/clocked/**</include>
+                                <include>run/ratchet/tck/store/sql/**</include>
                             </includes>
                         </configuration>
                     </execution>

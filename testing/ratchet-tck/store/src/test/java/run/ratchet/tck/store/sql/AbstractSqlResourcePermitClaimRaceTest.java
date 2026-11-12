@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store;
+package run.ratchet.tck.store.sql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -35,13 +35,18 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.tck.store.JpaContainerFixture;
 
 /**
- * Exercises a claim change after the permit claim check and before its write in SQL stores. The
- * attempt that passed the check can still acquire and holds capacity until its permit is released,
- * even though a newer claim is running by the time the write completes.
+ * Exercises a claim change after the permit claim check and before its write in the bundled SQL
+ * stores. The attempt that passed the check can still acquire and holds capacity until its permit
+ * is released, even though a newer claim is running by the time the write completes.
+ *
+ * <p>This is not a TCK contract. It pins the bundled stores' claim read, {@code SELECT status,
+ * claim_seq FROM scheduler_job_queue}, followed by a separate permit write. A store that checks the
+ * claim another way, or atomically with the write, conforms without this window.
  */
-public abstract class AbstractJpaResourcePermitClaimRaceContract {
+public abstract class AbstractSqlResourcePermitClaimRaceTest {
 
   protected abstract JpaContainerFixture fixture();
 
@@ -53,8 +58,7 @@ public abstract class AbstractJpaResourcePermitClaimRaceContract {
 
   @Test
   void staleClaimThatPassedTheCheckHoldsPermitUntilItReleases() {
-    ResourcePermitStore permits =
-        fixture().store().capability(ResourcePermitStore.class).orElseThrow();
+    ResourcePermitStore permits = fixture().resourcePermitStore();
     permits.configureResource("res-race", 1, 1000, "claim race");
     JobEntity first = claimNewJob("node-a");
     Thread testThread = Thread.currentThread();

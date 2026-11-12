@@ -13,15 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.store.sqlserver;
+package run.ratchet.store.mysql;
 
-import run.ratchet.tck.store.AbstractJpaResourcePermitClaimRaceContract;
 import run.ratchet.tck.store.JpaContainerFixture;
+import run.ratchet.tck.store.sql.AbstractSqlResourcePermitClaimRaceTest;
 
-class SqlserverResourcePermitClaimRaceContractTest
-    extends AbstractJpaResourcePermitClaimRaceContract {
+class MysqlResourcePermitClaimRaceTest extends AbstractSqlResourcePermitClaimRaceTest {
 
-  private final SqlserverTestFixture fixture = new SqlserverTestFixture();
+  private final MysqlTestFixture fixture = new MysqlTestFixture();
 
   @Override
   protected JpaContainerFixture fixture() {
