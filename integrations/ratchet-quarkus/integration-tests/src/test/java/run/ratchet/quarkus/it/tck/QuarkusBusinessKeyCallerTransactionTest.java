@@ -17,11 +17,9 @@ package run.ratchet.quarkus.it.tck;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
@@ -94,15 +92,11 @@ class QuarkusBusinessKeyCallerTransactionTest {
   }
 
   @Test
-  void lostRace_leavesCallerTransactionRollbackOnly() throws Exception {
-    // MongoDB writes do not join the JTA transaction, so the caller's own write survives there.
-    assumeFalse(
-        "mongodb".equals(System.getProperty("quarkus.datasource.db-kind")),
-        "store does not join JTA");
+  void recurringHolder_callerCommitsItsOwnWrite() throws Exception {
     JobSchedulerService scheduler = runtime.scheduler();
     String key = uniqueKey();
     // The active-holder pre-check reads only queue owners, so a recurring holder sends the submit
-    // to the insert path, where its reservation insert fails like a lost race.
+    // to the insert path, where the held reservation is reported before any job write.
     scheduler
         .scheduleRecurring(YEARLY, ZoneOffset.UTC, TckJobs::noop)
         .withBusinessKey(key)
@@ -116,13 +110,12 @@ class QuarkusBusinessKeyCallerTransactionTest {
     Outcome outcome = commitCallerTransaction();
 
     assertAll(
+        () -> assertEquals("STATUS_ACTIVE", outcome.statusAfterCatch(), outcome.toString()),
+        () -> assertNull(outcome.commitFailure(), outcome.toString()),
         () ->
-            assertEquals("STATUS_MARKED_ROLLBACK", outcome.statusAfterCatch(), outcome.toString()),
-        () -> assertEquals("RollbackException", outcome.commitFailure(), outcome.toString()),
-        () ->
-            assertFalse(
+            assertTrue(
                 queries.getJobDetail(ownWrite.id()).isPresent(),
-                "the caller's own write is rolled back with the failed submit: " + outcome),
+                "the caller's own write survives the commit: " + outcome),
         () ->
             assertEquals(
                 0,

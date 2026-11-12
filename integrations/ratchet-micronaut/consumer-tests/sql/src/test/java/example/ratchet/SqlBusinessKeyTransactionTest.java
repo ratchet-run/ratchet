@@ -15,7 +15,6 @@
  */
 package example.ratchet;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.SoftAssertions.assertSoftly;
@@ -80,7 +79,7 @@ class SqlBusinessKeyTransactionTest {
   }
 
   @Test
-  void lostReservationRaceRollsBackTheCallerTransaction() {
+  void recurringHolderLeavesTheCallerTransactionCommittable() {
     try (var context = SqlApplication.start(database)) {
       var scheduler = context.getBean(JobSchedulerService.class);
       var jobs = context.getBean(ConsumerJobs.class);
@@ -88,7 +87,7 @@ class SqlBusinessKeyTransactionTest {
       String key = id("race-key");
       String own = id("race-own");
       // The active-holder pre-check reads only queue owners, so a recurring holder sends the
-      // submit to the insert path, where its reservation insert fails like a lost race.
+      // submit to the insert path, where the held reservation is reported before any job write.
       scheduler
           .scheduleRecurring(YEARLY, ZoneOffset.UTC, () -> jobs.complete("recurring"))
           .withBusinessKey(key)
@@ -98,8 +97,9 @@ class SqlBusinessKeyTransactionTest {
 
       assertSoftly(
           soft -> {
-            soft.assertThat(observed.rollbackOnlyAfterCatch()).as("rollback-only").isTrue();
-            soft.assertThat(count(jdbc, own)).as("the caller's own row").isZero();
+            soft.assertThat(observed.rollbackOnlyAfterCatch()).as("rollback-only").isFalse();
+            soft.assertThat(observed.commitFailure()).as("commit failure").isNull();
+            soft.assertThat(count(jdbc, own)).as("the caller's own row").isEqualTo(1);
             soft.assertThat(
                     jdbc.queryForObject(
                         "select count(*) from scheduler_job where business_key = ?",
@@ -135,7 +135,10 @@ class SqlBusinessKeyTransactionTest {
                           .isInstanceOf(DuplicateBusinessKeyException.class);
                       rollbackOnly.set(status.isRollbackOnly());
                     }));
-    assertThat(commitFailure).isNotInstanceOf(AssertionError.class);
+    // Surface an assertion that failed inside the callback; a null failure means it committed.
+    if (commitFailure instanceof AssertionError assertionFailure) {
+      throw assertionFailure;
+    }
     return new Observation(rollbackOnly.get(), commitFailure);
   }
 
