@@ -1,0 +1,161 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.quarkus.it.tck;
+
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+
+import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.TestProfile;
+import jakarta.inject.Inject;
+import jakarta.transaction.Status;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.UserTransaction;
+import java.time.Duration;
+import java.time.ZoneOffset;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobQueryService;
+import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.tck.api.TckJobs;
+
+/**
+ * What a duplicate business key does to the caller's own JTA transaction on Quarkus. The caller
+ * submits a key-less job as its own write, submits a job whose business key is taken, catches the
+ * exception and commits.
+ */
+@QuarkusTest
+@TestProfile(QuarkusRatchetTckProfile.class)
+class QuarkusBusinessKeyCallerTransactionTest {
+  private static final Duration LATER = Duration.ofHours(1);
+
+  /** Midnight on 1 January: the recurring holder never fires during a test run. */
+  private static final String YEARLY = "0 0 0 1 1 ?";
+
+  @Inject QuarkusRatchetTckRuntime runtime;
+  @Inject JobQueryService queries;
+  @Inject UserTransaction utx;
+
+  @BeforeEach
+  void clearBeforeEach() {
+    runtime.clear();
+    TckJobs.resetAll();
+  }
+
+  @AfterEach
+  void endCallerTransaction() throws Exception {
+    if (utx.getStatus() != Status.STATUS_NO_TRANSACTION) utx.rollback();
+    runtime.clear();
+  }
+
+  @Test
+  void plainDuplicate_callerCatchesItAndCommitsItsOwnWrite() throws Exception {
+    JobSchedulerService scheduler = runtime.scheduler();
+    String key = uniqueKey();
+    scheduler.schedule(LATER, TckJobs::noop).withBusinessKey(key).submit();
+
+    utx.begin();
+    JobHandle ownWrite = scheduler.schedule(LATER, TckJobs::noop).submit();
+    assertThrows(
+        DuplicateBusinessKeyException.class,
+        () -> scheduler.schedule(LATER, TckJobs::noop).withBusinessKey(key).submit());
+    Outcome outcome = commitCallerTransaction();
+
+    assertAll(
+        () -> assertEquals("STATUS_ACTIVE", outcome.statusAfterCatch(), outcome.toString()),
+        () -> assertNull(outcome.commitFailure(), outcome.toString()),
+        () ->
+            assertTrue(
+                queries.getJobDetail(ownWrite.id()).isPresent(),
+                "the caller's own write must survive the commit: " + outcome));
+  }
+
+  @Test
+  void lostRace_leavesCallerTransactionRollbackOnly() throws Exception {
+    // MongoDB writes do not join the JTA transaction, so the caller's own write survives there.
+    assumeFalse(
+        "mongodb".equals(System.getProperty("quarkus.datasource.db-kind")),
+        "store does not join JTA");
+    JobSchedulerService scheduler = runtime.scheduler();
+    String key = uniqueKey();
+    // The active-holder pre-check reads only queue owners, so a recurring holder sends the submit
+    // to the insert path, where its reservation insert fails like a lost race.
+    scheduler
+        .scheduleRecurring(YEARLY, ZoneOffset.UTC, TckJobs::noop)
+        .withBusinessKey(key)
+        .submit();
+
+    utx.begin();
+    JobHandle ownWrite = scheduler.schedule(LATER, TckJobs::noop).submit();
+    assertThrows(
+        DuplicateBusinessKeyException.class,
+        () -> scheduler.schedule(LATER, TckJobs::noop).withBusinessKey(key).submit());
+    Outcome outcome = commitCallerTransaction();
+
+    assertAll(
+        () ->
+            assertEquals("STATUS_MARKED_ROLLBACK", outcome.statusAfterCatch(), outcome.toString()),
+        () -> assertEquals("RollbackException", outcome.commitFailure(), outcome.toString()),
+        () ->
+            assertFalse(
+                queries.getJobDetail(ownWrite.id()).isPresent(),
+                "the caller's own write is rolled back with the failed submit: " + outcome),
+        () ->
+            assertEquals(
+                0,
+                queries
+                    .findJobs(JobFilter.builder().businessKey(key).build(), 10, 0)
+                    .items()
+                    .size(),
+                "the loser's job rows must not survive without a reservation: " + outcome));
+  }
+
+  private Outcome commitCallerTransaction() throws SystemException {
+    String status = statusName(utx.getStatus());
+    String failure = null;
+    try {
+      utx.commit();
+    } catch (Exception e) {
+      failure = e.getClass().getSimpleName();
+    }
+    return new Outcome(status, failure);
+  }
+
+  private static String uniqueKey() {
+    return "caller-tx-" + UUID.randomUUID();
+  }
+
+  private static String statusName(int status) {
+    return switch (status) {
+      case Status.STATUS_ACTIVE -> "STATUS_ACTIVE";
+      case Status.STATUS_MARKED_ROLLBACK -> "STATUS_MARKED_ROLLBACK";
+      case Status.STATUS_NO_TRANSACTION -> "STATUS_NO_TRANSACTION";
+      default -> "STATUS_" + status;
+    };
+  }
+
+  private record Outcome(String statusAfterCatch, String commitFailure) {}
+}
