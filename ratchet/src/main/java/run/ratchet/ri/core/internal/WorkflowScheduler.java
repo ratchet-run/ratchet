@@ -43,14 +43,22 @@ import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.ri.payload.RuntimeArguments;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.JobEncryption;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /**
  * Extends {@link ChainScheduler} with conditional branching. Falls back to linear chaining when no
@@ -359,6 +367,11 @@ public class WorkflowScheduler extends ChainScheduler {
 
   /** Computes durable effects without changing any job or publishing pre-commit events. */
   public WorkflowCompletionPlan planCompletion(JobEntity parent, boolean cancelAll) {
+    return planCompletion(parent, cancelAll, null);
+  }
+
+  public WorkflowCompletionPlan planCompletion(
+      JobEntity parent, boolean cancelAll, Object combinedValue) {
     Map<UUID, DependencyTransition> mutations = new LinkedHashMap<>();
     List<Object> events = new ArrayList<>();
     if (cancelAll) {
@@ -386,10 +399,40 @@ public class WorkflowScheduler extends ChainScheduler {
       JobEntity child = children.get(condition.getChildJobId());
       if (matched && isUnstarted(child)) {
         selected = condition;
-        mutations.put(
-            child.getId(),
+        DependencyTransition mutation =
             transition(
-                child, child.getStatus(), effective().instant(), JobExecutionType.WORKFLOW_BRANCH));
+                child, child.getStatus(), effective().instant(), JobExecutionType.WORKFLOW_BRANCH);
+        if (combinedValue != null && List.of(0).equals(child.getPayload().runtimeArgIndexes())) {
+          JobPayload bound =
+              RuntimeArguments.bind(
+                  child.getPayload(), List.of(combinedValue), "Batch success callback");
+          JobPayload resolved =
+              new JobPayload(
+                  bound.target(),
+                  bound.method(),
+                  bound.methodDescriptor(),
+                  bound.isStatic(),
+                  bound.args(),
+                  null);
+          boolean active = EncryptionHolder.encryptionActiveFor(child.isEncryptedPayload());
+          String payload =
+              PayloadEncryptor.encryptArgs(
+                  PayloadSerializerHolder.get().serialize(resolved),
+                  active,
+                  EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, child.getId()));
+          mutation =
+              new DependencyTransition(
+                  mutation.jobId(),
+                  mutation.expectedStatus(),
+                  mutation.expectedVersion(),
+                  mutation.expectedScheduledTime(),
+                  mutation.status(),
+                  mutation.scheduledTime(),
+                  mutation.jobType(),
+                  payload,
+                  JobEncryption.keyId(active));
+        }
+        mutations.put(child.getId(), mutation);
         events.add(
             new WorkflowBranchTriggeredEvent(
                 parent.getId(),

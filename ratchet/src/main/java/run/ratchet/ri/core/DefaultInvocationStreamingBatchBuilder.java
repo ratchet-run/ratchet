@@ -42,6 +42,12 @@ final class DefaultInvocationStreamingBatchBuilder<T extends Serializable>
   }
 
   @Override
+  public InvocationStreamingBatchBuilder<T> reducing(Object identity, JobInvocation combiner) {
+    state.reducingInvocation(identity, combiner);
+    return this;
+  }
+
+  @Override
   public InvocationStreamingBatchBuilder<T> withIdempotencyKey(String key) {
     state.withIdempotencyKey(key);
     return this;
@@ -116,7 +122,8 @@ final class DefaultInvocationStreamingBatchBuilder<T extends Serializable>
 
   @Override
   public InvocationStreamingBatchBuilder<T> thenOnBatchSuccess(JobInvocation next) {
-    state.thenOnBatchSuccess(new InvocationAdapter(next));
+    if (state.reducer() == null) state.thenOnBatchSuccess(new InvocationAdapter(next));
+    else state.resultCallback(new InvocationAdapter(next));
     return this;
   }
 

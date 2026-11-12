@@ -44,7 +44,7 @@ final class MysqlDialectMapper implements DialectTypeMapper {
       case UUID -> Set.of("BINARY"); // BINARY(16); column-length not policed here
       // MySQL 8 reports ENUM-typed columns as "ENUM" and free-text columns as TEXT/VARCHAR; both
       // satisfy LogicalType.TEXT because the catalog does not police domain-of-values here.
-      case TEXT -> Set.of("TEXT", "MEDIUMTEXT", "LONGTEXT", "VARCHAR", "ENUM", "CHAR");
+      case TEXT -> Set.of("TEXT", "MEDIUMTEXT", "LONGTEXT", "VARCHAR", "ENUM", "CHAR", "JSON");
       case CHAR_1 -> Set.of("CHAR");
       case TIMESTAMP_TZ -> Set.of("DATETIME", "TIMESTAMP");
       case BOOLEAN -> Set.of("TINYINT", "BIT", "BOOLEAN");
@@ -79,6 +79,8 @@ final class MysqlDialectMapper implements DialectTypeMapper {
   @Override
   public List<String> composeIndexColumns(
       List<String> canonicalColumns, Optional<LogicalPredicate> partialPredicate) {
+    // InnoDB secondary indexes implicitly carry the clustered primary key.
+    if (canonicalColumns.equals(List.of("depends_on", "job_id"))) return List.of("depends_on");
     if (partialPredicate.isEmpty()) {
       return canonicalColumns;
     }

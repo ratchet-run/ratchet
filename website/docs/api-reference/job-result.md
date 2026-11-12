@@ -391,3 +391,24 @@ scheduler.enqueue(() -> analyzeData())
 - [WorkflowCondition Reference](./workflow-condition)
 - [JobBuilder Workflow Methods](./job-builder#workflow-methods)
 - [Job Lifecycle](/concepts/job-lifecycle)
+
+## Reducing batch results
+
+A reducing batch parent stores the fold of its succeeded children's partial results, starting from
+the identity. `getJobDetail(batchId).jobResult()` and `WorkflowCondition.result(...)` can inspect
+this result, and the success callback receives the typed combined value directly. Generic results
+are restored using the persisted full type name, subject to class-policy checks.
+
+The combined result respects `ratchet.jobs.max-result-bytes` and is encrypted under the parent id
+when encryption is enabled. Partial results remain encrypted under each child's id; the delivered
+callback argument is encrypted under the callback job's id. An empty batch stores its identity.
+
+Null, missing or truncated partials, deserialization errors, combiner exceptions, and oversized
+combined results fail the parent. Its failure callback can run even when every child succeeded;
+`failed_items` still counts failed children and remains zero in that case. Batch success-rate,
+failure-count, and custom conditions do not fire after a fold failure. A failed child skips folding.
+Key-provider outages, unsupported envelope versions, and transient store failures defer folding for
+recovery. `ratchet.batch.fold-timeout` defaults to `PT5M` and determines stale fold-claim recovery.
+
+See [Folding partial results](../concepts/batches.md#folding-partial-results) for the deterministic,
+repeatable combiner contract, identity rules, `TypeRef`, and JDK policy exemptions.

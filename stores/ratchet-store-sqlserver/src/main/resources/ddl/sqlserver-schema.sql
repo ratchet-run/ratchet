@@ -289,6 +289,8 @@ CREATE TABLE scheduler_batch
     completion_processed BIT              NOT NULL DEFAULT 0,
     version              INT              NOT NULL DEFAULT 0,
     progress_hook        NVARCHAR(MAX),
+    reducer NVARCHAR(MAX) NULL,
+    fold_claimed_at DATETIME2(3) NULL,
     CONSTRAINT pk_scheduler_batch PRIMARY KEY (batch_id),
     CONSTRAINT fk_batch_job FOREIGN KEY (batch_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );

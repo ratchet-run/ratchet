@@ -40,6 +40,7 @@ import run.ratchet.api.RatchetOptions.IsolationCheckMode;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -372,7 +373,22 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
 
   @Override
   public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
-    return SqlJobCompletion.commit(em, this, this, plan, true, UuidByteArrayConverter::toBytes);
+    return SqlJobCompletion.commit(
+        em,
+        this,
+        this,
+        plan,
+        true,
+        UuidByteArrayConverter::toBytes,
+        dependency ->
+            em.createNativeQuery(
+                    """
+                    UPDATE scheduler_job SET payload = ?, encryption_key_id = ? WHERE job_id = ?
+                    """)
+                .setParameter(1, dependency.payload())
+                .setParameter(2, dependency.encryptionKeyId())
+                .setParameter(3, UuidByteArrayConverter.toBytes(dependency.jobId()))
+                .executeUpdate());
   }
 
   @Override
@@ -493,6 +509,16 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Override
   public boolean resumeRecurring(UUID id) {
     return recurringJobs.resumeRecurring(id);
+  }
+
+  @Override
+  public List<ChildResult> findSucceededChildResults(UUID batchId, UUID afterJobId, int limit) {
+    return batches.findSucceededChildResults(batchId, afterJobId, limit);
+  }
+
+  @Override
+  public boolean claimFold(UUID batchId, Instant now, Instant staleBefore) {
+    return batches.claimFold(batchId, now, staleBefore);
   }
 
   @Override

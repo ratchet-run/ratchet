@@ -80,6 +80,7 @@ silently regress their confidentiality.
 |---|---|---|
 | `PAYLOAD_ARGS` | `payload` (`args` sub-tree only) | surface ∥ job id |
 | `PARAM_VALUE` | `params` map values (keys stay cleartext) | surface ∥ job id |
+| `BATCH_REDUCER` | `scheduler_batch.reducer` (combiner, identity, result type) | surface ∥ parent job id |
 | `RESULT` | `job_result` | surface ∥ job id |
 | `ON_SUCCESS_PAYLOAD` | `on_success_payload` | surface ∥ job id |
 | `ON_FAILURE_PAYLOAD` | `on_failure_payload` | surface ∥ job id |
@@ -600,3 +601,12 @@ stores advertise both. `ProtectedSurface.EXTENSION_STATE` and `EncryptionTarget.
 retain their names because the surface name is part of the ciphertext AAD. State uses
 the global encryption switch or the owning job's encryption opt-in; the earlier
 global-only wording above records the original design.
+
+
+## Amended: reducing batch results
+
+`BATCH_REDUCER` protects the complete reducer document under the parent job id. Child partials
+remain on `RESULT` under each child's id. After folding, the combined result is encrypted on the
+parent's `RESULT` surface; callback argument filling encrypts `PAYLOAD_ARGS` under the branch's id
+before that branch becomes runnable. Moving any of those ciphertexts to another job fails AAD
+validation. The reducer's persisted type name is policy-checked before class loading.

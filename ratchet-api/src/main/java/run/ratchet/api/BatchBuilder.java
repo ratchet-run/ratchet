@@ -29,6 +29,30 @@ import run.ratchet.api.exception.PayloadTooLargeException;
  */
 @Incubating
 public interface BatchBuilder {
+  /**
+   * Folds partial child results, starting with a non-null identity. The combiner must be
+   * deterministic and free of side effects: it may run more than once. Children with nothing to
+   * report must return the identity; null results fail the batch. R is the combiner's declared
+   * return type and must contain no type variables or wildcards.
+   *
+   * @throws IllegalStateException if items, processing or a success callback were already set
+   */
+  @Incubating
+  default <R> ReducingBatchBuilder<R> reducing(R identity, SerializableBinaryOperator<R> combiner) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(combiner, "combiner");
+    throw new UnsupportedOperationException("Batch reduction is not supported");
+  }
+
+  /** Explicit result-type form of reducing, supporting generic combiner methods. */
+  @Incubating
+  default <R> ReducingBatchBuilder<R> reducing(
+      TypeRef<R> type, R identity, SerializableBinaryOperator<R> combiner) {
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(combiner, "combiner");
+    throw new UnsupportedOperationException("Batch reduction is not supported");
+  }
 
   /**
    * Sets the idempotency key of the batch parent to deduplicate batch submissions.

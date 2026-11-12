@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
@@ -28,6 +29,8 @@ import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.BatchStore;
 
 /** Persists successful execution using bounded retries and a result-free fallback. */
 @ApplicationScoped
@@ -37,6 +40,19 @@ public class JobSuccessFinalizer {
   private static final int MAX_ATTEMPTS = 5;
   private static final long[] BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
   private static final long JITTER_MAX_MS = 25L;
+
+  private BatchStore batchStore;
+
+  @Inject
+  public JobSuccessFinalizer(
+      PostExecutionHandler lifecycle, ExecutionObserver observer, Instance<BatchStore> batches) {
+    this(lifecycle, observer);
+    this.batchStore = batches.isResolvable() ? batches.get() : null;
+  }
+
+  public void configureBatchStore(BatchStore batches) {
+    this.batchStore = batches;
+  }
 
   private final PostExecutionHandler lifecycle;
   private final ExecutionObserver observer;
@@ -50,7 +66,6 @@ public class JobSuccessFinalizer {
     this.jitter = null;
   }
 
-  @Inject
   public JobSuccessFinalizer(PostExecutionHandler lifecycle, ExecutionObserver observer) {
     this(
         lifecycle,
@@ -107,7 +122,19 @@ public class JobSuccessFinalizer {
     }
 
     try {
-      boolean updated = lifecycle.completeSuccessMinimal(job, start, end, durationMs, queueWaitMs);
+      boolean preserveResult =
+          batchStore != null
+              && job.getJobType() == JobExecutionType.BATCH_CHILD
+              && job.getDependsOn() != null
+              && batchStore
+                  .findBatchById(job.getDependsOn())
+                  .map(batch -> batch.getReducer() != null)
+                  .orElse(false);
+      boolean updated =
+          preserveResult
+              ? lifecycle.completeSuccess(
+                  job, resultJson, resultType, start, end, durationMs, queueWaitMs)
+              : lifecycle.completeSuccessMinimal(job, start, end, durationMs, queueWaitMs);
       if (updated) {
         observer.recordSuccessFinalizationMinimal(job);
         log.warnf(
@@ -128,7 +155,7 @@ public class JobSuccessFinalizer {
   }
 
   /** Transaction interceptors can fail before the store translates a JDBC exception. */
-  static boolean isTransientStoreFailure(Throwable failure) {
+  public static boolean isTransientStoreFailure(Throwable failure) {
     var visited = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
     for (Throwable cause = failure; cause != null && visited.add(cause); cause = cause.getCause()) {
       if (cause instanceof RatchetTransientStoreException

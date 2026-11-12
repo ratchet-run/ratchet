@@ -98,6 +98,11 @@ function displayDefault(expression) {
     return value.replaceAll('_', '').replace(/[LF]$/i, '')
   }
   if (value === 'true' || value === 'false') return value
+  const duration = /^Duration\.of(Seconds|Minutes|Hours|Days)\((\d+)L?\)$/.exec(value)
+  if (duration) {
+    const [, unit, amount] = duration
+    return unit === 'Days' ? `P${amount}D` : `PT${amount}${unit[0]}`
+  }
   return value.slice(value.lastIndexOf('.') + 1)
 }
 

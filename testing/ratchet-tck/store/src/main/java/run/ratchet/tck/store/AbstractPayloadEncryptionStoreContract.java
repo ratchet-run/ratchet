@@ -37,6 +37,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.PayloadEncryptionException;
@@ -45,11 +46,18 @@ import run.ratchet.spi.EncryptionKey;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.LocalEncryptionKey;
 import run.ratchet.spi.PayloadEncryption;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.spi.WrappedKeyProvider;
 import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.converter.PayloadSerializerHolder;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.JobEncryption;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /**
  * Portability contract: every store MUST route payload arguments and parameter values through the
@@ -124,6 +132,65 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
     assertFalse(
         engine.encryptedPlaintexts.contains("com.example.Svc"),
         "routing metadata must not be encrypted");
+  }
+
+  @Test
+  void completionDependencyPayload_roundTripsThroughTheEncryptionSeam() {
+    JobEntity parent = persist(newPendingJob());
+    JobEntity child = store().findById(persist(newPendingJob()).getId()).orElseThrow();
+    assertTrue(
+        store().compareAndSwapStatus(parent.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    JobPayload bound =
+        new JobPayload(
+            "com.example.BatchCallback",
+            "accept",
+            "(Ljava/lang/String;)V",
+            true,
+            List.of("combined-batch-secret"),
+            null);
+    // The reference implementation encrypts the bound callback payload under the callback's own
+    // id before the store writes it; the store must keep it in the shape its readers decrypt.
+    String stored =
+        PayloadEncryptor.encryptArgs(
+            PayloadSerializerHolder.get().serialize(bound),
+            true,
+            EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, child.getId()));
+    Instant now = Instant.now();
+    var transition =
+        new DependencyTransition(
+            child.getId(),
+            child.getStatus(),
+            child.getVersion(),
+            child.getScheduledTime(),
+            JobStatus.PENDING,
+            child.getScheduledTime(),
+            child.getJobType(),
+            stored,
+            JobEncryption.keyId(true));
+    var plan =
+        new JobCompletionPlan(
+            parent.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(transition),
+            null,
+            List.of());
+
+    assertTrue(store().commitCompletion(plan).committed());
+
+    JobEntity reloaded = store().findById(child.getId()).orElseThrow();
+    assertEquals(List.of("combined-batch-secret"), reloaded.getPayload().args());
+    assertEquals("com.example.BatchCallback", reloaded.getPayload().target());
   }
 
   @Test

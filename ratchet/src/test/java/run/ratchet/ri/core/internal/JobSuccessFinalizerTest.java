@@ -31,13 +31,17 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.BatchStore;
 
 class JobSuccessFinalizerTest {
 
@@ -57,6 +61,33 @@ class JobSuccessFinalizerTest {
     job = new JobEntity();
     job.setId(JOB_ID);
     delays = new ArrayList<>();
+  }
+
+  @Test
+  void reducerChildFallbackKeepsPartialResult() {
+    BatchStore batches = mock(BatchStore.class);
+    UUID batchId = UUID.randomUUID();
+    BatchEntity batch = new BatchEntity();
+    batch.setReducer("{}");
+    job.setDependsOn(batchId);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    when(batches.findBatchById(batchId)).thenReturn(Optional.of(batch));
+    when(lifecycleFacade.completeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenReturn(true);
+    JobSuccessFinalizer finalizer =
+        new JobSuccessFinalizer(lifecycleFacade, observer, delays::add, () -> 0L);
+    finalizer.configureBatchStore(batches);
+    assertEquals(
+        JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL,
+        finalizer.finalizeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L));
+    verify(lifecycleFacade, times(6))
+        .completeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L);
+    verify(lifecycleFacade, never()).completeSuccessMinimal(job, START, END, 1000L, 0L);
   }
 
   @AfterEach

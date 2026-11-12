@@ -15,6 +15,8 @@
  */
 package run.ratchet.testsuite.app;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Gates batch children while the test controls their parent. */
 public final class BatchControlGate {
   private static volatile CountDownLatch gate = new CountDownLatch(1);
+  private static final ConcurrentMap<Integer, Integer> entriesByItem = new ConcurrentHashMap<>();
   private static final AtomicInteger started = new AtomicInteger();
   private static final AtomicInteger succeeded = new AtomicInteger();
   private static final AtomicInteger failed = new AtomicInteger();
@@ -31,12 +34,14 @@ public final class BatchControlGate {
   public static void reset() {
     gate.countDown();
     gate = new CountDownLatch(1);
+    entriesByItem.clear();
     started.set(0);
     succeeded.set(0);
     failed.set(0);
   }
 
   public static void process(Integer item) {
+    entriesByItem.merge(item, 1, Integer::sum);
     started.incrementAndGet();
     try {
       if (!gate.await(60, TimeUnit.SECONDS)) {
@@ -59,6 +64,10 @@ public final class BatchControlGate {
 
   public static int started() {
     return started.get();
+  }
+
+  public static int maxEntriesPerItem() {
+    return entriesByItem.values().stream().mapToInt(Integer::intValue).max().orElse(0);
   }
 
   public static void success() {

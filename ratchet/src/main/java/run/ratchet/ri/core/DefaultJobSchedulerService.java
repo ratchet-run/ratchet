@@ -442,7 +442,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   @Override
   @Transactional(Transactional.TxType.SUPPORTS)
   public <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name) {
-    return new DefaultStreamingBatchBuilder<>(name, jobCreationService);
+    return new DefaultStreamingBatchBuilder<>(name, jobCreationService, jobInvocationResolver);
   }
 
   @Override

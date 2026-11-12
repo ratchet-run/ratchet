@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -42,6 +43,27 @@ public final class SqlJobCompletion {
       JobCompletionPlan plan,
       boolean sqlServer,
       Function<UUID, Object> uuid) {
+    return commit(
+        em,
+        store,
+        batches,
+        plan,
+        sqlServer,
+        uuid,
+        dependency -> {
+          if (dependency.payload() != null)
+            throw new UnsupportedOperationException("Payload rewrite requires a dialect binding");
+        });
+  }
+
+  public static JobCompletionResult commit(
+      EntityManager em,
+      JobStore store,
+      BatchStore batches,
+      JobCompletionPlan plan,
+      boolean sqlServer,
+      Function<UUID, Object> uuid,
+      Consumer<JobCompletionPlan.DependencyTransition> payloadWriter) {
     // Flush managed state before locking and reading native projections. Lock all job rows in a
     // stable order so competing completions of overlapping dependency sets cannot invert locks.
     em.flush();
@@ -142,6 +164,7 @@ public final class SqlJobCompletion {
         if (!store.cancelJob(dependency.jobId()))
           throw stale("Dependency cancel lost", dependency.jobId());
       } else {
+        if (dependency.payload() != null) payloadWriter.accept(dependency);
         int changed =
             em.createNativeQuery(
                     "UPDATE scheduler_job_queue SET status = ?, scheduled_time = ?, job_type = ?,"

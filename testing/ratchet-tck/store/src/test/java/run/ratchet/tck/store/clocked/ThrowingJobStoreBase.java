@@ -30,6 +30,7 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -452,6 +453,16 @@ public abstract class ThrowingJobStoreBase
   @Override
   public List<UUID> findRecoverableBatchIds(int limit) {
     return fail("findRecoverableBatchIds");
+  }
+
+  @Override
+  public List<ChildResult> findSucceededChildResults(UUID batchId, UUID afterJobId, int limit) {
+    return fail("findSucceededChildResults");
+  }
+
+  @Override
+  public boolean claimFold(UUID batchId, Instant now, Instant staleBefore) {
+    return fail("claimFold");
   }
 
   @Override

@@ -20,29 +20,38 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.DurableTerminalEvents.PreparedDlqEvents;
+import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobSuccessFinalizer;
 import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.TerminalEventMapper;
@@ -51,11 +60,17 @@ import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.payload.RuntimeArguments;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.spi.SerializedJobResult;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -67,6 +82,8 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /**
  * Tracks batch progress, executes progress hooks, and handles batch completion. Uses atomic
@@ -96,6 +113,27 @@ public class BatchService {
   private final Clock clock;
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final BatchCompletionTransaction batchCompletionTransaction;
+
+  private ExecutorProvider foldExecutor;
+  private PollerScheduler foldPoller;
+  private ErrorSanitizer foldErrorSanitizer = new DefaultErrorSanitizer();
+  private Duration foldTimeout = Duration.ofMinutes(5);
+  private long maxResultBytes = 65536L;
+  private final ConcurrentHashMap<UUID, CounterSnapshot> foldMismatches = new ConcurrentHashMap<>();
+
+  /** Configures asynchronous folds while preserving the existing concrete test constructor. */
+  @Inject
+  public void configureFold(
+      ExecutorProvider executor,
+      RatchetOptions options,
+      PollerScheduler poller,
+      ErrorSanitizer errorSanitizer) {
+    this.foldExecutor = executor;
+    this.foldPoller = poller;
+    this.foldErrorSanitizer = errorSanitizer;
+    this.foldTimeout = options.maintenance().batchFoldTimeout();
+    this.maxResultBytes = options.payload().maxResultBytes();
+  }
 
   protected BatchService() {
     this.durableEvents = null;
@@ -220,6 +258,7 @@ public class BatchService {
   public void clearCaches() {
     hookMethodCache.clear();
     classCache.clear();
+    foldMismatches.clear();
   }
 
   public boolean markChildFailed(JobEntity child) {
@@ -327,7 +366,24 @@ public class BatchService {
    * @return whether completion made workflow work available
    */
   public boolean completeEmptyBatch(UUID parentId, BatchEntity batch) {
-    return processBatchCompletion(parentId, batch);
+    if (batch.getReducer() == null) return processBatchCompletion(parentId, batch);
+    JobEntity parent = jobCrudStore.findById(parentId).orElseThrow();
+    try {
+      BatchReducer.Stored stored = storedReducer(batch);
+      var type = BatchResultTypes.parse(stored.type(), classPolicy);
+      Object identity =
+          payloadSerializer.deserialize(payloadSerializer.serialize(stored.identity()), type);
+      FoldOutcome outcome =
+          new FoldOutcome(
+              identity,
+              payloadSerializer.serialize(identity, maxResultBytes),
+              type.getTypeName(),
+              null,
+              snapshot(batch));
+      return processBatchCompletion(parentId, batch, parent, outcome);
+    } catch (RuntimeException ex) {
+      throw new IllegalArgumentException("Cannot complete empty reducing batch", ex);
+    }
   }
 
   /** Checks committed counters and completes a batch whose last child has ended. */
@@ -349,6 +405,10 @@ public class BatchService {
   }
 
   public boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
+    if (readyForFold(batch) && parent.getStatus() == JobStatus.PENDING) {
+      scheduleFold(batchId);
+      return false;
+    }
     JobStatus before = parent.getStatus();
     boolean scheduledNext = processBatchCompletion(batchId, batch, parent);
     return scheduledNext || before == JobStatus.PENDING && parent.getStatus() != JobStatus.PENDING;
@@ -434,10 +494,33 @@ public class BatchService {
   }
 
   private boolean processBatchCompletion(UUID parentId, BatchEntity batch, JobEntity parent) {
+    return processBatchCompletion(
+        parentId,
+        batch,
+        parent,
+        batch.getReducer() != null && batch.getFailedItems() > 0
+            ? new FoldOutcome(null, null, null, batchFailureMessage(batch), snapshot(batch))
+            : null);
+  }
+
+  private boolean processBatchCompletion(
+      UUID parentId, BatchEntity batch, JobEntity parent, FoldOutcome outcome) {
+    // A paused or already finished parent completes nothing. Check this first: recovery and
+    // resume reach here for a paused reducing batch without a fold outcome.
     if (parent.getStatus() != JobStatus.PENDING) {
       return false;
     }
-    boolean succeeded = batch.getFailedItems() == 0;
+    if (batch.getReducer() != null && outcome == null) {
+      throw new IllegalStateException("A reducing batch requires a fold outcome");
+    }
+    if (outcome != null) {
+      BatchEntity current = batchStore.findBatchById(parentId).orElse(null);
+      if (current == null
+          || !outcome.counters().equals(snapshot(current))
+          || Boolean.TRUE.equals(current.getCompletionProcessed())) return false;
+    }
+    boolean succeeded =
+        batch.getFailedItems() == 0 && (outcome == null || outcome.failure() == null);
     Instant nowTs = effective().instant();
     parent.setStatus(succeeded ? JobStatus.SUCCEEDED : JobStatus.FAILED);
     parent.setExecutionStartTime(nowTs);
@@ -446,9 +529,23 @@ public class BatchService {
     parent.setQueueWaitMs(0L);
     if (!succeeded) {
       parent.setAttempts(0);
-      parent.setLastError(batchFailureMessage(batch));
+      parent.setLastError(
+          outcome != null && outcome.failure() != null
+              ? outcome.failure()
+              : batchFailureMessage(batch));
     }
-    WorkflowCompletionPlan workflow = workflowScheduler.planCompletion(parent, false);
+    if (succeeded && outcome != null) {
+      parent.setJobResult(
+          PayloadEncryptor.encryptJsonColumn(
+              outcome.json(),
+              EncryptionHolder.encryptionActiveFor(parent.isEncryptedPayload()),
+              EncryptionTarget.rowBound(ProtectedSurface.RESULT, parentId)));
+      parent.setResultType(outcome.type());
+    }
+    WorkflowCompletionPlan workflow =
+        outcome != null && succeeded
+            ? workflowScheduler.planCompletion(parent, false, outcome.value())
+            : workflowScheduler.planCompletion(parent, false);
     DurableTerminalEvents durable = durableEvents;
     boolean durableEnabled = durable != null && durable.enabled();
     List<AbstractJobSchedulerEvent> terminalEvents = List.of();
@@ -512,6 +609,7 @@ public class BatchService {
       metricsCollector.jobCompleted(parentId, parent.getPublicJobType(), totalDurationMs);
     }
 
+    foldMismatches.remove(parentId);
     if (durableEnabled) {
       List<AbstractJobSchedulerEvent> published = terminalEvents;
       Long duration = totalDurationMs;
@@ -686,6 +784,10 @@ public class BatchService {
     triggerWithProgress(progress.progressHook(), progress);
     BatchEntity current = completionSnapshot(progress.batchId(), progress);
     if (current.getCompletedItems() + current.getFailedItems() >= current.getTotalItems()) {
+      if (readyForFold(current)) {
+        scheduleFold(progress.batchId());
+        return false;
+      }
       return processBatchCompletion(progress.batchId(), current);
     }
     return false;
@@ -712,6 +814,202 @@ public class BatchService {
     batch.setProgressHook(progress.progressHook());
     return batch;
   }
+
+  private static boolean readyForFold(BatchEntity batch) {
+    return batch.getReducer() != null
+        && batch.getFailedItems() == 0
+        && batch.getCompletedItems() == batch.getTotalItems()
+        && !Boolean.TRUE.equals(batch.getCompletionProcessed());
+  }
+
+  /** Submits a fold after the caller's counter transaction has committed. */
+  public void scheduleFold(UUID batchId) {
+    Runnable submit =
+        ExecutorClassLoader.preserveContext(
+            () -> {
+              try {
+                foldExecutor
+                    .getJobExecutor()
+                    .submit(ExecutorClassLoader.preserveContext(() -> fold(batchId)));
+              } catch (RejectedExecutionException ex) {
+                log.warnf(ex, "Batch fold %s rejected; recovery will retry", batchId);
+              }
+            });
+    AfterCommitActions.runOrWarn(afterCommitRegistrar, "batch fold", submit);
+  }
+
+  private Method resolveCombinerMethod(JobPayload payload) throws NoSuchMethodException {
+    if (!BatchResultTypes.jdkCombiner(payload) && !classPolicy.isAllowed(payload.target())) {
+      throw new SecurityException(
+          "Batch combiner target denied by ClassPolicy: " + payload.target());
+    }
+    return resolveHookMethod(loadProgressHookClass(payload.target()), payload);
+  }
+
+  private BatchReducer.Stored storedReducer(BatchEntity batch) {
+    String json =
+        PayloadEncryptor.decryptJsonColumn(
+            batch.getReducer(),
+            EncryptionTarget.rowBound(ProtectedSurface.BATCH_REDUCER, batch.getId()));
+    return payloadSerializer.deserialize(json, BatchReducer.Stored.class);
+  }
+
+  /** Runs on the job executor with no transaction spanning user code. */
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
+  public void fold(UUID batchId) {
+    BatchEntity batch;
+    JobEntity parent;
+    Instant claimedAt;
+    try {
+      batch = batchStore.findBatchById(batchId).orElse(null);
+      parent = jobCrudStore.findById(batchId).orElse(null);
+      if (batch == null
+          || parent == null
+          || parent.getStatus() != JobStatus.PENDING
+          || !readyForFold(batch)) return;
+      Instant now = effective().instant().truncatedTo(ChronoUnit.MILLIS);
+      if (!batchCompletionTransaction.complete(
+          () -> batchStore.claimFold(batchId, now, now.minus(foldTimeout)))) return;
+      claimedAt = now;
+    } catch (RuntimeException ex) {
+      log.warnf(ex, "Cannot claim batch fold %s; recovery will retry", batchId);
+      return;
+    }
+    FoldOutcome outcome;
+    try {
+      BatchReducer.Stored stored = storedReducer(batch);
+      var resultType = BatchResultTypes.parse(stored.type(), classPolicy);
+      Method method = resolveCombinerMethod(stored.combiner());
+      Object acc =
+          payloadSerializer.deserialize(payloadSerializer.serialize(stored.identity()), resultType);
+      int read = 0;
+      UUID cursor = null;
+      while (true) {
+        var children = batchStore.findSucceededChildResults(batchId, cursor, 500);
+        if (children.isEmpty()) break;
+        for (var child : children) {
+          String json =
+              PayloadEncryptor.decryptJsonColumn(
+                  child.jobResult(),
+                  EncryptionTarget.rowBound(ProtectedSurface.RESULT, child.jobId()));
+          if (json == null
+              || SerializedJobResult.isTruncatedType(child.resultType())
+              || "{\"_truncated\":true}".equals(json)) {
+            throw new IllegalArgumentException(
+                "Missing or truncated partial result for child " + child.jobId());
+          }
+          Object partial = payloadSerializer.deserialize(json, resultType);
+          if (partial == null)
+            throw new IllegalArgumentException("Null partial result for child " + child.jobId());
+          JobPayload bound =
+              RuntimeArguments.bind(stored.combiner(), List.of(acc, partial), "Batch combiner");
+          Object[] args =
+              ArgumentCoercion.coerce(method.getParameterTypes(), bound.args().toArray());
+          if (stored.combiner().isStatic()) acc = method.invoke(null, args);
+          else
+            try (BeanResolver.ManagedBean bean =
+                beanResolver.acquire(loadProgressHookClass(stored.combiner().target()))) {
+              Object instance = bean.instance();
+              acc = ManagedInvocation.exposedMethod(method, instance).invoke(instance, args);
+            }
+          if (acc == null) throw new IllegalArgumentException("Batch combiner returned null");
+          read++;
+          cursor = child.jobId();
+        }
+        claimedAt = renewFoldClaim(batchId, claimedAt);
+        if (claimedAt == null) {
+          log.warnf("Batch %s fold lost its claim to another fold; stopping", batchId);
+          return;
+        }
+      }
+      if (read != batch.getCompletedItems()) {
+        CounterSnapshot counters = snapshot(batch);
+        CounterSnapshot previous = foldMismatches.put(batchId, counters);
+        if (!counters.equals(previous)) {
+          log.warnf(
+              "Batch %s fold read %d partials, expected %d; recovery will retry",
+              batchId, read, batch.getCompletedItems());
+          return;
+        }
+        throw new IllegalStateException(
+            "Repeated partial-result count mismatch for batch " + batchId);
+      }
+      foldMismatches.remove(batchId);
+      outcome =
+          new FoldOutcome(
+              acc,
+              payloadSerializer.serialize(acc, maxResultBytes),
+              resultType.getTypeName(),
+              null,
+              snapshot(batch));
+    } catch (Exception | LinkageError | AssertionError | StackOverflowError ex) {
+      // Errors from deserialization or class loading (NoClassDefFoundError and the like) fail the
+      // fold like exceptions do; otherwise the claim expires and the fold retries forever.
+      Throwable cause = ex;
+      while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
+      if (!(ex instanceof InvocationTargetException) && deferrable(ex)) {
+        log.warnf(ex, "Batch %s fold deferred", batchId);
+        return;
+      }
+      outcome =
+          new FoldOutcome(
+              null,
+              null,
+              null,
+              "Batch fold failed: " + foldErrorSanitizer.sanitize(cause),
+              snapshot(batch));
+    }
+    FoldOutcome completed = outcome;
+    try {
+      boolean newWork =
+          batchCompletionTransaction.complete(
+              () -> {
+                JobEntity currentParent = jobCrudStore.findById(batchId).orElse(null);
+                return currentParent != null
+                    && processBatchCompletion(batchId, batch, currentParent, completed);
+              });
+      if (newWork && foldPoller != null) foldPoller.wakeup();
+    } catch (RuntimeException ex) {
+      log.warnf(ex, "Batch %s fold completion deferred", batchId);
+    }
+  }
+
+  /**
+   * Extends this fold's claim once half the fold timeout has passed, so recovery does not start a
+   * second fold of a long batch. {@code claimFold} matches only while the stored claim is not newer
+   * than ours, which makes it a compare-and-set on our own claim time. It fails when another fold
+   * took over or completion committed.
+   *
+   * @return the claim time to keep, or null when the claim is lost
+   */
+  private Instant renewFoldClaim(UUID batchId, Instant claimedAt) {
+    Instant now = effective().instant().truncatedTo(ChronoUnit.MILLIS);
+    if (now.isBefore(claimedAt.plus(foldTimeout.dividedBy(2)))) return claimedAt;
+    return batchCompletionTransaction.complete(
+            () -> batchStore.claimFold(batchId, now, claimedAt.plusMillis(1)))
+        ? now
+        : null;
+  }
+
+  private static boolean deferrable(Throwable failure) {
+    if (JobSuccessFinalizer.isTransientStoreFailure(failure)) return true;
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      if (cause instanceof KeyProviderUnavailableException
+          || cause instanceof UnsupportedEnvelopeVersionException) return true;
+      if (cause.getCause() == cause) break;
+    }
+    return false;
+  }
+
+  private static CounterSnapshot snapshot(BatchEntity batch) {
+    return new CounterSnapshot(
+        batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems());
+  }
+
+  private record CounterSnapshot(int total, int completed, int failed) {}
+
+  private record FoldOutcome(
+      Object value, String json, String type, String failure, CounterSnapshot counters) {}
 
   private Clock effective() {
     return clock != null ? clock : Clock.systemUTC();

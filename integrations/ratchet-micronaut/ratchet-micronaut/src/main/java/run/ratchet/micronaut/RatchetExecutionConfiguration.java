@@ -188,8 +188,10 @@ class RatchetExecutionConfiguration {
   @Singleton
   @Requires(missingBeans = JobSuccessFinalizer.class)
   JobSuccessFinalizer jobSuccessFinalizer(
-      PostExecutionHandler lifecycle, ExecutionObserver observer) {
-    return new JobSuccessFinalizer(lifecycle, observer);
+      PostExecutionHandler lifecycle, ExecutionObserver observer, JobStore store) {
+    JobSuccessFinalizer finalizer = new JobSuccessFinalizer(lifecycle, observer);
+    finalizer.configureBatchStore(store.capability(BatchStore.class).orElse(null));
+    return finalizer;
   }
 
   @Singleton
@@ -473,7 +475,11 @@ class RatchetExecutionConfiguration {
       Clock clock,
       AfterCommitRegistrar registrar,
       BatchCompletionTransaction completionTransaction,
-      PayloadSerializer payloadSerializer) {
+      PayloadSerializer payloadSerializer,
+      ExecutorProvider executorProvider,
+      RatchetOptions foldOptions,
+      PollerScheduler poller,
+      ErrorSanitizer foldSanitizer) {
     MicronautBatchService service =
         new MicronautBatchService(
             store.capability(BatchStore.class).orElse(null),
@@ -491,6 +497,7 @@ class RatchetExecutionConfiguration {
             completionTransaction,
             payloadSerializer,
             durableEvents);
+    service.configureFold(executorProvider, foldOptions, poller, foldSanitizer);
     return service;
   }
 

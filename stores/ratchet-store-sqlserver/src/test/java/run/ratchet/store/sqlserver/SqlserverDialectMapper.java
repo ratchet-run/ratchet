@@ -15,8 +15,11 @@
  */
 package run.ratchet.store.sqlserver;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import run.ratchet.store.schema.ForeignKey;
+import run.ratchet.store.schema.LogicalPredicate;
 import run.ratchet.store.schema.LogicalType;
 import run.ratchet.store.schema.OnDeleteAction;
 import run.ratchet.tck.store.schema.DialectTypeMapper;
@@ -37,6 +40,13 @@ import run.ratchet.tck.store.schema.DialectTypeMapper;
  * still verified.
  */
 final class SqlserverDialectMapper implements DialectTypeMapper {
+
+  @Override
+  public List<String> composeIndexColumns(
+      List<String> columns, Optional<LogicalPredicate> predicate) {
+    // Nonclustered indexes implicitly carry the clustered primary key.
+    return columns.equals(List.of("depends_on", "job_id")) ? List.of("depends_on") : columns;
+  }
 
   @Override
   public String dialectName() {

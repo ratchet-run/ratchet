@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import java.io.Serializable;
+import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,11 +29,16 @@ import run.ratchet.api.BatchContext;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
+import run.ratchet.api.ReducingBatchBuilder;
+import run.ratchet.api.SerializableBinaryOperator;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
+import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
+import run.ratchet.api.TypeRef;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.WorkflowCondition.ConditionType;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
@@ -61,6 +67,13 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private String executionTarget;
   private String idempotencyKey;
   private String childResourceName;
+  private BatchReducer reducer;
+  private boolean itemsConfigured;
+  private boolean successConfigured;
+
+  BatchReducer reducer() {
+    return reducer;
+  }
 
   DefaultBatchBuilder(String name, BatchSubmitter submitter) {
     this(name, submitter, new DefaultJobInvocationResolver());
@@ -71,6 +84,69 @@ public class DefaultBatchBuilder implements BatchBuilder {
     this.name = name;
     this.submitter = submitter;
     this.jobInvocationResolver = jobInvocationResolver;
+  }
+
+  @Override
+  public <R> ReducingBatchBuilder<R> reducing(R identity, SerializableBinaryOperator<R> combiner) {
+    return reducingType(null, identity, combiner);
+  }
+
+  @Override
+  public <R> ReducingBatchBuilder<R> reducing(
+      TypeRef<R> type, R identity, SerializableBinaryOperator<R> combiner) {
+    return reducingType(Objects.requireNonNull(type, "type").getType(), identity, combiner);
+  }
+
+  private <R> ReducingBatchBuilder<R> reducingType(
+      Type type, R identity, SerializableBinaryOperator<R> combiner) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(combiner, "combiner");
+    if (itemsConfigured || successConfigured || reducer != null) {
+      throw new IllegalStateException(
+          "reducing() must precede items, processing and success callbacks");
+    }
+    reducer = new BatchReducer(type, identity, runtimeResultPayload(combiner));
+    return new DefaultReducingBatchBuilder<>(this);
+  }
+
+  void reducingInvocation(Object identity, JobInvocation combiner) {
+    if (itemsConfigured || successConfigured || reducer != null)
+      throw new IllegalStateException("reducing() must be first");
+    reducer = new BatchReducer(null, identity, JobPayloadFactory.fromInvocation(combiner));
+  }
+
+  void resultCallback(Serializable callback) {
+    JobPayload payload = runtimeResultPayload(Objects.requireNonNull(callback, "callback"));
+    reducer.callback(payload);
+    successConfigured = true;
+    WorkflowBranch branch =
+        new WorkflowBranch(
+            WorkflowCondition.batchSuccess(),
+            new InvocationAdapter(
+                new JobInvocation(
+                    payload.target(),
+                    payload.method(),
+                    payload.methodDescriptor(),
+                    payload.isStatic(),
+                    payload.args(),
+                    payload.runtimeArgIndexes())));
+    reducer.successBranch(branch);
+    workflowBranches.add(branch);
+  }
+
+  private JobPayload runtimeResultPayload(Serializable callback) {
+    if (callback instanceof InvocationAdapter adapter)
+      return JobPayloadFactory.fromInvocation(adapter.invocation());
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
+  }
+
+  <T extends Serializable, R> void resultItems(
+      Collection<T> items, SerializableFunction<T, R> action) {
+    Objects.requireNonNull(items, "items");
+    Objects.requireNonNull(action, "action");
+    reducer.childTarget(runtimeResultPayload(action));
+    itemsConfigured = true;
+    for (T item : items) children.add(new ChildSpec(payload(action, List.of(item))));
   }
 
   @Override
@@ -86,7 +162,8 @@ public class DefaultBatchBuilder implements BatchBuilder {
   @Override
   public <T extends Serializable> BatchBuilder forEach(
       Collection<T> items, SerializableConsumer<T> action) {
-    for (T item : items) {
+    itemsConfigured = true;
+    for (T item : Objects.requireNonNull(items, "items")) {
       children.add(new ChildSpec(payload(action, List.of(item))));
     }
     return this;
@@ -152,6 +229,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   @Override
   public BatchBuilder thenBranch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description) {
+    if (condition.type() == ConditionType.BATCH_SUCCESS) successConfigured = true;
     workflowBranches.add(new WorkflowBranch(condition, next, description));
     return this;
   }
@@ -164,6 +242,9 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   @Override
   public BatchBuilder thenOnBatchSuccess(SerializableCheckedRunnable next) {
+    if (reducer != null)
+      throw new IllegalStateException("Use the reducing builder to register its result callback");
+    successConfigured = true;
     workflowBranches.add(new WorkflowBranch(WorkflowCondition.batchSuccess(), next));
     return this;
   }
@@ -218,7 +299,8 @@ public class DefaultBatchBuilder implements BatchBuilder {
   /** Invocation-typed sibling of {@link #forEach}: each child persists the factory's invocation. */
   <T extends Serializable> void forEachInvocation(
       Collection<T> items, Function<T, JobInvocation> invocationFactory) {
-    for (T item : items) {
+    itemsConfigured = true;
+    for (T item : Objects.requireNonNull(items, "items")) {
       children.add(
           new ChildSpec(
               JobPayloadFactory.requireTaskArguments(

@@ -15,6 +15,7 @@
  */
 package run.ratchet.api;
 
+import java.time.Duration;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -232,6 +233,7 @@ public class RatchetOptions {
     builder.maintenance.logRetentionDays = maintenance.logRetentionDays();
     builder.maintenance.batchRecoveryLeaseTtlSeconds = maintenance.batchRecoveryLeaseTtlSeconds();
     builder.maintenance.batchRecoveryIntervalSeconds = maintenance.batchRecoveryIntervalSeconds();
+    builder.maintenance.batchFoldTimeout = maintenance.batchFoldTimeout();
 
     builder.schema.autoMigrate = schema.autoMigrate();
     builder.schema.migrationDialect = schema.migrationDialect();
@@ -763,6 +765,7 @@ public class RatchetOptions {
    * @param logRetentionDays age in days at which execution-log rows become eligible for purge
    * @param batchRecoveryIntervalSeconds interval in seconds between batch recovery scans
    * @param batchRecoveryLeaseTtlSeconds batch recovery lease lifetime in seconds
+   * @param batchFoldTimeout stale batch-fold claim lifetime
    */
   public record MaintenanceOptions(
       boolean dlqPurgeEnabled,
@@ -776,7 +779,26 @@ public class RatchetOptions {
       String logPurgeCron,
       long logRetentionDays,
       long batchRecoveryIntervalSeconds,
-      long batchRecoveryLeaseTtlSeconds) {}
+      long batchRecoveryLeaseTtlSeconds,
+      Duration batchFoldTimeout) {
+    public MaintenanceOptions {
+      Objects.requireNonNull(batchFoldTimeout, "batchFoldTimeout");
+      if (batchFoldTimeout.isZero() || batchFoldTimeout.isNegative())
+        throw new IllegalArgumentException("Fold timeout must be positive");
+    }
+
+    /**
+     * Returns how long a batch-fold claim stays valid. After this time, batch recovery may retake a
+     * fold claim whose node stopped before finishing. This is a claim timeout, not a deadline that
+     * interrupts a running fold.
+     *
+     * @return the fold-claim timeout, always positive
+     */
+    @Incubating
+    public Duration batchFoldTimeout() {
+      return batchFoldTimeout;
+    }
+  }
 
   /**
    * Schema-migration configuration for SQL stores. See {@code SchemaMigrator} for behavior; this
@@ -1476,6 +1498,17 @@ public class RatchetOptions {
     private long batchRecoveryIntervalSeconds = 900L;
 
     private long batchRecoveryLeaseTtlSeconds = 900L;
+    private Duration batchFoldTimeout = Duration.ofMinutes(5);
+
+    /** Sets the stale fold-claim timeout. */
+    @Incubating
+    public MaintenanceBuilder batchFoldTimeout(Duration timeout) {
+      Objects.requireNonNull(timeout, "timeout");
+      if (timeout.isZero() || timeout.isNegative())
+        throw new IllegalArgumentException("Fold timeout must be positive");
+      batchFoldTimeout = timeout;
+      return this;
+    }
 
     private MaintenanceBuilder() {}
 
@@ -1554,7 +1587,8 @@ public class RatchetOptions {
           logPurgeCron,
           logRetentionDays,
           batchRecoveryIntervalSeconds,
-          batchRecoveryLeaseTtlSeconds);
+          batchRecoveryLeaseTtlSeconds,
+          batchFoldTimeout);
     }
   }
 

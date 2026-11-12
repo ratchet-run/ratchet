@@ -295,6 +295,31 @@ class WorkflowConditionEvaluatorTest {
   }
 
   @Test
+  void foldFailureSelectsOnlyBatchFailure() {
+    JobEntity parent = batchParent(JobStatus.FAILED);
+    BatchEntity batch = batch(10, 10, 0);
+    batch.setReducer("{}");
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch));
+    assertFalse(
+        evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_SUCCESS), parent));
+    assertTrue(
+        evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_FAILURE), parent));
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "0"),
+            parent));
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_FAILURE_COUNT, "99"),
+            parent));
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(
+                WorkflowCondition.ConditionType.BATCH_CUSTOM, "never evaluated"),
+            parent));
+  }
+
+  @Test
   void batchSuccess_allComplete_returnsTrue() {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 10, 0)));
@@ -713,6 +738,33 @@ class WorkflowConditionEvaluatorTest {
     public boolean matches() {
       return true;
     }
+  }
+
+  @Test
+  void resultValue_deniedGenericTypeFallsBackToNativeList() {
+    ClassPolicy policy = className -> !className.equals("com.example.Denied");
+    WorkflowConditionEvaluator restrictedEvaluator =
+        new WorkflowConditionEvaluator(batchStore, beanResolver, policy, payloadSerializer);
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    parent.setJobResult("[1,2]");
+    parent.setResultType("java.util.List<com.example.Denied>");
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<Object>) WorkflowConditionEvaluatorTest::isNativeNumberList);
+
+    assertTrue(
+        restrictedEvaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.RESULT_VALUE, expression),
+            parent));
+  }
+
+  public static boolean isNativeNumberList(Object value) {
+    return value instanceof List<?> values
+        && values.size() == 2
+        && values.get(0) instanceof Number first
+        && first.intValue() == 1
+        && values.get(1) instanceof Number second
+        && second.intValue() == 2;
   }
 
   @Test

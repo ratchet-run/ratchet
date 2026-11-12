@@ -39,6 +39,7 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.ServerAddress;
+import com.mongodb.TransactionOptions;
 import com.mongodb.WriteConcern;
 import com.mongodb.WriteConcernResult;
 import com.mongodb.WriteError;
@@ -610,6 +611,67 @@ class MongoExceptionTranslationTest {
             () -> lifecycle.updateJobStatus(UUID.randomUUID(), JobStatus.FAILED, "failed"));
 
     assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void compareAndSwapCancelCommitsWithConfiguredMajorityWriteConcern() {
+    assertStatusMutationTransaction(JobStatus.CANCELED, false);
+  }
+
+  @Test
+  void cancelJobCommitsWithConfiguredMajorityWriteConcern() {
+    assertStatusMutationTransaction(JobStatus.CANCELED, true);
+  }
+
+  @Test
+  void compareAndSwapPauseUsesDefaultTransactionOptions() {
+    assertStatusMutationTransaction(JobStatus.PAUSED, false);
+  }
+
+  private static void assertStatusMutationTransaction(JobStatus target, boolean directCancel) {
+    WriteConcern configured =
+        WriteConcern.W1.withWTimeout(1234, TimeUnit.MILLISECONDS).withJournal(true);
+    AtomicInteger transactions = new AtomicInteger();
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              return switch (method.getName()) {
+                case "getWriteConcern" -> configured;
+                case "updateOne" -> UpdateResult.acknowledged(1, 1L, null);
+                case "find" -> findIterable(cursor(List.of(), new AtomicBoolean()));
+                default -> defaultValue(method);
+              };
+            });
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                transactions.incrementAndGet();
+                if (target == JobStatus.CANCELED) {
+                  assertEquals(2, args.length);
+                  WriteConcern concern = ((TransactionOptions) args[1]).getWriteConcern();
+                  assertEquals("majority", concern.getWString());
+                  assertEquals(
+                      configured.getWTimeout(TimeUnit.MILLISECONDS),
+                      concern.getWTimeout(TimeUnit.MILLISECONDS));
+                  assertEquals(configured.getJournal(), concern.getJournal());
+                } else {
+                  assertEquals(1, args.length);
+                }
+                return ((TransactionBody<?>) args[0]).execute();
+              }
+              return defaultValue(method);
+            });
+    MongoStoreContext ctx = contextWithJobsAndSession(jobs, session);
+    MongoJobLifecycleOperations lifecycle =
+        new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
+    UUID id = UUID.randomUUID();
+
+    assertTrue(
+        directCancel
+            ? lifecycle.cancelJob(id)
+            : lifecycle.compareAndSwapStatus(id, JobStatus.PENDING, target, null));
+    assertEquals(1, transactions.get());
   }
 
   @Test

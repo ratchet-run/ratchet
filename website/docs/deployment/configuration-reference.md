@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **68 fixed keys**.
+This build exposes **69 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -59,6 +59,7 @@ This build exposes **68 fixed keys**.
 | `ratchet.timeout.signal-timeout-batch-size` | `RATCHET_SIGNAL_TIMEOUT_BATCH_SIZE` | `500` | `SIGNAL_TIMEOUT_BATCH_SIZE` |
 | `ratchet.timeout.cancellation-grace-seconds` | `RATCHET_CANCELLATION_GRACE_SECONDS` | `0` | `CANCELLATION_GRACE_SECONDS` |
 | `ratchet.timeout.signal-timeout-lease-ttl-seconds` | `RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` | `120` | `SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` |
+| `ratchet.batch.fold-timeout` | `RATCHET_BATCH_FOLD_TIMEOUT` | `PT5M` | `BATCH_FOLD_TIMEOUT` |
 | `ratchet.batch.recovery-interval-seconds` | `RATCHET_BATCH_RECOVERY_INTERVAL_SECONDS` | `900` | `BATCH_RECOVERY_INTERVAL_SECONDS` |
 | `ratchet.batch.recovery-lease-ttl-seconds` | `RATCHET_BATCH_RECOVERY_LEASE_TTL_SECONDS` | `900` | `BATCH_RECOVERY_LEASE_TTL_SECONDS` |
 | `ratchet.events.durable` | `RATCHET_EVENTS_DURABLE` | `false` | `EVENTS_DURABLE` |

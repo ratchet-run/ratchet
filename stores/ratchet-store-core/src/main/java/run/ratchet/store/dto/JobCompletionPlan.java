@@ -68,7 +68,29 @@ public record JobCompletionPlan(
       Instant expectedScheduledTime,
       JobStatus status,
       Instant scheduledTime,
-      JobExecutionType jobType) {
+      JobExecutionType jobType,
+      @Nullable String payload,
+      @Nullable String encryptionKeyId) {
+    public DependencyTransition(
+        UUID jobId,
+        JobStatus expectedStatus,
+        Integer expectedVersion,
+        Instant expectedScheduledTime,
+        JobStatus status,
+        Instant scheduledTime,
+        JobExecutionType jobType) {
+      this(
+          jobId,
+          expectedStatus,
+          expectedVersion,
+          expectedScheduledTime,
+          status,
+          scheduledTime,
+          jobType,
+          null,
+          null);
+    }
+
     public DependencyTransition {
       Objects.requireNonNull(jobId);
       Objects.requireNonNull(expectedStatus);

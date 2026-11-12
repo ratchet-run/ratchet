@@ -382,6 +382,10 @@ public final class DocumentMapper {
     doc.append("completion_processed", batch.getCompletionProcessed());
     doc.append("version", versionOrDefault(batch.getVersion()));
     doc.append("progress_hook", payloadToStoredValue(batch.getProgressHook()));
+    doc.append("reducer", batch.getReducer());
+    doc.append(
+        "fold_claimed_at",
+        batch.getFoldClaimedAt() == null ? null : Date.from(batch.getFoldClaimedAt()));
     return doc;
   }
 
@@ -394,6 +398,9 @@ public final class DocumentMapper {
     batch.setCompletionProcessed(doc.getBoolean("completion_processed", false));
     batch.setVersion(doc.getInteger("version", DEFAULT_VERSION));
     batch.setProgressHook(storedValueToPayload(doc.get("progress_hook")));
+    batch.setReducer(doc.getString("reducer"));
+    batch.setFoldClaimedAt(
+        doc.getDate("fold_claimed_at") == null ? null : doc.getDate("fold_claimed_at").toInstant());
     return batch;
   }
 

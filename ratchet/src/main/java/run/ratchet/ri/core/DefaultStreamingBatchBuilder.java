@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import java.io.Serializable;
+import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,15 +30,24 @@ import run.ratchet.api.BatchContext;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
+import run.ratchet.api.ReducingStreamingBatchBuilder;
+import run.ratchet.api.SerializableBinaryOperator;
 import run.ratchet.api.SerializableCheckedConsumer;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.StreamingBatchContext;
+import run.ratchet.api.TypeRef;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.WorkflowCondition.ConditionType;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
+import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.JobInvocation;
+import run.ratchet.spi.JobInvocationResolver;
+import run.ratchet.store.entity.JobPayload;
 
 /** {@inheritDoc} */
 public class DefaultStreamingBatchBuilder<T extends Serializable>
@@ -49,22 +59,105 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   private final String name;
   private final StreamingBatchSubmitter submitter;
+  private final JobInvocationResolver jobInvocationResolver;
 
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
   private final BatchChildOptions childOptionState = new BatchChildOptions();
   private JobOptions callbackOptions = JobOptions.defaults();
   private Stream<T> stream;
   private SerializableCheckedConsumer<T> action;
+  private Serializable resultAction;
   private int chunkSize = DEFAULT_CHUNK_SIZE;
   private Consumer<StreamingBatchContext> localProgressHook;
   private SerializableConsumer<BatchContext> batchProgressHook;
   private String executionTarget;
   private String idempotencyKey;
   private String childResourceName;
+  private BatchReducer reducer;
+  private boolean itemsConfigured;
+  private boolean successConfigured;
+
+  BatchReducer reducer() {
+    return reducer;
+  }
+
+  void processingConfigured() {
+    itemsConfigured = true;
+  }
 
   DefaultStreamingBatchBuilder(String name, StreamingBatchSubmitter submitter) {
+    this(name, submitter, new DefaultJobInvocationResolver());
+  }
+
+  DefaultStreamingBatchBuilder(
+      String name, StreamingBatchSubmitter submitter, JobInvocationResolver jobInvocationResolver) {
     this.name = name;
     this.submitter = submitter;
+    this.jobInvocationResolver = jobInvocationResolver;
+  }
+
+  @Override
+  public <R> ReducingStreamingBatchBuilder<T, R> reducing(
+      R identity, SerializableBinaryOperator<R> combiner) {
+    return reducingType(null, identity, combiner);
+  }
+
+  @Override
+  public <R> ReducingStreamingBatchBuilder<T, R> reducing(
+      TypeRef<R> type, R identity, SerializableBinaryOperator<R> combiner) {
+    return reducingType(Objects.requireNonNull(type, "type").getType(), identity, combiner);
+  }
+
+  private <R> ReducingStreamingBatchBuilder<T, R> reducingType(
+      Type type, R identity, SerializableBinaryOperator<R> combiner) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(combiner, "combiner");
+    if (itemsConfigured || successConfigured || reducer != null) {
+      throw new IllegalStateException(
+          "reducing() must precede items, processing and success callbacks");
+    }
+    reducer = new BatchReducer(type, identity, runtimeResultPayload(combiner));
+    return new DefaultReducingStreamingBatchBuilder<>(this);
+  }
+
+  void reducingInvocation(Object identity, JobInvocation combiner) {
+    if (itemsConfigured || successConfigured || reducer != null)
+      throw new IllegalStateException("reducing() must be first");
+    reducer = new BatchReducer(null, identity, JobPayloadFactory.fromInvocation(combiner));
+  }
+
+  void resultCallback(Serializable callback) {
+    JobPayload payload = runtimeResultPayload(Objects.requireNonNull(callback, "callback"));
+    reducer.callback(payload);
+    successConfigured = true;
+    WorkflowBranch branch =
+        new WorkflowBranch(
+            WorkflowCondition.batchSuccess(),
+            new InvocationAdapter(
+                new JobInvocation(
+                    payload.target(),
+                    payload.method(),
+                    payload.methodDescriptor(),
+                    payload.isStatic(),
+                    payload.args(),
+                    payload.runtimeArgIndexes())));
+    reducer.successBranch(branch);
+    workflowBranches.add(branch);
+  }
+
+  private JobPayload runtimeResultPayload(Serializable callback) {
+    if (callback instanceof InvocationAdapter adapter)
+      return JobPayloadFactory.fromInvocation(adapter.invocation());
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
+  }
+
+  void resultAction(Serializable action) {
+    resultAction = Objects.requireNonNull(action, "action");
+    itemsConfigured = true;
+  }
+
+  Serializable processingAction() {
+    return resultAction == null ? action : resultAction;
   }
 
   @Override
@@ -79,12 +172,14 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   @Override
   public StreamingBatchBuilder<T> fromStream(Stream<T> stream) {
+    itemsConfigured = true;
     this.stream = Objects.requireNonNull(stream, "stream must not be null");
     return this;
   }
 
   @Override
   public StreamingBatchBuilder<T> process(SerializableCheckedConsumer<T> action) {
+    itemsConfigured = true;
     this.action = action;
     return this;
   }
@@ -163,6 +258,9 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   @Override
   public StreamingBatchBuilder<T> thenOnBatchSuccess(SerializableCheckedRunnable next) {
+    if (reducer != null)
+      throw new IllegalStateException("Use the reducing builder to register its result callback");
+    successConfigured = true;
     workflowBranches.add(new WorkflowBranch(WorkflowCondition.batchSuccess(), next));
     return this;
   }
@@ -208,6 +306,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   /** Adds an explicit conditional branch (used by the invocation-mode subtype). */
   void addBranch(WorkflowBranch branch) {
+    if (branch.condition().type() == ConditionType.BATCH_SUCCESS) successConfigured = true;
     workflowBranches.add(branch);
   }
 
@@ -223,7 +322,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   }
 
   void validateProcessingReady() {
-    if (action == null) {
+    if (action == null && resultAction == null) {
       throw new IllegalStateException(
           "Processing action must be set via process() before calling start()");
     }

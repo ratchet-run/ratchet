@@ -121,7 +121,8 @@ public final class RatchetOptionsFactory {
                     .batchRecoveryLeaseTtlSeconds(
                         config.get(RatchetConfigKeys.BATCH_RECOVERY_LEASE_TTL_SECONDS))
                     .batchRecoveryIntervalSeconds(
-                        config.get(RatchetConfigKeys.BATCH_RECOVERY_INTERVAL_SECONDS)))
+                        config.get(RatchetConfigKeys.BATCH_RECOVERY_INTERVAL_SECONDS))
+                    .batchFoldTimeout(config.get(RatchetConfigKeys.BATCH_FOLD_TIMEOUT)))
         .schema(
             schema ->
                 schema

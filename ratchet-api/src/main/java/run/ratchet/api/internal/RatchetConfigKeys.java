@@ -15,6 +15,7 @@
  */
 package run.ratchet.api.internal;
 
+import java.time.Duration;
 import java.util.Locale;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.RatchetConfigKey;
@@ -208,6 +209,18 @@ public final class RatchetConfigKeys {
           "RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS",
           120L,
           1L);
+  public static final RatchetConfigKey<Duration> BATCH_FOLD_TIMEOUT =
+      new RatchetConfigKey<>(
+          "ratchet.batch.fold-timeout",
+          "RATCHET_BATCH_FOLD_TIMEOUT",
+          Duration.ofMinutes(5),
+          raw -> {
+            Duration value = Duration.parse(raw);
+            if (value.isNegative() || value.isZero())
+              throw new IllegalArgumentException("Fold timeout must be positive");
+            return value;
+          });
+
   public static final RatchetConfigKey<Long> BATCH_RECOVERY_INTERVAL_SECONDS =
       longKey(
           "ratchet.batch.recovery-interval-seconds",

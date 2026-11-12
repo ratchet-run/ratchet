@@ -303,6 +303,25 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void initializeReplacesSingleFieldDependsOnIndexWithBatchPagingIndex() {
+    var jobs = database.getCollection("scheduler_job");
+    jobs.dropIndex("idx_job_depends_on");
+    jobs.createIndex(
+        Indexes.ascending("depends_on"), new IndexOptions().name("idx_job_depends_on"));
+
+    var initializer = new MongoCollectionInitializer(database, client);
+    initializer.initialize();
+
+    Document index =
+        jobs.listIndexes().into(new ArrayList<>()).stream()
+            .filter(candidate -> "idx_job_depends_on".equals(candidate.getString("name")))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(new Document("depends_on", 1).append("_id", 1), index.get("key"));
+    assertDoesNotThrow(initializer::validate);
+  }
+
+  @Test
   void validationRejectsIncompatibleOptionalIndexThatInitializeCannotCreate() {
     var jobs = database.getCollection("scheduler_job");
     jobs.dropIndex("idx_job_tags");

@@ -38,6 +38,13 @@ import run.ratchet.api.WorkflowCondition;
  */
 @Incubating
 public interface InvocationStreamingBatchBuilder<T extends Serializable> {
+  /** Starts a reducing batch; combiner has two runtime argument slots. */
+  @Incubating
+  default InvocationStreamingBatchBuilder<T> reducing(Object identity, JobInvocation combiner) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(combiner, "combiner");
+    throw new UnsupportedOperationException("Batch reduction is not supported");
+  }
 
   /**
    * Sets the idempotency key of the batch parent to deduplicate batch submissions.

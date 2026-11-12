@@ -265,7 +265,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     assertEquals(
         List.of(
             "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013",
-            "014"),
+            "014", "015"),
         versions(result.applied()));
     assertEquals(List.of("001"), versions(result.skipped()));
     try (Connection c = newJdbcConnection();
@@ -295,7 +295,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     assertEquals(
         List.of(
             "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012",
-            "013", "014"),
+            "013", "014", "015"),
         versions(result.applied()));
     assertEquals(List.of(), result.skipped());
     assertExtensionSchemaExists();

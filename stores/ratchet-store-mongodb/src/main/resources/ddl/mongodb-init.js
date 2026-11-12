@@ -39,7 +39,11 @@ db.scheduler_job.createIndex(
 );
 db.scheduler_job.createIndex({ tags: 1 }, { name: "idx_job_tags" });
 db.scheduler_job.createIndex({ picked_by: 1 }, { name: "idx_job_picked_by" });
-db.scheduler_job.createIndex({ depends_on: 1 }, { name: "idx_job_depends_on" });
+// Replace the legacy single-field dependency index while keeping its public name.
+db.scheduler_job.getIndexes().filter(i => i.name === "idx_job_depends_on" &&
+    JSON.stringify(i.key) !== JSON.stringify({depends_on: 1, _id: 1}))
+    .forEach(i => db.scheduler_job.dropIndex(i.name));
+db.scheduler_job.createIndex({ depends_on: 1, _id: 1 }, { name: "idx_job_depends_on" });
 db.scheduler_job.createIndex({ target_class: 1 }, { name: "idx_job_target_class" });
 db.scheduler_job.createIndex({ method_name: 1 }, { name: "idx_job_method_name" });
 db.scheduler_job.createIndex({ created_at: 1 }, { name: "idx_job_created_at" });

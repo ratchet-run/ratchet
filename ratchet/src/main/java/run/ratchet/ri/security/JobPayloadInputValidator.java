@@ -74,6 +74,13 @@ public class JobPayloadInputValidator {
     this.maxPayloadBytes = Math.multiplyExact((long) options.payload().maxPayloadKb(), 1024L);
   }
 
+  /** Ordinary dispatched tasks must have every runtime argument permanently filled. */
+  public static void requireBoundTaskArguments(JobPayload payload) {
+    if (payload.runtimeArgIndexes() != null) {
+      throw new IllegalStateException("Batch success callback was never given the batch result");
+    }
+  }
+
   public void validateAtCreation(JobPayload payload) {
     if (payload == null) {
       throw new IllegalArgumentException("Job payload cannot be null");
