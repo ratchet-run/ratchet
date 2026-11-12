@@ -109,6 +109,50 @@ class OrphanRecoveryTimerTest {
   }
 
   @Test
+  void cleanupOwnPermitsAtStartupDelegatesAndReturnsCount() {
+    when(resourcePermitService.cleanupOrphanedPermits(List.of("node-1"))).thenReturn(4);
+
+    assertEquals(4, timer.cleanupOwnPermitsAtStartup("node-1"));
+    verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
+  }
+
+  @Test
+  void cleanupOwnPermitsAtStartupRetriesTransientFailures() {
+    when(resourcePermitService.cleanupOrphanedPermits(List.of("node-1")))
+        .thenThrow(new RatchetTransientStoreException("first"))
+        .thenThrow(new RatchetTransientStoreException("second"))
+        .thenReturn(2);
+
+    assertEquals(2, timer.cleanupOwnPermitsAtStartup("node-1"));
+    verify(resourcePermitService, times(3)).cleanupOrphanedPermits(List.of("node-1"));
+  }
+
+  @Test
+  void cleanupOwnPermitsAtStartupStopsAfterThreeTransientFailures() {
+    var failure = new RatchetTransientStoreException("unavailable");
+    when(resourcePermitService.cleanupOrphanedPermits(List.of("node-1"))).thenThrow(failure);
+
+    assertEquals(
+        failure,
+        assertThrows(
+            RatchetTransientStoreException.class,
+            () -> timer.cleanupOwnPermitsAtStartup("node-1")));
+    verify(resourcePermitService, times(3)).cleanupOrphanedPermits(List.of("node-1"));
+  }
+
+  @Test
+  void cleanupOwnPermitsAtStartupDoesNotRetryOtherFailures() {
+    var failure = new IllegalStateException("invalid state");
+    when(resourcePermitService.cleanupOrphanedPermits(List.of("node-1"))).thenThrow(failure);
+
+    assertEquals(
+        failure,
+        assertThrows(
+            IllegalStateException.class, () -> timer.cleanupOwnPermitsAtStartup("node-1")));
+    verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
+  }
+
+  @Test
   void staleExecutionFailureDoesNotUndoRecovery() {
     Instant cutoff = FIXED_NOW.minusSeconds(60);
     when(jobBulkStore.closeStaleExecutions(cutoff, 500))

@@ -57,6 +57,7 @@ import run.ratchet.store.spi.OrphanRecovery;
 public class OrphanRecoveryTimer {
 
   private static final Logger log = Logger.getLogger(OrphanRecoveryTimer.class);
+  private static final int MAX_STARTUP_CLEANUP_ATTEMPTS = 3;
   private static final String LEASE_NAME = "orphanRecovery";
 
   static final int EXHAUSTED_LIMIT = 100;
@@ -119,6 +120,32 @@ public class OrphanRecoveryTimer {
     this.orphanGraceSeconds = orphanGraceSeconds;
     this.leaseTtl = Duration.ofSeconds(leaseTtlSeconds);
     this.clock = clock;
+  }
+
+  /** Runs once at start-up before the node claims work. Each attempt is its own store call. */
+  public int cleanupOwnPermitsAtStartup(String nodeId) {
+    if (resourcePermitService == null) {
+      throw new IllegalStateException("OrphanRecoveryTimer dependencies are not initialized");
+    }
+    for (int attempt = 1; ; attempt++) {
+      try {
+        int deleted = resourcePermitService.cleanupOrphanedPermits(List.of(nodeId));
+        if (deleted > 0) {
+          log.infof("Deleted %s permit(s) left under node %s by an earlier run", deleted, nodeId);
+        }
+        return deleted;
+      } catch (RatchetTransientStoreException e) {
+        log.warnf(
+            e,
+            "Transient startup permit cleanup failure for node %s on attempt %s/%s",
+            nodeId,
+            attempt,
+            MAX_STARTUP_CLEANUP_ATTEMPTS);
+        if (attempt == MAX_STARTUP_CLEANUP_ATTEMPTS) {
+          throw e;
+        }
+      }
+    }
   }
 
   public synchronized void start(ScheduledExecutorService executor, long intervalSeconds) {

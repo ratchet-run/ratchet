@@ -221,6 +221,8 @@ Each recovery returns a job to PENDING and adds one to its crash count. The limi
 
 On restart, a node recovers its own claims immediately. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.
 
+Before it claims any job, a starting node also deletes the resource permits left under its node id. This runs for every `NodeIdentityProvider`. A custom provider writes no `scheduler_node` row, so orphan recovery never cleans its permits, and this start-up step is the only clean-up. It needs a node id that stays the same across restarts.
+
 
 ## Distributed Locking
 

@@ -168,6 +168,9 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       // startup,
       // while cluster peers continue sweeping on their normal orphan-recovery intervals.
       initializeDefaultNodeIdentityProvider();
+      // Runs for every NodeIdentityProvider after the default reset and before the poller claims.
+      // A custom provider writes no node row, so orphan recovery never cleans its permits.
+      orphanRecoveryTimer.cleanupOwnPermitsAtStartup(nodeIdentityProvider.getNodeId());
 
       ScheduledExecutorService scheduledExecutor =
           options.events().durable() ? durableExecutor : resolveScheduledExecutorForStartup();

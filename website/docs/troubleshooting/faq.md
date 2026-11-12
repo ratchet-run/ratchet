@@ -102,6 +102,8 @@ When a node crashes while jobs are RUNNING:
 
 5. **The stale node entry is deleted.** The `scheduler_node` row for the crashed node is removed.
 
+When a node starts, it also deletes the permits left under its own node id before it claims any job. This only helps when the restarted node keeps its id, which needs `ratchet.node.id` or a custom `NodeIdentityProvider` with a stable id. The default id changes on every start.
+
 **Important:** The recovered job starts from scratch and does not resume from where it left off. If your job performs work that is not idempotent, design it to check for partial completion before proceeding.
 
 The crash budget is separate from application retries. A committed crash failure runs `onFailure` if the payload can be loaded. A manual DLQ retry clears the crash count. Graceful shutdown releases claims without charging the budget, including when the drain times out.
