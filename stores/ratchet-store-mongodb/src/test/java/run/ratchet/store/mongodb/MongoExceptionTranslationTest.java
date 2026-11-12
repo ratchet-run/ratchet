@@ -161,9 +161,70 @@ class MongoExceptionTranslationTest {
         assertThrows(
             IllegalStateException.class,
             () -> auxiliary.findConditionsByParentJobId(UUID.randomUUID())));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> MongoPartitionOperations.unprotectedJobs(ctx)));
     assertEquals(
-        List.of(ReadPreference.primary(), ReadPreference.primary(), ReadPreference.primary()),
+        List.of(
+            ReadPreference.primary(),
+            ReadPreference.primary(),
+            ReadPreference.primary(),
+            ReadPreference.primary()),
         readPreferences);
+  }
+
+  @Test
+  void partitionProtectionReadsSetsAndBatchesFromPrimary() {
+    List<Object> preferences = new ArrayList<>();
+    MongoCollection<Document> primarySets =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                return findIterable(
+                    cursor(
+                        List.of(
+                            new Document("_id", UUID.randomUUID()).append("sealed_generation", 0)),
+                        new AtomicBoolean()));
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> primaryBatches =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                return findIterable(cursor(List.of(), new AtomicBoolean()));
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> sets =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                preferences.add(args[0]);
+                return primarySets;
+              }
+              throw new AssertionError("Set protection read did not select primary");
+            });
+    MongoCollection<Document> batches =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                preferences.add(args[0]);
+                return primaryBatches;
+              }
+              throw new AssertionError("Batch protection read did not select primary");
+            });
+    MongoDatabase database =
+        mongoDatabase(
+            (proxy, method, args) -> {
+              if ("getCollection".equals(method.getName())) {
+                return "scheduler_partition_set".equals(args[0]) ? sets : batches;
+              }
+              return defaultValue(method);
+            });
+    MongoPartitionOperations.unprotectedJobs(new MongoStoreContext(mongoClient(null), database));
+    assertEquals(List.of(ReadPreference.primary(), ReadPreference.primary()), preferences);
   }
 
   @Test

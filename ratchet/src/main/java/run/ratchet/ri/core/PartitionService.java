@@ -36,6 +36,7 @@ import run.ratchet.api.KeyRange;
 import run.ratchet.api.PartitionSetSummary;
 import run.ratchet.api.PartitionStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.ri.core.internal.JobCheckpointWriter;
 import run.ratchet.ri.core.internal.JobProgressWriter;
@@ -258,22 +259,33 @@ public class PartitionService {
     return sealed;
   }
 
+  /** Cancels a partially persisted generation using the configured system boundary. */
+  public void cancelGeneration(UUID parentId) {
+    cancel.accept(parentId);
+  }
+
   /** The authorization policy may receive an archived latestBatchId. */
   public Optional<PartitionSetSummary> getPartitionSet(String partitionKey) {
     if (store == null) return Optional.empty();
-    return store
-        .findPartitionSet(key(partitionKey))
-        .map(
-            set -> {
-              if (policy != null) policy.checkRead(set.getLatestBatchId(), currentPrincipal());
-              return new PartitionSetSummary(
-                  set.getSetKey(),
-                  set.getName(),
-                  set.getPartitionCount(),
-                  set.getLatestGeneration(),
-                  set.getLatestBatchId(),
-                  set.getSealedGeneration() < set.getLatestGeneration());
-            });
+    try {
+      return store
+          .findPartitionSet(key(partitionKey))
+          .map(
+              set -> {
+                if (policy != null) {
+                  policy.checkRead(set.getLatestBatchId(), currentPrincipal());
+                }
+                return new PartitionSetSummary(
+                    set.getSetKey(),
+                    set.getName(),
+                    set.getPartitionCount(),
+                    set.getLatestGeneration(),
+                    set.getLatestBatchId(),
+                    set.getSealedGeneration() < set.getLatestGeneration());
+              });
+    } catch (JobAuthorizationException denied) {
+      return Optional.empty();
+    }
   }
 
   public JobPage<BatchPartition> getBatchPartitions(String partitionKey, int limit, int offset) {
@@ -283,7 +295,13 @@ public class PartitionService {
         store == null ? Optional.empty() : store.findPartitionSet(key(partitionKey));
     if (found.isEmpty()) return new JobPage<>(List.of(), 0, limit, offset, false, null);
     var set = found.get();
-    if (policy != null) policy.checkRead(set.getLatestBatchId(), currentPrincipal());
+    try {
+      if (policy != null) {
+        policy.checkRead(set.getLatestBatchId(), currentPrincipal());
+      }
+    } catch (JobAuthorizationException denied) {
+      return new JobPage<>(List.of(), 0, limit, offset, false, null);
+    }
     List<BatchPartition> result = new ArrayList<>();
     for (var row : store.findPartitions(set.getSetId(), offset - 1, limit)) {
       JobEntity child =

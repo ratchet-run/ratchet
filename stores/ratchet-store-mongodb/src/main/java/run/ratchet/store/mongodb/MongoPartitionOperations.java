@@ -28,6 +28,7 @@ import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import java.time.Instant;
@@ -158,24 +159,36 @@ final class MongoPartitionOperations implements PartitionStore {
 
   @Override
   public int sealPartitions(UUID setId, int generation, List<PartitionEntity> outcomes) {
-    int changed = 0;
-    for (PartitionEntity row : outcomes) {
-      changed +=
-          (int)
-              rows()
-                  .updateOne(
-                      and(
-                          eq("set_id", setId),
-                          eq("partition_index", row.getPartitionIndex()),
-                          eq("generation", generation),
-                          eq("child_job_id", row.getChildJobId())),
-                      combine(
-                          set("outcome", row.getOutcome() == null ? null : row.getOutcome().name()),
-                          set("last_error", row.getLastError()),
-                          set("checkpoint_json", row.getCheckpoint())))
-                  .getMatchedCount();
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            Document current = sets().find(session, eq("_id", setId)).first();
+            if (current == null || current.getInteger("sealed_generation", 0) >= generation) {
+              return 0;
+            }
+            int changed = 0;
+            for (PartitionEntity row : outcomes) {
+              changed +=
+                  (int)
+                      rows()
+                          .updateOne(
+                              session,
+                              and(
+                                  eq("set_id", setId),
+                                  eq("partition_index", row.getPartitionIndex()),
+                                  eq("generation", generation),
+                                  eq("child_job_id", row.getChildJobId())),
+                              combine(
+                                  set(
+                                      "outcome",
+                                      row.getOutcome() == null ? null : row.getOutcome().name()),
+                                  set("last_error", row.getLastError()),
+                                  set("checkpoint_json", row.getCheckpoint())))
+                          .getMatchedCount();
+            }
+            return changed;
+          });
     }
-    return changed;
   }
 
   @Override
@@ -256,10 +269,15 @@ final class MongoPartitionOperations implements PartitionStore {
   /** Collects every unsealed generation, including older generations if repair is pending. */
   static Bson unprotectedJobs(MongoStoreContext ctx) {
     List<UUID> batches = new ArrayList<>();
-    MongoCollection<Document> sets = ctx.database().getCollection("scheduler_partition_set");
+    // Protection decisions must see the latest committed generations and their batches.
+    MongoCollection<Document> sets =
+        ctx.database()
+            .getCollection("scheduler_partition_set")
+            .withReadPreference(ReadPreference.primary());
     for (Document set : sets.find(unsealed())) {
       for (Document batch :
           ctx.batches()
+              .withReadPreference(ReadPreference.primary())
               .find(
                   and(
                       eq("partition_set_id", set.get("_id")),

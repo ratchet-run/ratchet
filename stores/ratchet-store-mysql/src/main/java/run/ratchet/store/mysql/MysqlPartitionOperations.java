@@ -205,6 +205,8 @@ final class MysqlPartitionOperations implements PartitionStore {
               AND partition_index = ?
               AND generation = ?
               AND child_job_id = ?
+              AND EXISTS (SELECT 1 FROM scheduler_partition_set s
+                WHERE s.set_id = ? AND s.sealed_generation < ?)
               """,
               row.getOutcome() == null ? null : row.getOutcome().name(),
               row.getLastError(),
@@ -212,7 +214,9 @@ final class MysqlPartitionOperations implements PartitionStore {
               id(setId),
               row.getPartitionIndex(),
               generation,
-              id(row.getChildJobId()));
+              id(row.getChildJobId()),
+              id(setId),
+              generation);
     }
     return changed;
   }

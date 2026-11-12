@@ -22,6 +22,7 @@ import static org.mockito.Mockito.*;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -169,7 +170,7 @@ class PartitionSubmissionTest {
   }
 
   @Test
-  void preparedCallbackKeepsItsIdAndIsPersistedAfterChildren() {
+  void preparedCallbackKeepsItsIdAndIsPersistedBeforeChildren() {
     var builder = builder();
     builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
     UUID parentId = builder.submit().id();
@@ -177,9 +178,9 @@ class PartitionSubmissionTest {
     var condition = ArgumentCaptor.forClass(WorkflowConditionEntity.class);
     var order = inOrder(partitions, bulk, jobs, conditions);
     order.verify(partitions).createOrAdvance(any());
-    order.verify(bulk).bulkInsert(anyList());
     order.verify(jobs).create(branch.capture());
     order.verify(conditions).saveCondition(condition.capture());
+    order.verify(bulk).bulkInsert(anyList());
     assertNotNull(branch.getValue().getId());
     assertEquals(parentId, condition.getValue().getParentJobId());
     assertEquals(branch.getValue().getId(), condition.getValue().getChildJobId());
@@ -197,11 +198,11 @@ class PartitionSubmissionTest {
     assertEquals(write.parent().getId(), parentId);
     var order = inOrder(partitions, bulk, jobs, conditions, batchService);
     order.verify(partitions).createOrAdvance(any());
+    order.verify(jobs).create(any());
+    order.verify(conditions).saveCondition(any());
+    order.verify(jobs).create(any());
+    order.verify(conditions).saveCondition(any());
     order.verify(bulk).bulkInsert(anyList());
-    order.verify(jobs).create(any());
-    order.verify(conditions).saveCondition(any());
-    order.verify(jobs).create(any());
-    order.verify(conditions).saveCondition(any());
     order.verify(jobs).getJobStatus(parentId);
     order.verify(batchService).cancelBatch(write.parent());
     verify(batchService, times(1)).cancelBatch(any());
@@ -232,6 +233,17 @@ class PartitionSubmissionTest {
   @Test
   void lazySealReloadsOutcomesBeforeSelectingTargets() {
     var set = existing(false);
+    var postSeal = partitions.findPartitions(set.getSetId(), -1, 500);
+    List<PartitionEntity> preSeal = new ArrayList<>();
+    for (PartitionEntity row : postSeal) {
+      PartitionEntity before = new PartitionEntity();
+      before.setPartitionIndex(row.getPartitionIndex());
+      before.setRangeFrom(row.getRangeFrom());
+      before.setRangeTo(row.getRangeTo());
+      before.setOutcome(PartitionOutcome.SUCCEEDED);
+      preSeal.add(before);
+    }
+    when(partitions.findPartitions(set.getSetId(), -1, 500)).thenReturn(preSeal, postSeal);
     doAnswer(
             ignored -> {
               set.setSealedGeneration(1);
@@ -294,7 +306,9 @@ class PartitionSubmissionTest {
     var builder = builder();
     builder.withIdempotencyKey("request");
     assertEquals(id, builder.submit().id());
-    verifyNoInteractions(partitions, partitionService, bulk);
+    verify(partitionService).maxPartitions();
+    verifyNoMoreInteractions(partitionService);
+    verifyNoInteractions(partitions, bulk);
   }
 
   @Test
@@ -378,5 +392,70 @@ class PartitionSubmissionTest {
     builder.forEachPartition("set", ranges, PartitionSubmissionTest::process);
     assertThrows(IllegalArgumentException.class, builder::submit);
     verify(partitions, never()).createOrAdvance(any());
+  }
+
+  @Test
+  void childrenFailureCancelsGenerationAndPreservesOriginal() {
+    RuntimeException failure = new IllegalStateException("children");
+    doThrow(failure).when(bulk).bulkInsert(anyList());
+    assertSame(failure, assertThrows(IllegalStateException.class, () -> builder().submit()));
+    UUID parentId = submitted().parent().getId();
+    verify(partitionService).cancelGeneration(parentId);
+  }
+
+  @Test
+  void cancellationFailureIsSuppressed() {
+    RuntimeException failure = new IllegalStateException("children");
+    RuntimeException cancellation = new IllegalArgumentException("cancel");
+    doThrow(failure).when(bulk).bulkInsert(anyList());
+    doThrow(cancellation).when(partitionService).cancelGeneration(any());
+    assertSame(failure, assertThrows(IllegalStateException.class, () -> builder().submit()));
+    assertArrayEquals(new Throwable[] {cancellation}, failure.getSuppressed());
+  }
+
+  @Test
+  void branchFailureCancelsGenerationBeforeChildren() {
+    RuntimeException failure = new IllegalStateException("branch");
+    doThrow(failure).when(jobs).create(any());
+    var builder = builder();
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+    assertSame(failure, assertThrows(IllegalStateException.class, builder::submit));
+    UUID parentId = submitted().parent().getId();
+    verify(partitionService).cancelGeneration(parentId);
+    verifyNoInteractions(bulk);
+  }
+
+  @Test
+  void callbackAndConditionAreWrittenBeforeChildren() {
+    when(jobs.create(any())).thenAnswer(call -> call.getArgument(0));
+    var builder = builder();
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+    builder.submit();
+    var order = inOrder(jobs, conditions, bulk);
+    order.verify(jobs).create(any());
+    order.verify(conditions).saveCondition(any());
+    order.verify(bulk).bulkInsert(anyList());
+  }
+
+  @Test
+  void excessiveLazyRangesAreRejectedBeforeReadingElements() {
+    when(partitionService.maxPartitions()).thenReturn(2);
+    var builder = new DefaultBatchBuilder("partitions", service);
+    List<KeyRange> ranges =
+        new AbstractList<>() {
+          @Override
+          public KeyRange get(int index) {
+            throw new AssertionError("Over-limit input must not be read");
+          }
+
+          @Override
+          public int size() {
+            return 100_000_000;
+          }
+        };
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> builder.forEachPartition("set", ranges, PartitionSubmissionTest::process));
+    verifyNoInteractions(bulk, partitions);
   }
 }

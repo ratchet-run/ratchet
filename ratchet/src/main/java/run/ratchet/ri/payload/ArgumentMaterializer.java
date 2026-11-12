@@ -254,7 +254,7 @@ public final class ArgumentMaterializer {
     while (policyType.isArray()) {
       policyType = policyType.getComponentType();
     }
-    if (policyType.isPrimitive()) {
+    if (policyType.isPrimitive() || policyType == KeyRange.class) {
       return;
     }
     if (classPolicy == null || !classPolicy.isAllowed(policyType.getName())) {

@@ -323,6 +323,7 @@ CREATE TABLE IF NOT EXISTS scheduler_batch
     fold_claimed_at DATETIME(3) NULL,
     partition_set_id BINARY(16) NULL,
     generation INT NULL,
+    INDEX idx_batch_partition_set (partition_set_id),
     PRIMARY KEY (batch_id),
     CONSTRAINT fk_batch_job FOREIGN KEY (batch_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
@@ -567,10 +568,7 @@ CREATE TABLE IF NOT EXISTS scheduler_partition (
     outcome VARCHAR(20) NULL,
     last_error LONGTEXT NULL,
     checkpoint_json LONGTEXT NULL,
+    INDEX idx_partition_child (child_job_id),
     CONSTRAINT pk_scheduler_partition PRIMARY KEY (set_id, partition_index),
     CONSTRAINT fk_partition_set FOREIGN KEY (set_id) REFERENCES scheduler_partition_set (set_id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
-
-CREATE INDEX idx_partition_child ON scheduler_partition (child_job_id);
-
-CREATE INDEX idx_batch_partition_set ON scheduler_batch (partition_set_id);

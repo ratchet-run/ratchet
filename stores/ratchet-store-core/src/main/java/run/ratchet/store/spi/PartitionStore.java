@@ -55,7 +55,8 @@ public interface PartitionStore {
 
   /**
    * Idempotently records outcomes, errors and checkpoints only for matching generation and child
-   * ids. Returns the number of rows updated. Transaction attribute: {@code REQUIRED}.
+   * ids. Once the generation is sealed, changes nothing. Returns the number of rows updated.
+   * Transaction attribute: {@code REQUIRED}.
    */
   int sealPartitions(UUID setId, int generation, List<PartitionEntity> outcomes);
 

@@ -23,7 +23,6 @@ import jakarta.inject.Singleton;
 import java.time.Clock;
 import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.JobQueryService;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobCreationService;
@@ -34,7 +33,6 @@ import run.ratchet.ri.core.DefaultClusterQueryService;
 import run.ratchet.ri.core.DefaultInvocationSubmissionService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobQueryService;
-import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
@@ -94,7 +92,7 @@ class RatchetSubmissionConfiguration {
       BatchCompletionTransaction transactions,
       JobAuthorizationPolicy policy,
       CallerPrincipalProvider principal,
-      BeanProvider<JobSchedulerService> scheduler,
+      BeanProvider<MicronautDefaultJobSchedulerService> scheduler,
       BeanProvider<BatchService> batchService) {
     PartitionService service =
         new PartitionService(
@@ -110,13 +108,7 @@ class RatchetSubmissionConfiguration {
             policy,
             principal);
     service.configureBatchCancellation(parent -> batchService.get().cancelBatch(parent));
-    service.configureCancellation(
-        id -> {
-          JobSchedulerService resolved = scheduler.get();
-          if (resolved instanceof DefaultJobSchedulerService defaults)
-            defaults.cancelJobAsSystem(id);
-          else resolved.cancelJob(id);
-        });
+    service.configureCancellation(id -> scheduler.get().cancelJobAsSystem(id));
     return service;
   }
 

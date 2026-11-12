@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -143,11 +144,11 @@ class DefaultJobCreationServiceEmptyBatchTest {
     InOrder order = inOrder(store, batchStore, conditionStore, batchService, wakeupService);
     order.verify(store).create(parent.capture());
     order.verify(batchStore).saveBatch(batch.capture());
+    order.verify(store).create(branch.capture());
+    order.verify(conditionStore).saveCondition(condition.capture());
     if (streaming) {
       order.verify(batchStore).updateBatchTotalItems(handle.id(), 0);
     }
-    order.verify(store).create(branch.capture());
-    order.verify(conditionStore).saveCondition(condition.capture());
     order.verify(batchService).completeEmptyBatch(handle.id(), batch.getValue());
 
     assertEquals(JobExecutionType.BATCH_PARENT, parent.getValue().getJobType());
@@ -172,5 +173,27 @@ class DefaultJobCreationServiceEmptyBatchTest {
     } else {
       verifyNoInteractions(wakeupService);
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void callbacksPrecedeChildrenForPlainAndStreamingBatches(boolean streaming) {
+    if (streaming) {
+      DefaultStreamingBatchBuilder<String> builder =
+          new DefaultStreamingBatchBuilder<>("stream", service);
+      builder.fromStream(Stream.of("one"));
+      builder.process(DefaultJobCreationServiceEmptyBatchTest::consumeString);
+      builder.thenOnBatchSuccess(DefaultJobCreationServiceEmptyBatchTest::callback);
+      service.submit(builder);
+    } else {
+      DefaultBatchBuilder builder = new DefaultBatchBuilder("plain", service);
+      builder.forEach(List.of("one"), DefaultJobCreationServiceEmptyBatchTest::consumeString);
+      builder.thenOnBatchSuccess(DefaultJobCreationServiceEmptyBatchTest::callback);
+      service.submit(builder);
+    }
+    InOrder order = inOrder(store, conditionStore);
+    order.verify(store, times(2)).create(any());
+    order.verify(conditionStore).saveCondition(any());
+    order.verify(store).bulkInsert(any());
   }
 }

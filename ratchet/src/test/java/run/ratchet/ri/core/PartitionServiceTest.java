@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.PartitionStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.ri.core.internal.JobCheckpointWriter;
 import run.ratchet.ri.core.internal.JobProgressWriter;
@@ -367,5 +368,16 @@ class PartitionServiceTest {
     when(store.deletePartitionSet(set.getSetId())).thenReturn(true);
     assertTrue(service.deletePartitionSet("set"));
     verify(policy, times(2)).checkCancel(parent.getId(), null, null);
+  }
+
+  @Test
+  void deniedReadsMatchMissingKeys() {
+    var missingSet = service.getPartitionSet("missing");
+    var missingPage = service.getBatchPartitions("missing", 10, 0);
+    doThrow(new JobAuthorizationException(set.getLatestBatchId(), "read", null, "denied"))
+        .when(policy)
+        .checkRead(any(), any());
+    assertEquals(missingSet, service.getPartitionSet("set"));
+    assertEquals(missingPage, service.getBatchPartitions("set", 10, 0));
   }
 }

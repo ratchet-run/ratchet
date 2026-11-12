@@ -102,6 +102,9 @@ public class DefaultBatchBuilder implements BatchBuilder {
       throw new IllegalStateException("Partition configuration must be exclusive");
     String normalized = IdempotencyKeyNormalizer.normalize(key);
     if (normalized == null) throw new IllegalArgumentException("Partition key must not be blank");
+    if (ranges != null && ranges.size() > submitter.maxPartitions()) {
+      throw new IllegalArgumentException("Too many partitions");
+    }
     if (ranges == null || ranges.isEmpty() || ranges.stream().anyMatch(Objects::isNull))
       throw new IllegalArgumentException("Partitions must be nonempty and contain no nulls");
     List<KeyRange> sorted = new ArrayList<>(ranges);

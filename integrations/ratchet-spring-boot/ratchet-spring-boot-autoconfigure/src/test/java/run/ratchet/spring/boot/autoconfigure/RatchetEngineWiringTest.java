@@ -16,7 +16,11 @@
 package run.ratchet.spring.boot.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -33,6 +37,7 @@ import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.RatchetRuntime;
@@ -44,6 +49,7 @@ import run.ratchet.ri.core.internal.JobTask;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.PartitionSetEntity;
@@ -53,17 +59,26 @@ import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
   @Test
-  void partitionSweepCancelsThroughCustomScheduler() {
+  void partitionSweepCancelsWithoutCallingCustomScheduler() {
     JobSchedulerService custom = mock(JobSchedulerService.class);
     JobStore store = mock(JobStore.class);
     UUID parentId = incompletePartitionGeneration(store);
+    when(store.compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+    JobAuthorizationPolicy policy = mock(JobAuthorizationPolicy.class);
+    doThrow(new JobAuthorizationException(parentId, "cancel", null, "denied"))
+        .when(policy)
+        .checkCancel(any(), any(), isNull());
     runner(store)
+        .withBean(JobAuthorizationPolicy.class, () -> policy)
         .withBean(JobSchedulerService.class, () -> custom)
         .run(
             context -> {
               assertThat(context).hasNotFailed();
               context.getBean(PartitionService.class).sweep();
-              verify(custom).cancelJob(parentId);
+              verify(custom, never()).cancelJob(parentId);
+              verify(store)
+                  .compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null);
             });
   }
 

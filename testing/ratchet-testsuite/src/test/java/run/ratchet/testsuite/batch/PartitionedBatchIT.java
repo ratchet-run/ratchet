@@ -130,14 +130,14 @@ class PartitionedBatchIT extends BaseRatchetIT {
     JobHandle first = batch().submit();
     succeeded(first);
     String request = UUID.randomUUID().toString();
-    JobHandle reopened = batch().withIdempotencyKey(request).reopen(List.of(0)).submit();
+    JobHandle reopened = batch().withIdempotencyKey(request).reopen(List.of(2)).submit();
     assertEquals(
-        reopened.id(), batch().withIdempotencyKey(request).reopen(List.of(0)).submit().id());
+        reopened.id(), batch().withIdempotencyKey(request).reopen(List.of(2)).submit().id());
     succeeded(reopened);
     seal();
-    assertEquals(2, PartitionJobs.calls.get(0L).get());
-    assertEquals("none", PartitionJobs.firstCheckpoint.get(0L));
-    for (long from : List.of(10L, 20L, 30L)) assertEquals(1, PartitionJobs.calls.get(from).get());
+    assertEquals(2, PartitionJobs.calls.get(20L).get());
+    assertEquals("none", PartitionJobs.firstCheckpoint.get(20L));
+    for (long from : List.of(0L, 10L, 30L)) assertEquals(1, PartitionJobs.calls.get(from).get());
     assertTrue(scheduler.deletePartitionSet(key));
   }
 

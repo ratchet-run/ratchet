@@ -127,17 +127,20 @@ import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
   @Test
-  void partitionSweepCancelsThroughCustomScheduler() {
+  void partitionSweepCancelsWithoutCallingCustomScheduler() {
     JobSchedulerService custom = mock(JobSchedulerService.class);
     JobStore store = mock(JobStore.class);
     UUID parentId = incompletePartitionGeneration(store);
+    when(store.compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null))
+        .thenReturn(true);
     try (var context = TestContexts.core(Map.of())) {
       context.registerSingleton(JobStore.class, store);
       context.registerSingleton(RatchetRuntime.class, mock(RatchetRuntime.class));
       context.registerSingleton(JobSchedulerService.class, custom);
       context.start();
       context.getBean(PartitionService.class).sweep();
-      verify(custom).cancelJob(parentId);
+      verify(custom, never()).cancelJob(parentId);
+      verify(store).compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null);
     }
   }
 

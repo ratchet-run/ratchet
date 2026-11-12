@@ -42,6 +42,7 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.RetryBufferManager;
 import run.ratchet.ri.core.SubmissionFailureHandler;
 import run.ratchet.ri.core.SubmissionGateChecker;
+import run.ratchet.ri.core.SystemJobCancellation;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -88,7 +89,7 @@ class RatchetSubmissionConfiguration {
       BatchCompletionTransaction transactions,
       JobAuthorizationPolicy policy,
       CallerPrincipalProvider principal,
-      ObjectProvider<JobSchedulerService> scheduler,
+      ObjectProvider<SystemJobCancellation> cancellation,
       ObjectProvider<BatchService> batchService) {
     PartitionService service =
         new PartitionService(
@@ -104,13 +105,7 @@ class RatchetSubmissionConfiguration {
             policy,
             principal);
     service.configureBatchCancellation(parent -> batchService.getObject().cancelBatch(parent));
-    service.configureCancellation(
-        id -> {
-          JobSchedulerService resolved = scheduler.getObject();
-          if (resolved instanceof DefaultJobSchedulerService defaults)
-            defaults.cancelJobAsSystem(id);
-          else resolved.cancelJob(id);
-        });
+    service.configureCancellation(id -> cancellation.getObject().cancel(id));
     return service;
   }
 
@@ -253,6 +248,27 @@ class RatchetSubmissionConfiguration {
             conflictResolutionTransaction);
     service.configurePartitions(partitions);
     return service;
+  }
+
+  @Bean
+  SystemJobCancellation systemJobCancellation(
+      JobStore store,
+      InternalEventPublisher events,
+      JobWakeupService wakeup,
+      MetricsCollector metrics,
+      Clock clock,
+      AfterCommitRegistrar registrar,
+      BatchService batchService) {
+    return new SystemJobCancellation(
+        events,
+        store,
+        store,
+        batchService,
+        store.capability(RecurringJobStore.class).orElse(null),
+        wakeup,
+        metrics,
+        clock,
+        registrar);
   }
 
   @Bean

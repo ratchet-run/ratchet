@@ -16,8 +16,11 @@
 package run.ratchet.api;
 
 import java.io.Serializable;
-import java.util.ArrayList;
+import java.math.BigInteger;
+import java.util.AbstractList;
 import java.util.List;
+import java.util.Objects;
+import java.util.RandomAccess;
 
 /**
  * A key range, from inclusive to exclusive.
@@ -46,17 +49,56 @@ public record KeyRange(long from, long to) implements Serializable {
 
   /**
    * Splits a range into consecutive ranges of at most size keys. Overflow throws
-   * ArithmeticException.
+   * ArithmeticException. Returns an immutable, random-access list without materializing its
+   * elements. Counts greater than Integer.MAX_VALUE throw IllegalArgumentException.
    */
   @Incubating
   public static List<KeyRange> split(long from, long to, long size) {
-    if (from >= to || size <= 0) throw new IllegalArgumentException("Invalid range or size");
-    List<KeyRange> ranges = new ArrayList<>();
-    for (long start = from; start < to; ) {
-      long end = Math.min(Math.addExact(start, size), to);
-      ranges.add(new KeyRange(start, end));
-      start = end;
+    if (from >= to || size <= 0) {
+      throw new IllegalArgumentException("Invalid range or size");
     }
-    return List.copyOf(ranges);
+    BigInteger width = BigInteger.valueOf(to).subtract(BigInteger.valueOf(from));
+    BigInteger step = BigInteger.valueOf(size);
+    BigInteger count = width.add(step).subtract(BigInteger.ONE).divide(step);
+    if (count.compareTo(BigInteger.valueOf(Integer.MAX_VALUE)) > 0) {
+      throw new IllegalArgumentException("Too many ranges");
+    }
+    int length = count.intValueExact();
+    long lastStart =
+        BigInteger.valueOf(from)
+            .add(step.multiply(count.subtract(BigInteger.ONE)))
+            .longValueExact();
+    // Preserve the documented overflow check even when the final range would be truncated.
+    Math.addExact(lastStart, size);
+    return new Ranges(from, to, size, length);
+  }
+
+  private static final class Ranges extends AbstractList<KeyRange> implements RandomAccess {
+    private final long from;
+    private final long to;
+    private final long step;
+    private final int length;
+
+    private Ranges(long from, long to, long step, int length) {
+      this.from = from;
+      this.to = to;
+      this.step = step;
+      this.length = length;
+    }
+
+    @Override
+    public KeyRange get(int index) {
+      Objects.checkIndex(index, length);
+      long start =
+          BigInteger.valueOf(from)
+              .add(BigInteger.valueOf(step).multiply(BigInteger.valueOf(index)))
+              .longValueExact();
+      return new KeyRange(start, Math.min(Math.addExact(start, step), to));
+    }
+
+    @Override
+    public int size() {
+      return length;
+    }
   }
 }

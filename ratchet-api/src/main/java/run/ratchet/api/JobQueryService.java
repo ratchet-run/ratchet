@@ -40,11 +40,17 @@ import java.util.UUID;
  */
 @Incubating
 public interface JobQueryService {
-  /** Returns durable set metadata. Authorization may refer to an archived latest batch id. */
+  /**
+   * Returns durable set metadata. Authorization may refer to an archived latest batch id. Denied
+   * reads return empty, as for an unknown key.
+   */
   @Incubating
   Optional<PartitionSetSummary> getPartitionSet(String partitionKey);
 
-  /** Pages partitions in index order without sealing or changing their state. */
+  /**
+   * Pages partitions in index order without sealing or changing their state. Denied reads return an
+   * empty page, as for an unknown key.
+   */
   @Incubating
   JobPage<BatchPartition> getBatchPartitions(String partitionKey, int limit, int offset);
 

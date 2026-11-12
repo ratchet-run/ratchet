@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -35,7 +36,10 @@ class PartitionPayloadTest {
     var range = new KeyRange(-5, Long.MAX_VALUE);
     assertEquals(range, serializer.deserialize(serializer.serialize(range), KeyRange.class));
     var policy = new PackagePrefixClassPolicy(Set.of("run.ratchet.ri.core"));
-    assertTrue(policy.isAllowed(KeyRange.class.getName()));
+    assertFalse(policy.isAllowed(KeyRange.class.getName()));
+    assertTrue(
+        new PackagePrefixClassPolicy(Set.of("run.ratchet.api"))
+            .isAllowed(KeyRange.class.getName()));
     var payload =
         new JobPayload(
             PartitionPayloadTest.class.getName(),
@@ -46,6 +50,9 @@ class PartitionPayloadTest {
             null);
     assertEquals(
         List.of(range), ArgumentMaterializer.materialize(payload, null, serializer, policy).args());
+    assertEquals(
+        List.of(range),
+        ArgumentMaterializer.materialize(payload, null, serializer, ignored -> false).args());
   }
 
   public static void process(KeyRange range) {}

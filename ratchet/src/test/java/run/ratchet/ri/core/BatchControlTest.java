@@ -25,12 +25,15 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +43,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -274,5 +278,76 @@ class BatchControlTest {
     assertFalse(scheduler.retryJob(parent.getId()));
     verify(retries, times(1)).resetFailedToPending(any(JobFilter.class), anyInt());
     verifyNoInteractions(events, wakeup);
+  }
+
+  @Test
+  void systemSchedulerAndStandaloneCancellationHaveIdenticalEffects() {
+    Clock clock = Clock.fixed(Instant.parse("2026-11-12T12:00:00Z"), ZoneOffset.UTC);
+    AfterCommitRegistrar registrar =
+        action -> {
+          afterCommit.add(action);
+          return AfterCommitRegistrar.Result.REGISTERED;
+        };
+    // Both paths use the same clock so their complete event values can be compared.
+    DefaultJobSchedulerService systemScheduler =
+        new DefaultJobSchedulerService(
+            events,
+            statuses,
+            pauses,
+            retries,
+            null,
+            jobs,
+            batches,
+            null,
+            null,
+            null,
+            wakeup,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            clock,
+            null,
+            registrar,
+            batchService);
+    SystemJobCancellation cancellation =
+        new SystemJobCancellation(
+            events, statuses, jobs, batchService, null, wakeup, null, clock, registrar);
+    JobCancelledEvent previous = null;
+    for (boolean standalone : List.of(false, true)) {
+      reset(statuses, events, batchService);
+      afterCommit.clear();
+      when(statuses.compareAndSwapStatus(
+              parent.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+          .thenReturn(true);
+      assertTrue(
+          standalone
+              ? cancellation.cancel(parent.getId())
+              : systemScheduler.cancelJobAsSystem(parent.getId()));
+      verify(statuses)
+          .compareAndSwapStatus(parent.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+      verify(batchService).cancelBatch(parent);
+      verifyNoInteractions(events);
+      afterCommit.forEach(Runnable::run);
+      verify(batchService).sweepCancelledBatch(parent.getId());
+      ArgumentCaptor<JobCancelledEvent> event = ArgumentCaptor.forClass(JobCancelledEvent.class);
+      verify(events).publish(event.capture());
+      if (previous != null) {
+        assertEquals(previous.getJobId(), event.getValue().getJobId());
+        assertEquals(previous.getBusinessKey(), event.getValue().getBusinessKey());
+        assertEquals(previous.getRecurringMasterId(), event.getValue().getRecurringMasterId());
+        assertEquals(previous.getJobType(), event.getValue().getJobType());
+        assertEquals(previous.getPriority(), event.getValue().getPriority());
+        assertEquals(previous.getNodeId(), event.getValue().getNodeId());
+        assertEquals(previous.getTimestamp(), event.getValue().getTimestamp());
+        assertEquals(previous.getPreviousStatus(), event.getValue().getPreviousStatus());
+        assertEquals(previous.getExecutionTimeMs(), event.getValue().getExecutionTimeMs());
+      }
+      previous = event.getValue();
+    }
   }
 }

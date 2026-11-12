@@ -254,7 +254,10 @@ public abstract class AbstractPartitionStoreContract implements JobStoreContract
     advance =
         new PartitionGenerationWrite(
             advance.set(), 0, advance.rows().subList(1, 3), advance.parent(), advance.batch());
+    advance.batch().setTotalItems(2);
     assertTrue(partitionStore().createOrAdvance(advance));
+    assertEquals(
+        2, batchStore().findBatchById(advance.parent().getId()).orElseThrow().getTotalItems());
     assertEquals(
         List.of(0, 3),
         partitionStore().findGenerationPartitions(write.set().getSetId(), 1, -1, 10).stream()
@@ -435,13 +438,31 @@ public abstract class AbstractPartitionStoreContract implements JobStoreContract
   @Test
   void deleteRefusesUnsealedAndCascadesOnlyPartitionRows() {
     var write = create(2);
+    var other = generation(this, "other-set", 2);
+    assertTrue(partitionStore().createOrAdvance(other));
+    assertTrue(partitionStore().markSealed(other.set().getSetId(), 1));
     assertFalse(partitionStore().deletePartitionSet(write.set().getSetId()));
     assertEquals(2, partitionStore().findPartitions(write.set().getSetId(), -1, 10).size());
     partitionStore().markSealed(write.set().getSetId(), 1);
     assertTrue(partitionStore().deletePartitionSet(write.set().getSetId()));
     assertTrue(partitionStore().findPartitionSetById(write.set().getSetId()).isEmpty());
     assertTrue(partitionStore().findPartitions(write.set().getSetId(), -1, 10).isEmpty());
+    assertTrue(partitionStore().findPartitionSetById(other.set().getSetId()).isPresent());
+    assertEquals(2, partitionStore().findPartitions(other.set().getSetId(), -1, 10).size());
     assertTrue(store().findById(write.parent().getId()).isPresent());
     assertFalse(partitionStore().deletePartitionSet(write.set().getSetId()));
+  }
+
+  @Test
+  void sealedGenerationCannotHaveOutcomesOverwritten() {
+    var write = create(2);
+    write.rows().forEach(row -> row.setOutcome(PartitionOutcome.SUCCEEDED));
+    assertEquals(2, partitionStore().sealPartitions(write.set().getSetId(), 1, write.rows()));
+    assertTrue(partitionStore().markSealed(write.set().getSetId(), 1));
+    write.rows().forEach(row -> row.setOutcome(PartitionOutcome.ABANDONED));
+    assertEquals(0, partitionStore().sealPartitions(write.set().getSetId(), 1, write.rows()));
+    for (var row : partitionStore().findPartitions(write.set().getSetId(), -1, 10)) {
+      assertEquals(PartitionOutcome.SUCCEEDED, row.getOutcome());
+    }
   }
 }

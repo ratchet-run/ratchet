@@ -593,10 +593,6 @@ public class DefaultJobCreationService
       checkCreateAuthorization(childJob);
       childJobs.add(childJob);
     }
-    if (!childJobs.isEmpty()) {
-      bulkInsertJobs(childJobs);
-    }
-
     createWorkflowBranches(
         parentId,
         builder.workflowBranches(),
@@ -605,6 +601,10 @@ public class DefaultJobCreationService
         savedParent.isEncryptedPayload(),
         callerPrincipal,
         builder.reducer() == null ? null : builder.reducer().successBranch());
+
+    if (!childJobs.isEmpty()) {
+      bulkInsertJobs(childJobs);
+    }
 
     if (childJobs.isEmpty()) {
       if (batchService.completeEmptyBatch(parentId, batch)) {
@@ -626,6 +626,11 @@ public class DefaultJobCreationService
         "Batch '%s' submitted with %s children (id=%s)",
         builder.name(), builder.children().size(), parentId);
     return () -> parentId;
+  }
+
+  @Override
+  public int maxPartitions() {
+    return partitionService == null ? Integer.MAX_VALUE : partitionService.maxPartitions();
   }
 
   private JobHandle submitPartitions(DefaultBatchBuilder builder) {
@@ -748,7 +753,7 @@ public class DefaultJobCreationService
     batch.setFailedItems(0);
     if (builder.progressHook() != null)
       batch.setProgressHook(runtimePayload(builder.progressHook()));
-    bulkStore();
+    requireBulkStore();
     List<JobEntity> children = new ArrayList<>();
     for (var row : rows) {
       JobEntity child = new JobEntity();
@@ -785,15 +790,27 @@ public class DefaultJobCreationService
         new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
       throw new IllegalStateException(
           "Partition set '" + builder.partitionKey() + "' was submitted concurrently; retry");
-    bulkInsertJobs(children);
-    for (PreparedWorkflowBranch branch : branches) {
-      persistWorkflowBranch(branch);
-    }
-    // Once children exist, the sweep's count < totalItems check cannot fire. A later cancel
-    // finds all callbacks already written and cancels them through its own cascade.
-    if (jobCrudStore.getJobStatus(parentId) == JobStatus.CANCELED) {
-      batchService.cancelBatch(parent);
-      log.warnf("Canceled late partition writes for parent %s in set %s", parentId, set.getSetId());
+    try {
+      for (PreparedWorkflowBranch branch : branches) {
+        persistWorkflowBranch(branch);
+      }
+      bulkInsertJobs(children);
+      // Once all children exist, the sweep's count < totalItems check cannot fire.
+      // Every callback was written before the children, so cancellation finds them all.
+      if (jobCrudStore.getJobStatus(parentId) == JobStatus.CANCELED) {
+        batchService.cancelBatch(parent);
+        log.warnf(
+            "Canceled late partition writes for parent %s in set %s", parentId, set.getSetId());
+      }
+    } catch (RuntimeException | Error failure) {
+      try {
+        partitionService.cancelGeneration(parentId);
+      } catch (RuntimeException | Error cancellationFailure) {
+        if (cancellationFailure != failure) {
+          failure.addSuppressed(cancellationFailure);
+        }
+      }
+      throw failure;
     }
     wakeupService.notifyIfNeeded(
         JobExecutionType.BATCH_PARENT,
@@ -879,6 +896,15 @@ public class DefaultJobCreationService
     }
     saveBatch(batch);
 
+    createWorkflowBranches(
+        parentId,
+        builder.workflowBranches(),
+        builder.callbackOptions(),
+        builder.executionTarget(),
+        savedParent.isEncryptedPayload(),
+        callerPrincipal,
+        builder.reducer() == null ? null : builder.reducer().successBranch());
+
     var iterator = builder.stream().iterator();
     while (iterator.hasNext()) {
       chunk.add(iterator.next());
@@ -896,15 +922,6 @@ public class DefaultJobCreationService
       builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
     }
     batchStore.updateBatchTotalItems(parentId, totalItems);
-
-    createWorkflowBranches(
-        parentId,
-        builder.workflowBranches(),
-        builder.callbackOptions(),
-        builder.executionTarget(),
-        savedParent.isEncryptedPayload(),
-        callerPrincipal,
-        builder.reducer() == null ? null : builder.reducer().successBranch());
 
     if (totalItems == 0) {
       if (batchService.completeEmptyBatch(parentId, batch)) {
@@ -1302,12 +1319,16 @@ public class DefaultJobCreationService
   }
 
   private JobBulkStore bulkStore() {
+    requireBulkStore();
+    return jobBulkStore;
+  }
+
+  private void requireBulkStore() {
     if (jobBulkStore == null) {
       throw new IllegalStateException(
           "Batch submission requires a JobBulkStore; use the CDI constructor or pass a store that"
               + " implements JobBulkStore.");
     }
-    return jobBulkStore;
   }
 
   private void createWorkflowBranches(

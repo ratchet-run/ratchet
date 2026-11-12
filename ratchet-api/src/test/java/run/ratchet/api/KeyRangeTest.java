@@ -17,8 +17,10 @@ package run.ratchet.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.RandomAccess;
 import org.junit.jupiter.api.Test;
 
 class KeyRangeTest {
@@ -34,6 +36,11 @@ class KeyRangeTest {
   @Test
   void splitsEvenAndUnevenRanges() {
     assertEquals(List.of(new KeyRange(0, 2), new KeyRange(2, 4)), KeyRange.split(0, 4, 2));
+    assertEquals(
+        List.of(new KeyRange(0, 2), new KeyRange(2, 4)).hashCode(),
+        KeyRange.split(0, 4, 2).hashCode());
+    assertEquals(
+        List.of(new KeyRange(0, 2), new KeyRange(2, 4)), KeyRange.split(0, 4, 2).stream().toList());
     assertEquals(List.of(new KeyRange(-1, 2), new KeyRange(2, 4)), KeyRange.split(-1, 4, 3));
   }
 
@@ -41,5 +48,15 @@ class KeyRangeTest {
   void overflowDoesNotWrap() {
     assertThrows(
         ArithmeticException.class, () -> KeyRange.split(Long.MAX_VALUE - 1, Long.MAX_VALUE, 2));
+  }
+
+  @Test
+  void largeSplitsAreLazyAndBounded() {
+    List<KeyRange> ranges = KeyRange.split(0, 100_000_000, 1);
+    assertEquals(100_000_000, ranges.size());
+    assertTrue(ranges instanceof RandomAccess);
+    assertEquals(new KeyRange(99_999_999, 100_000_000), ranges.get(99_999_999));
+    assertThrows(UnsupportedOperationException.class, () -> ranges.set(0, new KeyRange(1, 2)));
+    assertThrows(IllegalArgumentException.class, () -> KeyRange.split(0, Long.MAX_VALUE, 1));
   }
 }
