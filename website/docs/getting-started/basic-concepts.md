@@ -136,6 +136,7 @@ A **store** is the persistence backend that holds jobs, execution history, locks
 | `ArchiveStore` | Moving completed jobs to archive |
 | `NodeStore` | Cluster node heartbeats |
 | `EventOutboxStore` | Durable terminal event snapshots and bounded deletion (optional; durable mode also requires `LockStore`) |
+| `TransactionalCompletionStore` | Completion outcome resolution and current planning reads in an existing transaction (optional; SQL stores only) |
 | `LockStore` | Distributed advisory locks |
 
 You choose a store implementation as a Maven dependency:

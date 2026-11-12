@@ -294,6 +294,7 @@ public interface JobStore
 | `SignalStore` | Atomic signal delivery, signal-timeout scans, and signal-event lookup |
 | `ResourcePermitStore` | Resource permit acquisition and release |
 | `EventOutboxStore` | Durable terminal event reads and bounded deletion; rows commit on `JobCompletionPlan` |
+| `TransactionalCompletionStore` | Completion outcome resolution and current planning reads in an existing transaction (optional; SQL stores only) |
 | `LockStore` | Distributed lock acquisition and release |
 | `ArchiveStore` | Job archival to the archive table/collection |
 | `JobQueryStore` | Read-only list/detail/queue-health queries and tag lookups |

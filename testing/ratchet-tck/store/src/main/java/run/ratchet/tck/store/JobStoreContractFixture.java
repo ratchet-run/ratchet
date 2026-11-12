@@ -34,6 +34,7 @@ import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
@@ -82,6 +83,10 @@ public interface JobStoreContractFixture {
 
   default EventOutboxStore eventOutboxStore() {
     return capabilityView(EventOutboxStore.class);
+  }
+
+  default TransactionalCompletionStore transactionalCompletionStore() {
+    return capabilityView(TransactionalCompletionStore.class);
   }
 
   default BatchStore batchStore() {
