@@ -17,18 +17,22 @@ package run.ratchet.store;
 
 import java.io.Serial;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.spi.JobCrudStore;
 
 /**
- * Store-to-runtime signal that an insert lost the unique active business-key reservation race.
+ * Signals that {@link JobCrudStore#create} found the job's business key already reserved.
  *
- * <p>Stores must use this only for a duplicate on the business-key reservation, never for
- * deadlocks, connection failures, or unrelated unique constraints. The runtime translates it to the
- * public submission exception once it can determine the winner's idempotency key. The failed
- * transaction may already be rollback-only.
+ * <p>The store has written nothing for the job and the caller's transaction is still usable. A
+ * store must never throw this exception after writing anything for the job.
  */
 public final class BusinessKeyReservationConflictException extends RatchetTransientStoreException {
 
   @Serial private static final long serialVersionUID = 1L;
+
+  /** Creates a reservation-conflict signal for the held business key. */
+  public BusinessKeyReservationConflictException(String businessKey) {
+    super("Active business key in use: " + businessKey);
+  }
 
   /**
    * Creates a precise reservation-conflict signal while retaining the underlying store failure.

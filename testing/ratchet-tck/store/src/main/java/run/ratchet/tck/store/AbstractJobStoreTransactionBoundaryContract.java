@@ -15,6 +15,7 @@
  */
 package run.ratchet.tck.store;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -24,6 +25,8 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.BusinessKeyReservationConflictException;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Contract for JPA-backed {@code JobStore} implementations that express their lock and
@@ -43,6 +46,24 @@ public abstract class AbstractJobStoreTransactionBoundaryContract {
 
   /** The concrete {@code JobStore} implementation class whose annotations are under test. */
   protected abstract Class<?> jobStoreImplClass();
+
+  @Test
+  void createExemptsOnlyWriteFreeReservationConflicts() throws NoSuchMethodException {
+    Transactional classLevel = jobStoreImplClass().getAnnotation(Transactional.class);
+    Transactional create =
+        jobStoreImplClass().getMethod("create", JobEntity.class).getAnnotation(Transactional.class);
+    assertNotNull(create, "create must preserve the caller's transaction on a held business key");
+    assertEquals(classLevel.value(), create.value());
+    assertArrayEquals(classLevel.rollbackOn(), create.rollbackOn());
+    assertArrayEquals(
+        new Class<?>[] {BusinessKeyReservationConflictException.class}, create.dontRollbackOn());
+    Transactional save =
+        jobStoreImplClass().getMethod("save", JobEntity.class).getAnnotation(Transactional.class);
+    assertArrayEquals(
+        classLevel.dontRollbackOn(),
+        save == null ? classLevel.dontRollbackOn() : save.dontRollbackOn(),
+        "save must retain its normal rollback behavior");
+  }
 
   @Test
   void tryLockCommitsInItsOwnTransaction() throws NoSuchMethodException {

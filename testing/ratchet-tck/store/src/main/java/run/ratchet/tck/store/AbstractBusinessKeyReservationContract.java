@@ -1,0 +1,295 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.tck.store;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.RecurringMisfirePolicy;
+import run.ratchet.store.BusinessKeyReservationConflictException;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.RecurringJobDefinition;
+
+/**
+ * Verifies write-free reservation conflicts and the caller's ability to continue its transaction.
+ */
+public abstract class AbstractBusinessKeyReservationContract implements JobStoreContractFixture {
+
+  @BeforeEach
+  @AfterEach
+  void cleanupBusinessKeyReservationFixture() {
+    cleanupStore();
+  }
+
+  protected boolean plainReadsUseTransactionSnapshot() {
+    return false;
+  }
+
+  @Test
+  void conflict_writesNothingForTheLoser() {
+    String key = uniqueKey();
+    JobEntity holder = create(jobWithBusinessKey(key));
+    JobEntity loser = jobWithBusinessKey(key);
+
+    assertThrows(BusinessKeyReservationConflictException.class, () -> create(loser));
+
+    assertAbsent(loser);
+    assertOwner(key, holder);
+  }
+
+  @Test
+  void conflict_leavesOwnerTransactionUsable() {
+    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    String key = uniqueKey();
+    JobEntity holder = create(jobWithBusinessKey(key));
+    JobEntity loser = jobWithBusinessKey(key);
+    JobEntity unrelated = jobWithBusinessKey(null);
+
+    inOwnerTransaction(
+        () -> {
+          assertThrows(BusinessKeyReservationConflictException.class, () -> create(loser));
+          create(unrelated);
+        });
+
+    assertTrue(store().findById(unrelated.getId()).isPresent());
+    assertAbsent(loser);
+    assertOwner(key, holder);
+  }
+
+  @Test
+  void recurringHolder_conflictWritesNothing() {
+    var recurring = recurringStore();
+    String key = uniqueKey();
+    UUID holderId = UUID.randomUUID();
+    recurring.createRecurring(
+        new RecurringJobDefinition(
+            holderId,
+            "0 * * * * ?",
+            "UTC",
+            Instant.now().plusSeconds(60),
+            false,
+            null,
+            2,
+            0,
+            BackoffPolicy.NONE,
+            0,
+            0,
+            newPendingJob().getPayload(),
+            null,
+            null,
+            key,
+            null,
+            null,
+            Instant.now(),
+            null,
+            false,
+            RecurringMisfirePolicy.defaults()));
+    JobEntity loser = jobWithBusinessKey(key);
+
+    assertThrows(BusinessKeyReservationConflictException.class, () -> create(loser));
+
+    assertAbsent(loser);
+    // Recurring definitions live outside the one-off job table; use their capability lookup.
+    assertEquals(holderId, recurring.findRecurringByBusinessKey(key).orElseThrow().id());
+  }
+
+  @Test
+  void lateCommittedHolder_conflictLeavesOwnerTransactionUsable() throws Exception {
+    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    String key = uniqueKey();
+    JobEntity holder = jobWithBusinessKey(key);
+    JobEntity loser = jobWithBusinessKey(key);
+    JobEntity unrelated = jobWithBusinessKey(null);
+    var worker = Executors.newSingleThreadExecutor();
+    try {
+      inOwnerTransaction(
+          () -> {
+            store().findById(UUID.randomUUID());
+            var committed = worker.submit(() -> create(holder));
+            try {
+              committed.get(30, TimeUnit.SECONDS);
+            } catch (Exception e) {
+              throw new IllegalStateException("Late holder did not commit", e);
+            }
+            if (plainReadsUseTransactionSnapshot()) {
+              assertTrue(store().findActiveByBusinessKey(key).isEmpty());
+            }
+            assertThrows(BusinessKeyReservationConflictException.class, () -> create(loser));
+            create(unrelated);
+          });
+      assertTrue(store().findById(unrelated.getId()).isPresent());
+      assertAbsent(loser);
+      assertOwner(key, holder);
+    } finally {
+      worker.shutdownNow();
+      assertTrue(worker.awaitTermination(30, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void failureAfterReserve_neverCommitsTheReservation() {
+    JobEntity original = create(jobWithBusinessKey(null));
+    String key = uniqueKey();
+    JobEntity duplicate = jobWithBusinessKey(key);
+    duplicate.setIdempotencyKey(original.getIdempotencyKey());
+    try {
+      inOwnerTransaction(() -> assertThrows(RuntimeException.class, () -> create(duplicate)));
+    } catch (RuntimeException expectedCommitFailure) {
+      // Providers may mark the owner transaction rollback-only after the idempotency conflict.
+    }
+
+    assertTrue(store().findActiveByBusinessKey(key).isEmpty());
+    JobEntity replacement = create(jobWithBusinessKey(key));
+    assertOwner(key, replacement);
+  }
+
+  @Test
+  void race_winnerCommits_loserSeesConflict() throws Exception {
+    race(false);
+  }
+
+  @Test
+  void race_winnerRollsBack_loserSucceeds() throws Exception {
+    race(true);
+  }
+
+  private void race(boolean rollback) throws Exception {
+    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    String key = uniqueKey();
+    JobEntity winner = jobWithBusinessKey(key);
+    JobEntity loser = jobWithBusinessKey(key);
+    JobEntity unrelated = jobWithBusinessKey(null);
+    var created = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var attempting = new CountDownLatch(1);
+    var conflict = new AtomicBoolean();
+    var rollbackMarker = new RuntimeException("Roll back the winner");
+    var workers = Executors.newFixedThreadPool(2);
+    try {
+      var first =
+          workers.submit(
+              () -> {
+                try {
+                  inOwnerTransaction(
+                      () -> {
+                        create(winner);
+                        created.countDown();
+                        await(release);
+                        if (rollback) {
+                          throw rollbackMarker;
+                        }
+                      });
+                  assertFalse(rollback, "Winner must roll back when requested");
+                } catch (RuntimeException e) {
+                  assertTrue(rollback, "Winner should have committed");
+                  assertSame(rollbackMarker, e);
+                }
+              });
+      assertTrue(created.await(30, TimeUnit.SECONDS), "Winner did not reserve the key");
+      var second =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        attempting.countDown();
+                        try {
+                          create(loser);
+                        } catch (BusinessKeyReservationConflictException e) {
+                          conflict.set(true);
+                        }
+                        create(unrelated);
+                      }));
+      assertTrue(attempting.await(30, TimeUnit.SECONDS), "Loser did not start");
+      // Fixtures without lock visibility retain the timing-only assertion below.
+      awaitBlockedSession(Duration.ofSeconds(30));
+      assertThrows(
+          TimeoutException.class,
+          () -> second.get(500, TimeUnit.MILLISECONDS),
+          "Loser must wait for the uncommitted reservation");
+      release.countDown();
+      first.get(30, TimeUnit.SECONDS);
+      second.get(30, TimeUnit.SECONDS);
+
+      assertTrue(store().findById(unrelated.getId()).isPresent());
+      assertEquals(!rollback, conflict.get());
+      if (rollback) {
+        assertTrue(store().findById(winner.getId()).isEmpty());
+        assertTrue(store().findById(loser.getId()).isPresent());
+        assertOwner(key, loser);
+      } else {
+        assertAbsent(loser);
+        assertOwner(key, winner);
+      }
+    } finally {
+      release.countDown();
+      workers.shutdownNow();
+      assertTrue(workers.awaitTermination(30, TimeUnit.SECONDS));
+    }
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      if (!latch.await(90, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Timed out waiting for winner release");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted waiting for winner release", e);
+    }
+  }
+
+  private JobEntity create(JobEntity job) {
+    return store().create(job);
+  }
+
+  private JobEntity jobWithBusinessKey(String key) {
+    JobEntity job = newPendingJob();
+    job.setBusinessKey(key);
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    return job;
+  }
+
+  private void assertAbsent(JobEntity loser) {
+    assertTrue(store().findById(loser.getId()).isEmpty(), "No loser job row");
+    assertTrue(
+        store().findOriginalJobIdByIdempotencyKey(loser.getIdempotencyKey()).isEmpty(),
+        "No loser idempotency reservation");
+  }
+
+  private void assertOwner(String key, JobEntity holder) {
+    assertEquals(holder.getId(), store().findActiveByBusinessKey(key).orElseThrow().getId());
+  }
+
+  private static String uniqueKey() {
+    return "bkres-" + UUID.randomUUID();
+  }
+}

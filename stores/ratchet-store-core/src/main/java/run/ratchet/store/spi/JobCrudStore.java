@@ -21,6 +21,7 @@ import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 
 /** Core CRUD and primary-key lookup operations for jobs. */
@@ -31,6 +32,11 @@ public interface JobCrudStore {
 
   /**
    * Inserts a new job row and returns the persisted entity view.
+   *
+   * <p>The business-key reservation is written before the idempotency key and job rows. If the key
+   * is already held, throws {@link BusinessKeyReservationConflictException} without writing
+   * anything for the job and leaves the caller's transaction usable. A store must never throw that
+   * exception after writing anything for the job.
    *
    * <p>Transaction attribute: {@code REQUIRED}.
    */

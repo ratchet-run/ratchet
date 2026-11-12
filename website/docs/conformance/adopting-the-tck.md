@@ -183,6 +183,14 @@ When at least one recognized store contract runs, the listener writes
 `target/tck-conformance-report.md`. Check the final claim in that file; running one passing
 contract is not enough, because the report marks unexecuted required contracts as `MISSING`.
 
+### Business-key reservation contract
+
+`JobCrudStore.create()` must reserve the business key before writing the idempotency key or job rows. A held key must raise `BusinessKeyReservationConflictException` without writing anything for the losing job. The caller's transaction must remain usable. Never raise this exception after writing job data.
+
+`AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners and holders committed after the caller's first read.
+
+If your store's `create()` joins the caller's transaction, override both `inOwnerTransaction` and `supportsOwnerTransaction` in the fixture. Otherwise the contract skips its owner-transaction tests. Override `awaitBlockedSession` too, so the race tests can confirm in the database that the losing session is waiting on a lock. Without it they fall back to a timing check.
+
 ## API Compatible
 
 The API contracts are container-neutral JUnit classes. They can run in a plain JVM when the

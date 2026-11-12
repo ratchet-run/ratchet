@@ -88,6 +88,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
@@ -158,19 +159,18 @@ final class MongoJobCrudOperations {
       try (ClientSession session = ctx.startSession()) {
         session.withTransaction(
             () -> {
-              MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
               reservations.syncForJob(session, job);
+              MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
               ctx.jobs().insertOne(session, doc);
               return true;
             });
       }
     } catch (RuntimeException e) {
+      if (e instanceof BusinessKeyReservationConflictException) {
+        throw e;
+      }
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
-      }
-      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        throw new RatchetTransientStoreException(
-            "Active business key in use for job " + job.getId(), e);
       }
       throw e;
     }

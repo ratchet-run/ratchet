@@ -15,6 +15,7 @@
  */
 package run.ratchet.tck.store;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.UUID;
@@ -164,6 +165,36 @@ public interface JobStoreContractFixture {
       job.setTags(new ArrayList<>(Arrays.asList(tags)));
     }
     return job;
+  }
+
+  /**
+   * Runs work in one store transaction that nested store calls join, then commits.
+   *
+   * <p>A store whose create joins the caller's transaction must override this and {@link
+   * #supportsOwnerTransaction()}. Otherwise the business-key reservation contract skips its
+   * owner-transaction tests.
+   */
+  default void inOwnerTransaction(Runnable work) {
+    work.run();
+  }
+
+  /**
+   * Whether the owner transaction stays open across nested store calls.
+   *
+   * <p>A store whose create joins the caller's transaction must override this and {@link
+   * #inOwnerTransaction(Runnable)}. Otherwise the business-key reservation contract skips its
+   * owner-transaction tests.
+   */
+  default boolean supportsOwnerTransaction() {
+    return false;
+  }
+
+  /**
+   * Waits until another session is blocked on a row lock; false if the fixture cannot tell.
+   * Implementations must fail if no blocked session is observed within the timeout.
+   */
+  default boolean awaitBlockedSession(Duration timeout) {
+    return false;
   }
 
   default JobEntity persist(JobEntity job) {
