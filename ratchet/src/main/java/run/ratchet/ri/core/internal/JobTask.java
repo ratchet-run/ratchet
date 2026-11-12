@@ -16,7 +16,6 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.inject.Inject;
-import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -41,7 +40,6 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
-import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
@@ -399,54 +397,14 @@ public class JobTask implements Callable<Void> {
         log.debugf("Job %s created by system (no user context)", jobId);
       }
 
-      observabilityFacade.recordJobStart(jobEntity);
-
-      int attemptNumber = jobEntity.getAttempts() + 1;
-      try {
-        currentExecution = observabilityFacade.startExecution(jobId, attemptNumber, nodeId);
-      } catch (Throwable executionRecordError) {
-        // The execution-history write is durable state, not a metric. When it fails before the
-        // payload runs, fail the job through normal failure handling so it reaches a terminal
-        // state (or a policy-driven retry) instead of stranding in RUNNING until orphan recovery.
-        log.errorf(
-            executionRecordError,
-            "Job %s execution-history start write failed; failing the job",
-            jobId);
-        handleFailureSafely(executionRecordError);
-        return null;
-      }
-
-      Instant start = effective().instant();
-      observabilityFacade.publishEvent(
-          new JobStartedEvent(
-              jobEntity.getId(),
-              jobEntity.getBusinessKey(),
-              jobEntity.getRecurringMasterId(),
-              jobEntity.getPublicJobType(),
-              jobEntity.getPriority(),
-              jobEntity.getPickedBy(),
-              start));
-
-      if (log.isDebugEnabled()) {
-        log.debugv(
-            "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
-            jobId,
-            jobEntity.getJobType(),
-            jobEntity.getPriority(),
-            jobEntity.getAttempts() + 1,
-            jobEntity.getMaxRetries() + 1,
-            jobEntity.getPayload().target(),
-            jobEntity.getPayload().method());
-      }
-
       Object jobResult;
       permitAcquired = false;
       ResilienceTarget target = payloadInvoker.resilienceTarget(jobEntity.getPayload());
       String resilienceServiceName = target.serviceName();
       try {
-        currentScope = observabilityFacade.startExecutionScope(jobEntity);
+        // Gates that defer or stop the job record no execution row, start event, metric or span.
         if (wasJobCanceledDuringExecution()) {
-          handleCanceledDuringExecution(start);
+          handleCanceledDuringExecution(effective().instant());
           return null;
         }
 
@@ -461,6 +419,48 @@ public class JobTask implements Callable<Void> {
         if (!tryAcquireResourcePermit()) {
           return null;
         }
+
+        observabilityFacade.recordJobStart(jobEntity);
+
+        int attemptNumber = jobEntity.getAttempts() + 1;
+        try {
+          currentExecution = observabilityFacade.startExecution(jobId, attemptNumber, nodeId);
+        } catch (Throwable executionRecordError) {
+          // The execution-history write is durable state, not a metric. When it fails before the
+          // payload runs, fail the job through normal failure handling so it reaches a terminal
+          // state (or a policy-driven retry) instead of stranding in RUNNING until orphan recovery.
+          log.errorf(
+              executionRecordError,
+              "Job %s execution-history start write failed; failing the job",
+              jobId);
+          handleFailureSafely(executionRecordError);
+          return null;
+        }
+
+        Instant start = effective().instant();
+        observabilityFacade.publishEvent(
+            new JobStartedEvent(
+                jobEntity.getId(),
+                jobEntity.getBusinessKey(),
+                jobEntity.getRecurringMasterId(),
+                jobEntity.getPublicJobType(),
+                jobEntity.getPriority(),
+                jobEntity.getPickedBy(),
+                start));
+
+        if (log.isDebugEnabled()) {
+          log.debugv(
+              "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
+              jobId,
+              jobEntity.getJobType(),
+              jobEntity.getPriority(),
+              jobEntity.getAttempts() + 1,
+              jobEntity.getMaxRetries() + 1,
+              jobEntity.getPayload().target(),
+              jobEntity.getPayload().method());
+        }
+
+        currentScope = observabilityFacade.startExecutionScope(jobEntity);
 
         // Authorization check before breaker scope — denial must not trip the circuit breaker
         if (authorizationPolicy != null) {
@@ -849,20 +849,6 @@ public class JobTask implements Callable<Void> {
       }
 
       boolean superseded = result == AcquireResult.SUPERSEDED;
-      if (superseded) {
-        saveDeferredExecutionFailure(
-            new AttemptSupersededException(
-                "The attempt's claim no longer owns the job, so it took no permit for resource "
-                    + resourceName));
-      } else if (currentExecution != null) {
-        ResourceCapacityException capacityFailure =
-            new ResourceCapacityException(
-                "Resource '" + resourceName + "' at capacity - rescheduling");
-        currentExecution.markFailed(
-            capacityFailure.getClass().getName(), sanitizeError(capacityFailure));
-        observabilityFacade.saveExecution(currentExecution);
-      }
-
       // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
       // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
       int retryDelay = resourcePermitService.getRetryDelay(resourceName);
@@ -881,7 +867,7 @@ public class JobTask implements Callable<Void> {
             "Store reported job %s claim %s superseded but its reschedule succeeded",
             job.getId(), claimSeq);
       } else {
-        log.infof(
+        log.debugf(
             "Job %s waiting for resource '%s' - rescheduled for %sms",
             job.getId(), resourceName, retryDelay);
       }
@@ -1491,15 +1477,6 @@ public class JobTask implements Callable<Void> {
       throw new IllegalStateException("JobTask clock was not initialized");
     }
     return clock;
-  }
-
-  private static class ResourceCapacityException extends RuntimeException {
-
-    @Serial private static final long serialVersionUID = 2983760024642099243L;
-
-    ResourceCapacityException(String message) {
-      super(message);
-    }
   }
 
   private String sanitizeError(Throwable failure) {

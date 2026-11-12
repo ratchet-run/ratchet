@@ -28,10 +28,17 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.testsuite.app.ResourceTestJob;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.observer.EventCapture;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
@@ -45,6 +52,10 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   @Inject private ResourcePermitService resourcePermitService;
 
+  @Inject private JobStore jobStore;
+
+  @Inject private EventCapture eventCapture;
+
   @Deployment
   public static WebArchive createDeployment() {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
@@ -52,7 +63,7 @@ class ResourcePermitIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(ResourceTestJob.class, TestJobService.class)
+        .addClasses(ResourceTestJob.class, TestJobService.class, EventCapture.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -61,6 +72,7 @@ class ResourcePermitIT extends BaseRatchetIT {
   @BeforeEach
   void resetState() {
     ResourceTestJob.reset();
+    eventCapture.clear();
   }
 
   @Test
@@ -116,6 +128,51 @@ class ResourcePermitIT extends BaseRatchetIT {
         ResourceTestJob.getMaxConcurrentSeen() <= 2,
         "Max concurrent should be <= 2 (permit limit) but was "
             + ResourceTestJob.getMaxConcurrentSeen());
+
+    // Waiting for a permit is not an attempt: each job records one execution and one start.
+    for (JobHandle handle : handles) {
+      assertOneSucceededAttempt(handle);
+    }
+  }
+
+  @Test
+  void jobWaitingForPermit_recordsNoAttemptWhileItWaits() {
+    resourcePermitService.configureResource("queue-res", 1, 200, "test");
+    ResourceTestJob.closeGate();
+    try {
+      JobHandle holder =
+          jobService.enqueue(ResourceTestJob::executeGated).withResource("queue-res").submit();
+      await()
+          .atMost(Duration.ofSeconds(30))
+          .pollInterval(Duration.ofMillis(100))
+          .until(() -> ResourceTestJob.getGatedRunning() == 1);
+
+      JobHandle waiter =
+          jobService.enqueue(ResourceTestJob::execute).withResource("queue-res").submit();
+      await()
+          .atMost(Duration.ofSeconds(30))
+          .pollInterval(Duration.ofMillis(100))
+          .until(
+              () ->
+                  "Waiting for resource: queue-res"
+                      .equals(
+                          jobCrudStore
+                              .findById(waiter.id())
+                              .map(JobEntity::getLastError)
+                              .orElse(null)));
+
+      List<JobExecutionEntity> executions = executions(waiter);
+      assertTrue(executions.isEmpty(), "a waiting job has no executions, found " + executions);
+      assertEquals(0, starts(waiter), "a waiting job has no JobStartedEvent");
+
+      ResourceTestJob.openGate();
+      JobAssertions.assertJobCompleted(jobCrudStore, holder);
+      JobAssertions.assertJobCompleted(jobCrudStore, waiter);
+      assertOneSucceededAttempt(holder);
+      assertOneSucceededAttempt(waiter);
+    } finally {
+      ResourceTestJob.openGate();
+    }
   }
 
   @Test
@@ -125,5 +182,31 @@ class ResourcePermitIT extends BaseRatchetIT {
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
     assertEquals(0, ResourceTestJob.getCompletedCount(), "Job body should not execute");
+  }
+
+  private void assertOneSucceededAttempt(JobHandle handle) {
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .pollInterval(Duration.ofMillis(200))
+        .untilAsserted(
+            () -> {
+              List<JobExecutionEntity> executions = executions(handle);
+              assertEquals(1, executions.size(), "executions of job " + handle.id());
+              assertEquals(ExecutionStatus.SUCCEEDED, executions.get(0).getStatus());
+            });
+    assertEquals(1, starts(handle), "JobStartedEvents for job " + handle.id());
+  }
+
+  private List<JobExecutionEntity> executions(JobHandle handle) {
+    return jobStore
+        .capability(JobAuditStore.class)
+        .orElseThrow()
+        .findExecutionsByJobId(handle.id(), 100, 0);
+  }
+
+  private long starts(JobHandle handle) {
+    return eventCapture.getEvents(JobStartedEvent.class).stream()
+        .filter(event -> handle.id().equals(event.getJobId()))
+        .count();
   }
 }
