@@ -64,7 +64,10 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     store().configureResource("db-conn", 3, 5000, "DB connection pool");
 
     JobEntity j1 = claimNewJob();
-    store().tryAcquirePermit("db-conn", j1.getId(), j1.getClaimSeq(), "node-1");
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("db-conn", j1.getId(), j1.getClaimSeq(), "node-1"));
+    assertEquals(1, permitCount("db-conn", j1));
 
     store().releaseAllPermits(j1.getId());
 
