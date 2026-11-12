@@ -245,7 +245,7 @@ public class PartitionService {
               && store.countBatchChildren(parent.getId()) < batch.get().getTotalItems()
               && set.getGenerationStartedAt()
                   .isBefore(clock.instant().minus(options.maintenance().batchPartitionGrace()))) {
-            cancel.accept(parent.getId());
+            cancellation().accept(parent.getId());
             log.warnf(
                 "Canceled incomplete partition generation %s for set %s",
                 parent.getId(), set.getSetId());
@@ -261,7 +261,15 @@ public class PartitionService {
 
   /** Cancels a partially persisted generation using the configured system boundary. */
   public void cancelGeneration(UUID parentId) {
-    cancel.accept(parentId);
+    cancellation().accept(parentId);
+  }
+
+  private Consumer<UUID> cancellation() {
+    if (cancel == null) {
+      throw new IllegalStateException(
+          "configureCancellation must run before a generation is canceled");
+    }
+    return cancel;
   }
 
   /** The authorization policy may receive an archived latestBatchId. */

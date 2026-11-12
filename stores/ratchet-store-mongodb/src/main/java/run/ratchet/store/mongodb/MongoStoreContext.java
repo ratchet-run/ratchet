@@ -29,6 +29,8 @@ import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
 import com.mongodb.MongoException;
+import com.mongodb.ReadPreference;
+import com.mongodb.TransactionOptions;
 import com.mongodb.WriteConcern;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
@@ -53,6 +55,13 @@ import run.ratchet.store.context.AbstractStoreContext;
  * MongoException}s via {@link #additionalTranslation}.
  */
 final class MongoStoreContext extends AbstractStoreContext {
+
+  /**
+   * Transactions otherwise inherit the client's read preference, but the driver rejects reads in a
+   * transaction unless it is primary.
+   */
+  static final TransactionOptions TRANSACTION_OPTIONS =
+      TransactionOptions.builder().readPreference(ReadPreference.primary()).build();
 
   static final List<String> EXECUTABLE_JOB_TYPES =
       List.of("SINGLE", "BATCH_CHILD", "CHAIN_STEP", "WORKFLOW_BRANCH");

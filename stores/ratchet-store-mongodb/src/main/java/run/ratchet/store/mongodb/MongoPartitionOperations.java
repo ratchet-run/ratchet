@@ -26,6 +26,7 @@ import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.MongoWriteException;
 import com.mongodb.ReadPreference;
@@ -124,7 +125,8 @@ final class MongoPartitionOperations implements PartitionStore {
             jobs.create(session, write.parent());
             batches.saveBatch(session, write.batch());
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (DuplicateSetKey ex) {
       return false;
     }
@@ -187,7 +189,8 @@ final class MongoPartitionOperations implements PartitionStore {
                           .getMatchedCount();
             }
             return changed;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 
@@ -262,7 +265,8 @@ final class MongoPartitionOperations implements PartitionStore {
             if (deleted == null) return false;
             rows().deleteMany(session, eq("set_id", setId));
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 

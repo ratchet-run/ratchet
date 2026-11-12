@@ -20,6 +20,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.ClientSession;
@@ -405,7 +406,8 @@ class MongoCollectionInitializer {
               if (key == null || owner == null || !ownerIsActive(session, key, owner, table))
                 reservations.deleteOne(session, eq(ID, reservation.get(ID)));
               return true;
-            });
+            },
+            TRANSACTION_OPTIONS);
       }
     }
   }
@@ -462,7 +464,8 @@ class MongoCollectionInitializer {
                   "Business key is active for multiple MongoDB owners: " + businessKey);
             }
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 

@@ -125,6 +125,15 @@ class PartitionServiceTest {
   }
 
   @Test
+  void cancelGenerationRequiresConfiguredCancellation() {
+    IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> service.cancelGeneration(parent.getId()));
+    assertEquals(
+        "configureCancellation must run before a generation is canceled", failure.getMessage());
+    verifyNoInteractions(batches);
+  }
+
+  @Test
   void absentPartitionCapabilityIsANoop() {
     var absent =
         new PartitionService(

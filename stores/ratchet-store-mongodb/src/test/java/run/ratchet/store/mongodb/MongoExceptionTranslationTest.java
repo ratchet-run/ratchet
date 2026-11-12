@@ -91,6 +91,12 @@ import run.ratchet.store.entity.JobExecutionType;
 class MongoExceptionTranslationTest {
 
   @Test
+  void transactionOptionsRequirePrimaryReads() {
+    assertEquals(
+        ReadPreference.primary(), MongoStoreContext.TRANSACTION_OPTIONS.getReadPreference());
+  }
+
+  @Test
   void currentClaimTranslatesTransientReadFailure() {
     MongoSocketException failure = transientFailure();
     AtomicReference<Object> readPreference = new AtomicReference<>();
@@ -731,7 +737,7 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
-  void compareAndSwapPauseUsesDefaultTransactionOptions() {
+  void compareAndSwapPauseUsesPrimaryTransactionOptions() {
     assertStatusMutationTransaction(JobStatus.PAUSED, false);
   }
 
@@ -754,16 +760,18 @@ class MongoExceptionTranslationTest {
             (proxy, method, args) -> {
               if ("withTransaction".equals(method.getName())) {
                 transactions.incrementAndGet();
+                assertEquals(2, args.length);
+                TransactionOptions options = (TransactionOptions) args[1];
+                assertEquals(ReadPreference.primary(), options.getReadPreference());
                 if (target == JobStatus.CANCELED) {
-                  assertEquals(2, args.length);
-                  WriteConcern concern = ((TransactionOptions) args[1]).getWriteConcern();
+                  WriteConcern concern = options.getWriteConcern();
                   assertEquals("majority", concern.getWString());
                   assertEquals(
                       configured.getWTimeout(TimeUnit.MILLISECONDS),
                       concern.getWTimeout(TimeUnit.MILLISECONDS));
                   assertEquals(configured.getJournal(), concern.getJournal());
                 } else {
-                  assertEquals(1, args.length);
+                  assertSame(MongoStoreContext.TRANSACTION_OPTIONS, options);
                 }
                 return ((TransactionBody<?>) args[0]).execute();
               }

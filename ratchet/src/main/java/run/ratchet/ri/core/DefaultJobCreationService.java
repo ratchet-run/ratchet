@@ -795,13 +795,6 @@ public class DefaultJobCreationService
         persistWorkflowBranch(branch);
       }
       bulkInsertJobs(children);
-      // Once all children exist, the sweep's count < totalItems check cannot fire.
-      // Every callback was written before the children, so cancellation finds them all.
-      if (jobCrudStore.getJobStatus(parentId) == JobStatus.CANCELED) {
-        batchService.cancelBatch(parent);
-        log.warnf(
-            "Canceled late partition writes for parent %s in set %s", parentId, set.getSetId());
-      }
     } catch (RuntimeException | Error failure) {
       try {
         partitionService.cancelGeneration(parentId);
@@ -811,6 +804,14 @@ public class DefaultJobCreationService
         }
       }
       throw failure;
+    }
+    // Once all children exist, the sweep's count < totalItems check cannot fire.
+    // Every callback was written before the children, so cancellation finds them all.
+    // A failure from here on leaves the complete generation running. If the parent was
+    // canceled, the sweep runs the same cleanup before it seals the generation.
+    if (jobCrudStore.getJobStatus(parentId) == JobStatus.CANCELED) {
+      batchService.cancelBatch(parent);
+      log.warnf("Canceled late partition writes for parent %s in set %s", parentId, set.getSetId());
     }
     wakeupService.notifyIfNeeded(
         JobExecutionType.BATCH_PARENT,

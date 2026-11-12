@@ -60,6 +60,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
@@ -144,7 +145,7 @@ final class MongoJobCrudOperations {
 
   JobEntity create(JobEntity job) {
     try (ClientSession session = ctx.startSession()) {
-      return session.withTransaction(() -> create(session, job));
+      return session.withTransaction(() -> create(session, job), TRANSACTION_OPTIONS);
     }
   }
 
@@ -221,7 +222,8 @@ final class MongoJobCrudOperations {
                         + ")");
               }
               return true;
-            });
+            },
+            TRANSACTION_OPTIONS);
       }
     } catch (RuntimeException e) {
       job.setVersion(expectedVersion);
@@ -256,7 +258,8 @@ final class MongoJobCrudOperations {
             reservations.releaseByOwner(session, id);
             ctx.jobs().deleteOne(session, eq(ID, id));
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 
@@ -601,7 +604,8 @@ final class MongoJobCrudOperations {
           () -> {
             insertPreparedDocuments(session, jobList, docs);
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException(
@@ -659,7 +663,8 @@ final class MongoJobCrudOperations {
             reservations.releaseByOwners(session, ids);
             DeleteResult result = ctx.jobs().deleteMany(session, in(ID, ids));
             return (int) result.getDeletedCount();
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 
@@ -684,7 +689,8 @@ final class MongoJobCrudOperations {
             reservations.releaseByOwners(session, ids);
             DeleteResult result = ctx.jobs().deleteMany(session, filter);
             return (int) result.getDeletedCount();
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 
@@ -809,7 +815,8 @@ final class MongoJobCrudOperations {
                     nin(PICKED_BY, activeNodeIds),
                     lt(PICKED_AT, cutoff));
             return recoverOrphans(session, orphan, maxCrashRedeliveries, exhaustedLimit, false);
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("recover orphan jobs", e);
     }
@@ -825,7 +832,8 @@ final class MongoJobCrudOperations {
                   and(eq(STATUS, STATUS_RUNNING), eq(PICKED_BY, nodeId)),
                   maxCrashRedeliveries,
                   exhaustedLimit,
-                  true));
+                  true),
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("recover orphan jobs for node", e);
     }

@@ -43,6 +43,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 import static run.ratchet.store.mongodb.MongoFieldNames.RETRY_DELAY_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
@@ -263,7 +264,8 @@ final class MongoAuxiliaryOperations {
             permit.setId(UuidV7Factory.create());
             ctx.resourcePermits().insertOne(session, DocumentMapper.toDocument(permit));
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (IllegalArgumentException e) {
       throw e;
     } catch (RuntimeException e) {
@@ -282,7 +284,8 @@ final class MongoAuxiliaryOperations {
               ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
             }
             return Boolean.TRUE;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("release resource permit", e);
     }
@@ -302,7 +305,8 @@ final class MongoAuxiliaryOperations {
               decrementResourceCounts(session, releasedByResource);
             }
             return Boolean.TRUE;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("release all permits", e);
     }
@@ -347,7 +351,8 @@ final class MongoAuxiliaryOperations {
                 ctx.resourcePermits().deleteMany(session, in(NODE_ID, staleNodeIds));
             decrementResourceCounts(session, removedByResource);
             return (int) result.getDeletedCount();
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
     }

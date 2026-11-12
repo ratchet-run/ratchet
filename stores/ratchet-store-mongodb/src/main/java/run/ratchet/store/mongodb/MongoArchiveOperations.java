@@ -41,6 +41,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VALUE;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.result.DeleteResult;
@@ -123,7 +124,8 @@ final class MongoArchiveOperations implements ArchiveStore {
             }
             deleteExtensionData(session, List.of(job.getId()));
             return Boolean.TRUE;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("archive job", e);
     }
@@ -168,7 +170,8 @@ final class MongoArchiveOperations implements ArchiveStore {
               deleteExtensionData(session, ids);
             }
             return archived;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("archive and delete jobs batch", e);
     }

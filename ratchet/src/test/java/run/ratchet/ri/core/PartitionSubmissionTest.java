@@ -395,6 +395,23 @@ class PartitionSubmissionTest {
   }
 
   @Test
+  void statusReadFailureKeepsCompleteGeneration() {
+    IllegalStateException failure = new IllegalStateException("status read");
+    when(jobs.getJobStatus(any())).thenThrow(failure);
+
+    assertSame(failure, assertThrows(IllegalStateException.class, () -> builder().submit()));
+
+    var write = submitted();
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(bulk).bulkInsert(children.capture());
+    assertEquals(write.rows().size(), children.getValue().size());
+    assertEquals(2, children.getValue().size());
+    verify(jobs).getJobStatus(write.parent().getId());
+    verify(partitionService, never()).cancelGeneration(any());
+    verifyNoInteractions(batchService);
+  }
+
+  @Test
   void childrenFailureCancelsGenerationAndPreservesOriginal() {
     RuntimeException failure = new IllegalStateException("children");
     doThrow(failure).when(bulk).bulkInsert(anyList());
