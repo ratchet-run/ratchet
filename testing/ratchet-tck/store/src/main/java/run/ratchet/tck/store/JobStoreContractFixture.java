@@ -191,7 +191,8 @@ public interface JobStoreContractFixture {
 
   /**
    * Waits until another session is blocked on a row lock; false if the fixture cannot tell.
-   * Implementations must fail if no blocked session is observed within the timeout.
+   * Implementations must fail if no blocked session is observed within the timeout. The
+   * business-key race tests skip when this returns false.
    */
   default boolean awaitBlockedSession(Duration timeout) {
     return false;

@@ -189,7 +189,7 @@ contract is not enough, because the report marks unexecuted required contracts a
 
 `AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners and holders committed after the caller's first read.
 
-If your store's `create()` joins the caller's transaction, override both `inOwnerTransaction` and `supportsOwnerTransaction` in the fixture. Otherwise the contract skips its owner-transaction tests. Override `awaitBlockedSession` too, so the race tests can confirm in the database that the losing session is waiting on a lock. Without it they fall back to a timing check.
+If your store's `create()` joins the caller's transaction, override both `inOwnerTransaction` and `supportsOwnerTransaction` in the fixture. Otherwise the contract skips its owner-transaction tests. Override `awaitBlockedSession` too, so the race tests can confirm in the database that the losing session is waiting on a lock. Without it the race tests are skipped, because timing alone does not prove the loser reached the reservation before the winner finished.
 
 ## API Compatible
 

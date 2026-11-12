@@ -15,9 +15,12 @@
  */
 package run.ratchet.store.oracle;
 
+import java.sql.DriverManager;
+import java.time.Duration;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractBusinessKeyReservationContract;
+import run.ratchet.tck.store.JdbcLockWait;
 
 class OracleBusinessKeyReservationContractTest extends AbstractBusinessKeyReservationContract {
 
@@ -53,5 +56,14 @@ class OracleBusinessKeyReservationContractTest extends AbstractBusinessKeyReserv
     return true;
   }
 
-  // Keep the default lock-wait hook: the container's ratchet user has no v$session read grant.
+  @Override
+  public boolean awaitBlockedSession(Duration timeout) {
+    // The ratchet user cannot read v$session. The container gives SYSTEM the same password.
+    var container = fixture.container();
+    return JdbcLockWait.awaitBlockedSession(
+        () ->
+            DriverManager.getConnection(container.getJdbcUrl(), "system", container.getPassword()),
+        "SELECT COUNT(*) FROM v$session WHERE blocking_session IS NOT NULL",
+        timeout);
+  }
 }

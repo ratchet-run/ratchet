@@ -310,11 +310,23 @@ Ratchet checks and reserves the business key before writing anything. `Duplicate
 
 On MySQL and SQL Server, after the store reports the conflict, the caller keeps a lock on the holder's key until its transaction ends. The holder's completion waits for that lock. Keep the caller's transaction short.
 
-If this is unexpected, query for the existing active job:
+If this is unexpected, find the holder in the reservation table. It covers both kinds of holder:
 
 ```sql
--- Live status / scheduled_time are on scheduler_job_queue; created_at is cold metadata
--- on scheduler_job. Join the two to see the active job holding the key.
+-- owner_table is QUEUE for a one-off job (owner_job_id = scheduler_job.job_id)
+-- or RECURRING for a recurring job (owner_job_id = scheduler_recurring_job.id).
+SELECT business_key, owner_table, owner_job_id, reserved_at
+FROM scheduler_business_key_reservation
+WHERE business_key = 'your-business-key';
+```
+
+On MySQL, Oracle and SQL Server `owner_job_id` is the UUID stored as 16 raw bytes. On MongoDB the same data is in the `scheduler_business_key_reservation` collection, with the business key as `_id`.
+
+For a one-off holder, this query shows the job's status:
+
+```sql
+-- One-off jobs only. Live status / scheduled_time are on scheduler_job_queue;
+-- created_at is cold metadata on scheduler_job.
 SELECT q.job_id, q.status, q.scheduled_time, c.created_at
 FROM scheduler_job_queue q
 JOIN scheduler_job c ON c.job_id = q.job_id

@@ -17,11 +17,13 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import jakarta.transaction.Transactional;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -59,10 +61,18 @@ public abstract class AbstractJobStoreTransactionBoundaryContract {
         new Class<?>[] {BusinessKeyReservationConflictException.class}, create.dontRollbackOn());
     Transactional save =
         jobStoreImplClass().getMethod("save", JobEntity.class).getAnnotation(Transactional.class);
-    assertArrayEquals(
-        classLevel.dontRollbackOn(),
-        save == null ? classLevel.dontRollbackOn() : save.dontRollbackOn(),
+    assertFalse(
+        exemptsReservationConflict(classLevel.dontRollbackOn()),
+        "the class-level default must roll back on a reservation conflict");
+    assertFalse(
+        exemptsReservationConflict(
+            save == null ? classLevel.dontRollbackOn() : save.dontRollbackOn()),
         "save must retain its normal rollback behavior");
+  }
+
+  private static boolean exemptsReservationConflict(Class<?>[] dontRollbackOn) {
+    return Arrays.stream(dontRollbackOn)
+        .anyMatch(type -> type.isAssignableFrom(BusinessKeyReservationConflictException.class));
   }
 
   @Test

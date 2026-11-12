@@ -35,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.RecurringMisfirePolicy;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -157,12 +158,19 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   @Test
   void failureAfterReserve_neverCommitsTheReservation() {
-    JobEntity original = create(jobWithBusinessKey(null));
+    JobEntity original = create(jobWithBusinessKey(uniqueKey()));
+    // With both keys held the business-key conflict wins, so create reserves the business key
+    // before it writes the idempotency key.
+    JobEntity bothHeld = jobWithBusinessKey(original.getBusinessKey());
+    bothHeld.setIdempotencyKey(original.getIdempotencyKey());
+    assertThrows(BusinessKeyReservationConflictException.class, () -> create(bothHeld));
+
     String key = uniqueKey();
     JobEntity duplicate = jobWithBusinessKey(key);
     duplicate.setIdempotencyKey(original.getIdempotencyKey());
     try {
-      inOwnerTransaction(() -> assertThrows(RuntimeException.class, () -> create(duplicate)));
+      inOwnerTransaction(
+          () -> assertThrows(DuplicateIdempotencyKeyException.class, () -> create(duplicate)));
     } catch (RuntimeException expectedCommitFailure) {
       // Providers may mark the owner transaction rollback-only after the idempotency conflict.
     }
@@ -229,8 +237,11 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
                         create(unrelated);
                       }));
       assertTrue(attempting.await(30, TimeUnit.SECONDS), "Loser did not start");
-      // Fixtures without lock visibility retain the timing-only assertion below.
-      awaitBlockedSession(Duration.ofSeconds(30));
+      // Timing alone cannot show that the loser reached the reservation before the winner ended,
+      // so a fixture that cannot see a database lock wait does not prove the race.
+      assumeTrue(
+          awaitBlockedSession(Duration.ofSeconds(30)),
+          "Requires a fixture that can observe a blocked database session");
       assertThrows(
           TimeoutException.class,
           () -> second.get(500, TimeUnit.MILLISECONDS),

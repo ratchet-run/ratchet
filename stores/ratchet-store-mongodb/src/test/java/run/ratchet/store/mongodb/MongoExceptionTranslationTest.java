@@ -122,7 +122,10 @@ class MongoExceptionTranslationTest {
         mongoCollection(
             (proxy, method, args) -> {
               if ("insertOne".equals(method.getName())) {
-                throw conflict;
+                if (((Document) args[1]).containsKey("owner_table")) {
+                  throw conflict;
+                }
+                throw new AssertionError("The job must not be written before reservation");
               }
               if ("bulkWrite".equals(method.getName())) {
                 throw new AssertionError("Idempotency must not be written before reservation");
