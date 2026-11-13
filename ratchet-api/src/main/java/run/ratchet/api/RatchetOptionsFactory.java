@@ -122,7 +122,9 @@ public final class RatchetOptionsFactory {
                         config.get(RatchetConfigKeys.BATCH_RECOVERY_LEASE_TTL_SECONDS))
                     .batchRecoveryIntervalSeconds(
                         config.get(RatchetConfigKeys.BATCH_RECOVERY_INTERVAL_SECONDS))
-                    .batchFoldTimeout(config.get(RatchetConfigKeys.BATCH_FOLD_TIMEOUT)))
+                    .batchFoldTimeout(config.get(RatchetConfigKeys.BATCH_FOLD_TIMEOUT))
+                    .batchMaxPartitions(config.get(RatchetConfigKeys.BATCH_MAX_PARTITIONS))
+                    .batchPartitionGrace(config.get(RatchetConfigKeys.BATCH_PARTITION_GRACE)))
         .schema(
             schema ->
                 schema

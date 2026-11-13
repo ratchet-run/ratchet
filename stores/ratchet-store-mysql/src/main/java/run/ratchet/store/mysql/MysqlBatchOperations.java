@@ -247,8 +247,8 @@ final class MysqlBatchOperations implements BatchStore {
           """
           INSERT INTO scheduler_batch
             (batch_id, total_items, completed_items, failed_items,
-             completion_processed, progress_hook, reducer, fold_claimed_at)
-          VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?)
+             completion_processed, progress_hook, reducer, fold_claimed_at, partition_set_id, generation)
+          VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?)
           ON DUPLICATE KEY UPDATE
             total_items = VALUES(total_items),
             completed_items = VALUES(completed_items),
@@ -257,6 +257,8 @@ final class MysqlBatchOperations implements BatchStore {
             progress_hook = VALUES(progress_hook),
             reducer = VALUES(reducer),
             fold_claimed_at = VALUES(fold_claimed_at),
+            partition_set_id = VALUES(partition_set_id),
+            generation = VALUES(generation),
             version = version + 1
           """;
       ctx.em()
@@ -270,6 +272,12 @@ final class MysqlBatchOperations implements BatchStore {
           .setParameter(7, batch.getReducer())
           .setParameter(
               8, batch.getFoldClaimedAt() == null ? null : Timestamp.from(batch.getFoldClaimedAt()))
+          .setParameter(
+              9,
+              batch.getPartitionSetId() == null
+                  ? null
+                  : UuidByteArrayConverter.toBytes(batch.getPartitionSetId()))
+          .setParameter(10, batch.getGeneration())
           .executeUpdate();
       ctx.em().flush();
       return findBatchById(batch.getId()).orElse(batch);
@@ -295,7 +303,7 @@ final class MysqlBatchOperations implements BatchStore {
     String sql =
         """
         SELECT batch_id, total_items, completed_items, failed_items,
-               completion_processed, version, progress_hook, reducer, fold_claimed_at
+               completion_processed, version, progress_hook, reducer, fold_claimed_at, partition_set_id, generation
         FROM scheduler_batch
         WHERE batch_id IN (%s)
         """
@@ -511,6 +519,8 @@ final class MysqlBatchOperations implements BatchStore {
     batch.setProgressHook(parseProgressHook(row[6]));
     batch.setReducer(RowValues.stringOrNull(row[7]));
     batch.setFoldClaimedAt(RowValues.instantOrNull(row[8]));
+    batch.setPartitionSetId(RowValues.uuidOrNull(row[9]));
+    batch.setGeneration(row[10] == null ? null : ((Number) row[10]).intValue());
     return batch;
   }
 

@@ -17,8 +17,10 @@ package run.ratchet.ri.testutil;
 
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
+import jakarta.json.bind.JsonbConfig;
 import jakarta.json.bind.JsonbException;
 import java.lang.reflect.Type;
+import run.ratchet.ri.cdi.internal.JsonbPayloadSerializer.KeyRangeAdapter;
 import run.ratchet.spi.PayloadSerializer;
 
 /**
@@ -27,7 +29,8 @@ import run.ratchet.spi.PayloadSerializer;
  */
 public final class JsonbTestPayloadSerializer implements PayloadSerializer {
 
-  private final Jsonb jsonb = JsonbBuilder.create();
+  private final Jsonb jsonb =
+      JsonbBuilder.create(new JsonbConfig().withAdapters(new KeyRangeAdapter()));
 
   @Override
   public String serialize(Object payload) {

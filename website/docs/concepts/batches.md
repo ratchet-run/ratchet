@@ -387,3 +387,55 @@ value types `Long`, `Integer`, `Double`, `Boolean`, `String`, `BigDecimal`, and 
 container raw types `Map`, `List`, and `Set`, are exempt; container arguments are still checked.
 `Long::sum`, `Integer::sum`, `Double::sum`, and static `Math::min` / `Math::max` need no target
 allowlist entry. Identity serialization and restoration as `R` are validated at submission.
+
+
+## Partitioned batches
+
+A partition set is a durable job identified by a caller partition key. Its ranges keep their
+original list indexes. A generation is an ordinary batch that runs selected partitions.
+
+```java
+scheduler.enqueueBatch("Import accounts")
+    .forEachPartition("accounts-import", KeyRange.split(0, 10000, 1000), jobs::importRange)
+    .withMaxRetries(0)
+    .submit();
+
+// In the job bean:
+public void importRange(KeyRange range) {
+    long next = JobContext.current().lastCheckpoint()
+        .map(Long::parseLong).orElse(range.from());
+    for (long id = next; id < range.to(); id++) {
+        importAccount(id);
+        JobContext.current().checkpoint(Long.toString(id + 1));
+    }
+}
+```
+
+After trimming, partition keys must contain 1 to 36 printable ASCII characters (`U+0020` through
+`U+007E`). They follow the store’s collation, so keys differing only in letter case may name the
+same set on MySQL and SQL Server. Use a consistent case.
+
+Resubmit with the same partition key and identical ranges to run only unfinished partitions.
+Each resumes from its saved checkpoint. A running generation returns its existing batch handle.
+A later generation can use a different action, options, arguments or callbacks.
+
+Use `reopen(List.of(0))` to run selected partitions from the start. Reopening requires
+`withIdempotencyKey("unique-request-key")`. Retrying that request with the same idempotency key
+returns its existing handle and does not reopen twice.
+
+`query.getPartitionSet(key)` reports the latest generation and whether it is open.
+`query.getBatchPartitions(key, limit, offset)` pages the partitions. Pause, cancel or retry a
+partition through the existing job operations on `BatchPartition.childJobId()`.
+`scheduler.deletePartitionSet(key)` deletes a sealed set. The key can then start a new set.
+The latest batch id may refer to an archived job, including during authorization checks.
+
+Partition actions must be idempotent. A crash or a canceled running child can redo work after the
+last flushed checkpoint. A checkpoint can lag the last unflushed write. Callbacks and progress
+cover one generation. The batch recovery timer seals completed generations, by default every
+15 minutes. The next submit also seals lazily. A paused parent keeps its generation open and
+protected from archiving. Reducing and streaming batches cannot be partitioned.
+
+The key must be nonblank and at most 36 characters after trimming. Ranges must be nonempty,
+nonoverlapping and identical on resubmission. A set has at most `ratchet.batch.max-partitions`
+ranges (default 10000). Incomplete submissions with missing children are canceled after
+`ratchet.batch.partition-grace` (default `PT30M`).

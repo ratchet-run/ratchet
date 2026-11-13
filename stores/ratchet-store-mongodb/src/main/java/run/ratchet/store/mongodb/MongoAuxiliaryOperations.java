@@ -45,7 +45,9 @@ import static run.ratchet.store.mongodb.MongoFieldNames.RETRY_DELAY_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
+import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -161,8 +163,11 @@ final class MongoAuxiliaryOperations {
 
   List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     List<WorkflowConditionEntity> results = new ArrayList<>();
+    // Read the primary even when the client prefers secondaries: callbacks start and cancel from
+    // this list, so a lagging secondary must not hide a condition written moments before.
     for (Document doc :
         ctx.workflowConditions()
+            .withReadPreference(ReadPreference.primary())
             .find(eq(PARENT_JOB_ID, parentJobId))
             .sort(ascending(CONDITION_PRIORITY, DEFINITION_ORDER))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
@@ -279,7 +284,8 @@ final class MongoAuxiliaryOperations {
                 ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId);
             ctx.resourcePermits().insertOne(session, DocumentMapper.toDocument(permit));
             return AcquireResult.ACQUIRED;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (IllegalArgumentException e) {
       throw e;
     } catch (RuntimeException e) {
@@ -299,7 +305,8 @@ final class MongoAuxiliaryOperations {
               ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
             }
             return Boolean.TRUE;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("release resource permit", e);
     }
@@ -319,7 +326,8 @@ final class MongoAuxiliaryOperations {
               decrementResourceCounts(session, releasedByResource);
             }
             return Boolean.TRUE;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("release all permits", e);
     }
@@ -364,7 +372,8 @@ final class MongoAuxiliaryOperations {
                 ctx.resourcePermits().deleteMany(session, in(NODE_ID, staleNodeIds));
             decrementResourceCounts(session, removedByResource);
             return (int) result.getDeletedCount();
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
     }

@@ -13,18 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.store.sqlserver;
+package run.ratchet.store.dto;
 
-import run.ratchet.tck.store.AbstractJpaResourcePermitClaimRaceContract;
-import run.ratchet.tck.store.JpaContainerFixture;
+import java.util.List;
+import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.PartitionEntity;
+import run.ratchet.store.entity.PartitionSetEntity;
 
-class SqlserverResourcePermitClaimRaceContractTest
-    extends AbstractJpaResourcePermitClaimRaceContract {
-
-  private final SqlserverTestFixture fixture = new SqlserverTestFixture();
-
-  @Override
-  protected JpaContainerFixture fixture() {
-    return fixture;
-  }
-}
+/** Atomic creation or advancement of a partition generation and its ordinary batch parent. */
+public record PartitionGenerationWrite(
+    PartitionSetEntity set,
+    Integer expectedVersion,
+    List<PartitionEntity> rows,
+    JobEntity parent,
+    BatchEntity batch) {}

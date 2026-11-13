@@ -30,6 +30,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.STATE;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VALUE;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 import static run.ratchet.store.util.ExtensionValidation.requireKey;
 import static run.ratchet.store.util.ExtensionValidation.requireNamespace;
 import static run.ratchet.store.util.ExtensionValidation.requireState;
@@ -181,7 +182,8 @@ final class MongoExtensionOperations implements JobPropertyStore, JobStateStore 
             ctx.jobExtensionState()
                 .insertOne(session, stateDocument(jobId, namespace, initialState, active));
             return StateWriteResult.UPDATED;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (MongoException e) {
       // A duplicate aborts the transaction, including its fence increment.
       if (ctx.constraintDetector().isDuplicateKey(e)) {
@@ -211,7 +213,8 @@ final class MongoExtensionOperations implements JobPropertyStore, JobStateStore 
             return updateState(session, jobId, namespace, newState, expectedVersion, active)
                 ? StateWriteResult.UPDATED
                 : StateWriteResult.VERSION_CONFLICT;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 

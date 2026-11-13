@@ -246,9 +246,9 @@ final class SqlserverBatchOperations implements BatchStore {
     String sql =
         """
         MERGE scheduler_batch WITH (HOLDLOCK) AS tgt
-        USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?))
+        USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS BINARY(16)), ?))
           AS src(batch_id, total_items, completed_items, failed_items,
-                 completion_processed, progress_hook, reducer, fold_claimed_at)
+                 completion_processed, progress_hook, reducer, fold_claimed_at, partition_set_id, generation)
           ON tgt.batch_id = src.batch_id
         WHEN MATCHED THEN UPDATE SET
           total_items = src.total_items,
@@ -258,15 +258,17 @@ final class SqlserverBatchOperations implements BatchStore {
           progress_hook = src.progress_hook,
           reducer = src.reducer,
           fold_claimed_at = src.fold_claimed_at,
+          partition_set_id = src.partition_set_id,
+          generation = src.generation,
           version = tgt.version + 1
         WHEN NOT MATCHED THEN INSERT
           (batch_id, total_items, completed_items, failed_items,
-           completion_processed, progress_hook, reducer, fold_claimed_at)
+           completion_processed, progress_hook, reducer, fold_claimed_at, partition_set_id, generation)
           VALUES (src.batch_id, src.total_items, src.completed_items, src.failed_items,
-                  src.completion_processed, src.progress_hook, src.reducer, src.fold_claimed_at)
+                  src.completion_processed, src.progress_hook, src.reducer, src.fold_claimed_at, src.partition_set_id, src.generation)
         OUTPUT inserted.batch_id, inserted.total_items, inserted.completed_items,
                inserted.failed_items, inserted.completion_processed, inserted.version,
-               inserted.progress_hook, inserted.reducer, inserted.fold_claimed_at;
+               inserted.progress_hook, inserted.reducer, inserted.fold_claimed_at, inserted.partition_set_id, inserted.generation;
         """;
     Object row =
         ctx.em()
@@ -281,6 +283,12 @@ final class SqlserverBatchOperations implements BatchStore {
             .setParameter(
                 8,
                 batch.getFoldClaimedAt() == null ? null : Timestamp.from(batch.getFoldClaimedAt()))
+            .setParameter(
+                9,
+                batch.getPartitionSetId() == null
+                    ? null
+                    : UuidByteArrayConverter.toBytes(batch.getPartitionSetId()))
+            .setParameter(10, batch.getGeneration())
             .getSingleResult();
     return row instanceof Object[] values ? mapBatchRow(values) : batch;
   }
@@ -303,7 +311,7 @@ final class SqlserverBatchOperations implements BatchStore {
     String sql =
         """
         SELECT batch_id, total_items, completed_items, failed_items,
-               completion_processed, version, progress_hook, reducer, fold_claimed_at
+               completion_processed, version, progress_hook, reducer, fold_claimed_at, partition_set_id, generation
         FROM scheduler_batch
         WHERE batch_id IN (%s)
         """
@@ -561,6 +569,8 @@ final class SqlserverBatchOperations implements BatchStore {
     batch.setProgressHook(parseProgressHook(row[6]));
     batch.setReducer(RowValues.stringOrNull(row[7]));
     batch.setFoldClaimedAt(RowValues.instantOrNull(row[8]));
+    batch.setPartitionSetId(RowValues.uuidOrNull(row[9]));
+    batch.setGeneration(row[10] == null ? null : ((Number) row[10]).intValue());
     return batch;
   }
 

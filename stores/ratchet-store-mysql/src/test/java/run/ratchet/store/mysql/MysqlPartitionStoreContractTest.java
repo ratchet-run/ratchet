@@ -15,15 +15,31 @@
  */
 package run.ratchet.store.mysql;
 
-import run.ratchet.tck.store.AbstractJpaResourcePermitClaimRaceContract;
-import run.ratchet.tck.store.JpaContainerFixture;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobStore;
+import run.ratchet.tck.store.AbstractPartitionStoreContract;
 
-class MysqlResourcePermitClaimRaceContractTest extends AbstractJpaResourcePermitClaimRaceContract {
+class MysqlPartitionStoreContractTest extends AbstractPartitionStoreContract {
 
   private final MysqlTestFixture fixture = new MysqlTestFixture();
 
   @Override
-  protected JpaContainerFixture fixture() {
-    return fixture;
+  public JobStore store() {
+    return fixture.store();
+  }
+
+  @Override
+  public JobEntity newPendingJob() {
+    return fixture.newPendingJob();
+  }
+
+  @Override
+  public JobEntity newBatchParentJob() {
+    return fixture.newBatchParentJob();
+  }
+
+  @Override
+  public void cleanupStore() {
+    fixture.cleanupStore();
   }
 }

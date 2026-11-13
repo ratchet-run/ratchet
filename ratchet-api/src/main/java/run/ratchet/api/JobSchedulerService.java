@@ -80,6 +80,14 @@ import run.ratchet.spi.JobAuthorizationPolicy;
  */
 @Incubating
 public interface JobSchedulerService {
+  /**
+   * Deletes a sealed partition set. Policies may receive an archived latest batch id.
+   *
+   * @return false for an unknown key
+   * @throws IllegalStateException if the latest generation is not sealed
+   */
+  @Incubating
+  boolean deletePartitionSet(String partitionKey);
 
   /**
    * Starts a fluent builder for a job to execute immediately (zero delay). The returned builder is
