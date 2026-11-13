@@ -43,12 +43,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobQueryService;
+import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
-import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.tck.store.JdbcLockWait;
 import run.ratchet.testsuite.app.SimpleJob;
@@ -129,7 +130,7 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
         () ->
             assertEquals(
                 holder.id(),
-                jobCrudStore.findActiveByBusinessKey(key).map(JobEntity::getId).orElse(null),
+                jobCrudStore.findBusinessKeyHolder(key).map(BusinessKeyHolder::id).orElse(null),
                 "the original holder keeps the key"));
   }
 
@@ -147,11 +148,8 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
     Outcome outcome = commitCallerTransaction();
 
     assertAll(
-        () ->
-            assertInstanceOf(
-                BusinessKeyReservationConflictException.class,
-                thrown.getCause(),
-                "the duplicate came from the held reservation"),
+        () -> assertNull(thrown.getCause(), "the recurring holder is found by the pre-check"),
+        () -> assertEquals(key, thrown.businessKey()),
         () -> assertEquals("STATUS_ACTIVE", outcome.statusAfterCatch(), outcome.toString()),
         () -> assertNull(outcome.commitFailure(), outcome.toString()),
         () ->
@@ -184,7 +182,8 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
     Outcome outcome = commitCallerTransaction();
 
     assertAll(
-        () -> assertInstanceOf(BusinessKeyReservationConflictException.class, thrown.getCause()),
+        () -> assertNull(thrown.getCause(), "the recurring holder is found by the pre-check"),
+        () -> assertEquals(key, thrown.businessKey()),
         () -> assertEquals("STATUS_ACTIVE", outcome.statusAfterCatch(), outcome.toString()),
         () -> assertNull(outcome.commitFailure(), outcome.toString()),
         () ->
@@ -291,10 +290,10 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
         assertNull(result.duplicate());
         assertTrue(jobCrudStore.findById(winningHandle.id()).isEmpty());
         assertEquals(
-            result.handle().id(), jobCrudStore.findActiveByBusinessKey(key).orElseThrow().getId());
+            result.handle().id(), jobCrudStore.findBusinessKeyHolder(key).orElseThrow().id());
       } else {
         assertEquals(
-            winningHandle.id(), jobCrudStore.findActiveByBusinessKey(key).orElseThrow().getId());
+            winningHandle.id(), jobCrudStore.findBusinessKeyHolder(key).orElseThrow().id());
         if (replay) {
           assertNull(result.duplicate());
           assertEquals(winningHandle.id(), result.handle().id());
@@ -331,7 +330,7 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
       utx.commit();
       assertTrue(jobCrudStore.findById(ownWrite.id()).isPresent());
       assertEquals(1, jobsWithBusinessKey(key));
-      assertEquals(holder.id(), jobCrudStore.findActiveByBusinessKey(key).orElseThrow().getId());
+      assertEquals(holder.id(), jobCrudStore.findBusinessKeyHolder(key).orElseThrow().id());
     } finally {
       endCallerTransaction();
     }
@@ -396,7 +395,7 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
       utx.commit();
       assertTrue(jobCrudStore.findById(ownWrite.id()).isPresent());
       assertEquals(1, jobsWithBusinessKey(key));
-      assertEquals(holder.id(), jobCrudStore.findActiveByBusinessKey(key).orElseThrow().getId());
+      assertEquals(holder.id(), jobCrudStore.findBusinessKeyHolder(key).orElseThrow().id());
     } finally {
       endCallerTransaction();
     }
@@ -452,9 +451,7 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
         .scheduleRecurring(YEARLY, ZoneOffset.UTC, SimpleJob::execute)
         .withBusinessKey(key)
         .submit();
-    assertTrue(
-        jobCrudStore.findActiveByBusinessKey(key).isEmpty(),
-        "precondition: the active-holder pre-check does not see a recurring holder");
+    assertEquals(JobType.RECURRING, jobCrudStore.findBusinessKeyHolder(key).orElseThrow().type());
   }
 
   private Outcome commitCallerTransaction() throws SystemException {

@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.jboss.logging.Logger;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
@@ -339,11 +340,9 @@ public class DefaultJobCreationService
 
     String businessKey = state.businessKey();
     if (businessKey != null) {
-      Optional<JobEntity> activeByBk = jobCrudStore.findActiveByBusinessKey(businessKey);
-      if (activeByBk.isPresent()) {
-        // A racer with the same idempotency key can commit between the two lookups. Its job is
-        // the one the idempotency lookup would have returned, so resolve to it the same way.
-        return resolveActiveBusinessKey(activeByBk.get(), businessKey, idempotencyKey);
+      Optional<BusinessKeyHolder> holder = jobCrudStore.findBusinessKeyHolder(businessKey);
+      if (holder.isPresent()) {
+        return resolveBusinessKeyHolder(holder.get().id(), businessKey, idempotencyKey);
       }
     }
 
@@ -468,20 +467,24 @@ public class DefaultJobCreationService
     return () -> jobId;
   }
 
-  private JobHandle resolveActiveBusinessKey(
-      JobEntity active, String businessKey, String idempotencyKey) {
-    UUID activeId = active.getId();
-    if (idempotencyKey.equals(active.getIdempotencyKey())) {
+  private JobHandle resolveBusinessKeyHolder(
+      UUID holderId, String businessKey, String idempotencyKey) {
+    // A racer can commit after the first lookup. A permanent unique idempotency key maps to
+    // the holder exactly when both submissions use the same key.
+    if (jobCrudStore
+        .findOriginalJobIdByIdempotencyKey(idempotencyKey)
+        .filter(holderId::equals)
+        .isPresent()) {
       log.debugf(
-          "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, activeId);
-      return () -> activeId;
+          "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, holderId);
+      return () -> holderId;
     }
     throw new DuplicateBusinessKeyException(
         businessKey,
         "Active job already exists with business key '"
             + businessKey
             + "' (jobId="
-            + activeId
+            + holderId
             + ")");
   }
 
