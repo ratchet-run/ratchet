@@ -17,19 +17,26 @@ package run.ratchet.testsuite.chain;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.CancellableJob;
 import run.ratchet.testsuite.app.ChainStepTracker;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
@@ -50,7 +57,7 @@ class LinearChainIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(ChainStepTracker.class, TestJobService.class)
+        .addClasses(ChainStepTracker.class, CancellableJob.class, TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -59,10 +66,12 @@ class LinearChainIT extends BaseRatchetIT {
   @BeforeEach
   void resetTrackers() {
     ChainStepTracker.reset();
+    CancellableJob.reset();
   }
 
   @Test
   void linearChain_shouldExecuteStepsInOrder() {
+    // The chain executes each step in order.
     JobHandle handle =
         jobService
             .enqueue(ChainStepTracker::stepA)
@@ -78,6 +87,7 @@ class LinearChainIT extends BaseRatchetIT {
 
   @Test
   void linearChain_shouldStopAfterStepFailure() {
+    // A failing step cancels the remaining chain.
     JobHandle handle =
         jobService
             .enqueue(ChainStepTracker::stepA)
@@ -121,5 +131,65 @@ class LinearChainIT extends BaseRatchetIT {
         List.of("A", "B"),
         ChainStepTracker.executionOrder(),
         "Chain execution should stop before later steps after a failure");
+  }
+
+  @Test
+  void cancelOfRunningChainStepCancelsTheNextStepAtOnceAndFailsTheChainOnce() {
+    // Canceling the running step cancels its child and publishes one chain failure.
+    CancellableJob.HOLD_AFTER_REQUEST = true;
+    var scheduler = jobService.getScheduler();
+    AtomicReference<UUID> chainId = new AtomicReference<>();
+    AtomicInteger failures = new AtomicInteger();
+    Consumer<Object> listener =
+        event -> {
+          if (event instanceof ChainFailedEvent failed
+              && failed.getParentJobId().equals(chainId.get())) failures.incrementAndGet();
+        };
+    scheduler.addEventListener(listener);
+    JobHandle first = null;
+    try {
+      first =
+          jobService
+              .enqueue(CancellableJob::execute)
+              .withTimeout(Duration.ofSeconds(120))
+              .then(ChainStepTracker::stepB)
+              .submit();
+      chainId.set(first.id());
+      await().atMost(Duration.ofSeconds(15)).untilTrue(CancellableJob.STARTED);
+      assertTrue(scheduler.cancelJob(first.id()));
+      await().atMost(Duration.ofSeconds(5)).untilTrue(CancellableJob.SAW_REQUEST);
+      await()
+          .atMost(Duration.ofSeconds(15))
+          .untilAsserted(
+              () -> {
+                var children =
+                    jobCrudStore.findDependants(chainId.get(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
+                assertEquals(1, children.size());
+                assertEquals(JobStatus.CANCELED, children.get(0).getStatus());
+              });
+      assertTrue(ChainStepTracker.executionOrder().isEmpty());
+      assertFalse(CancellableJob.ENDED.get(), "The first body must still be waiting on the gate");
+      CancellableJob.release();
+      await().atMost(Duration.ofSeconds(15)).untilTrue(CancellableJob.ENDED);
+      JobAssertions.assertJobCanceled(jobCrudStore, first);
+      await()
+          .during(Duration.ofSeconds(3))
+          .atMost(Duration.ofSeconds(10))
+          .untilAsserted(
+              () -> {
+                assertEquals(1, failures.get());
+                assertTrue(ChainStepTracker.executionOrder().isEmpty());
+              });
+    } finally {
+      CancellableJob.release();
+      try {
+        if (first != null) {
+          scheduler.cancelJob(first.id());
+          await().atMost(Duration.ofSeconds(15)).untilTrue(CancellableJob.ENDED);
+        }
+      } finally {
+        scheduler.removeEventListener(listener);
+      }
+    }
   }
 }

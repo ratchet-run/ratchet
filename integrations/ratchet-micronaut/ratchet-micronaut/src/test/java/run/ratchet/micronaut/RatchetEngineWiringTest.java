@@ -41,6 +41,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.CircuitBreakerProtectedInterceptor;
 import run.ratchet.micronaut.internal.NoTransactionOperations;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.micronaut.internal.tx.MicronautCancelStatusReader;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
@@ -63,6 +64,8 @@ import run.ratchet.ri.core.SubmissionFailureHandler;
 import run.ratchet.ri.core.SubmissionGateChecker;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
+import run.ratchet.ri.core.internal.CancelStatusReader;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
@@ -127,6 +130,20 @@ import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
+
+  @Test
+  void cancellationServicesShareOneTimeoutHandler() {
+    // The cancellation relay and executor resolve a single set of cancellation services.
+    try (var context = TestContexts.engine(Map.of())) {
+      context.start();
+      assertEquals(1, context.getBeansOfType(JobTimeoutHandler.class).size());
+      assertEquals(1, context.getBeansOfType(CancelRequestRelay.class).size());
+      assertEquals(1, context.getBeansOfType(CancelStatusReader.class).size());
+      assertInstanceOf(
+          MicronautCancelStatusReader.class, context.getBean(CancelStatusReader.class));
+    }
+  }
+
   @Test
   void partitionSweepCancelsWithoutCallingCustomScheduler() {
     JobSchedulerService custom = mock(JobSchedulerService.class);
