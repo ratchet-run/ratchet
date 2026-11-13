@@ -54,6 +54,13 @@ public final class RatchetNativeFeature implements Feature {
     }
     Class<?> uuid = access.findClassByName("run.ratchet.store.id.UuidV7Factory");
     if (uuid != null) RuntimeClassInitialization.initializeAtRunTime(uuid);
+    // Micronaut Security 4 keeps AuthenticationMode values in bean metadata on the image heap but
+    // leaves the enum to run-time initialization. Security 5 marks it for build time itself.
+    Class<?> authenticationMode =
+        access.findClassByName("io.micronaut.security.authentication.AuthenticationMode");
+    if (authenticationMode != null) {
+      RuntimeClassInitialization.initializeAtBuildTime(authenticationMode);
+    }
     NativeImageSupport.registerResources(
         access,
         RatchetNativeFeature.class.getModule(),
