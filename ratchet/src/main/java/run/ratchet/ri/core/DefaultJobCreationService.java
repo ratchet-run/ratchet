@@ -43,7 +43,6 @@ import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.JobType;
 import run.ratchet.api.KeyRange;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
@@ -56,6 +55,7 @@ import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.RecurringFireTime;
 import run.ratchet.ri.payload.JobPayloadFactory;
@@ -89,12 +89,14 @@ import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -131,6 +133,8 @@ public class DefaultJobCreationService
   private final TracingCollector tracingCollector;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final ClassPolicy classPolicy;
+  private final JobPayloadInvoker payloadInvoker;
+  private boolean transactionalCompletionAvailable;
   private final InternalEventPublisher eventPublisher;
   private final ErrorSanitizer errorSanitizer;
   private final MetricsCollector metricsCollector;
@@ -158,6 +162,7 @@ public class DefaultJobCreationService
     this.tracingCollector = null;
     this.authorizationPolicy = null;
     this.classPolicy = null;
+    this.payloadInvoker = null;
     this.eventPublisher = null;
     this.errorSanitizer = null;
     this.metricsCollector = null;
@@ -179,6 +184,7 @@ public class DefaultJobCreationService
       Instance<RecurringJobStore> recurringJobStore,
       Instance<SignalStore> signalStore,
       Instance<ResourcePermitStore> resourcePermitStore,
+      Instance<TransactionalCompletionStore> transactionalCompletionStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
@@ -219,6 +225,7 @@ public class DefaultJobCreationService
         afterCommitRegistrar,
         errorSanitizer,
         conflictResolutionTransaction);
+    this.transactionalCompletionAvailable = transactionalCompletionStore.isResolvable();
   }
 
   public DefaultJobCreationService(
@@ -314,6 +321,10 @@ public class DefaultJobCreationService
     this.tracingCollector = tracingCollector;
     this.authorizationPolicy = authorizationPolicy;
     this.classPolicy = classPolicy;
+    this.payloadInvoker = new JobPayloadInvoker(null, classPolicy);
+    this.transactionalCompletionAvailable =
+        jobCrudStore instanceof JobStore store
+            && store.capability(TransactionalCompletionStore.class).isPresent();
     this.eventPublisher = eventPublisher;
     this.errorSanitizer = errorSanitizer;
     this.metricsCollector = metricsCollector;
@@ -362,6 +373,8 @@ public class DefaultJobCreationService
     }
 
     JobPayload payload = payload(builder.task());
+    List<JobPayload> chainPayloads = state.chainTasks().stream().map(this::payload).toList();
+    List<BranchPayloads> branches = prepareWorkflowBranches(builder.workflowBranches(), null);
 
     String signalKey = state.awaitSignalKey();
     boolean isSignalWaiting = signalKey != null;
@@ -441,18 +454,16 @@ public class DefaultJobCreationService
       tagStore.insertTags(jobId, tags);
     }
 
-    List<SerializableCheckedRunnable> chainTasks = state.chainTasks();
-    if (!chainTasks.isEmpty()) {
+    if (!chainPayloads.isEmpty()) {
       createChainSteps(
           jobId,
-          chainTasks,
+          chainPayloads,
           opts,
           state.executionTarget(),
           state.encryptedPayload(),
           callerPrincipal);
     }
 
-    List<WorkflowBranch> branches = builder.workflowBranches();
     if (!branches.isEmpty()) {
       createWorkflowBranches(
           jobId,
@@ -533,6 +544,16 @@ public class DefaultJobCreationService
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
       validateReducingChildren(builder);
     }
+    List<JobPayload> childPayloads =
+        builder.children().stream()
+            .map(child -> validateRunnable(JobPayloadFactory.requireTaskArguments(child.payload())))
+            .toList();
+    JobPayload progressPayload =
+        builder.progressHook() == null ? null : runtimePayload(builder.progressHook());
+    List<BranchPayloads> branches =
+        prepareWorkflowBranches(
+            builder.workflowBranches(),
+            builder.reducer() == null ? null : builder.reducer().successBranch());
     String callerPrincipal = resolveCallerPrincipal();
     JobEntity parent = newBatchParent(callerPrincipal, idempotencyKey);
     parent.setExecutionTarget(builder.executionTarget());
@@ -553,18 +574,18 @@ public class DefaultJobCreationService
     batch.setCompletedItems(0);
     batch.setFailedItems(0);
     if (builder.progressHook() != null) {
-      batch.setProgressHook(runtimePayload(builder.progressHook()));
+      batch.setProgressHook(progressPayload);
     }
     saveBatch(batch);
 
     List<JobEntity> childJobs = new ArrayList<>(builder.children().size());
-    for (DefaultBatchBuilder.ChildSpec child : builder.children()) {
+    for (JobPayload childPayload : childPayloads) {
       JobEntity childJob = new JobEntity();
       childJob.setJobType(JobExecutionType.BATCH_CHILD);
       childJob.setStatus(JobStatus.PENDING);
       childJob.setPriority(JobPriority.NORMAL);
       childJob.setScheduledTime(effective().instant());
-      childJob.setPayload(validate(JobPayloadFactory.requireTaskArguments(child.payload())));
+      childJob.setPayload(childPayload);
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
       childJob.setExecutionTarget(builder.executionTarget());
@@ -576,12 +597,11 @@ public class DefaultJobCreationService
     }
     createWorkflowBranches(
         parentId,
-        builder.workflowBranches(),
+        branches,
         builder.callbackOptions(),
         builder.executionTarget(),
         savedParent.isEncryptedPayload(),
-        callerPrincipal,
-        builder.reducer() == null ? null : builder.reducer().successBranch());
+        callerPrincipal);
 
     if (!childJobs.isEmpty()) {
       bulkInsertJobs(childJobs);
@@ -744,7 +764,8 @@ public class DefaultJobCreationService
       child.setPriority(JobPriority.NORMAL);
       child.setScheduledTime(now);
       child.setPayload(
-          validate(builder.partitionPayload(new KeyRange(row.getRangeFrom(), row.getRangeTo()))));
+          validateRunnable(
+              builder.partitionPayload(new KeyRange(row.getRangeFrom(), row.getRangeTo()))));
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       child.setExecutionTarget(builder.executionTarget());
@@ -754,18 +775,18 @@ public class DefaultJobCreationService
       checkCreateAuthorization(child);
       children.add(child);
     }
+    List<BranchPayloads> branchPayloads = prepareWorkflowBranches(builder.workflowBranches(), null);
     List<PreparedWorkflowBranch> branches = new ArrayList<>();
-    for (int order = 0; order < builder.workflowBranches().size(); order++) {
+    for (int order = 0; order < branchPayloads.size(); order++) {
       branches.add(
           prepareWorkflowBranch(
               parentId,
-              builder.workflowBranches().get(order),
+              branchPayloads.get(order),
               order,
               builder.callbackOptions(),
               builder.executionTarget(),
               parent.isEncryptedPayload(),
-              caller,
-              false));
+              caller));
     }
     if (!partitions.createOrAdvance(
         new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
@@ -846,10 +867,30 @@ public class DefaultJobCreationService
       }
     }
 
+    List<JobPayload> stagedChildren = null;
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
       validateReducingChildren(builder);
-      prepareReducingInvocationStream(builder);
+      stagedChildren = prepareReducingInvocationStream(builder);
+    }
+    var stagedIterator = stagedChildren == null ? null : stagedChildren.iterator();
+    Function<T, JobPayload> childPayloadFactory =
+        stagedIterator == null
+            ? item -> streamingPayload(builder, item)
+            : item -> stagedIterator.next();
+    List<BranchPayloads> branches =
+        prepareWorkflowBranches(
+            builder.workflowBranches(),
+            builder.reducer() == null ? null : builder.reducer().successBranch());
+    JobPayload progressPayload =
+        builder.batchProgressHook() == null ? null : runtimePayload(builder.batchProgressHook());
+    var iterator = builder.stream().iterator();
+    List<T> firstItems = builder.newChunk();
+    JobPayload firstPayload = null;
+    if (iterator.hasNext()) {
+      T first = iterator.next();
+      firstItems.add(first);
+      firstPayload = childPayloadFactory.apply(first);
     }
     String callerPrincipal = resolveCallerPrincipal();
     JobEntity parent = newBatchParent(callerPrincipal, idempotencyKey);
@@ -860,7 +901,7 @@ public class DefaultJobCreationService
 
     int totalItems = 0;
     int chunksInserted = 0;
-    List<T> chunk = builder.newChunk();
+    List<T> chunk = firstItems;
     BatchEntity batch = new BatchEntity();
     batch.setId(parentId);
     if (builder.reducer() != null) {
@@ -874,35 +915,39 @@ public class DefaultJobCreationService
     batch.setCompletedItems(0);
     batch.setFailedItems(0);
     if (builder.batchProgressHook() != null) {
-      batch.setProgressHook(runtimePayload(builder.batchProgressHook()));
+      batch.setProgressHook(progressPayload);
     }
     saveBatch(batch);
 
     createWorkflowBranches(
         parentId,
-        builder.workflowBranches(),
+        branches,
         builder.callbackOptions(),
         builder.executionTarget(),
         savedParent.isEncryptedPayload(),
-        callerPrincipal,
-        builder.reducer() == null ? null : builder.reducer().successBranch());
+        callerPrincipal);
 
-    var iterator = builder.stream().iterator();
-    while (iterator.hasNext()) {
-      chunk.add(iterator.next());
-      if (chunk.size() >= builder.chunkSize()) {
-        totalItems += createChildChunk(parentId, builder, chunk, chunksInserted, callerPrincipal);
+    while (!chunk.isEmpty() || iterator.hasNext()) {
+      while (chunk.size() < builder.chunkSize() && iterator.hasNext()) {
+        chunk.add(iterator.next());
+      }
+      if (!chunk.isEmpty()) {
+        totalItems +=
+            createChildChunk(
+                parentId,
+                builder,
+                chunk,
+                chunksInserted,
+                callerPrincipal,
+                firstPayload,
+                childPayloadFactory);
+        firstPayload = null;
         chunksInserted++;
         builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
         chunk.clear();
       }
     }
 
-    if (!chunk.isEmpty()) {
-      totalItems += createChildChunk(parentId, builder, chunk, chunksInserted, callerPrincipal);
-      chunksInserted++;
-      builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
-    }
     batchStore.updateBatchTotalItems(parentId, totalItems);
 
     if (totalItems == 0) {
@@ -1164,19 +1209,19 @@ public class DefaultJobCreationService
 
   private void createChainSteps(
       UUID predecessorId,
-      List<SerializableCheckedRunnable> chainTasks,
+      List<JobPayload> chainPayloads,
       JobOptions opts,
       String executionTarget,
       boolean parentEncrypted,
       String callerPrincipal) {
     UUID prevId = predecessorId;
-    for (SerializableCheckedRunnable chainTask : chainTasks) {
+    for (JobPayload chainPayload : chainPayloads) {
       JobEntity step = new JobEntity();
       step.setJobType(JobExecutionType.CHAIN_STEP);
       step.setStatus(JobStatus.PENDING);
       step.setPriority(opts.priority());
       step.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-      step.setPayload(payload(chainTask));
+      step.setPayload(chainPayload);
       // A chain step inherits its parent's encryption opt-in: the row mapper encrypts the step's
       // own
       // payload args off this flag, exactly as it does for the parent job, so an opted-in
@@ -1206,29 +1251,40 @@ public class DefaultJobCreationService
       DefaultStreamingBatchBuilder<T> builder,
       List<T> chunk,
       int chunkIndex,
-      String callerPrincipal) {
-    if (builder instanceof InvocationStreamingState<T> invocationBuilder) {
-      try {
-        return createInvocationStreamingChildJobs(
-            parentId, invocationBuilder, chunk, callerPrincipal);
-      } catch (RuntimeException e) {
-        if (eventPublisher != null) {
-          eventPublisher.publish(
-              new BatchChunkFailureEvent(
-                  parentId,
-                  null,
-                  null,
-                  JobType.BATCH,
-                  JobPriority.NORMAL,
-                  null,
-                  chunkIndex,
-                  chunk.size(),
-                  sanitizeError(e)));
-        }
-        throw e;
+      String callerPrincipal,
+      JobPayload firstPayload,
+      Function<T, JobPayload> childPayloadFactory) {
+    try {
+      return createStreamingChildJobs(
+          parentId, builder, chunk, callerPrincipal, firstPayload, childPayloadFactory);
+    } catch (RuntimeException e) {
+      if (builder instanceof InvocationStreamingState<?> && eventPublisher != null) {
+        eventPublisher.publish(
+            new BatchChunkFailureEvent(
+                parentId,
+                null,
+                null,
+                JobType.BATCH,
+                JobPriority.NORMAL,
+                null,
+                chunkIndex,
+                chunk.size(),
+                sanitizeError(e)));
       }
+      throw e;
     }
-    return createStreamingChildJobs(parentId, builder, chunk, callerPrincipal);
+  }
+
+  private <T extends Serializable> JobPayload streamingPayload(
+      DefaultStreamingBatchBuilder<T> builder, T item) {
+    JobPayload prepared =
+        builder instanceof InvocationStreamingState<T> state
+            ? validateRunnable(
+                JobPayloadFactory.requireTaskArguments(
+                    JobPayloadFactory.fromInvocation(state.invocationFactory().apply(item))))
+            : payload(builder.processingAction(), List.of(item));
+    if (builder.reducer() != null) builder.reducer().validateChild(prepared, classPolicy);
+    return prepared;
   }
 
   private String sanitizeError(Throwable failure) {
@@ -1245,47 +1301,23 @@ public class DefaultJobCreationService
     return failure.getClass().getName();
   }
 
-  private <T extends Serializable> int createInvocationStreamingChildJobs(
-      UUID parentId, InvocationStreamingState<T> builder, List<T> items, String callerPrincipal) {
-    return createStreamingChildJobs(
-        parentId,
-        builder,
-        items,
-        callerPrincipal,
-        item ->
-            validate(
-                JobPayloadFactory.requireTaskArguments(
-                    JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item)))));
-  }
-
-  private <T extends Serializable> int createStreamingChildJobs(
-      UUID parentId,
-      DefaultStreamingBatchBuilder<T> builder,
-      List<T> items,
-      String callerPrincipal) {
-    return createStreamingChildJobs(
-        parentId,
-        builder,
-        items,
-        callerPrincipal,
-        item -> payload(builder.processingAction(), List.of(item)));
-  }
-
   private <T extends Serializable> int createStreamingChildJobs(
       UUID parentId,
       DefaultStreamingBatchBuilder<T> builder,
       List<T> items,
       String callerPrincipal,
+      JobPayload firstPayload,
       Function<T, JobPayload> payloadFactory) {
     List<JobEntity> children = new ArrayList<>(items.size());
-    for (T item : items) {
+    for (int index = 0; index < items.size(); index++) {
+      T item = items.get(index);
       JobEntity child = new JobEntity();
       child.setJobType(JobExecutionType.BATCH_CHILD);
       child.setStatus(JobStatus.PENDING);
       child.setPriority(JobPriority.NORMAL);
       child.setScheduledTime(effective().instant());
-      JobPayload partialPayload = payloadFactory.apply(item);
-      if (builder.reducer() != null) builder.reducer().validateChild(partialPayload, classPolicy);
+      JobPayload partialPayload =
+          index == 0 && firstPayload != null ? firstPayload : payloadFactory.apply(item);
       child.setPayload(partialPayload);
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
@@ -1313,26 +1345,38 @@ public class DefaultJobCreationService
     }
   }
 
-  private void createWorkflowBranches(
-      UUID parentId,
-      List<WorkflowBranch> branches,
-      JobOptions options,
-      String executionTarget,
-      boolean parentEncrypted,
-      String callerPrincipal) {
-    createWorkflowBranches(
-        parentId, branches, options, executionTarget, parentEncrypted, callerPrincipal, null);
+  private record BranchPayloads(WorkflowBranch branch, JobPayload payload, JobPayload expression) {}
+
+  private List<BranchPayloads> prepareWorkflowBranches(
+      List<WorkflowBranch> branches, WorkflowBranch resultSlotBranch) {
+    requireWorkflowConditionCapability(branches);
+    List<BranchPayloads> prepared = new ArrayList<>(branches.size());
+    for (WorkflowBranch branch : branches) {
+      JobPayload task =
+          payload(
+              branch.task(),
+              branch == resultSlotBranch
+                  && branch.condition().type() == ConditionType.BATCH_SUCCESS);
+      Serializable expression = branch.condition().expression();
+      JobPayload condition =
+          expression instanceof JobInvocation invocation
+              ? validate(JobPayloadFactory.fromInvocation(invocation))
+              : expression instanceof SerializablePredicate<?>
+                      || expression instanceof SerializableFunction<?, ?>
+                  ? validate(JobPayloadFactory.deferredConditionPayload(expression))
+                  : null;
+      prepared.add(new BranchPayloads(branch, task, condition));
+    }
+    return prepared;
   }
 
   private void createWorkflowBranches(
       UUID parentId,
-      List<WorkflowBranch> branches,
+      List<BranchPayloads> branches,
       JobOptions options,
       String executionTarget,
       boolean parentEncrypted,
-      String callerPrincipal,
-      WorkflowBranch resultSlotBranch) {
-    requireWorkflowConditionCapability(branches);
+      String callerPrincipal) {
     for (int definitionOrder = 0; definitionOrder < branches.size(); definitionOrder++) {
       persistWorkflowBranch(
           prepareWorkflowBranch(
@@ -1342,20 +1386,19 @@ public class DefaultJobCreationService
               options,
               executionTarget,
               parentEncrypted,
-              callerPrincipal,
-              branches.get(definitionOrder) == resultSlotBranch));
+              callerPrincipal));
     }
   }
 
   private PreparedWorkflowBranch prepareWorkflowBranch(
       UUID parentId,
-      WorkflowBranch branch,
+      BranchPayloads prepared,
       int definitionOrder,
       JobOptions options,
       String executionTarget,
       boolean parentEncrypted,
-      String callerPrincipal,
-      boolean allowResultSlot) {
+      String callerPrincipal) {
+    WorkflowBranch branch = prepared.branch();
     JobEntity branchJob = new JobEntity();
     branchJob.setId(UuidV7Factory.create());
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
@@ -1363,10 +1406,7 @@ public class DefaultJobCreationService
     branchJob.setPriority(options.priority());
     applyOptions(branchJob, options);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-    branchJob.setPayload(
-        payload(
-            branch.task(),
-            allowResultSlot && branch.condition().type() == ConditionType.BATCH_SUCCESS));
+    branchJob.setPayload(prepared.payload());
     branchJob.setEncryptedPayload(parentEncrypted);
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
@@ -1385,10 +1425,7 @@ public class DefaultJobCreationService
       if (expr instanceof SerializablePredicate<?>
           || expr instanceof SerializableFunction<?, ?>
           || expr instanceof JobInvocation) {
-        JobPayload p =
-            expr instanceof JobInvocation invocation
-                ? validate(JobPayloadFactory.fromInvocation(invocation))
-                : validate(JobPayloadFactory.deferredConditionPayload(expr));
+        JobPayload p = prepared.expression();
         // The predicate belongs to the parent job, binds the parent id, and follows the parent's
         // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
         // switch is off.
@@ -1429,37 +1466,30 @@ public class DefaultJobCreationService
 
   private JobPayload payload(Serializable callback, boolean allowResultSlot) {
     JobPayload payload = resolvePayload(callback);
-    if (allowResultSlot && List.of(0).equals(payload.runtimeArgIndexes())) return validate(payload);
-    return validate(JobPayloadFactory.requireTaskArguments(payload));
+    if (allowResultSlot && List.of(0).equals(payload.runtimeArgIndexes()))
+      return validateRunnable(payload);
+    return validateRunnable(JobPayloadFactory.requireTaskArguments(payload));
   }
 
   @SuppressWarnings("unchecked")
-  private <T extends Serializable> void prepareReducingInvocationStream(
+  private <T extends Serializable> List<JobPayload> prepareReducingInvocationStream(
       DefaultStreamingBatchBuilder<T> builder) {
-    if (!(builder instanceof InvocationStreamingState<?>)) return;
+    if (!(builder instanceof InvocationStreamingState<?>)) return null;
     InvocationStreamingState<T> state = (InvocationStreamingState<T>) builder;
     // A trusted factory may choose a different target per item. Stage its invocations once so
     // every declared result type is validated before any row is written, including on MongoDB.
     List<T> items = state.stream().toList();
-    List<JobInvocation> invocations = new ArrayList<>(items.size());
+    List<JobPayload> payloads = new ArrayList<>(items.size());
     for (T item : items) {
       JobPayload prepared =
-          validate(
+          validateRunnable(
               JobPayloadFactory.requireTaskArguments(
                   JobPayloadFactory.fromInvocation(state.invocationFactory().apply(item))));
       state.reducer().validateChild(prepared, classPolicy);
-      invocations.add(
-          new JobInvocation(
-              prepared.target(),
-              prepared.method(),
-              prepared.methodDescriptor(),
-              prepared.isStatic(),
-              prepared.args(),
-              prepared.runtimeArgIndexes()));
+      payloads.add(prepared);
     }
-    var cursor = invocations.iterator();
-    state.setInvocationFactory(item -> cursor.next());
     state.fromStream(items.stream());
+    return payloads;
   }
 
   private void validateReducingChildren(DefaultBatchBuilder builder) {
@@ -1487,10 +1517,21 @@ public class DefaultJobCreationService
   }
 
   private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
-    return validate(
+    return validateRunnable(
         JobPayloadFactory.requireTaskArguments(
             JobPayloadFactory.fromInvocation(
                 jobInvocationResolver.resolve(callback, runtimeArguments))));
+  }
+
+  private JobPayload validateRunnable(JobPayload payload) {
+    JobPayload validated = validate(payload);
+    try {
+      payloadInvoker.validateTransactionalSubmission(validated, transactionalCompletionAvailable);
+      return validated;
+    } catch (RuntimeException failure) {
+      JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(validated);
+      throw failure;
+    }
   }
 
   private JobPayload validate(JobPayload payload) {

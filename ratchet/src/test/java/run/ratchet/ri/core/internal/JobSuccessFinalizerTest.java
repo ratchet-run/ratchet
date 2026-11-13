@@ -250,6 +250,67 @@ class JobSuccessFinalizerTest {
     assertFalse(Thread.currentThread().isInterrupted());
   }
 
+  @Test
+  void minimalSuccessWritesOnceAndRecordsCompletion() {
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenReturn(true);
+    assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL, finalizeMinimalSuccess());
+    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(observer).recordSuccessFinalizationMinimal(job);
+    assertTrue(delays.isEmpty());
+  }
+
+  @Test
+  void minimalSuccessReturnsTerminalSkipped() {
+    assertEquals(JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED, finalizeMinimalSuccess());
+    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(observer, never()).recordSuccessFinalizationMinimal(any());
+  }
+
+  @Test
+  void minimalSuccessReturnsStuckWithoutRepeatingStuckObservation() {
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L))
+        .thenThrow(new RatchetTransientStoreException("busy"));
+    assertEquals(JobSuccessFinalizer.Outcome.STUCK, finalizeMinimalSuccess());
+    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(observer, never()).recordSuccessFinalizationStuck(any());
+    assertTrue(delays.isEmpty());
+  }
+
+  @Test
+  void minimalSuccessPropagatesNonTransientFailure() {
+    IllegalStateException failure = new IllegalStateException("invalid write");
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenThrow(failure);
+    Assertions.assertSame(
+        failure, assertThrows(IllegalStateException.class, this::finalizeMinimalSuccess));
+  }
+
+  @Test
+  void minimalSuccessPreservesReducerResult() {
+    BatchStore batches = mock(BatchStore.class);
+    UUID batchId = UUID.randomUUID();
+    BatchEntity batch = new BatchEntity();
+    batch.setReducer("{}");
+    job.setDependsOn(batchId);
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    when(batches.findBatchById(batchId)).thenReturn(Optional.of(batch));
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+        .thenReturn(true);
+    JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
+    finalizer.configureBatchStore(batches);
+    assertEquals(
+        JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL,
+        finalizer.finalizeMinimalSuccess(job, "json", "type", START, END, 1_000L, 25L));
+    verify(lifecycleFacade).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+    verify(lifecycleFacade, never())
+        .completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong());
+    verify(observer).recordSuccessFinalizationMinimal(job);
+  }
+
+  private JobSuccessFinalizer.Outcome finalizeMinimalSuccess() {
+    return finalizer(delays::add, 0L)
+        .finalizeMinimalSuccess(job, "json", "type", START, END, 1_000L, 25L);
+  }
+
   private JobSuccessFinalizer finalizer(JobSuccessFinalizer.Sleeper sleeper, long jitter) {
     return new JobSuccessFinalizer(lifecycleFacade, observer, sleeper, () -> jitter);
   }

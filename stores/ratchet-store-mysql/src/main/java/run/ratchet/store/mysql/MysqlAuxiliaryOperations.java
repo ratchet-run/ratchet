@@ -167,10 +167,16 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
+    return findConditionsByParentJobId(parentJobId, false);
+  }
+
+  List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId, boolean sharedLock) {
     return findConditions(
         "WHERE parent_job_id = ?",
         List.of(UuidByteArrayConverter.toBytes(parentJobId)),
-        "ORDER BY condition_priority ASC, definition_order ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC",
+        0,
+        sharedLock);
   }
 
   @Override
@@ -386,6 +392,16 @@ final class MysqlAuxiliaryOperations
   @SuppressWarnings("unchecked")
   private List<WorkflowConditionEntity> findConditions(
       String whereClause, List<Object> params, String orderClause, int maxResults) {
+    return findConditions(whereClause, params, orderClause, maxResults, false);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<WorkflowConditionEntity> findConditions(
+      String whereClause,
+      List<Object> params,
+      String orderClause,
+      int maxResults,
+      boolean sharedLock) {
     // language=MySQL
     String sqlPrefix =
         """
@@ -393,7 +409,14 @@ final class MysqlAuxiliaryOperations
                condition_priority, definition_order, created_at
         FROM scheduler_workflow_condition
         """;
-    Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
+    Query query =
+        ctx.em()
+            .createNativeQuery(
+                sqlPrefix
+                    + whereClause
+                    + " "
+                    + orderClause
+                    + (sharedLock ? " LOCK IN SHARE MODE" : ""));
     for (int i = 0; i < params.size(); i++) {
       query.setParameter(i + 1, params.get(i));
     }

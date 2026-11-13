@@ -188,6 +188,7 @@ export default defineConfig({
             { text: 'Job Types', link: '/concepts/job-types' },
             { text: 'Scheduling', link: '/concepts/scheduling' },
             { text: 'Execution Model', link: '/concepts/execution-model' },
+            { text: 'Transactional Jobs', link: '/concepts/transactional-jobs' },
             { text: 'Error Handling', link: '/concepts/error-handling' },
             { text: 'Retry Strategies', link: '/concepts/retry-strategies' },
             { text: 'Batches', link: '/concepts/batches' },

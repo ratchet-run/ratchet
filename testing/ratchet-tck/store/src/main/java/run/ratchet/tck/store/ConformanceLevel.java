@@ -51,7 +51,8 @@ public enum ConformanceLevel {
           + " pause/resume, and non-terminal status CAS — are part of the mandatory core. The"
           + " optional contracts apply only to stores advertising the matching capability: audit,"
           + " recurring scheduling, batch orchestration, workflow conditions, query, analytics,"
-          + " signal delivery, per-job state, and durable terminal events.",
+          + " signal delivery, per-job state, durable terminal events, and transactional"
+          + " completion.",
       List.of(
           "AbstractJobRetryStoreContract",
           "AbstractJobPauseStoreContract",
@@ -67,7 +68,8 @@ public enum ConformanceLevel {
           "AbstractJobAnalyticsStoreContract",
           "AbstractSignalStoreContract",
           "AbstractJobStateStoreContract",
-          "AbstractEventOutboxStoreContract")),
+          "AbstractEventOutboxStoreContract",
+          "AbstractTransactionalCompletionStoreContract")),
 
   ADVANCED(
       "Advanced",

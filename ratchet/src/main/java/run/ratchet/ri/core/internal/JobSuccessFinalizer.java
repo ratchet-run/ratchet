@@ -121,6 +121,32 @@ public class JobSuccessFinalizer {
       }
     }
 
+    return finalizeMinimalSuccess(
+        job, resultJson, resultType, start, end, durationMs, queueWaitMs, true);
+  }
+
+  /** Makes one reducer-preserving minimal success write after full retries are exhausted. */
+  public Outcome finalizeMinimalSuccess(
+      JobEntity job,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs) {
+    return finalizeMinimalSuccess(
+        job, resultJson, resultType, start, end, durationMs, queueWaitMs, false);
+  }
+
+  private Outcome finalizeMinimalSuccess(
+      JobEntity job,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs,
+      boolean reportStuck) {
     try {
       boolean preserveResult =
           batchStore != null
@@ -145,11 +171,13 @@ public class JobSuccessFinalizer {
       return Outcome.TERMINAL_SKIPPED;
     } catch (RuntimeException e) {
       if (!isTransientStoreFailure(e)) throw e;
-      observer.recordSuccessFinalizationStuck(job);
-      log.errorf(
-          e,
-          "Job %s succeeded but success finalization is stuck after transient store conflicts",
-          job.getId());
+      if (reportStuck) {
+        observer.recordSuccessFinalizationStuck(job);
+        log.errorf(
+            e,
+            "Job %s succeeded but success finalization is stuck after transient store conflicts",
+            job.getId());
+      }
       return Outcome.STUCK;
     }
   }
