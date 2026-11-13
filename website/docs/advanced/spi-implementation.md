@@ -756,8 +756,8 @@ table has no foreign key, so a park never locks `scheduler_job`.
   or no longer PENDING, RUNNING or PAUSED. It must keep a row that a park renewed after the sweep
   selected it; the SQL stores fence the delete on the `lease_until` they read. With no waiters,
   the sweep costs one indexed read.
-- A user reschedule that changes `scheduled_time` deletes the waiter row. Engine reschedules keep
-  it.
+- A user reschedule that changes `scheduled_time` deletes the waiter row, and so does a save that
+  changes the job's resource. Engine reschedules keep it.
 - `releasePermit`, `releaseAllPermits`, `configureResource` and `cleanupOrphanedPermits` do not
   wake anyone. After they commit, the engine calls `wakeWaiters` for the released or configured
   resource, or runs the sweep when it does not know the resource.
