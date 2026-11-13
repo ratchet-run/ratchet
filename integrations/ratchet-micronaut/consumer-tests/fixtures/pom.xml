@@ -9,6 +9,14 @@
   <artifactId>verification-fixtures</artifactId>
   <dependencies>
     <dependency>
+      <groupId>io.micronaut</groupId>
+      <artifactId>micronaut-http</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.security</groupId>
+      <artifactId>micronaut-security</artifactId>
+    </dependency>
+    <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-micronaut</artifactId>
       <version>${ratchet.version}</version>
