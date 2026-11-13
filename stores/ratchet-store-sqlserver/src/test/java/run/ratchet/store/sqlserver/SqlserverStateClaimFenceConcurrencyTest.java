@@ -107,7 +107,7 @@ class SqlserverStateClaimFenceConcurrencyTest {
                       tx(
                           emf,
                           store ->
-                              store.resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100));
+                              store.resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500));
                       if (transition.equals("claim")) {
                         reclaim(emf, id, claim);
                       }

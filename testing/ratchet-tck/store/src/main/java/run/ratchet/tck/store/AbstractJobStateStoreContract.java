@@ -100,7 +100,7 @@ public abstract class AbstractJobStateStoreContract implements JobStoreContractF
     var job = claimedStateJob();
     long oldClaim = job.getClaimSeq();
     stateStore().initState(job.getId(), NAMESPACE, "initial", oldClaim);
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
     assertEquals(oldClaim, store().findById(job.getId()).orElseThrow().getClaimSeq().longValue());
     assertFencedSuperseded(job.getId(), oldClaim);
     var next = store().claimNextBatch(1, "next-owner").get(0);

@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.spi;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -44,19 +43,54 @@ public interface JobBulkStore {
   /** Reads completion metadata without decoding payloads. Transaction attribute: REQUIRED. */
   Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId);
 
-  /** Resets orphans with budget and returns exhausted claims in one REQUIRED transaction. */
-  OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit);
-
-  /** Uses the same exact cutoff for the reset and exhausted selection. */
-  OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit);
+  /**
+   * Reads up to {@code limit} RUNNING candidates with picked_at before {@code cutoff}, no owner
+   * heartbeat at or after cutoff (including no owner), and crash count below {@code
+   * maxCrashRedeliveries}; a missing count is zero. No ordering is promised.
+   *
+   * <p>Rechecks each candidate before changing it. Closes its RUNNING execution rows as FAILED with
+   * {@code JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}, resets it to PENDING, clears owner
+   * and picked_at, increments crash count, and sets updated_at to now. Rows at or above the maximum
+   * are never read or changed. Returns (scanned, reset, 0). One REQUIRED transaction per call. A
+   * nonpositive limit touches nothing and returns (0, 0, 0).
+   */
+  OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit);
 
   /**
-   * Recovers this node's previous claims at startup. Exhausted claims retain RUNNING, picked_at and
-   * claim_seq; their owner is cleared so a later orphan scan can fail them.
+   * Reads up to {@code limit} RUNNING rows owned by {@code nodeId}, with no time cutoff. Rechecks
+   * candidates and closes their RUNNING execution rows as FAILED with {@code
+   * JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}. Resets rows below the maximum to PENDING,
+   * clears owner and picked_at, increments crash count (missing means zero), and sets updated_at to
+   * now. For rows at or above the maximum, clears only the owner, preserving RUNNING, picked_at and
+   * claim_seq so a later periodic scan can fail them.
+   *
+   * <p>Returns (scanned, reset, released). One REQUIRED transaction per call. A nonpositive limit
+   * touches nothing and returns (0, 0, 0).
    */
-  OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit);
+  OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit);
+
+  /**
+   * Reads up to {@code limit} RUNNING rows with picked_at before {@code cutoff}, no owner heartbeat
+   * at or after cutoff (including no owner), and crash count at or above {@code
+   * maxCrashRedeliveries}; a missing count is zero. Reads oldest picked_at first.
+   *
+   * <p>Rechecks each candidate, closes its RUNNING execution rows as FAILED with {@code
+   * JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}, and leaves the job RUNNING. Returns one
+   * {@link ExhaustedOrphan} with jobId, claimSeq, crashCount and pickedBy per confirmed row, oldest
+   * picked_at first. One REQUIRED transaction per call. A nonpositive limit touches nothing and
+   * returns an empty list.
+   */
+  List<ExhaustedOrphan> recoverExhaustedOrphans(
+      Instant cutoff, int maxCrashRedeliveries, int limit);
+
+  /**
+   * If the row is RUNNING with {@code claimSeq}, sets picked_at and updated_at to the current JVM
+   * time ({@link Instant#now()}, bound as a parameter) and returns true. Uses the same time source
+   * as batch claims and engine cutoff computation. Otherwise changes nothing and returns false.
+   * Moves an exhausted orphan the engine could not fail behind the others. One REQUIRED transaction
+   * per call.
+   */
+  boolean deferExhaustedOrphan(UUID jobId, long claimSeq);
 
   /**
    * Closes up to {@code limit} RUNNING execution rows started before {@code cutoff} whose job is

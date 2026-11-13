@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -34,7 +35,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -55,11 +55,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
 import run.ratchet.store.spi.OrphanRecovery;
@@ -111,11 +111,15 @@ class DefaultNodeIdentityProviderTest {
     when(nodeStore.getDatabaseTime()).thenReturn(clock.instant());
 
     lenient()
-        .when(jobBulkStore.resetOrphanJobsForNode(anyString(), eq(3), eq(100)))
-        .thenReturn(new OrphanRecovery(0, List.of()));
+        .when(
+            jobBulkStore.resetOrphanJobsForNode(
+                anyString(), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(new OrphanRecovery(0, 0, 0));
     lenient()
-        .when(jobBulkStore.resetOrphanJobs(any(Duration.class), eq(3), eq(100)))
-        .thenReturn(new OrphanRecovery(0, List.of()));
+        .when(
+            jobBulkStore.resetOrphanJobsBefore(
+                any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(new OrphanRecovery(0, 0, 0));
     provider = newProvider(false, "test-node", LongUnaryOperator.identity());
   }
 
@@ -137,39 +141,50 @@ class DefaultNodeIdentityProviderTest {
 
   @Test
   void init_retriesOwnNodeRecoveryAfterTransientFailure() {
-    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100))
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenThrow(new RatchetTransientStoreException("transient conflict"))
-        .thenReturn(new OrphanRecovery(0, List.of()));
+        .thenReturn(new OrphanRecovery(0, 0, 0));
 
     provider.init();
 
-    verify(jobBulkStore, times(2)).resetOrphanJobsForNode("test-node", 3, 100);
-    verify(jobBulkStore).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(jobBulkStore, times(2))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
   }
 
   @Test
   void init_retriesOtherNodeRecoveryAfterTransientFailure() {
-    when(jobBulkStore.resetOrphanJobs(Duration.ofSeconds(30), 3, 100))
+    when(jobBulkStore.resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenThrow(new RatchetTransientStoreException("transient conflict"))
-        .thenReturn(new OrphanRecovery(0, List.of()));
+        .thenReturn(new OrphanRecovery(0, 0, 0));
 
     provider.init();
 
-    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
-    verify(jobBulkStore, times(2)).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, times(2))
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
   }
 
   @Test
   void init_continuesWhenOtherNodeRecoveryExhaustsRetries() {
-    when(jobBulkStore.resetOrphanJobs(Duration.ofSeconds(30), 3, 100))
+    when(jobBulkStore.resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenThrow(new RatchetTransientStoreException("transient conflict"));
 
     provider.init();
 
-    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
-    verify(jobBulkStore, times(3)).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, times(3))
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
   }
 
@@ -177,24 +192,30 @@ class DefaultNodeIdentityProviderTest {
   void init_propagatesExhaustedOwnNodeRecoveryFailure() {
     RatchetTransientStoreException failure =
         new RatchetTransientStoreException("transient conflict");
-    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100)).thenThrow(failure);
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenThrow(failure);
 
     assertSame(failure, assertThrows(RatchetTransientStoreException.class, provider::init));
 
-    verify(jobBulkStore, times(3)).resetOrphanJobsForNode("test-node", 3, 100);
-    verify(jobBulkStore, never()).resetOrphanJobs(any(Duration.class), eq(3), eq(100));
+    verify(jobBulkStore, times(3))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, never())
+        .resetOrphanJobsBefore(any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
     verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
   }
 
   @Test
   void init_propagatesNonTransientRecoveryFailureWithoutRetry() {
     RuntimeException failure = new IllegalStateException("recovery failed");
-    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100)).thenThrow(failure);
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenThrow(failure);
 
     assertSame(failure, assertThrows(IllegalStateException.class, provider::init));
 
-    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
-    verify(jobBulkStore, never()).resetOrphanJobs(any(Duration.class), eq(3), eq(100));
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, never())
+        .resetOrphanJobsBefore(any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
     verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
   }
 
@@ -206,7 +227,8 @@ class DefaultNodeIdentityProviderTest {
     provider.init();
 
     verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
-    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
   }
 
@@ -433,15 +455,72 @@ class DefaultNodeIdentityProviderTest {
 
   @Test
   void startupPassesCrashBudgetAndLeavesExhaustedFailuresForTimer() {
-    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100))
-        .thenReturn(
-            new OrphanRecovery(
-                1, List.of(new ExhaustedOrphan(UUID.randomUUID(), 7, 3, "test-node"))));
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(new OrphanRecovery(2, 1, 1));
 
     provider.init();
 
-    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
-    verify(jobBulkStore).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(jobBulkStore, never()).findOrphanCompletionSnapshot(any(UUID.class));
+  }
+
+  @Test
+  void ownRowsArePagedToEndAfterHeartbeat() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(
+            new OrphanRecovery(500, 400, 100),
+            new OrphanRecovery(500, 500, 0),
+            new OrphanRecovery(12, 10, 2));
+    provider.init();
+    InOrder order = inOrder(nodeStore, jobBulkStore);
+    order.verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+    order
+        .verify(jobBulkStore, times(3))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+  }
+
+  @Test
+  void transientFailureOnSecondPageIsRetriedAndPagingContinues() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(new OrphanRecovery(500, 500, 0))
+        .thenThrow(new RatchetTransientStoreException("page two", null))
+        .thenReturn(new OrphanRecovery(500, 400, 100), new OrphanRecovery(12, 10, 2));
+    provider.init();
+    verify(jobBulkStore, times(4))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+  }
+
+  @Test
+  void thirdTransientFailureOnSecondPagePropagates() {
+    RatchetTransientStoreException failure = new RatchetTransientStoreException("page two", null);
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(new OrphanRecovery(500, 500, 0))
+        .thenThrow(failure);
+    assertSame(failure, assertThrows(RatchetTransientStoreException.class, provider::init));
+    verify(jobBulkStore, times(4))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, never())
+        .resetOrphanJobsBefore(any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
+  }
+
+  @Test
+  void fullOwnPageThatChangesNothingEndsLoop() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(new OrphanRecovery(500, 0, 0));
+    provider.init();
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+  }
+
+  @Test
+  void otherNodesPassUsesInjectedClockAndOnePage() {
+    provider.init();
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
   }
 }

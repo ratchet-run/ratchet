@@ -805,7 +805,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
             },
             () -> store.cancelJob(ids.get(ThreadLocalRandom.current().nextInt(ids.size()))),
             () -> {
-              store.resetOrphanJobsBefore(Instant.now().plusSeconds(60), 100_000, 100);
+              store.resetOrphanJobsBefore(Instant.now().plusSeconds(60), 100_000, 500);
               // Recover only crashed claims; live workers have a heartbeat beyond the cutoff.
               permits.cleanupOrphanedPermits(List.of("crashed"));
               woken.addAndGet(wake.applyAsInt("res-race"));

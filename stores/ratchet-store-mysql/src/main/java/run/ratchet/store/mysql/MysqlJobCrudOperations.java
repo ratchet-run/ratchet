@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.mysql;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +25,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -249,26 +249,18 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return deletes.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
-  }
-
-  @Override
   public int closeStaleExecutions(Instant cutoff, int limit) {
     return deletes.closeStaleExecutions(cutoff, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-    return deletes.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    return deletes.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 
   @Override
@@ -284,5 +276,16 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     return tags.countJobsByExecutionNodeForTag(tag);
+  }
+
+  @Override
+  public List<ExhaustedOrphan> recoverExhaustedOrphans(
+      Instant cutoff, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+  }
+
+  @Override
+  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 }

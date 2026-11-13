@@ -262,11 +262,11 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
             resolvedNodeId,
             () ->
                 jobBulkStore.resetOrphanJobsForNode(
-                    resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.EXHAUSTED_LIMIT));
+                    resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
     log.infof(
-        "Startup recovery for node %s: reset %s job(s), returned %s exhausted claim(s) for later"
-            + " failure",
-        resolvedNodeId, own.reset(), own.exhausted().size());
+        "Startup recovery for node %s: scanned %s candidate(s), reset %s job(s), released %s"
+            + " owner(s)",
+        resolvedNodeId, own.scanned(), own.reset(), own.released());
 
     // The orphan recovery timer runs this scan again after one interval, so only the node's own
     // reset above must succeed for startup to continue.
@@ -275,13 +275,13 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
           recoverAtStartup(
               resolvedNodeId,
               () ->
-                  jobBulkStore.resetOrphanJobs(
-                      Duration.ofSeconds(orphanGraceSeconds),
+                  jobBulkStore.resetOrphanJobsBefore(
+                      effective().instant().minusSeconds(orphanGraceSeconds),
                       maxCrashRedeliveries,
-                      OrphanRecoveryTimer.EXHAUSTED_LIMIT));
+                      OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
       log.infof(
-          "Startup orphan recovery: reset %s job(s), found %s exhausted claim(s)",
-          others.reset(), others.exhausted().size());
+          "Startup orphan recovery: scanned %s candidate(s), reset %s job(s), released %s owner(s)",
+          others.scanned(), others.reset(), others.released());
     } catch (RatchetTransientStoreException e) {
       log.warnf(
           e,

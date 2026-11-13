@@ -23,14 +23,10 @@ import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
-import static com.mongodb.client.model.Filters.nin;
-import static com.mongodb.client.model.Filters.not;
 import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
-import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
-import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
@@ -42,7 +38,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ENDED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
-import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
@@ -70,7 +65,6 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -739,10 +733,6 @@ final class MongoJobCrudOperations {
     return Optional.of(snapshot);
   }
 
-  OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return resetOrphanJobsBefore(Instant.now().minus(grace), maxCrashRedeliveries, exhaustedLimit);
-  }
-
   int closeStaleExecutions(Instant cutoffInstant, int limit) {
     if (limit <= 0) {
       return 0;
@@ -810,123 +800,25 @@ final class MongoJobCrudOperations {
     }
   }
 
-  OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoffInstant, int maxCrashRedeliveries, int exhaustedLimit) {
-    Date cutoff = DocumentMapper.toDate(cutoffInstant);
-    try (ClientSession session = ctx.startSession()) {
-      return session.withTransaction(
-          () -> {
-            List<String> activeNodeIds = new ArrayList<>();
-            for (Document doc : ctx.nodes().find(session, gte(HEARTBEAT_TS, cutoff))) {
-              activeNodeIds.add(doc.getString(ID));
-            }
-            Bson orphan =
-                and(
-                    eq(STATUS, STATUS_RUNNING),
-                    nin(PICKED_BY, activeNodeIds),
-                    lt(PICKED_AT, cutoff));
-            return recoverOrphans(session, orphan, maxCrashRedeliveries, exhaustedLimit, false);
-          },
-          TRANSACTION_OPTIONS);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("recover orphan jobs", e);
-    }
+  OrphanRecovery resetOrphanJobsBefore(Instant cutoffInstant, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 
-  OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    try (ClientSession session = ctx.startSession()) {
-      return session.withTransaction(
-          () ->
-              recoverOrphans(
-                  session,
-                  and(eq(STATUS, STATUS_RUNNING), eq(PICKED_BY, nodeId)),
-                  maxCrashRedeliveries,
-                  exhaustedLimit,
-                  true),
-          TRANSACTION_OPTIONS);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("recover orphan jobs for node", e);
-    }
-  }
-
-  private OrphanRecovery recoverOrphans(
-      ClientSession session,
-      Bson orphan,
-      int maxCrashRedeliveries,
-      int exhaustedLimit,
-      boolean releaseOwner) {
-    List<UUID> orphanIds = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(session, orphan).projection(new Document(ID, 1))) {
-      orphanIds.add(doc.get(ID, UUID.class));
-    }
-    if (!orphanIds.isEmpty()) {
-      Date endedAt = DocumentMapper.toDate(Instant.now());
-      for (int start = 0; start < orphanIds.size(); start += ORPHAN_EXECUTION_CLOSE_BATCH) {
-        List<UUID> batch =
-            orphanIds.subList(
-                start, Math.min(start + ORPHAN_EXECUTION_CLOSE_BATCH, orphanIds.size()));
-        ctx.executions()
-            .updateMany(
-                session,
-                and(in(JOB_ID, batch), eq(STATUS, STATUS_RUNNING)),
-                combine(
-                    set(STATUS, STATUS_FAILED),
-                    set(ENDED_AT, endedAt),
-                    set(ERROR_MESSAGE, ORPHAN_RECOVERY_ERROR_MESSAGE)));
-      }
-    }
-    // Missing means zero, including when the configured budget is zero.
-    Bson atLimit =
-        maxCrashRedeliveries == 0
-            ? or(gte(CRASH_COUNT, 0), exists(CRASH_COUNT, false))
-            : gte(CRASH_COUNT, maxCrashRedeliveries);
-    Bson hasBudget =
-        maxCrashRedeliveries == 0
-            ? and(exists(CRASH_COUNT, true), not(gte(CRASH_COUNT, 0)))
-            : not(gte(CRASH_COUNT, maxCrashRedeliveries));
-    UpdateResult reset =
-        ctx.jobs()
-            .updateMany(
-                session,
-                and(orphan, hasBudget),
-                combine(
-                    set(STATUS, STATUS_PENDING),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    inc(CRASH_COUNT, 1),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    Bson exhaustedFilter = and(orphan, atLimit);
-    List<ExhaustedOrphan> exhausted = new ArrayList<>();
-    if (exhaustedLimit > 0) {
-      for (Document doc :
-          ctx.jobs()
-              .find(session, exhaustedFilter)
-              .projection(
-                  new Document(ID, 1)
-                      .append(CLAIM_SEQ, 1)
-                      .append(CRASH_COUNT, 1)
-                      .append(PICKED_BY, 1))
-              .sort(ascending(ID))
-              .limit(exhaustedLimit)) {
-        Number claim = doc.get(CLAIM_SEQ, Number.class);
-        exhausted.add(
-            new ExhaustedOrphan(
-                doc.get(ID, UUID.class),
-                claim == null ? 0L : claim.longValue(),
-                doc.getInteger(CRASH_COUNT, 0),
-                doc.getString(PICKED_BY)));
-      }
-    }
-    if (releaseOwner) {
-      ctx.jobs().updateMany(session, exhaustedFilter, set(PICKED_BY, null));
-    }
-    return new OrphanRecovery((int) reset.getModifiedCount(), List.copyOf(exhausted));
+  OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 
   private static boolean holdsBusinessKey(JobEntity job) {
     return job.getBusinessKey() != null
         && StatusClassifier.isLiveStatus(StatusClassifier.effectiveStatus(job.getStatus()));
+  }
+
+  public List<ExhaustedOrphan> recoverExhaustedOrphans(
+      Instant cutoff, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+  }
+
+  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 }

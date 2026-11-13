@@ -139,7 +139,7 @@ class PostgresqlExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobsForNode("node", 3, 100).reset());
+        () -> deletes.resetOrphanJobsForNode("node", 3, 500).reset());
   }
 
   @Test

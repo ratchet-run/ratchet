@@ -15,12 +15,10 @@
  */
 package run.ratchet.store.oracle;
 
-import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -174,10 +172,6 @@ final class OracleJobDeleteOperations {
     return Optional.of(snapshot);
   }
 
-  OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return resetOrphanJobsBefore(Instant.now().minus(grace), maxCrashRedeliveries, exhaustedLimit);
-  }
-
   int closeStaleExecutions(Instant cutoff, int limit) {
     if (limit <= 0) {
       return 0;
@@ -213,107 +207,12 @@ final class OracleJobDeleteOperations {
     }
   }
 
-  OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-    String predicate =
-        """
-        WHERE status = 'RUNNING'
-            AND (
-              picked_by IS NULL OR picked_by NOT IN (
-                SELECT node_id FROM scheduler_node
-                WHERE heartbeat_ts >= ?
-              )
-            )
-            AND picked_at < ?
-        """;
-    Timestamp cutoffTimestamp = OracleTimestamps.microTimestamp(cutoff);
-    return recoverOrphans(
-        predicate,
-        List.of(cutoffTimestamp, cutoffTimestamp),
-        maxCrashRedeliveries,
-        exhaustedLimit,
-        false);
+  OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 
-  OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    return recoverOrphans(
-        "WHERE status = 'RUNNING' AND picked_by = ?",
-        List.of(nodeId),
-        maxCrashRedeliveries,
-        exhaustedLimit,
-        true);
-  }
-
-  private OrphanRecovery recoverOrphans(
-      String predicate,
-      List<?> parameters,
-      int maxCrashRedeliveries,
-      int exhaustedLimit,
-      boolean releaseOwner) {
-    try {
-      // Close first: after the reset the predicate no longer matches. Each statement checks the
-      // heartbeat again, so a node that heartbeats in between keeps its job, and this attempt reads
-      // FAILED until that node's own saveExecution writes the real outcome.
-      Query close =
-          ctx.em()
-              .createNativeQuery(
-                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
-                      + "CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), error_message = ? "
-                      + "WHERE status = 'RUNNING' AND job_id IN "
-                      + "(SELECT job_id FROM scheduler_job_queue "
-                      + predicate
-                      + ")");
-      close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
-      bindPredicate(close, parameters, 2);
-      close.executeUpdate();
-      String resetSql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-              crash_count = crash_count + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-          """
-              + predicate
-              + " AND crash_count < ?";
-      Query reset = ctx.em().createNativeQuery(resetSql);
-      bindRecovery(reset, parameters, maxCrashRedeliveries);
-      int count = reset.executeUpdate();
-      List<ExhaustedOrphan> exhausted = new ArrayList<>();
-      if (exhaustedLimit > 0) {
-        String selectSql =
-            """
-            SELECT job_id, claim_seq, crash_count, picked_by FROM scheduler_job_queue
-            """
-                + predicate
-                + " AND crash_count >= ? ORDER BY job_id";
-        Query select = ctx.em().createNativeQuery(selectSql);
-        bindRecovery(select, parameters, maxCrashRedeliveries);
-        select.setMaxResults(exhaustedLimit);
-        for (Object result : select.getResultList()) {
-          Object[] row = (Object[]) result;
-          exhausted.add(
-              new ExhaustedOrphan(
-                  OracleJobRowMapper.uuidOrNull(row[0]),
-                  ((Number) row[1]).longValue(),
-                  ((Number) row[2]).intValue(),
-                  row[3] == null ? null : row[3].toString()));
-        }
-      }
-      if (releaseOwner) {
-        Query release =
-            ctx.em()
-                .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_by = NULL "
-                        + predicate
-                        + " AND crash_count >= ?");
-        bindRecovery(release, parameters, maxCrashRedeliveries);
-        release.executeUpdate();
-      }
-      ctx.em().clear();
-      return new OrphanRecovery(count, List.copyOf(exhausted));
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("recover orphan jobs", e);
-    }
+  OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 
   private static void bindRecovery(Query query, List<?> parameters, int maxCrashRedeliveries) {
@@ -325,5 +224,14 @@ final class OracleJobDeleteOperations {
     for (Object parameter : parameters) {
       query.setParameter(index++, parameter);
     }
+  }
+
+  public List<ExhaustedOrphan> recoverExhaustedOrphans(
+      Instant cutoff, int maxCrashRedeliveries, int limit) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+  }
+
+  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
+    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 }

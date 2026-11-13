@@ -24,7 +24,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.sql.Timestamp;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -40,7 +40,7 @@ class OracleJobDeleteOperationsTest {
     OracleJobDeleteOperations deletes =
         new OracleJobDeleteOperations(ctx, new OracleBusinessKeyReservations(ctx));
 
-    assertEquals(3, deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 0).reset());
+    assertEquals(3, deletes.resetOrphanJobsBefore(Instant.now().minusSeconds(30), 3, 500).reset());
     assertEquals(2, sql.size());
     assertTrue(sql.get(0).startsWith("UPDATE scheduler_job_execution"));
     assertTrue(sql.get(0).contains("picked_by IS NULL OR picked_by NOT IN"));

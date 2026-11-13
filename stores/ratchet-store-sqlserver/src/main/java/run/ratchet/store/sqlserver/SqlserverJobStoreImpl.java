@@ -60,6 +60,7 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.spi.RecurringExecutionPlan;
@@ -362,26 +363,18 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return jobs.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
-  }
-
-  @Override
   public int closeStaleExecutions(Instant cutoff, int limit) {
     return jobs.closeStaleExecutions(cutoff, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-    return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
+    return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, limit);
   }
 
   @Override
@@ -1229,5 +1222,16 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Override
   public boolean deletePartitionSet(UUID setId) {
     return partitions.deletePartitionSet(setId);
+  }
+
+  @Override
+  public List<ExhaustedOrphan> recoverExhaustedOrphans(
+      Instant cutoff, int maxCrashRedeliveries, int limit) {
+    return jobs.recoverExhaustedOrphans(cutoff, maxCrashRedeliveries, limit);
+  }
+
+  @Override
+  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
+    return jobs.deferExhaustedOrphan(jobId, claimSeq);
   }
 }

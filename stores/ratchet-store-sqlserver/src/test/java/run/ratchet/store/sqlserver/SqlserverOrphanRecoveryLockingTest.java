@@ -105,7 +105,7 @@ class SqlserverOrphanRecoveryLockingTest {
 
       var scanStore = store(scan);
       scan.getTransaction().begin();
-      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 500);
       assertEquals(1, recovery.reset());
 
       var heartbeatStore = store(heartbeat);
@@ -155,7 +155,7 @@ class SqlserverOrphanRecoveryLockingTest {
 
       var scanStore = store(scan);
       scan.getTransaction().begin();
-      assertEquals(count, scanStore.resetOrphanJobsBefore(cutoff, 3, 100).reset());
+      assertEquals(count, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
       assertEquals(
           0,
           ((Number)
@@ -214,8 +214,8 @@ class SqlserverOrphanRecoveryLockingTest {
       // Before this fix the scan waited on the locked healthy row until the lock timeout.
       var recovery =
           startup
-              ? scanStore.resetOrphanJobsForNode("dead", 3, 100)
-              : scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+              ? scanStore.resetOrphanJobsForNode("dead", 3, 500)
+              : scanStore.resetOrphanJobsBefore(cutoff, 3, 500);
       assertEquals(1, recovery.reset());
       scan.getTransaction().commit();
       if (exclusive) holder.getTransaction().rollback();

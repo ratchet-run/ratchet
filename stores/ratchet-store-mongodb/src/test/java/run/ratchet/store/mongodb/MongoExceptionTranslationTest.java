@@ -1084,7 +1084,7 @@ class MongoExceptionTranslationTest {
     MongoJobCrudOperations crud =
         new MongoJobCrudOperations(contextWithCollections(jobs, nodes, executions, session));
 
-    assertEquals(0, crud.resetOrphanJobs(Duration.ofMinutes(5), 3, 0).reset());
+    assertEquals(0, crud.resetOrphanJobsBefore(Instant.now().minusSeconds(300), 3, 500).reset());
     assertTrue(usedTransaction.get());
   }
 
@@ -1216,7 +1216,7 @@ class MongoExceptionTranslationTest {
     MongoJobCrudOperations crud =
         new MongoJobCrudOperations(contextWithCollections(jobs, jobs, executions, session));
 
-    assertEquals(1, crud.resetOrphanJobsForNode("dead", 3, 0).reset());
+    assertEquals(1, crud.resetOrphanJobsForNode("dead", 3, 500).reset());
     assertEquals(List.of("find", "close", "reset", "reset"), calls);
   }
 
@@ -1294,7 +1294,7 @@ class MongoExceptionTranslationTest {
     MongoJobCrudOperations crud =
         new MongoJobCrudOperations(contextWithCollections(jobs, jobs, executions, session));
 
-    assertEquals(jobIds.size(), crud.resetOrphanJobsForNode("dead", 3, 0).reset());
+    assertEquals(jobIds.size(), crud.resetOrphanJobsForNode("dead", 3, 500).reset());
     assertEquals(List.of(ORPHAN_EXECUTION_CLOSE_BATCH, 1), batchSizes);
     assertEquals(jobIds.size(), closedIds.size());
     assertEquals(new HashSet<>(jobIds), new HashSet<>(closedIds));
