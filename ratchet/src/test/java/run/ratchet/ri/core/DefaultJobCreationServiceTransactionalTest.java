@@ -18,10 +18,12 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 import jakarta.transaction.Transactional.TxType;
 import java.lang.annotation.Retention;
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.InOrder;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
@@ -50,13 +53,15 @@ import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobInvocation;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.TransactionalCompletionStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 
 class DefaultJobCreationServiceTransactionalTest {
   @Test
   void missingCapabilityRejectsAnnotatedJobBeforePersistence() {
-    JobStore store = mock(JobStore.class);
+    JobStore store = capableShapeStore();
     DefaultJobCreationService service = service(store, name -> true);
     assertThrows(UnsupportedOperationException.class, () -> submit(service, AnnotatedJob.class));
     verify(store, never()).create(any());
@@ -64,7 +69,7 @@ class DefaultJobCreationServiceTransactionalTest {
 
   @Test
   void unannotatedJobDoesNotRequireCapability() {
-    JobStore store = mock(JobStore.class);
+    JobStore store = capableShapeStore();
     preparePersistence(store);
     assertDoesNotThrow(() -> submit(service(store, name -> true), PlainJob.class));
     verify(store).create(any());
@@ -72,10 +77,95 @@ class DefaultJobCreationServiceTransactionalTest {
 
   @Test
   void classPolicyRejectsBeforeMetadataClassLoad() {
-    JobStore store = mock(JobStore.class);
+    JobStore store = capableShapeStore();
     DefaultJobCreationService service = service(store, name -> false);
     assertThrows(SecurityException.class, () -> submit(service, AnnotatedJob.class));
     verify(store, never()).create(any());
+  }
+
+  @Test
+  void rejectsLaterBatchChildBeforeAnyWrite() {
+    JobStore store = capableShapeStore();
+    DefaultJobCreationService service = service(store, name -> true);
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("batch", service);
+    builder.forEachInvocation(
+        List.of(PlainJob.class, AnnotatedJob.class),
+        DefaultJobCreationServiceTransactionalTest::invocation);
+    assertThrows(UnsupportedOperationException.class, () -> service.submit(builder));
+    verifyNoWrites(store);
+  }
+
+  @Test
+  void rejectsBatchBranchBeforeAnyWrite() {
+    JobStore store = capableShapeStore();
+    DefaultJobCreationService service = service(store, name -> true);
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("batch", service);
+    builder.forEachInvocation(
+        List.of(PlainJob.class), DefaultJobCreationServiceTransactionalTest::invocation);
+    builder.thenOnBatchSuccess(new InvocationAdapter(invocation(AnnotatedJob.class)));
+    assertThrows(UnsupportedOperationException.class, () -> service.submit(builder));
+    verifyNoWrites(store);
+  }
+
+  @Test
+  void rejectsChainAndJobBranchBeforeAnyWrite() {
+    for (boolean chain : List.of(true, false)) {
+      JobStore store = capableShapeStore();
+      DefaultJobCreationService service = service(store, name -> true);
+      DefaultJobBuilder builder =
+          new DefaultJobBuilder(
+              service, new InvocationAdapter(invocation(PlainJob.class)), Duration.ZERO);
+      if (chain) builder.then(new InvocationAdapter(invocation(AnnotatedJob.class)));
+      else builder.thenOnSuccess(new InvocationAdapter(invocation(AnnotatedJob.class)));
+      assertThrows(UnsupportedOperationException.class, () -> service.submit(builder));
+      verifyNoWrites(store);
+    }
+  }
+
+  @Test
+  void rejectsStreamingProcessingActionBeforeAnyWrite() {
+    JobStore store = capableShapeStore();
+    DefaultJobCreationService service = service(store, name -> true);
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("stream", service);
+    builder.fromStream(Stream.of("first", "second"));
+    builder.process(AnnotatedJob::consume);
+    assertThrows(UnsupportedOperationException.class, () -> service.submit(builder));
+    verifyNoWrites(store);
+  }
+
+  @Test
+  void capableBatchKeepsParentBatchChildrenWriteOrder() {
+    JobStore store = capableStore();
+    preparePersistence(store);
+    DefaultJobCreationService service = service(store, name -> true);
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("batch", service);
+    builder.forEachInvocation(
+        List.of(PlainJob.class, PlainJob.class),
+        DefaultJobCreationServiceTransactionalTest::invocation);
+    service.submit(builder);
+    InOrder order = inOrder(store);
+    order.verify(store).create(any());
+    order.verify((BatchStore) store).saveBatch(any());
+    order.verify(store).bulkInsert(any());
+  }
+
+  private static JobStore capableShapeStore() {
+    return mock(
+        JobStore.class,
+        withSettings().extraInterfaces(BatchStore.class, WorkflowConditionStore.class));
+  }
+
+  private static void verifyNoWrites(JobStore store) {
+    verify(store, never()).create(any());
+    verify(store, never()).save(any());
+    verify(store, never()).bulkInsert(any());
+    verify((BatchStore) store, never()).saveBatch(any());
+    verify((WorkflowConditionStore) store, never()).saveCondition(any());
+  }
+
+  private static JobInvocation invocation(Class<?> target) {
+    return new JobInvocation(target.getName(), "run", "()V", true, List.of(), null);
   }
 
   static Stream<Arguments> escapeAnnotations() {
@@ -137,7 +227,7 @@ class DefaultJobCreationServiceTransactionalTest {
   }
 
   private static JobStore capableStore() {
-    JobStore store = mock(JobStore.class);
+    JobStore store = capableShapeStore();
     when(store.capability(TransactionalCompletionStore.class))
         .thenReturn(Optional.of(mock(TransactionalCompletionStore.class)));
     return store;
@@ -158,9 +248,9 @@ class DefaultJobCreationServiceTransactionalTest {
         mock(BatchService.class),
         store,
         store,
-        null,
+        (BatchStore) store,
         store,
-        null,
+        (WorkflowConditionStore) store,
         null,
         mock(JobWakeupService.class),
         null,
@@ -190,6 +280,8 @@ class DefaultJobCreationServiceTransactionalTest {
   @TransactionalJob
   public static class AnnotatedJob {
     public static void run() {}
+
+    public static void consume(String item) {}
   }
 
   public static class PlainJob {

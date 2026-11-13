@@ -22,7 +22,9 @@ import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.objectweb.asm.Type;
@@ -194,29 +196,57 @@ public class JobPayloadInvoker {
         (String) args.get(0), (String) args.get(1), descriptor, false, List.of(), null);
   }
 
+  /**
+   * Rejects transaction escapes throughout composed annotations. A meta-annotation declaring
+   * REQUIRES_NEW is rejected even when an aliased attribute resets it to REQUIRED.
+   */
   private static void rejectTransactionEscape(AnnotatedElement target) {
     for (Annotation annotation : target.getAnnotations()) {
-      String name = annotation.annotationType().getName();
-      if (!List.of(
-              "jakarta.transaction.Transactional",
-              "org.springframework.transaction.annotation.Transactional",
-              "jakarta.ejb.TransactionAttribute",
-              "io.micronaut.transaction.annotation.Transactional")
-          .contains(name)) continue;
-      for (String attribute : List.of("propagation", "value")) {
+      inspectTransactionAnnotation(
+          annotation, annotation.annotationType().getName(), new HashSet<>());
+    }
+  }
+
+  private static boolean inspectTransactionAnnotation(
+      Annotation annotation, String writtenName, Set<Class<?>> visited) {
+    Class<? extends Annotation> type = annotation.annotationType();
+    if (type.getName().startsWith("java.lang.annotation.") || !visited.add(type)) return false;
+    boolean transactional =
+        List.of(
+                "jakarta.transaction.Transactional",
+                "org.springframework.transaction.annotation.Transactional",
+                "jakarta.ejb.TransactionAttribute",
+                "io.micronaut.transaction.annotation.Transactional")
+            .contains(type.getName());
+    for (Annotation meta : type.getAnnotations()) {
+      transactional |= inspectTransactionAnnotation(meta, writtenName, visited);
+    }
+    if (transactional) {
+      for (Method attribute : type.getDeclaredMethods()) {
+        if (attribute.getParameterCount() != 0) continue;
+        // A package-private composed annotation from another package is otherwise unreadable.
+        attribute.trySetAccessible();
         Object propagation;
         try {
-          propagation = annotation.annotationType().getMethod(attribute).invoke(annotation);
+          propagation = attribute.invoke(annotation);
         } catch (ReflectiveOperationException ignored) {
           continue;
         }
         if (propagation instanceof Enum<?> value
+            && List.of(
+                    "org.springframework.transaction.annotation.Propagation",
+                    "jakarta.transaction.Transactional$TxType",
+                    "jakarta.ejb.TransactionAttributeType",
+                    "io.micronaut.transaction.TransactionDefinition$Propagation")
+                .contains(value.getDeclaringClass().getName())
             && List.of("REQUIRES_NEW", "NOT_SUPPORTED", "NEVER").contains(value.name())) {
           throw new IllegalArgumentException(
-              "@TransactionalJob cannot use " + name + " with " + value.name());
+              "@TransactionalJob cannot use " + writtenName + " with " + value.name());
         }
       }
     }
+    visited.remove(type);
+    return transactional;
   }
 
   private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {

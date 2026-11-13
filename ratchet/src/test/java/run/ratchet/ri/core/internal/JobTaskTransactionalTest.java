@@ -444,6 +444,50 @@ class JobTaskTransactionalTest {
   }
 
   @ParameterizedTest
+  @EnumSource(
+      value = JobStatus.class,
+      names = {"CANCELED", "RUNNING"})
+  void supersededBodyRollsBackBeforeAcceptedCompletion(JobStatus status) throws Exception {
+    AtomicBoolean rolledBack = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              try {
+                return invocation.callRealMethod();
+              } catch (CompletionRejectedException failure) {
+                rolledBack.set(true);
+                throw failure;
+              }
+            })
+        .when(carrier)
+        .run(any());
+    BODY.set(
+        () -> {
+          attempt.markSuperseded();
+          when(store.getJobStatus(job.getId())).thenReturn(status);
+          return 42;
+        });
+    // setUp leaves completion accepting this still-intact claim.
+    task.call();
+    assertTrue(rolledBack.get());
+    verify(carrier).run(any());
+    verify(lifecycle, never())
+        .completeSuccessInCurrentTransaction(
+            any(), any(), any(), any(), any(), anyLong(), anyLong());
+    verifyNoInteractions(results);
+    assertEquals(
+        CircuitBreakerExceptionFilter.Outcome.IGNORED,
+        callFilter.get().classify(supplierFailure.get()));
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    if (status == JobStatus.CANCELED) {
+      assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+      verify(observer).recordJobCancellation(job);
+    } else {
+      assertEquals(JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, execution.getErrorMessage());
+    }
+    verify(lifecycle, never()).runFollowups(any());
+  }
+
+  @ParameterizedTest
   @EnumSource(TerminalOutcome.class)
   void unknownCommitResolvesEveryTerminalOutcomeWithInterruptClearedAndRestored(
       TerminalOutcome terminal) throws Exception {

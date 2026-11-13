@@ -249,7 +249,7 @@ UUID id = UuidV7Factory.create();
 
 ## JobStore SPI
 
-The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by also implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB stores advertise every capability.
+The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by also implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, Oracle, and SQL Server stores advertise every capability. The MongoDB store advertises every capability except `TransactionalCompletionStore`, so it cannot run [transactional jobs](./transactional-jobs.md).
 
 ```java
 public interface JobStore

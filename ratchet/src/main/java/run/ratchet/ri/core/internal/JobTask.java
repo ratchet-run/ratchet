@@ -1385,6 +1385,9 @@ public class JobTask implements Callable<Void> {
             jobTransaction.run(
                 () -> {
                   Object value = runPayload(payload);
+                  if (attempt != null && attempt.isSuperseded()) {
+                    throw new CompletionRejectedException();
+                  }
                   SerializedJobResult serialized =
                       resultPersistenceStrategy.serialize(job.getId(), value);
                   Instant end = effective().instant();

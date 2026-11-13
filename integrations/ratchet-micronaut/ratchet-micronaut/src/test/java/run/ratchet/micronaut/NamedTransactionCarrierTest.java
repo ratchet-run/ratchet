@@ -24,6 +24,7 @@ import io.micronaut.transaction.TransactionDefinition;
 import io.micronaut.transaction.TransactionDefinition.Propagation;
 import io.micronaut.transaction.TransactionOperations;
 import io.micronaut.transaction.TransactionOperationsRegistry;
+import io.micronaut.transaction.exceptions.IllegalTransactionStateException;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
@@ -143,12 +144,13 @@ class NamedTransactionCarrierTest {
                       })));
       assertEquals(1, callbacks.get());
       assertFalse(JobTransaction.active());
-      // A transaction on the unrelated default manager cannot satisfy Ratchet's MANDATORY.
+      // A transaction on the unrelated default manager cannot satisfy Ratchet's MANDATORY. The
+      // boundary rejects the call before the completion guard on JobTransaction runs.
       defaults.execute(
           TransactionDefinition.of(Propagation.REQUIRED),
           status -> {
             assertThrows(
-                RuntimeException.class,
+                IllegalTransactionStateException.class,
                 () ->
                     context
                         .getBean(PostExecutionHandler.class)

@@ -24,8 +24,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
@@ -39,6 +46,70 @@ import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.store.entity.JobPayload;
 
 class JobPayloadInvokerTest {
+
+  @Test
+  void rejectsComposedTransactionEscapesAndAcceptsRequired() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(null, name -> true);
+    for (String method : List.of("requiresNew", "nested", "aliased")) {
+      IllegalArgumentException failure =
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  invoker.validateTransactionalSubmission(
+                      payload(ComposedJobs.class, method, "()V", true, List.of()), true));
+      String annotationName =
+          switch (method) {
+            case "requiresNew" -> RequiresNew.class.getName();
+            case "nested" -> Nested.class.getName();
+            default -> Aliased.class.getName();
+          };
+      assertTrue(
+          failure
+              .getMessage()
+              .startsWith("@TransactionalJob cannot use " + annotationName + " with "));
+    }
+    invoker.validateTransactionalSubmission(
+        payload(ComposedJobs.class, "required", "()V", true, List.of()), true);
+  }
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target({ElementType.METHOD, ElementType.ANNOTATION_TYPE})
+  @Documented
+  @Transactional(TxType.REQUIRES_NEW)
+  public @interface RequiresNew {}
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Transactional(TxType.NOT_SUPPORTED)
+  public @interface Unsupported {}
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Unsupported
+  public @interface Nested {}
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Transactional
+  public @interface Aliased {
+    TxType propagation() default TxType.REQUIRED;
+  }
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Transactional(TxType.REQUIRED)
+  public @interface Required {}
+
+  @TransactionalJob
+  public static class ComposedJobs {
+    @RequiresNew
+    public static void requiresNew() {}
+
+    @Nested
+    public static void nested() {}
+
+    @Aliased(propagation = TxType.REQUIRES_NEW)
+    public static void aliased() {}
+
+    @Required
+    public static void required() {}
+  }
 
   @Test
   void sameBinaryNameLoadedByTwoClassLoadersUsesTheCurrentContextLoader() throws Exception {
