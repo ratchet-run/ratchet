@@ -96,7 +96,9 @@ public interface JobCrudStore {
    * throw. The caller passes an already normalised key. This core method works without optional
    * capabilities.
    *
-   * <p>Joins the caller's transaction. Bundled SQL stores use their class-level REQUIRED boundary.
+   * <p>Joins the caller's transaction when the store's writes do. Bundled SQL stores use their
+   * class-level REQUIRED boundary. The MongoDB store, whose writes commit in their own session,
+   * reads outside the caller's transaction.
    */
   Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey);
 

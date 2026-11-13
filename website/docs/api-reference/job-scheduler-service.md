@@ -463,9 +463,11 @@ Key handling matches `JobBuilder.withBusinessKey`: null or blank returns empty, 
 
 This is a point-in-time read. A later `submit()` can still lose a race. Treat the answer as a hint or pre-check, not a lock.
 
-The call joins a caller transaction if present and never starts a transaction that outlives the call. Finding a holder, finding none, or rejecting an invalid key never marks the caller transaction rollback-only. A store failure throws and, as with `submit()`, can leave it rollback-only. Inside a caller transaction the read sees the caller's own uncommitted submissions.
+The call never starts a transaction that outlives it. Finding a holder, finding none, or rejecting an invalid key never marks the caller transaction rollback-only. A store failure throws and, as with `submit()`, can leave it rollback-only.
 
-On MySQL under the default REPEATABLE READ, the transaction's first plain read fixes its snapshot. A holder that commits or ends later is not seen. Call outside a transaction or use READ COMMITTED for the latest state.
+Whether the read joins a caller transaction depends on the store. The bundled SQL stores join it, so the read sees the caller's own uncommitted submissions. The MongoDB store does not. A MongoDB submission commits in its own session and is not rolled back with the caller transaction, and the lookup sees only committed data.
+
+On MySQL under the default REPEATABLE READ, the transaction's first plain read fixes its snapshot. The lookup does not see a holder that commits after that point. It can still return a holder that ends after that point, because the end is not visible until a fresh snapshot. Call outside a transaction or use READ COMMITTED for the latest state.
 
 There is no per-job authorization check, matching `submit()`, which reports a held key to any caller.
 

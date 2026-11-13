@@ -38,15 +38,19 @@ public interface BusinessKeyLookup {
    * <p>This is a point-in-time read. A later {@code submit()} can still lose a race. Treat the
    * answer as a hint or pre-check, not a lock.
    *
-   * <p>Joins the caller's transaction if one exists and never starts one that outlives the call.
-   * Finding a holder, finding none, or rejecting an invalid key never marks the caller's
-   * transaction rollback-only. A store failure throws and, as with {@code submit()}, can leave it
-   * rollback-only. Inside a caller transaction this read sees the caller's own uncommitted
-   * submissions.
+   * <p>The call never starts a transaction that outlives it. Finding a holder, finding none, or
+   * rejecting an invalid key never marks the caller's transaction rollback-only. A store failure
+   * throws and, as with {@code submit()}, can leave it rollback-only.
+   *
+   * <p>Whether the read joins a caller's transaction depends on the store. The bundled SQL stores
+   * join it, so the read sees the caller's own uncommitted submissions. The MongoDB store does not.
+   * A MongoDB submission commits in its own session and is not rolled back with the caller's
+   * transaction, and this read sees only committed data.
    *
    * <p>On MySQL under the default REPEATABLE READ, the transaction's first plain read fixes its
-   * snapshot. A holder that commits or ends later is not seen. Call outside a transaction or use
-   * READ COMMITTED for the latest state.
+   * snapshot. The read does not see a holder that commits after that point. It can still return a
+   * holder that ends after that point, because the end is not visible until a fresh snapshot. Call
+   * outside a transaction or use READ COMMITTED for the latest state.
    *
    * <p>No per-job authorization check is performed, matching {@code submit()}, which reports a held
    * key to any caller.
