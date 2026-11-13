@@ -29,6 +29,7 @@
 
     <entity class="run.ratchet.store.entity.BatchEntity">
         <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="partitionSetId"/>
     </entity>
 
     <entity class="run.ratchet.store.entity.BatchMetricsEntity">

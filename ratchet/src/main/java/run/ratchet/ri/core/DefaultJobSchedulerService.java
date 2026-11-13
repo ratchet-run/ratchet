@@ -93,6 +93,15 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   // Used when the caller principal can't be resolved (e.g. no Elytron context in tests).
   // JobSignaledEvent's contract requires non-null signalDeliveredBy.
   private static final String DEFAULT_SIGNAL_DELIVERED_BY = "system";
+  private PartitionService partitionService;
+  private final SystemJobCancellation systemCancellation;
+
+  /** Connects partition generation support. */
+  @Inject
+  public void configurePartitions(PartitionService service) {
+    this.partitionService = service;
+  }
+
   private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
   private final InternalEventPublisher eventPublisher;
   private final JobBatchStatusStore jobBatchStatusStore;
@@ -121,6 +130,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected DefaultJobSchedulerService() {
+    this.systemCancellation = null;
     this.eventPublisher = null;
     this.jobBatchStatusStore = null;
     this.jobPauseStore = null;
@@ -253,6 +263,23 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.metricsCollector = metricsCollector;
     this.clock = clock;
     this.afterCommitRegistrar = afterCommitRegistrar;
+    this.systemCancellation =
+        new SystemJobCancellation(
+            eventPublisher,
+            jobBatchStatusStore,
+            jobCrudStore,
+            batchService,
+            recurringJobStore,
+            wakeupService,
+            metricsCollector,
+            clock,
+            afterCommitRegistrar);
+  }
+
+  @Override
+  @Transactional
+  public boolean deletePartitionSet(String key) {
+    return partitionService != null && partitionService.deletePartitionSet(key);
   }
 
   @Override
@@ -276,109 +303,13 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       authorizationPolicy.checkCancel(jobId, ownerPrincipal, currentPrincipal);
     }
 
-    // Try PENDING → CANCELED first (most common case)
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled pending job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PENDING, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try RUNNING → CANCELED. The scheduler publishes the durable state-transition event here so
-    // observers do not lose cancellation if the worker dies before it notices the status flip.
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled running job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.RUNNING, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try PAUSED → CANCELED
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled paused job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PAUSED, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try WAITING → CANCELED (signal-waiting jobs can be canceled)
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled waiting job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.WAITING, job);
-      cascadeCancel(job);
-      if (metricsCollector != null && job != null) {
-        metricsCollector.signalCancelled(jobId, job.getPublicJobType(), job.getSignalKey());
-      }
-      return true;
-    }
-
-    // Recurring masters live in scheduler_recurring_job, not the executable queue. Fall through to
-    // the dedicated SPI so callers holding a recurring master's UUID can cancel it the same way
-    // they cancel an executable job. cancelRecurringAndArchive returns false if the id is unknown.
-    if (recurringJobStore != null) {
-      Optional<RecurringJobDefinition> def = recurringJobStore.getRecurring(jobId);
-      if (def.isPresent()
-          && recurringJobStore.cancelRecurringAndArchive(
-              jobId, RecurringJobStore.ArchiveReason.CANCELED)) {
-        log.debugf("Canceled recurring master %s", jobId);
-        publishCancelledEventForRecurring(jobId, def.get());
-        return true;
-      }
-    }
-
-    log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
-    return false;
+    return systemCancellation.cancelLoadedJob(jobId, job);
   }
 
-  /**
-   * Cancels the rest of a batch for a parent, or checks whether a cancelled child ended its batch.
-   */
-  private void cascadeCancel(JobEntity job) {
-    if (batchService != null && job != null && job.getJobType() == JobExecutionType.BATCH_PARENT) {
-      batchService.cancelBatch(job);
-      UUID batchId = job.getId();
-      AfterCommitActions.runOrFail(
-          afterCommitRegistrar,
-          "cancelled batch sweep",
-          () -> {
-            try {
-              batchService.sweepCancelledBatch(batchId);
-            } catch (RuntimeException ex) {
-              log.warnf(
-                  ex,
-                  "Batch %s cancellation sweep failed; a child that became runnable during the"
-                      + " cancel may still run",
-                  batchId);
-            }
-          });
-    }
-    completeCancelledChildBatch(job);
-  }
-
-  private void completeCancelledChildBatch(JobEntity job) {
-    if (batchService == null
-        || job == null
-        || job.getJobType() != JobExecutionType.BATCH_CHILD
-        || job.getDependsOn() == null) {
-      return;
-    }
-    UUID batchId = job.getDependsOn();
-    AfterCommitActions.runOrFail(
-        afterCommitRegistrar,
-        "cancelled child batch completion",
-        () -> {
-          try {
-            if (batchService.completeIfFinished(batchId) && wakeupService != null) {
-              wakeupService.notify(JobPriority.NORMAL, true, null);
-            }
-          } catch (RuntimeException ex) {
-            log.warnf(ex, "Batch %s completion deferred to recovery", batchId);
-          }
-        });
+  /** Cancels as the recovery system, using the same transition, event and cascade path. */
+  @Transactional
+  public boolean cancelJobAsSystem(UUID jobId) {
+    return systemCancellation.cancel(jobId);
   }
 
   @Override
@@ -520,7 +451,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     // Publish after the last write: a failed registration throws, and a store whose writes do not
     // join the transaction (MongoDB) would otherwise keep a cancel without its supersededBy link.
     if (cancelledFrom != null) {
-      publishCancelledEvent(jobId, cancelledFrom, existing);
+      systemCancellation.publishCancelledEvent(jobId, cancelledFrom, existing);
     }
     if (cancelledFrom == JobStatus.WAITING && metricsCollector != null) {
       metricsCollector.signalCancelled(jobId, existing.getPublicJobType(), existing.getSignalKey());
@@ -846,45 +777,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
    * the event so downstream observers (audit logs, monitoring) get the same shape for each
    * cancellable source state.
    */
-  private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
-    Instant timestamp = effective().instant();
-    JobCancelledEvent event =
-        job == null
-            // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers
-            // at least know the cancellation happened.
-            ? new JobCancelledEvent(
-                jobId, null, null, null, null, null, timestamp, previousStatus.name(), null)
-            : new JobCancelledEvent(
-                jobId,
-                job.getBusinessKey(),
-                job.getRecurringMasterId(),
-                job.getPublicJobType(),
-                job.getPriority(),
-                job.getPickedBy(),
-                timestamp,
-                previousStatus.name(),
-                null);
-    // Defer publication until after the surrounding TX commits so a rollback does not produce a
-    // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
-    publishAfterCommit(event);
-  }
-
-  private void publishCancelledEventForRecurring(UUID jobId, RecurringJobDefinition def) {
-    JobStatus previousStatus = def.paused() ? JobStatus.PAUSED : JobStatus.PENDING;
-    JobCancelledEvent event =
-        new JobCancelledEvent(
-            jobId,
-            def.businessKey(),
-            null,
-            JobType.RECURRING,
-            JobPriorityMapper.fromPersistedCode(def.priority()),
-            null,
-            effective().instant(),
-            previousStatus.name(),
-            null);
-    publishAfterCommit(event);
-  }
-
   private void publishRetryingEventAndWakeup(UUID jobId, JobEntity job) {
     Instant retryAt = effective().instant();
     if (eventPublisher != null) {

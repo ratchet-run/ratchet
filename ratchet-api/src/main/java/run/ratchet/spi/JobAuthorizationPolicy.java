@@ -56,6 +56,9 @@ import run.ratchet.api.exception.JobAuthorizationException;
  * authorization-gated cancellation.
  *
  * @since 0.1
+ *     <p>Partition-set reads, resubmissions and deletion pass the set's latest batch id. That job
+ *     may already be archived. Policies must support authorization using that durable identity and,
+ *     for retry and cancellation checks, the set's captured owner principal.
  */
 @Incubating
 public interface JobAuthorizationPolicy {

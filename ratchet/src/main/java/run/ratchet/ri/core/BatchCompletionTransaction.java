@@ -26,6 +26,12 @@ import java.util.function.Supplier;
  */
 @ApplicationScoped
 public class BatchCompletionTransaction {
+  /** Runs a partition sealing page in the caller transaction, or starts one. */
+  @Transactional(value = Transactional.TxType.REQUIRED, rollbackOn = Exception.class)
+  public <T> T required(Supplier<T> work) {
+    return Objects.requireNonNull(work, "work must not be null").get();
+  }
+
   @Transactional(value = Transactional.TxType.REQUIRES_NEW, rollbackOn = Exception.class)
   public <T> T complete(Supplier<T> work) {
     return Objects.requireNonNull(work, "work must not be null").get();

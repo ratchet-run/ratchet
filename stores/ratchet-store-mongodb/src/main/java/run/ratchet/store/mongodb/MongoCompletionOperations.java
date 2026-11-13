@@ -19,6 +19,7 @@ import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Updates.*;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -42,7 +43,8 @@ final class MongoCompletionOperations {
   static JobCompletionResult commit(
       MongoStoreContext ctx, MongoBusinessKeyReservations reservations, JobCompletionPlan plan) {
     try (ClientSession session = ctx.startSession()) {
-      return session.withTransaction(() -> apply(ctx, reservations, session, plan));
+      return session.withTransaction(
+          () -> apply(ctx, reservations, session, plan), TRANSACTION_OPTIONS);
     }
   }
 

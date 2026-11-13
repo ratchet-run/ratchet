@@ -610,3 +610,9 @@ remain on `RESULT` under each child's id. After folding, the combined result is 
 parent's `RESULT` surface; callback argument filling encrypts `PAYLOAD_ARGS` under the branch's id
 before that branch becomes runnable. Moving any of those ciphertexts to another job fails AAD
 validation. The reducer's persisted type name is policy-checked before class loading.
+
+
+`PARTITION_CHECKPOINT` protects a sealed partition checkpoint. Its AAD binds the partition set id
+and partition index. The seed can move unchanged to a later generation of that partition. Moving
+it to another set or index fails authentication. Plaintext seeds remain readable by marker-driven
+decryption. A successful partition clears its checkpoint when sealed.

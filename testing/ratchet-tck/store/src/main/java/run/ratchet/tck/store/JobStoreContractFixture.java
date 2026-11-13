@@ -32,6 +32,7 @@ import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
@@ -83,6 +84,11 @@ public interface JobStoreContractFixture {
 
   default EventOutboxStore eventOutboxStore() {
     return capabilityView(EventOutboxStore.class);
+  }
+
+  /** Probe-backed optional partition capability. */
+  default PartitionStore partitionStore() {
+    return capabilityView(PartitionStore.class);
   }
 
   default BatchStore batchStore() {

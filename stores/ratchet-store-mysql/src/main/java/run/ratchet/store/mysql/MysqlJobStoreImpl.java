@@ -44,6 +44,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.dto.OutboxEventRead;
+import run.ratchet.store.dto.PartitionGenerationWrite;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -52,6 +53,8 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
+import run.ratchet.store.entity.PartitionEntity;
+import run.ratchet.store.entity.PartitionSetEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.ArchivedRecurringJob;
@@ -94,6 +97,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private MysqlJobQueryOperations query;
   private MysqlJobClaimOperations claims;
   private MysqlJobLifecycleOperations lifecycle;
+  private MysqlPartitionOperations partitions;
   private MysqlBatchOperations batches;
   private MysqlNodeLockOperations nodeLocks;
   private MysqlArchiveOperations archives;
@@ -921,6 +925,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
             tags);
     query = new MysqlJobQueryOperations(ctx, mapper, tags);
     batches = new MysqlBatchOperations(ctx);
+    partitions = new MysqlPartitionOperations(ctx, jobs, batches);
     claims = new MysqlJobClaimOperations(ctx, jobs);
     lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new MysqlNodeLockOperations(ctx);
@@ -1057,5 +1062,66 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   @Override
   public boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion) {
     return extensions.updateState(jobId, namespace, newState, expectedVersion);
+  }
+
+  @Override
+  public Optional<PartitionSetEntity> findPartitionSet(String setKey) {
+    return partitions.findPartitionSet(setKey);
+  }
+
+  @Override
+  public Optional<PartitionSetEntity> findPartitionSetById(UUID setId) {
+    return partitions.findPartitionSetById(setId);
+  }
+
+  @Override
+  public boolean createOrAdvance(PartitionGenerationWrite write) {
+    return partitions.createOrAdvance(write);
+  }
+
+  @Override
+  public List<PartitionEntity> findPartitions(UUID setId, int afterIndex, int limit) {
+    return partitions.findPartitions(setId, afterIndex, limit);
+  }
+
+  @Override
+  public List<PartitionEntity> findGenerationPartitions(
+      UUID setId, int generation, int afterIndex, int limit) {
+    return partitions.findGenerationPartitions(setId, generation, afterIndex, limit);
+  }
+
+  @Override
+  public int sealPartitions(UUID setId, int generation, List<PartitionEntity> outcomes) {
+    return partitions.sealPartitions(setId, generation, outcomes);
+  }
+
+  @Override
+  public boolean markSealed(UUID setId, int generation) {
+    return partitions.markSealed(setId, generation);
+  }
+
+  @Override
+  public List<PartitionSetEntity> findUnsealedSets(UUID afterSetId, int limit) {
+    return partitions.findUnsealedSets(afterSetId, limit);
+  }
+
+  @Override
+  public Optional<PartitionEntity> findPartitionByChild(UUID childJobId) {
+    return partitions.findPartitionByChild(childJobId);
+  }
+
+  @Override
+  public long countBatchChildren(UUID batchId) {
+    return partitions.countBatchChildren(batchId);
+  }
+
+  @Override
+  public long countUnfinishedBatchChildren(UUID batchId) {
+    return partitions.countUnfinishedBatchChildren(batchId);
+  }
+
+  @Override
+  public boolean deletePartitionSet(UUID setId) {
+    return partitions.deletePartitionSet(setId);
   }
 }

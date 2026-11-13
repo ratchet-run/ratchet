@@ -21,6 +21,10 @@ import run.ratchet.api.JobHandle;
 interface BatchSubmitter {
 
   JobHandle submit(DefaultBatchBuilder builder);
+
+  default int maxPartitions() {
+    return Integer.MAX_VALUE;
+  }
 }
 
 interface StreamingBatchSubmitter {
