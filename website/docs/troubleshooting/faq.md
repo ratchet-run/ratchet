@@ -98,7 +98,7 @@ When a node crashes while jobs are RUNNING:
 
 3. **The crash budget is checked.** Recovery returns the job to PENDING and adds one to its crash count while the count is below `ratchet.node.max-crash-redeliveries` (default 3). Once the limit is reached, the next crash fails the job and sends it to the DLQ. A limit of zero fails it on the first crash. Poison jobs that repeatedly kill their node stop after this limit.
 
-4. **Resource permits are cleaned up.** Any permits held by the dead node in `scheduler_resource_permit` are released. A retry of a recovered job does not reuse the dead attempt's permit. If the resource is full, the retry waits for this clean-up and then takes a permit of its own.
+4. **Resource permits are cleaned up.** Any permits held by the dead node in `scheduler_resource_permit` are released. A retry of a recovered job does not reuse the dead attempt's permit. If the resource is full, the retry waits for this clean-up, which wakes the jobs waiting for that resource, and then takes a permit of its own.
 
 5. **The stale node entry is deleted.** The `scheduler_node` row for the crashed node is removed.
 

@@ -160,7 +160,7 @@ scheduler.enqueue(() -> callExternalApi())
     .submit();
 ```
 
-When all permits for a resource are in use, new jobs requesting that resource wait until a permit is released. The `retry_delay_ms` controls how long a job waits before re-checking for an available permit.
+When all permits for a resource are in use, jobs that need it wait in line in `scheduler_resource_waiter`. A released permit wakes the next waiter at once and sends the cluster wake-up hint. `retry_delay_ms` sets how often a waiting job re-checks when no wake-up reaches it. It also sets how long the job keeps its place in the line: `retry_delay_ms` plus the larger of `retry_delay_ms` and 10 seconds. A short delay means more re-checks. With a long one, a waiter whose wake-up was lost waits longer, up to the next orphan-recovery sweep. See [Resource Permit](../concepts/execution-model.md#step-details) for the order waiters are served in and its limits.
 
 ### Monitoring permits
 
@@ -179,7 +179,14 @@ SELECT
 FROM scheduler_resource_limit rl
 LEFT JOIN scheduler_resource_permit rp ON rl.resource_name = rp.resource_name
 GROUP BY rl.resource_name, rl.max_concurrent;
+
+-- Jobs waiting per resource
+SELECT resource_name, COUNT(*) AS waiting
+FROM scheduler_resource_waiter
+GROUP BY resource_name;
 ```
+
+A waiter row can outlive its job for a short time. The engine skips a row whose job was canceled or has finished, and the sweep removes it.
 
 ## Timeout configuration
 

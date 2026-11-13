@@ -37,6 +37,13 @@ window for this migration, and on Oracle stop the nodes that write to `scheduler
 and SQL Server only add the columns. MongoDB replaces the old single-field index of the same name
 when the store starts.
 
+SQL stores also gain a migration that adds the `scheduler_resource_waiter` table
+(`V016__resource_waiter.sql` on MySQL, `V014__resource_waiter.sql` on PostgreSQL, Oracle and SQL
+Server). The table holds the jobs waiting for a resource permit, so they are served in order and a
+released permit wakes them on any node. MongoDB creates the collection and its index when the store
+starts. During a rolling upgrade, nodes still on the older version ignore the waiting line, so the
+order holds only once every node runs the new version.
+
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.
 
