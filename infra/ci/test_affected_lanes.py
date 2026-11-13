@@ -109,7 +109,7 @@ class GraphFixtureTest(unittest.TestCase):
             (['unknown.txt'], set(), set(), True, True, False),
             ([], set(), set(), True, False, False),
             (['integrations/ratchet-spring-boot/consumer-tests/sql/pom.xml'], set(),
-             {'spring_consumer', 'spring_native', 'spring_runtime'}, False, True, False),
+             {'spring_consumer', 'spring_native', 'spring_runtime', 'spring_micrometer'}, False, True, False),
             (['infra/ci/runtime-consumer-expected.json'], set(), {'spring_runtime'}, False, True, False),
         ]
         for paths, changed, triggers, global_change, code, web in cases:
@@ -132,7 +132,7 @@ class GraphFixtureTest(unittest.TestCase):
             self.assertTrue(all(row in full for row in reduced))
             for key in full[0]:
                 self.assertEqual({r[key] for r in full}, {r[key] for r in reduced})
-        for lane in ['quarkus_jvm', 'quarkus_native']:
+        for lane in ['quarkus_jvm', 'quarkus_native', 'spring_micrometer']:
             self.assertEqual(reduce_rows(lane, LANES[lane]), LANES[lane])
 
 
@@ -152,14 +152,14 @@ class RealRepoTest(unittest.TestCase):
 
     def reduced_all(self, outputs):
         self.counts(outputs, dict(integration=7, spring_consumer=8, spring_native=5,
-                                 spring_runtime=2, quarkus_jvm=5, quarkus_native=2,
+                                 spring_runtime=2, spring_micrometer=3, quarkus_jvm=5, quarkus_native=2,
                                  micronaut_consumer=5, micronaut_native=5))
         self.assertEqual(outputs['has_showcase'], 'true')
 
     def test_full(self):
         outputs = select(REPO)[0]
         self.counts(outputs, dict(integration=35, spring_consumer=25, spring_native=10,
-                                 spring_runtime=4, quarkus_jvm=5, quarkus_native=2,
+                                 spring_runtime=4, spring_micrometer=3, quarkus_jvm=5, quarkus_native=2,
                                  micronaut_consumer=10, micronaut_native=10))
         for key in ['code', 'web', 'has_showcase']:
             self.assertEqual(outputs[key], 'true')
@@ -206,7 +206,7 @@ class RealRepoTest(unittest.TestCase):
 
     def test_consumer_path(self):
         outputs = self.output('integrations/ratchet-spring-boot/consumer-tests/sql/pom.xml')
-        self.counts(outputs, dict(spring_consumer=8, spring_native=5, spring_runtime=2))
+        self.counts(outputs, dict(spring_consumer=8, spring_native=5, spring_runtime=2, spring_micrometer=3))
         self.assertEqual(outputs['unit_scope'], 'none')
         self.assertEqual(outputs['ee11_scope'], 'none')
         self.assertEqual(outputs['has_showcase'], 'false')
