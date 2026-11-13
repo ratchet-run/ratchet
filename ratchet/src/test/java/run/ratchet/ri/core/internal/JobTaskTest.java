@@ -46,9 +46,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -3105,7 +3108,7 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void handleSuccess_stuckFinalizationDoesNotMoveSuccessfulJobToFailurePath() throws Exception {
+  void handleSuccess_stuckFinalizationWithoutAttemptReturnsWithoutMinimalRetry() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
@@ -3132,6 +3135,153 @@ class JobTaskTest {
     verify(observabilityFacade, never()).publishEvent(any(JobCompletedEvent.class));
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
     verify(observabilityFacade, never()).saveExecution(any(JobExecutionEntity.class));
+  }
+
+  private ContinuationScenario stuckSuccessScenario(AtomicInteger bodies) throws Exception {
+    var scenario = continuationScenario(bodies::incrementAndGet, 1000);
+    when(scenario.results().serialize(any(), any())).thenReturn(SerializedJobResult.empty());
+    jobTask.setTerminalRetryDelays(1, 2);
+    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("busy"));
+    return scenario;
+  }
+
+  @Test
+  void handleSuccess_stuckFinalizationDoesNotMoveSuccessfulJobToFailurePath() throws Exception {
+    AtomicInteger bodies = new AtomicInteger();
+    var scenario = stuckSuccessScenario(bodies);
+    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    Assertions.assertEquals(1, bodies.get());
+    Assertions.assertEquals(JobStatus.SUCCEEDED, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    Assertions.assertNull(scenario.job().getJobResult());
+    Assertions.assertNull(scenario.job().getResultType());
+    verify(lifecycleFacade, times(4))
+        .completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong());
+    verify(observabilityFacade).recordJobSuccess(eq(scenario.job()), anyLong());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade).recordSuccessFinalizationStuck(scenario.job());
+    verify(observabilityFacade).recordSuccessFinalizationMinimal(scenario.job());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+  }
+
+  @Test
+  void handleSuccess_interruptedSlowFinalizationContinuesAndRestoresInterrupt() throws Exception {
+    AtomicInteger bodies = new AtomicInteger();
+    var scenario = stuckSuccessScenario(bodies);
+    AtomicInteger writes = new AtomicInteger();
+    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            inv -> {
+              int write = writes.incrementAndGet();
+              if (write == 2) Thread.currentThread().interrupt();
+              if (write <= 2) throw new RatchetTransientStoreException("busy");
+              return true;
+            });
+
+    try {
+      jobTask.call();
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+
+    Assertions.assertEquals(1, bodies.get());
+    Assertions.assertEquals(3, writes.get());
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobSuccess(eq(scenario.job()), anyLong());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+  }
+
+  @Test
+  void handleSuccess_stuckThenTerminalSkippedDiscardsExecution() throws Exception {
+    AtomicInteger bodies = new AtomicInteger();
+    var scenario = stuckSuccessScenario(bodies);
+    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenReturn(false);
+
+    jobTask.call();
+
+    Assertions.assertEquals(1, bodies.get());
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+  }
+
+  @Test
+  void handleSuccess_supersededSlowFinalizationExitsAndRestoresInterrupt() throws Exception {
+    AtomicInteger bodies = new AtomicInteger();
+    var scenario = stuckSuccessScenario(bodies);
+    CountDownLatch slowWrite = new CountDownLatch(1);
+    CountDownLatch shutdown = new CountDownLatch(1);
+    AtomicInteger writes = new AtomicInteger();
+    AtomicBoolean interruptedAfterReturn = new AtomicBoolean();
+    AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            inv -> {
+              if (writes.incrementAndGet() == 2) {
+                slowWrite.countDown();
+                try {
+                  Assertions.assertTrue(shutdown.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                  Thread.currentThread().interrupt();
+                }
+              }
+              throw new RatchetTransientStoreException("busy");
+            });
+    Thread worker =
+        new Thread(
+            () -> {
+              CONTINUATION_PAYLOAD.set(bodies::incrementAndGet);
+              try {
+                jobTask.call();
+                interruptedAfterReturn.set(Thread.currentThread().isInterrupted());
+              } catch (Throwable failure) {
+                workerFailure.set(failure);
+              } finally {
+                CONTINUATION_PAYLOAD.remove();
+                JobContext.clear();
+              }
+            });
+    worker.start();
+    try {
+      Assertions.assertTrue(slowWrite.await(5, TimeUnit.SECONDS));
+      scenario.attempt().markSuperseded();
+      worker.interrupt();
+    } finally {
+      shutdown.countDown();
+      worker.join(5_000);
+      if (worker.isAlive()) {
+        scenario.attempt().markSuperseded();
+        worker.interrupt();
+        worker.join(5_000);
+      }
+    }
+    Assertions.assertFalse(worker.isAlive());
+    Assertions.assertNull(workerFailure.get());
+    Assertions.assertTrue(interruptedAfterReturn.get());
+    Assertions.assertEquals(1, bodies.get());
+    Assertions.assertEquals(ExecutionStatus.RUNNING, scenario.execution().getStatus());
+    verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
+    verify(observabilityFacade, never()).saveExecution(any());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
   }
 
   @Test

@@ -149,8 +149,8 @@ public class JobTask implements Callable<Void> {
   private boolean stateFlushed;
   private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
-  private volatile long commitOutcomeBaseDelayMs = 1_000;
-  private volatile long commitOutcomeMaxDelayMs = 30_000;
+  private volatile long terminalRetryBaseDelayMs = 1_000;
+  private volatile long terminalRetryMaxDelayMs = 30_000;
   private JobClaimDto claim;
   private Long loadedClaimSeq;
   private JobExecutionEntity currentExecution;
@@ -1471,12 +1471,12 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  void setCommitOutcomeRetryDelays(long baseDelayMs, long maxDelayMs) {
+  void setTerminalRetryDelays(long baseDelayMs, long maxDelayMs) {
     if (baseDelayMs <= 0 || maxDelayMs < baseDelayMs) {
-      throw new IllegalArgumentException("Invalid commit outcome retry delays");
+      throw new IllegalArgumentException("Invalid terminal retry delays");
     }
-    commitOutcomeBaseDelayMs = baseDelayMs;
-    commitOutcomeMaxDelayMs = maxDelayMs;
+    terminalRetryBaseDelayMs = baseDelayMs;
+    terminalRetryMaxDelayMs = maxDelayMs;
   }
 
   private void resolveCommitOutcome(Instant start, TransactionOutcome outcome) {
@@ -1500,13 +1500,13 @@ public class JobTask implements Callable<Void> {
                 job.getId());
             return;
           }
-          if (commitOutcomeAttemptSuperseded()) return;
+          if (terminalRetryAttemptSuperseded()) return;
           if (readAttempt == 5) break;
           interrupted |= Thread.interrupted();
           if (!sleepTransactionBackoff(readAttempt)) {
             interrupted = true;
             Thread.interrupted();
-            if (commitOutcomeAttemptSuperseded()) return;
+            if (terminalRetryAttemptSuperseded()) return;
           }
         }
       }
@@ -1514,21 +1514,16 @@ public class JobTask implements Callable<Void> {
         log.warnf(
             "Job %s commit outcome remains unknown; continuing outcome reads; body will not rerun",
             job.getId());
-        long delayMs = commitOutcomeBaseDelayMs;
+        long delayMs = terminalRetryBaseDelayMs;
         while (terminal == null) {
-          if (commitOutcomeAttemptSuperseded()) return;
-          interrupted |= Thread.interrupted();
-          try {
-            Thread.sleep(delayMs);
-          } catch (InterruptedException sleepInterrupted) {
-            interrupted = true;
-            if (commitOutcomeAttemptSuperseded()) return;
-          }
+          TerminalRetryWait wait = waitForTerminalRetry(delayMs);
+          interrupted |= wait.interrupted();
+          if (wait.superseded()) return;
           try {
             terminal = store.terminalOutcome(job.getId(), expectedClaimSeq());
           } catch (RuntimeException readFailure) {
             interrupted |= Thread.interrupted();
-            if (commitOutcomeAttemptSuperseded()) return;
+            if (terminalRetryAttemptSuperseded()) return;
             if (!JobSuccessFinalizer.isTransientStoreFailure(readFailure)) {
               log.errorf(
                   readFailure,
@@ -1538,7 +1533,7 @@ public class JobTask implements Callable<Void> {
               return;
             }
           }
-          delayMs = delayMs >= commitOutcomeMaxDelayMs / 2 ? commitOutcomeMaxDelayMs : delayMs * 2;
+          delayMs = nextTerminalRetryDelay(delayMs);
         }
       }
     } finally {
@@ -1552,12 +1547,30 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private boolean commitOutcomeAttemptSuperseded() {
+  private boolean terminalRetryAttemptSuperseded() {
     if (attempt == null || !attempt.isSuperseded()) return false;
     log.warnf(
-        "Job %s commit outcome resolution superseded; leaving it for orphan recovery or restart",
+        "Job %s terminal retry superseded; leaving it for its owner, orphan recovery or restart",
         job.getId());
     return true;
+  }
+
+  private record TerminalRetryWait(boolean interrupted, boolean superseded) {}
+
+  private TerminalRetryWait waitForTerminalRetry(long delayMs) {
+    boolean interrupted = Thread.interrupted();
+    if (terminalRetryAttemptSuperseded()) return new TerminalRetryWait(interrupted, true);
+    try {
+      Thread.sleep(delayMs);
+    } catch (InterruptedException sleepInterrupted) {
+      interrupted = true;
+      if (terminalRetryAttemptSuperseded()) return new TerminalRetryWait(true, true);
+    }
+    return new TerminalRetryWait(interrupted, false);
+  }
+
+  private long nextTerminalRetryDelay(long delayMs) {
+    return delayMs >= terminalRetryMaxDelayMs / 2 ? terminalRetryMaxDelayMs : delayMs * 2;
   }
 
   private long queueWaitMs(Instant start) {
@@ -1604,6 +1617,31 @@ public class JobTask implements Callable<Void> {
     JobSuccessFinalizer.Outcome finalizationState =
         successFinalizer.finalizeSuccess(
             job, resultJson, resultType, start, endTime, executionMs, queueMs);
+    if (finalizationState == JobSuccessFinalizer.Outcome.STUCK && attempt != null) {
+      log.warnf(
+          "Job %s success finalization remains stuck; continuing minimal writes; body will not"
+              + " rerun",
+          job.getId());
+      boolean interrupted = Thread.interrupted();
+      long delayMs = terminalRetryBaseDelayMs;
+      try {
+        while (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
+          TerminalRetryWait wait = waitForTerminalRetry(delayMs);
+          interrupted |= wait.interrupted();
+          if (wait.superseded()) return;
+          finalizationState =
+              successFinalizer.finalizeMinimalSuccess(
+                  job, resultJson, resultType, start, endTime, executionMs, queueMs);
+          if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
+            interrupted |= Thread.interrupted();
+            if (terminalRetryAttemptSuperseded()) return;
+          }
+          delayMs = nextTerminalRetryDelay(delayMs);
+        }
+      } finally {
+        if (interrupted) Thread.currentThread().interrupt();
+      }
+    }
     if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
       markAttemptSuperseded();
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());

@@ -540,7 +540,7 @@ class JobTaskTransactionalTest {
   void unknownCommitKeepsResolvingAfterFiveTransientFailures(TerminalOutcome terminal)
       throws Exception {
     loseCommitAcknowledgement();
-    task.setCommitOutcomeRetryDelays(1, 2);
+    task.setTerminalRetryDelays(1, 2);
     AtomicInteger bodies = new AtomicInteger();
     BODY.set(() -> bodies.incrementAndGet());
     AtomicInteger reads = new AtomicInteger();
@@ -571,7 +571,7 @@ class JobTaskTransactionalTest {
   @Test
   void supersededSlowResolutionExitsAndRestoresInterrupt() throws Exception {
     loseCommitAcknowledgement();
-    task.setCommitOutcomeRetryDelays(1, 2);
+    task.setTerminalRetryDelays(1, 2);
     AtomicInteger bodies = new AtomicInteger();
     AtomicInteger reads = new AtomicInteger();
     CountDownLatch slowRead = new CountDownLatch(1);
