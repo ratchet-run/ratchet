@@ -15,6 +15,7 @@
  */
 package run.ratchet.tck.store.sql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.tck.store.sql.SqlRaceFailures.isConnectionFailure;
 import static run.ratchet.tck.store.sql.SqlRaceFailures.isLockFailure;
@@ -29,6 +30,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
@@ -255,6 +257,65 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
     assertTrue(holds.get() > 0, "cancel must create holds");
     assertTrue(releases.get() > 0, "release by claim must delete a hold");
     assertTrue(expired.get() > 0, "expiry sweep must delete a hold");
+  }
+
+  @Test
+  void expirySweepAndNodeReleaseDoNotDeadlock() throws Exception {
+    // Both sweeps delete many holds in one transaction. The holds expire in the reverse order of
+    // their keys, so sweeps that delete in different orders lock the same rows in opposite order.
+    var store = fixture().store();
+    String node = "sweep-node";
+    var lockFailures = new ConcurrentHashMap<String, AtomicInteger>();
+    fixture()
+        .observeTransientFailures(
+            (method, failure) -> {
+              if (isLockFailure(failure)) {
+                lockFailures
+                    .computeIfAbsent(method, ignored -> new AtomicInteger())
+                    .incrementAndGet();
+              }
+            });
+    var executor = Executors.newFixedThreadPool(2);
+    try {
+      for (int round = 0; round < 60 && lockFailures.isEmpty(); round++) {
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+          var job = fixture().newPendingJob();
+          job.setBusinessKey("sweep-" + round + "-" + (char) ('a' + i));
+          ids.add(store.create(job).getId());
+        }
+        int claimed = 0;
+        for (int tries = 0; claimed < ids.size() && tries < 20; tries++) {
+          claimed += store.claimNextBatch(ids.size(), node).size();
+        }
+        assertEquals(ids.size(), claimed);
+        Instant now = Instant.now();
+        for (int i = 0; i < ids.size(); i++) {
+          assertTrue(store.cancelRunningJob(ids.get(i), now.minusSeconds(i + 1L)));
+        }
+        var barrier = new CyclicBarrier(2);
+        Future<Integer> expiry =
+            executor.submit(
+                () -> {
+                  barrier.await();
+                  return store.deleteExpiredBusinessKeyHolds(Instant.now(), 50);
+                });
+        Future<Integer> release =
+            executor.submit(
+                () -> {
+                  barrier.await();
+                  return store.releaseBusinessKeyHolds(List.of(node));
+                });
+        assertEquals(
+            ids.size(),
+            expiry.get(60, TimeUnit.SECONDS) + release.get(60, TimeUnit.SECONDS),
+            "each hold is deleted once");
+      }
+    } finally {
+      executor.shutdownNow();
+      fixture().observeTransientFailures((method, failure) -> {});
+    }
+    assertTrue(lockFailures.isEmpty(), "sweep lock failures: " + lockFailures);
   }
 
   private void claim(String node, ConcurrentLinkedQueue<JobEntity> claimed) {
