@@ -39,6 +39,7 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.ri.core.internal.ConnectionPoolSize;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DefaultPollerScheduler;
@@ -314,6 +315,7 @@ class RatchetExecutionConfiguration {
   DefaultJobExecutorService defaultJobExecutorService(
       JobStore store,
       ObjectProvider<PreExecutionArgResolver> argResolver,
+      ObjectProvider<ConnectionPoolSize> connectionPoolSize,
       PoolRegistry poolRegistry,
       JobTimeoutHandler timeoutHandler,
       ExecutorProvider executorProvider,
@@ -337,32 +339,35 @@ class RatchetExecutionConfiguration {
       JobStateFlusher jobStateFlusher,
       Clock clock,
       RatchetOptions options) {
-    return new DefaultJobExecutorService(
-        argResolver.getIfAvailable(),
-        poolRegistry,
-        timeoutHandler,
-        executorProvider,
-        store,
-        resourcePermitService,
-        postExecutionHandler,
-        nodeIdProvider,
-        executionObserver,
-        preExecutionValidator,
-        payloadInvoker,
-        jobTransaction,
-        successFinalizer,
-        retryPolicy,
-        resilienceStrategy,
-        errorSanitizer,
-        pollerScheduler,
-        jobLoggerFactory,
-        resultPersistenceStrategy,
-        authorizationPolicy,
-        payloadSerializer,
-        afterCommitRegistrar,
-        jobStateFlusher,
-        clock,
-        options);
+    DefaultJobExecutorService service =
+        new DefaultJobExecutorService(
+            argResolver.getIfAvailable(),
+            poolRegistry,
+            timeoutHandler,
+            executorProvider,
+            store,
+            resourcePermitService,
+            postExecutionHandler,
+            nodeIdProvider,
+            executionObserver,
+            preExecutionValidator,
+            payloadInvoker,
+            jobTransaction,
+            successFinalizer,
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            pollerScheduler,
+            jobLoggerFactory,
+            resultPersistenceStrategy,
+            authorizationPolicy,
+            payloadSerializer,
+            afterCommitRegistrar,
+            jobStateFlusher,
+            clock,
+            options);
+    service.configureConnectionPoolWarning(connectionPoolSize.getIfAvailable());
+    return service;
   }
 
   @Bean

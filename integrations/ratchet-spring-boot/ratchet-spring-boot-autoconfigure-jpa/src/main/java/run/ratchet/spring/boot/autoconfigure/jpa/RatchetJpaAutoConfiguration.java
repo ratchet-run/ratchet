@@ -15,8 +15,11 @@
  */
 package run.ratchet.spring.boot.autoconfigure.jpa;
 
+import com.zaxxer.hikari.HikariConfigMXBean;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.sql.SQLException;
+import java.util.OptionalInt;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -27,11 +30,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.core.env.Environment;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.internal.ConnectionPoolSize;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spring.boot.autoconfigure.RatchetTransactionManagerProvider;
 import run.ratchet.store.spi.JobStore;
@@ -54,6 +59,32 @@ import run.ratchet.store.spi.JobStore;
     havingValue = "true",
     matchIfMissing = true)
 public class RatchetJpaAutoConfiguration {
+
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnClass(HikariConfigMXBean.class)
+  static class HikariPoolConfiguration {
+    @Bean
+    @ConditionalOnMissingBean(ConnectionPoolSize.class)
+    ConnectionPoolSize ratchetConnectionPoolSize(ConfigurableListableBeanFactory beanFactory) {
+      return () -> {
+        HikariConfigMXBean config = hikari(RatchetJpaInfrastructure.selectDataSource(beanFactory));
+        return config == null ? OptionalInt.empty() : OptionalInt.of(config.getMaximumPoolSize());
+      };
+    }
+
+    // JDBC unwrapping reaches Hikari through Spring's delegating proxies without a Boot-version-
+    // specific unwrapper.
+    private static HikariConfigMXBean hikari(DataSource dataSource) {
+      if (dataSource instanceof HikariConfigMXBean config) return config;
+      try {
+        return dataSource.isWrapperFor(HikariConfigMXBean.class)
+            ? dataSource.unwrap(HikariConfigMXBean.class)
+            : null;
+      } catch (SQLException ignored) {
+        return null;
+      }
+    }
+  }
 
   static final String SCHEMA_INITIALIZER_BEAN_NAME = "ratchetJpaSchemaInitializer";
   static final String RUNTIME_INSTALLATION_BEAN_NAME = "ratchetRuntimeInstallation";

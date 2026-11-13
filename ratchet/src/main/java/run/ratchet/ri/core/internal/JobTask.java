@@ -98,6 +98,14 @@ import run.ratchet.store.util.PayloadEncryptor;
  */
 public class JobTask implements Callable<Void> {
 
+  private ConnectionPoolSize connectionPoolSize;
+  private PoolRegistry connectionPools;
+
+  void configureConnectionPoolWarning(ConnectionPoolSize size, PoolRegistry pools) {
+    this.connectionPoolSize = size;
+    this.connectionPools = pools;
+  }
+
   private static final Logger log = Logger.getLogger(JobTask.class);
 
   /**
@@ -1322,6 +1330,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private void executeTransactional(Instant start, JobPayload payload, ResilienceTarget target) {
+    TransactionalPoolWarning.check(connectionPoolSize, connectionPools);
     TransactionOutcome outcome = new TransactionOutcome();
     CircuitBreakerExceptionFilter filter =
         target

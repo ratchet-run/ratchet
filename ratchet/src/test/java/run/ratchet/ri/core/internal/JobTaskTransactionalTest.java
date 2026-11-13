@@ -37,15 +37,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Transactional;
 import java.sql.SQLTransientException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -107,6 +111,7 @@ class JobTaskTransactionalTest {
   private JobExecutionEntity execution;
   private JobAttemptControl attempt;
   private JobTask task;
+  private final JobTimeoutHandler timeoutHandler = mock(JobTimeoutHandler.class);
 
   @TransactionalJob
   @CircuitBreakerProtected(
@@ -155,7 +160,7 @@ class JobTaskTransactionalTest {
             new JsonbTestPayloadSerializer(),
             mock(AfterCommitRegistrar.class),
             flusher,
-            null,
+            timeoutHandler,
             Clock.fixed(NOW, ZoneOffset.UTC),
             null,
             RatchetOptions.defaults());
@@ -192,6 +197,60 @@ class JobTaskTransactionalTest {
     BODY.remove();
     Thread.interrupted();
     JobContext.clear();
+  }
+
+  @Test
+  void watchdogInterruptEscapesRollbackBoundaryAndDefersTimeoutWithoutGenericFailure()
+      throws Exception {
+    InterruptedException interrupted = new InterruptedException("watchdog interrupt");
+    AtomicBoolean rollbackBoundaryReached = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              try {
+                return invocation.callRealMethod();
+              } catch (Exception failure) {
+                // A unit-test carrier has no container interceptor. Observe the exception crossing
+                // the rollbackOn=Exception boundary rather than simulating a committed transaction.
+                assertSame(interrupted, failure);
+                assertFalse(JobTransaction.active());
+                rollbackBoundaryReached.set(true);
+                throw failure;
+              }
+            })
+        .when(carrier)
+        .run(any());
+    BODY.set(
+        () -> {
+          assertTrue(JobTransaction.active());
+          when(timeoutHandler.isWatchdogCancelled(job.getId())).thenReturn(true);
+          Thread.currentThread().interrupt();
+          throw interrupted;
+        });
+    task.call();
+    assertTrue(rollbackBoundaryReached.get());
+    assertTrue(
+        Arrays.asList(
+                JobTransaction.class
+                    .getMethod("run", Callable.class)
+                    .getAnnotation(Transactional.class)
+                    .rollbackOn())
+            .contains(Exception.class));
+    verify(carrier).run(any());
+    verify(timeoutHandler).isWatchdogCancelled(job.getId());
+    verify(observer).saveExecution(execution);
+    assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+    assertEquals(TimeoutException.class.getName(), execution.getErrorClass());
+    assertEquals(
+        TimeoutException.class.getName() + ": Hard timeout exceeded (30s)",
+        execution.getErrorMessage());
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(timeoutHandler, never()).processCooperativeTimeout(any());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycle, never())
+        .completeSuccessInCurrentTransaction(
+            any(), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(lifecycle, never()).runFollowups(any());
+    verifyNoInteractions(finalizer);
   }
 
   @Test
