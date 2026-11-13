@@ -37,6 +37,7 @@ import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
@@ -68,7 +69,8 @@ public class CoreOnlyStoreExtension implements Extension {
           JobAuditStore.class,
           JobPropertyStore.class,
           JobStateStore.class,
-          EventOutboxStore.class);
+          EventOutboxStore.class,
+          TransactionalCompletionStore.class);
 
   <T> void demoteStoreToCore(@Observes ProcessBeanAttributes<T> event) {
     BeanAttributes<T> attributes = event.getBeanAttributes();

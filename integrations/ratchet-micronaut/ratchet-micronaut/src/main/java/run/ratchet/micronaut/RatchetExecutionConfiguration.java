@@ -28,6 +28,7 @@ import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautBatchService;
 import run.ratchet.micronaut.internal.tx.MicronautDeadLetterService;
 import run.ratchet.micronaut.internal.tx.MicronautJobStateManager;
+import run.ratchet.micronaut.internal.tx.MicronautJobTransaction;
 import run.ratchet.micronaut.internal.tx.MicronautPollerCycleExecutor;
 import run.ratchet.micronaut.internal.tx.MicronautPostExecutionHandler;
 import run.ratchet.micronaut.internal.tx.MicronautRecurringJobExecutor;
@@ -41,6 +42,7 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -355,6 +357,7 @@ class RatchetExecutionConfiguration {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -380,6 +383,7 @@ class RatchetExecutionConfiguration {
         executionObserver,
         preExecutionValidator,
         payloadInvoker,
+        jobTransaction,
         successFinalizer,
         retryPolicy,
         resilienceStrategy,
@@ -461,6 +465,13 @@ class RatchetExecutionConfiguration {
   @RatchetTransactionBoundary
   BatchCompletionTransaction batchCompletionTransaction() {
     return new BatchCompletionTransaction();
+  }
+
+  @Singleton
+  @Secondary
+  @RatchetTransactionBoundary
+  MicronautJobTransaction jobTransaction() {
+    return new MicronautJobTransaction();
   }
 
   @Singleton

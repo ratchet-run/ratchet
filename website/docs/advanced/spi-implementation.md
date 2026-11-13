@@ -653,7 +653,7 @@ jobStore.capability(SignalStore.class)
     .ifPresent(signals -> signals.deliverSignalByKey(key, payload));
 ```
 
-Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
+Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations. The SQL stores advertise every capability; MongoDB does not advertise `TransactionalCompletionStore`. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
 
 ### Core Store Interfaces (mandatory)
 
@@ -681,6 +681,7 @@ A store advertises each of these by implementing the interface; the engine probe
 | `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
 | `ResourcePermitStore` | Resource permits and their waiting line | `tryAcquirePermit()`, `releasePermit()`, `wakeWaiters()` |
 | `EventOutboxStore` | Durable terminal delivery | `findEventsCreatedBefore()`, `deleteEvents()` (at most 500 IDs); insert `JobCompletionPlan.outboxEvents()` atomically only when completion wins |
+| `TransactionalCompletionStore` | Completion in an existing SQL transaction | `terminalOutcome()`, `requireJoinedTransaction()`, and current planning reads (SQL stores only) |
 | `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
 | `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
@@ -707,8 +708,9 @@ that claim:
 - Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq`. This is
   a point-in-time check. Unlike the job-state fence above, it need not be atomic with the write:
   a claim change that commits after it does not fence the permit write, so the earlier claim can
-  still get `ACQUIRED`. That claim then holds the permit until it releases it, and the newer claim
-  waits for it.
+  still get `ACQUIRED`. That claim then holds the permit until it releases it. If that leaves the
+  resource at capacity, the newer claim waits. If a slot is still free, the newer claim gets its
+  own permit, and both attempts hold one at the same time.
 - A repeat call by the same claim returns `ACQUIRED` and uses no more capacity.
 - Otherwise insert a permit for the claim when the resource has capacity (`ACQUIRED`), or park
   the job and return `AT_CAPACITY` (see [Resource waiters](#resource-waiters)). Count every permit of the resource, including one that an older claim of the
@@ -1010,6 +1012,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobBulkStoreContract` | Bulk recovery, stale job detection |
 | `AbstractBatchStoreContract` | Batch progress tracking |
 | `AbstractEventOutboxStoreContract` | Atomic completion rows, cutoff reads, bounded idempotent deletion |
+| `AbstractTransactionalCompletionStoreContract` | Claim-specific outcome resolution, success claim copy, and current planning reads (SQL stores) |
 | `AbstractLockStoreContract` | Lock acquire, release, expiry |
 | `AbstractNodeStoreContract` | Node registration, heartbeat, dead node detection |
 | `AbstractArchiveStoreContract` | Job archiving and retrieval |

@@ -189,6 +189,8 @@ public class JdbcContainerExtension
               container.getDriverClassName(),
               dbType);
 
+      initializeTransactionalEffects(config);
+
       // Set system properties for downstream consumers (datasource config, etc.)
       System.setProperty("ratchet.test.db.url", config.url());
       System.setProperty("ratchet.test.db.username", config.username());
@@ -208,6 +210,44 @@ public class JdbcContainerExtension
 
       started = true;
       log.info("Database container ready: " + config.url());
+    }
+  }
+
+  private static void initializeTransactionalEffects(JdbcDatabaseConfig database) {
+    String ddl =
+        switch (database.dbType()) {
+          case "mysql" ->
+              """
+              CREATE TABLE test_transactional_effects (
+                entry_id VARCHAR(36) PRIMARY KEY, test_key VARCHAR(36) NOT NULL
+              ) ENGINE=InnoDB
+              """;
+          case "postgresql" ->
+              """
+              CREATE TABLE test_transactional_effects (
+                entry_id VARCHAR(36) PRIMARY KEY, test_key VARCHAR(36) NOT NULL
+              )
+              """;
+          case "oracle" ->
+              """
+              CREATE TABLE test_transactional_effects (
+                entry_id VARCHAR2(36 CHAR) PRIMARY KEY, test_key VARCHAR2(36 CHAR) NOT NULL
+              )
+              """;
+          case "sqlserver" ->
+              """
+              CREATE TABLE test_transactional_effects (
+                entry_id VARCHAR(36) PRIMARY KEY, test_key VARCHAR(36) NOT NULL
+              )
+              """;
+          default -> throw new IllegalArgumentException("Not a SQL store: " + database.dbType());
+        };
+    try (Connection connection =
+            DriverManager.getConnection(database.url(), database.username(), database.password());
+        Statement statement = connection.createStatement()) {
+      statement.execute(ddl);
+    } catch (SQLException failure) {
+      throw new IllegalStateException("Could not initialize transactional job test table", failure);
     }
   }
 

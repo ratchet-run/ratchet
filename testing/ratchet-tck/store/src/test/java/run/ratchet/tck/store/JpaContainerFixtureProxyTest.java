@@ -24,6 +24,7 @@ import run.ratchet.store.spi.EventOutboxStore;
 import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 
 class JpaContainerFixtureProxyTest {
 
@@ -32,6 +33,9 @@ class JpaContainerFixtureProxyTest {
     assertEquals(
         List.of(JobStore.class, EventOutboxStore.class),
         interfacesFor(storeWith(EventOutboxStore.class)));
+    assertEquals(
+        List.of(JobStore.class, TransactionalCompletionStore.class),
+        interfacesFor(storeWith(TransactionalCompletionStore.class)));
     assertEquals(List.of(JobStore.class), interfacesFor(mock(JobStore.class, CALLS_REAL_METHODS)));
     assertEquals(
         List.of(JobStore.class, JobPropertyStore.class),

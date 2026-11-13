@@ -199,6 +199,41 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
         provisionRatchetDatabase(container);
         container.withUrlParam("databaseName", "ratchet");
       }
+      initializeTransactionalEffects();
+    }
+
+    private void initializeTransactionalEffects() {
+      String ddl =
+          switch (dbKind) {
+            case "mysql" ->
+                """
+                CREATE TABLE test_transactional_effects (
+                  entry_id VARCHAR(36) PRIMARY KEY, test_key VARCHAR(36) NOT NULL
+                ) ENGINE=InnoDB
+                """;
+            case "postgresql", "mssql" ->
+                """
+                CREATE TABLE test_transactional_effects (
+                  entry_id VARCHAR(36) PRIMARY KEY, test_key VARCHAR(36) NOT NULL
+                )
+                """;
+            case "oracle" ->
+                """
+                CREATE TABLE test_transactional_effects (
+                  entry_id VARCHAR2(36 CHAR) PRIMARY KEY, test_key VARCHAR2(36 CHAR) NOT NULL
+                )
+                """;
+            default -> throw new IllegalArgumentException("Not a SQL datasource: " + dbKind);
+          };
+      try (Connection connection =
+              DriverManager.getConnection(
+                  container.getJdbcUrl(), container.getUsername(), container.getPassword());
+          Statement statement = connection.createStatement()) {
+        statement.execute(ddl);
+      } catch (SQLException failure) {
+        throw new IllegalStateException(
+            "Could not initialize transactional job test table", failure);
+      }
     }
 
     @Override
