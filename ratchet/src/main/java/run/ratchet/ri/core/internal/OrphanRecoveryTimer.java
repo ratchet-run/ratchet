@@ -234,6 +234,11 @@ public class OrphanRecoveryTimer {
     try {
       recoverOrphans(cutoff);
     } finally {
+      try {
+        resourcePermitService.sweepWaiters();
+      } catch (RuntimeException e) {
+        log.warn("Resource waiter sweep failed; the next scan will retry", e);
+      }
       // Runs after a failed recovery step too; it only touches execution rows.
       closeStaleExecutions(cutoff);
     }

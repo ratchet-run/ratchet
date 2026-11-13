@@ -21,8 +21,9 @@ import jakarta.inject.Inject;
 import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
-import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.api.JobPriority;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
@@ -34,7 +35,7 @@ import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
  * if (result == AcquireResult.ACQUIRED) {
  *     try { // execute job
  *     } finally { resourcePermitService.release(resourceName, jobId, claimSeq); }
- * } else { // reschedule }
+ * } else { // store already parked the job, or the claim was superseded }
  * }</pre>
  *
  * @see ResourcePermitStore
@@ -45,19 +46,28 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   private static final Logger log = Logger.getLogger(DefaultResourcePermitService.class);
 
   private final ResourcePermitStore resourcePermitStore;
-  private final PollerScheduler pollerScheduler;
+  // Bound background work so a large waiter population cannot monopolize a scan.
+  static final int SWEEP_RESOURCE_LIMIT = 64;
+  static final int STALE_DELETE_LIMIT = 500;
+
+  private final JobWakeupService jobWakeupService;
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected DefaultResourcePermitService() {
     this.resourcePermitStore = null;
-    this.pollerScheduler = null;
+    this.jobWakeupService = null;
+    this.afterCommitRegistrar = null;
   }
 
   @Inject
   public DefaultResourcePermitService(
-      Instance<ResourcePermitStore> resourcePermitStore, PollerScheduler pollerScheduler) {
+      Instance<ResourcePermitStore> resourcePermitStore,
+      JobWakeupService jobWakeupService,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.resourcePermitStore =
         resourcePermitStore.isResolvable() ? resourcePermitStore.get() : null;
-    this.pollerScheduler = pollerScheduler;
+    this.jobWakeupService = jobWakeupService;
+    this.afterCommitRegistrar = afterCommitRegistrar;
     if (this.resourcePermitStore == null) {
       log.info(
           "ResourcePermitStore capability not advertised by the store — resource concurrency"
@@ -67,16 +77,19 @@ public class DefaultResourcePermitService implements ResourcePermitService {
 
   /** Constructor for tests that supply a store directly (or {@code null} to disable gating). */
   public DefaultResourcePermitService(
-      ResourcePermitStore resourcePermitStore, PollerScheduler pollerScheduler) {
+      ResourcePermitStore resourcePermitStore,
+      JobWakeupService jobWakeupService,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.resourcePermitStore = resourcePermitStore;
-    this.pollerScheduler = pollerScheduler;
+    this.jobWakeupService = jobWakeupService;
+    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   /**
    * Attempts to acquire a permit atomically using pessimistic locking.
    *
-   * <p>TX attribute: REQUIRED. SQL stores depend on the caller's active transaction so the capacity
-   * check and permit insert share the same locked resource row.
+   * <p>TX attribute: REQUIRED. The worker calls without an active transaction, so each attempt gets
+   * its own short store transaction.
    *
    * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim did not own the job at the check
    */
@@ -94,41 +107,72 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   }
 
   /**
-   * Releases a permit held by the supplied claim.
-   *
-   * <p>TX attribute: REQUIRED. Store implementations may depend on the caller's active transaction.
-   * The poller wakeup still fires if the store release throws, so waiters are not stranded until
-   * the next scheduled poll.
+   * Releases a permit held by the supplied claim, then wakes the resource's waiters once the
+   * caller's transaction commits (at once when there is none). A failed wake-up is logged and left
+   * to the waiter's own re-check and the periodic sweep.
    *
    * <p>Safe to call even if the job holds no permit.
    */
   @Override
   public void release(String resourceName, UUID jobId, long claimSeq) {
-    try {
-      if (resourcePermitStore != null) {
-        resourcePermitStore.releasePermit(resourceName, jobId, claimSeq);
-        log.debugf("Job %s released permit for resource %s", jobId, resourceName);
-      }
-    } finally {
-      pollerScheduler.wakeup();
+    if (resourcePermitStore == null) {
+      return;
     }
+    resourcePermitStore.releasePermit(resourceName, jobId, claimSeq);
+    wakeAfterCommit(() -> wake(resourceName));
   }
 
   /**
-   * Releases all permits held by a job.
-   *
-   * <p>TX attribute: REQUIRED. Store implementations may depend on the caller's active transaction.
-   * The poller wakeup still fires if the store release throws.
+   * Releases all permits held by a job, then runs the waiter sweep once the caller's transaction
+   * commits, since the released resources are not known here.
    */
   @Override
   public void releaseAll(UUID jobId) {
-    try {
-      if (resourcePermitStore != null) {
-        resourcePermitStore.releaseAllPermits(jobId);
-      }
-    } finally {
-      pollerScheduler.wakeup();
+    if (resourcePermitStore == null) {
+      return;
     }
+    resourcePermitStore.releaseAllPermits(jobId);
+    wakeAfterCommit(this::sweepWaiters);
+  }
+
+  private void wakeAfterCommit(Runnable wake) {
+    AfterCommitActions.runOrWarn(
+        afterCommitRegistrar,
+        "resource waiter wake",
+        () -> {
+          try {
+            wake.run();
+          } catch (RuntimeException e) {
+            log.warn("Resource waiter wake failed; the periodic sweep will retry", e);
+          }
+        });
+  }
+
+  private void wake(String resource) {
+    try {
+      for (var waiter : resourcePermitStore.wakeWaiters(resource)) {
+        jobWakeupService.notify(
+            JobPriority.fromPersistedCode(waiter.priority()), true, waiter.executionTarget());
+      }
+    } catch (RuntimeException e) {
+      log.warnf(
+          e, "Could not wake waiters for resource %s; the periodic sweep will retry", resource);
+    }
+  }
+
+  @Override
+  public void sweepWaiters() {
+    if (resourcePermitStore == null) {
+      return;
+    }
+    List<String> resources = resourcePermitStore.findResourcesWithWaiters(SWEEP_RESOURCE_LIMIT);
+    if (resources.isEmpty()) {
+      return;
+    }
+    for (String resource : resources) {
+      wake(resource);
+    }
+    resourcePermitStore.deleteStaleWaiters(STALE_DELETE_LIMIT);
   }
 
   /**
@@ -149,6 +193,7 @@ public class DefaultResourcePermitService implements ResourcePermitService {
       return;
     }
     resourcePermitStore.configureResource(resourceName, maxConcurrent, retryDelayMs, description);
+    wakeAfterCommit(() -> wake(resourceName));
     log.infof(
         "Configured resource %s with max=%s, retryDelay=%sms",
         resourceName, maxConcurrent, retryDelayMs);
@@ -164,6 +209,7 @@ public class DefaultResourcePermitService implements ResourcePermitService {
     int deleted = resourcePermitStore.cleanupOrphanedPermits(staleNodeIds);
 
     if (deleted > 0) {
+      wakeAfterCommit(this::sweepWaiters);
       log.infof("Cleaned up %s orphaned permit(s) from stale nodes", deleted);
     }
 

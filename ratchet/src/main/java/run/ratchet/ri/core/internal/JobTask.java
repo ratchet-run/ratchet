@@ -30,6 +30,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
@@ -45,6 +46,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.api.internal.CancellationIdentities;
@@ -830,6 +832,33 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  // Retry short lock conflicts without charging a job attempt.
+  static final int PERMIT_ACQUIRE_TRIES = 3;
+  private static final int PERMIT_BACKOFF_MIN_MS = 20;
+  private static final int PERMIT_BACKOFF_MAX_MS = 100;
+
+  private AcquireResult acquireResourcePermit(String resourceName, long claimSeq) {
+    // call() has no transaction: each store REQUIRED call starts a fresh transaction.
+    for (int attempt = 1; ; attempt++) {
+      try {
+        return resourcePermitService.tryAcquire(
+            resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId());
+      } catch (RatchetTransientStoreException failure) {
+        if (attempt == PERMIT_ACQUIRE_TRIES) {
+          throw failure;
+        }
+        try {
+          Thread.sleep(
+              ThreadLocalRandom.current()
+                  .nextInt(PERMIT_BACKOFF_MIN_MS, PERMIT_BACKOFF_MAX_MS + 1));
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw failure;
+        }
+      }
+    }
+  }
+
   private boolean tryAcquireResourcePermit() {
     String resourceName = job.getResourceName();
     if (resourceName == null) {
@@ -838,9 +867,7 @@ public class JobTask implements Callable<Void> {
 
     try {
       long claimSeq = expectedClaimSeq();
-      AcquireResult result =
-          resourcePermitService.tryAcquire(
-              resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId());
+      AcquireResult result = acquireResourcePermit(resourceName, claimSeq);
 
       if (result == AcquireResult.ACQUIRED) {
         permitAcquired = true;
@@ -848,7 +875,10 @@ public class JobTask implements Callable<Void> {
         return true;
       }
 
-      boolean superseded = result == AcquireResult.SUPERSEDED;
+      if (result == AcquireResult.AT_CAPACITY) {
+        log.debugf("Job %s parked waiting for resource '%s'", job.getId(), resourceName);
+        return false;
+      }
       // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
       // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
       int retryDelay = resourcePermitService.getRetryDelay(resourceName);
@@ -862,15 +892,9 @@ public class JobTask implements Callable<Void> {
         return false;
       }
 
-      if (superseded) {
-        log.warnf(
-            "Store reported job %s claim %s superseded but its reschedule succeeded",
-            job.getId(), claimSeq);
-      } else {
-        log.debugf(
-            "Job %s waiting for resource '%s' - rescheduled for %sms",
-            job.getId(), resourceName, retryDelay);
-      }
+      log.warnf(
+          "Store reported job %s claim %s superseded but its reschedule succeeded",
+          job.getId(), claimSeq);
       return false;
     } catch (IllegalArgumentException e) {
       log.errorf(e, "Job %s references unconfigured resource: %s", job.getId(), resourceName);
@@ -892,9 +916,9 @@ public class JobTask implements Callable<Void> {
   }
 
   /**
-   * Reschedules a job when the circuit breaker is open, without counting it as a retry attempt.
-   * Uses the same pattern as resource permit unavailability — the job goes back to PENDING with a
-   * delay matching the circuit breaker's typical OPEN-to-HALF_OPEN transition window.
+   * Reschedules a job when the circuit breaker is open, without counting it as a retry attempt. The
+   * job goes back to PENDING with a delay matching the circuit breaker's typical OPEN-to-HALF_OPEN
+   * transition window.
    */
   private void rescheduleForCircuitBreaker(JobEntity jobEntity, String serviceName) {
     rescheduleForCircuitBreaker(
