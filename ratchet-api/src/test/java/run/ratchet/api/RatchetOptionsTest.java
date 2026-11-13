@@ -56,8 +56,40 @@ class RatchetOptionsTest {
                   m.logRetentionDays(),
                   m.batchRecoveryIntervalSeconds(),
                   m.batchRecoveryLeaseTtlSeconds(),
-                  invalid));
+                  invalid,
+                  m.batchMaxPartitions(),
+                  m.batchPartitionGrace()));
     }
+  }
+
+  @Test
+  void maintenanceOptionsRejectsNonPositivePartitionSettings() {
+    RatchetOptions.MaintenanceOptions m = RatchetOptions.builder().build().maintenance();
+    assertThrows(IllegalArgumentException.class, () -> maintenance(m, 0, m.batchPartitionGrace()));
+    for (Duration invalid : Arrays.asList(null, Duration.ZERO, Duration.ofSeconds(-1))) {
+      assertThrows(
+          IllegalArgumentException.class, () -> maintenance(m, m.batchMaxPartitions(), invalid));
+    }
+  }
+
+  private static RatchetOptions.MaintenanceOptions maintenance(
+      RatchetOptions.MaintenanceOptions m, int maxPartitions, Duration partitionGrace) {
+    return new RatchetOptions.MaintenanceOptions(
+        m.dlqPurgeEnabled(),
+        m.dlqPurgeCron(),
+        m.dlqPurgeDays(),
+        m.jobArchiveEnabled(),
+        m.jobArchiveCron(),
+        m.jobRetentionDays(),
+        m.jobArchiveBatchSize(),
+        m.logPurgeEnabled(),
+        m.logPurgeCron(),
+        m.logRetentionDays(),
+        m.batchRecoveryIntervalSeconds(),
+        m.batchRecoveryLeaseTtlSeconds(),
+        m.batchFoldTimeout(),
+        maxPartitions,
+        partitionGrace);
   }
 
   @Test

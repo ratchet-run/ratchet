@@ -48,6 +48,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
@@ -208,7 +209,8 @@ final class MongoBatchOperations implements BatchStore {
                     }
                   }
                   return Math.toIntExact(count);
-                });
+                },
+                TRANSACTION_OPTIONS);
       }
       total += changed;
       if (changed == 0) {
@@ -221,7 +223,8 @@ final class MongoBatchOperations implements BatchStore {
   public void closeBatch(UUID batchId) {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
-          () -> ctx.batches().updateOne(session, eq(ID, batchId), set(COMPLETION_PROCESSED, true)));
+          () -> ctx.batches().updateOne(session, eq(ID, batchId), set(COMPLETION_PROCESSED, true)),
+          TRANSACTION_OPTIONS);
     }
   }
 
@@ -286,6 +289,16 @@ final class MongoBatchOperations implements BatchStore {
   public BatchEntity saveBatch(BatchEntity batch) {
     Document doc = DocumentMapper.toDocument(batch);
     ctx.batches().replaceOne(eq(ID, batch.getId()), doc, new ReplaceOptions().upsert(true));
+    return batch;
+  }
+
+  BatchEntity saveBatch(ClientSession session, BatchEntity batch) {
+    ctx.batches()
+        .replaceOne(
+            session,
+            eq(ID, batch.getId()),
+            DocumentMapper.toDocument(batch),
+            new ReplaceOptions().upsert(true));
     return batch;
   }
 

@@ -383,6 +383,8 @@ public final class DocumentMapper {
     doc.append("version", versionOrDefault(batch.getVersion()));
     doc.append("progress_hook", payloadToStoredValue(batch.getProgressHook()));
     doc.append("reducer", batch.getReducer());
+    doc.append("partition_set_id", batch.getPartitionSetId());
+    doc.append("generation", batch.getGeneration());
     doc.append(
         "fold_claimed_at",
         batch.getFoldClaimedAt() == null ? null : Date.from(batch.getFoldClaimedAt()));
@@ -399,6 +401,8 @@ public final class DocumentMapper {
     batch.setVersion(doc.getInteger("version", DEFAULT_VERSION));
     batch.setProgressHook(storedValueToPayload(doc.get("progress_hook")));
     batch.setReducer(doc.getString("reducer"));
+    batch.setPartitionSetId(doc.get("partition_set_id", UUID.class));
+    batch.setGeneration(doc.getInteger("generation"));
     batch.setFoldClaimedAt(
         doc.getDate("fold_claimed_at") == null ? null : doc.getDate("fold_claimed_at").toInstant());
     return batch;

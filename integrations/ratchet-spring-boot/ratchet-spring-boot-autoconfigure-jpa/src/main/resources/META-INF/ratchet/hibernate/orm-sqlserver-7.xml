@@ -36,6 +36,7 @@
         <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="foldClaimedAt"/>
         <attributes>
             <id name="id"><column name="batch_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+            <basic name="partitionSetId"><column name="partition_set_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></basic>
         </attributes>
     </entity>
 

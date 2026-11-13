@@ -53,6 +53,21 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void bulkInsert_keepsPresetIds() {
+    var first = newPendingJob();
+    var second = newPendingJob();
+    UUID firstId = UuidV7Factory.create();
+    UUID secondId = UuidV7Factory.create();
+    first.setId(firstId);
+    second.setId(secondId);
+    store().bulkInsert(List.of(first, second));
+    assertEquals(firstId, first.getId());
+    assertEquals(secondId, second.getId());
+    assertEquals(firstId, store().findById(firstId).orElseThrow().getId());
+    assertEquals(secondId, store().findById(secondId).orElseThrow().getId());
+  }
+
+  @Test
   void bulkInsert_roundTripsLargeMultibytePayloads() {
     String value = "é".repeat(128 * 1024);
     var first = newPendingJob();
