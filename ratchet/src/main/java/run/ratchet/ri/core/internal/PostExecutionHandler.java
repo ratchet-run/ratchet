@@ -32,7 +32,10 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
+import run.ratchet.ri.core.CompletionReads;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.TransactionalCompletion;
 import run.ratchet.ri.core.internal.DurableTerminalEvents.PreparedDlqEvents;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.dto.BatchProgress;
@@ -40,7 +43,9 @@ import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 
 /**
  * Routes post-execution lifecycle events (batch progress, workflow scheduling, DLQ) on behalf of
@@ -191,16 +196,76 @@ public class PostExecutionHandler {
       long queueWaitMs) {
     return inCompletionTransaction(
         () -> {
-          JobEntity completed = completionSnapshot(source, JobStatus.SUCCEEDED);
-          completed.setJobResult(resultJson);
-          completed.setResultType(resultType);
-          completed.setExecutionStartTime(start);
-          completed.setExecutionEndTime(end);
-          completed.setExecutionDurationMs(durationMs);
-          completed.setQueueWaitMs(queueWaitMs);
-          completed.setLastError(null);
+          JobEntity completed =
+              successSnapshot(source, resultJson, resultType, start, end, durationMs, queueWaitMs);
           return complete(completed, JobStatus.RUNNING, false, null, List.of());
         });
+  }
+
+  @Transactional(value = TxType.MANDATORY, rollbackOn = Exception.class)
+  public TransactionalCompletion completeSuccessInCurrentTransaction(
+      JobEntity source,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs) {
+    if (!JobTransaction.active()) {
+      throw new IllegalStateException("Job completion requires an active JobTransaction carrier");
+    }
+    TransactionalCompletionStore store =
+        jobTerminalStore instanceof JobStore jobs
+            ? jobs.capability(TransactionalCompletionStore.class).orElse(null)
+            : null;
+    if (store == null) {
+      throw new IllegalStateException("Job store does not support transactional completion");
+    }
+    store.requireJoinedTransaction();
+    List<BatchProgress> previous = PENDING_BATCH_FOLLOWUPS.get();
+    List<BatchProgress> pending = new ArrayList<>();
+    PENDING_BATCH_FOLLOWUPS.set(pending);
+    try {
+      JobEntity completed =
+          successSnapshot(source, resultJson, resultType, start, end, durationMs, queueWaitMs);
+      if (!complete(
+          completed,
+          JobStatus.RUNNING,
+          false,
+          null,
+          List.of(),
+          CompletionReads.transactional(store))) {
+        throw new CompletionRejectedException();
+      }
+      return new TransactionalCompletion(pending);
+    } finally {
+      if (previous == null) PENDING_BATCH_FOLLOWUPS.remove();
+      else PENDING_BATCH_FOLLOWUPS.set(previous);
+    }
+  }
+
+  @Transactional(TxType.NOT_SUPPORTED)
+  public void runFollowups(TransactionalCompletion completion) {
+    completion.followups().forEach(this::runBatchFollowup);
+  }
+
+  private JobEntity successSnapshot(
+      JobEntity source,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs) {
+    JobEntity completed = completionSnapshot(source, JobStatus.SUCCEEDED);
+    completed.setJobResult(resultJson);
+    completed.setResultType(resultType);
+    completed.setExecutionStartTime(start);
+    completed.setExecutionEndTime(end);
+    completed.setExecutionDurationMs(durationMs);
+    completed.setQueueWaitMs(queueWaitMs);
+    completed.setLastError(null);
+    return completed;
   }
 
   @Transactional(value = TxType.NOT_SUPPORTED)
@@ -257,10 +322,22 @@ public class PostExecutionHandler {
       boolean cancelChain,
       Throwable cause,
       List<AbstractJobSchedulerEvent> failureEvents) {
+    return complete(completed, expectedStatus, cancelChain, cause, failureEvents, null);
+  }
+
+  private boolean complete(
+      JobEntity completed,
+      JobStatus expectedStatus,
+      boolean cancelChain,
+      Throwable cause,
+      List<AbstractJobSchedulerEvent> failureEvents,
+      CompletionReads reads) {
     WorkflowCompletionPlan workflow =
         completed.getJobType() == JobExecutionType.BATCH_CHILD
             ? WorkflowCompletionPlan.empty()
-            : workflowScheduler.planCompletion(completed, cancelChain);
+            : reads == null
+                ? workflowScheduler.planCompletion(completed, cancelChain)
+                : workflowScheduler.planCompletion(completed, cancelChain, null, reads);
     DurableTerminalEvents durable = durableEvents;
     boolean durableEnabled = durable != null && durable.enabled();
     List<AbstractJobSchedulerEvent> events = new ArrayList<>();

@@ -776,6 +776,7 @@ final class MysqlJobTerminalOperations {
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
         SET c.terminal_status = 'SUCCEEDED',
+            c.claim_seq = q.claim_seq,
             c.job_result = CAST(? AS JSON), c.result_type = ?,
             c.execution_start_time = ?, c.execution_end_time = ?,
             c.execution_duration_ms = ?, c.queue_wait_ms = ?,
@@ -809,6 +810,7 @@ final class MysqlJobTerminalOperations {
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
         SET c.terminal_status = 'SUCCEEDED',
+            c.claim_seq = q.claim_seq,
             c.execution_start_time = ?, c.execution_end_time = ?,
             c.execution_duration_ms = ?, c.queue_wait_ms = ?,
             c.total_attempts = q.attempts, c.terminated_at = NOW(3)

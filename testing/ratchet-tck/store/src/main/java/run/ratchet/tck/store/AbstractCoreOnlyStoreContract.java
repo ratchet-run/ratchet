@@ -45,6 +45,7 @@ import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
@@ -71,7 +72,8 @@ public abstract class AbstractCoreOnlyStoreContract {
           JobAuditStore.class,
           JobPropertyStore.class,
           JobStateStore.class,
-          EventOutboxStore.class);
+          EventOutboxStore.class,
+          TransactionalCompletionStore.class);
 
   protected abstract JobStoreContractFixture fixture();
 
@@ -124,6 +126,7 @@ public abstract class AbstractCoreOnlyStoreContract {
 
     assertThrows(TestAbortedException.class, fixture::batchStore);
     assertThrows(TestAbortedException.class, fixture::eventOutboxStore);
+    assertThrows(TestAbortedException.class, fixture::transactionalCompletionStore);
     assertThrows(TestAbortedException.class, fixture::signalStore);
     assertThrows(TestAbortedException.class, fixture::archiveStore);
     assertThrows(TestAbortedException.class, fixture::recurringStore);

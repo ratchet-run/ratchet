@@ -33,6 +33,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RatchetOptionsFactory;
 import run.ratchet.api.internal.RatchetConfigKeys;
 import run.ratchet.micronaut.internal.NoTransactionOperations;
+import run.ratchet.micronaut.internal.RatchetTransactionOperations;
 import run.ratchet.ri.cdi.NoOpClusterCoordinator;
 import run.ratchet.ri.cdi.NoOpTracingCollector;
 import run.ratchet.ri.cdi.ReferenceEncryptionFactory;
@@ -166,9 +167,8 @@ public class RatchetAutoConfiguration {
 
   @Singleton
   @Requires(missingBeans = AfterCommitRegistrar.class)
-  AfterCommitRegistrar ratchetAfterCommitRegistrar(
-      BeanProvider<TransactionOperations<?>> operations) {
-    return new MicronautAfterCommitRegistrar(() -> operations.orElse(null));
+  AfterCommitRegistrar ratchetAfterCommitRegistrar(RatchetTransactionOperations operations) {
+    return new MicronautAfterCommitRegistrar(operations::operations);
   }
 
   @Singleton

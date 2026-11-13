@@ -41,6 +41,23 @@ import run.ratchet.store.spi.JobClaimStore;
 
 class JobAttemptControlTest {
   @Test
+  void revocationSetsBothFlagsWhileFenceBounceOnlySupersedes() {
+    JobAttemptControl attempt = newAttempt();
+    assertFalse(attempt.isRevoked());
+    attempt.markSuperseded();
+    assertTrue(attempt.isSuperseded());
+    assertFalse(attempt.isRevoked());
+    attempt.revoke();
+    assertTrue(attempt.isRevoked());
+    assertTrue(attempt.isSuperseded());
+
+    JobAttemptControl fresh = newAttempt();
+    fresh.revoke();
+    assertTrue(fresh.isRevoked());
+    assertTrue(fresh.isSuperseded());
+  }
+
+  @Test
   void checkpointFlushWithoutHookIsHarmless() {
     newAttempt().flushStateQuietly();
   }
@@ -181,6 +198,7 @@ class JobAttemptControlTest {
     assertFalse(attempt.claimTimeoutForWorker());
     assertFalse(attempt.handBackTimeoutToWatchdog());
     assertTrue(attempt.claimTimeoutForWatchdog());
+    assertTrue(attempt.isRevoked());
     assertTrue(attempt.isSuperseded());
     assertFalse(attempt.isTimeoutHandedBack());
     assertFalse(attempt.claimTimeoutForWatchdog());
@@ -190,6 +208,7 @@ class JobAttemptControlTest {
   void watchdogCanClaimUnclaimedTimeoutAndExcludeWorker() {
     JobAttemptControl attempt = newAttempt();
     assertTrue(attempt.claimTimeoutForWatchdog());
+    assertTrue(attempt.isRevoked());
     assertTrue(attempt.isSuperseded());
     assertFalse(attempt.claimTimeoutForWorker());
     assertFalse(attempt.claimTimeoutForWatchdog());
@@ -202,7 +221,9 @@ class JobAttemptControlTest {
     JobAttemptControl attempt = newAttempt();
     assertTrue(attempt.claimTimeoutForWorker());
     assertFalse(attempt.claimTimeoutForWatchdog());
+    assertFalse(attempt.isRevoked());
     assertFalse(attempt.claimTimeoutForWatchdog());
+    assertFalse(attempt.isRevoked());
     assertFalse(attempt.handBackTimeoutToWatchdog());
     assertFalse(attempt.isTimeoutHandedBack());
     assertFalse(attempt.claimTimeoutForWorker());

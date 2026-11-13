@@ -49,6 +49,7 @@ import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
@@ -123,7 +124,8 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
             JobAuditStore.class,
             JobPropertyStore.class,
             JobStateStore.class,
-            EventOutboxStore.class);
+            EventOutboxStore.class,
+            TransactionalCompletionStore.class);
     for (Class<?> cap : capabilities) {
       var view = store.capability(cap);
       assertEquals(

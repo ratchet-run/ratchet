@@ -15,13 +15,18 @@
  */
 package run.ratchet.quarkus.runtime;
 
+import io.agroal.api.AgroalDataSource;
 import io.quarkus.hibernate.orm.PersistenceUnit;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
 import jakarta.persistence.EntityManager;
+import java.util.OptionalInt;
+import run.ratchet.ri.core.internal.ConnectionPoolSize;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 /**
@@ -60,6 +65,15 @@ public class QuarkusRatchetEntityManagerProvider implements RatchetEntityManager
   @Inject
   @PersistenceUnit(PERSISTENCE_UNIT_NAME)
   EntityManager entityManager;
+
+  @Produces
+  ConnectionPoolSize connectionPoolSize(Instance<AgroalDataSource> dataSources) {
+    return () ->
+        dataSources.isResolvable()
+            ? OptionalInt.of(
+                dataSources.get().getConfiguration().connectionPoolConfiguration().maxSize())
+            : OptionalInt.empty();
+  }
 
   @Override
   public EntityManager getEntityManager() {

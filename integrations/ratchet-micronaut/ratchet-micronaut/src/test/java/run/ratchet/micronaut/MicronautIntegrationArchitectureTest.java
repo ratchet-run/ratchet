@@ -41,6 +41,7 @@ import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.internal.DefaultRecurringAnnotationMaintenanceService;
 import run.ratchet.spi.ExecutorProvider;
 
@@ -175,6 +176,7 @@ class MicronautIntegrationArchitectureTest {
     Set<Class<?>> methodOnly =
         Set.of(
             BatchCompletionTransaction.class,
+            JobTransaction.class,
             DefaultJobCreationService.class,
             DefaultJobSchedulerService.class,
             DefaultRecurringAnnotationMaintenanceService.class);
