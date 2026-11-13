@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
+import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
 import jakarta.transaction.SystemException;
@@ -33,10 +34,14 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BusinessKeyHolder;
+import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.tck.api.TckJobs;
 
@@ -95,14 +100,23 @@ class QuarkusBusinessKeyCallerTransactionTest {
   void recurringHolder_callerCommitsItsOwnWrite() throws Exception {
     JobSchedulerService scheduler = runtime.scheduler();
     String key = uniqueKey();
-    // The active-holder pre-check reads only queue owners, so a recurring holder sends the submit
-    // to the insert path, where the held reservation is reported before any job write.
-    scheduler
-        .scheduleRecurring(YEARLY, ZoneOffset.UTC, TckJobs::noop)
-        .withBusinessKey(key)
-        .submit();
+    var master =
+        scheduler
+            .scheduleRecurring(YEARLY, ZoneOffset.UTC, TckJobs::noop)
+            .withBusinessKey(key)
+            .submit();
+
+    var expected = new BusinessKeyHolder(master.id(), JobType.RECURRING, JobStatus.PENDING);
+    var lookup = CDI.current().select(BusinessKeyLookup.class).get();
+    assertEquals(expected, scheduler.findBusinessKeyHolder(key).orElseThrow());
+    assertEquals(expected, lookup.findBusinessKeyHolder(key).orElseThrow());
 
     utx.begin();
+    assertEquals(expected, scheduler.findBusinessKeyHolder(key).orElseThrow());
+    assertEquals(expected, lookup.findBusinessKeyHolder(key).orElseThrow());
+    assertTrue(lookup.findBusinessKeyHolder(uniqueKey()).isEmpty());
+    assertThrows(
+        IllegalArgumentException.class, () -> lookup.findBusinessKeyHolder("x".repeat(256)));
     JobHandle ownWrite = scheduler.schedule(LATER, TckJobs::noop).submit();
     assertThrows(
         DuplicateBusinessKeyException.class,
