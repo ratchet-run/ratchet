@@ -88,7 +88,7 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
             "releaseBusinessKeyHolds",
             "deleteExpiredBusinessKeyHolds",
             "findBusinessKeyHolder",
-            "cancelJob");
+            "compareAndSwapStatus");
     List<Runnable> roles =
         List.of(
             () -> {
@@ -122,8 +122,12 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
             () -> expired.addAndGet(store.deleteExpiredBusinessKeyHolds(Instant.now(), 50)),
             () -> store.findBusinessKeyHolder(random(keys)),
             () -> {
+              // The engine cancels a pending job with a status swap, which locks the queue row
+              // first, as cancelRunningJob does.
               UUID id = pending.poll();
-              if (id != null && store.getJobStatus(id) == JobStatus.PENDING) store.cancelJob(id);
+              if (id != null) {
+                store.compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.CANCELED, null);
+              }
             });
     int sessionBound = roles.size();
     var executor = Executors.newFixedThreadPool(roles.size());
