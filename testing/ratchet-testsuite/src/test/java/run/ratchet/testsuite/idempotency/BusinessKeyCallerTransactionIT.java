@@ -25,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import jakarta.enterprise.concurrent.ManagedExecutorService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
-import jakarta.transaction.SystemException;
 import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import java.time.ZoneOffset;
@@ -34,12 +33,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -53,14 +52,20 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.tck.store.JdbcLockWait;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.idempotency.CallerTransactionBean.CallerResult;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * What a duplicate business key does to the caller's own JTA transaction.
  *
- * <p>Each test opens a caller transaction, writes something of its own (a key-less job), submits a
- * job whose business key is taken, catches the exception and tries to commit.
+ * <p>The caller's transaction runs in a {@code @Transactional} test bean. It writes a key-less job,
+ * submits a job whose business key is taken and catches the exception. The outer interceptor
+ * commits the transaction when the bean method returns normally.
+ *
+ * <p>The race and REPEATABLE READ tests keep a bare {@link UserTransaction} because they hold a
+ * transaction open across threads or need the first statement on the managed connection. Those
+ * tests run on WildFly only.
  *
  * <p>Both an up-front duplicate and a held reservation leave the caller able to commit.
  */
@@ -82,6 +87,8 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
 
   @Inject private UserTransaction utx;
 
+  @Inject private CallerTransactionBean callerTransaction;
+
   @Deployment
   public static WebArchive createDeployment() {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
@@ -90,13 +97,16 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
         .addClasses(SimpleJob.class, TestJobService.class)
+        .addClasses(
+            CallerTransactionBean.class,
+            CallerTransactionBean.Step.class,
+            CallerTransactionBean.CallerResult.class)
         .addClasses(JdbcLockWait.class, JdbcLockWait.ConnectionFactory.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
   }
 
-  @AfterEach
   void endCallerTransaction() throws Exception {
     if (utx.getStatus() != Status.STATUS_NO_TRANSACTION) {
       utx.rollback();
@@ -108,24 +118,22 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
     String key = uniqueKey();
     JobHandle holder = jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key).submit();
 
-    utx.begin();
-    JobHandle ownWrite = jobService.schedule(LATER, SimpleJob::execute).submit();
-    assertThrows(
-        DuplicateBusinessKeyException.class,
-        () -> jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key).submit());
-    Outcome outcome = commitCallerTransaction();
+    CallerResult result =
+        callerTransaction.writeOwnJobAndCatchDuplicate(
+            () -> {},
+            () -> jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key).submit());
 
     assertAll(
         () ->
             assertEquals(
-                "STATUS_ACTIVE",
-                outcome.statusAfterCatch(),
-                "a pre-check duplicate must leave the caller transaction usable: " + outcome),
-        () -> assertNull(outcome.commitFailure(), "the caller must be able to commit: " + outcome),
+                Status.STATUS_ACTIVE,
+                result.statusAfterCatch(),
+                "a pre-check duplicate must leave the caller transaction usable: "
+                    + statusName(result.statusAfterCatch())),
         () ->
             assertTrue(
-                jobCrudStore.findById(ownWrite.id()).isPresent(),
-                "the caller's own write must survive the commit: " + outcome),
+                jobCrudStore.findById(result.ownWrite().id()).isPresent(),
+                "the caller's own write must survive the commit: " + result),
         () ->
             assertEquals(
                 holder.id(),
@@ -138,31 +146,31 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
     String key = uniqueKey();
     holdWithRecurringMaster(key);
 
-    utx.begin();
-    JobHandle ownWrite = jobService.schedule(LATER, SimpleJob::execute).submit();
-    DuplicateBusinessKeyException thrown =
-        assertThrows(
-            DuplicateBusinessKeyException.class,
+    CallerResult result =
+        callerTransaction.writeOwnJobAndCatchDuplicate(
+            () -> {},
             () -> jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key).submit());
-    Outcome outcome = commitCallerTransaction();
 
     assertAll(
         () ->
             assertInstanceOf(
                 BusinessKeyReservationConflictException.class,
-                thrown.getCause(),
+                result.duplicate().getCause(),
                 "the duplicate came from the held reservation"),
-        () -> assertEquals("STATUS_ACTIVE", outcome.statusAfterCatch(), outcome.toString()),
-        () -> assertNull(outcome.commitFailure(), outcome.toString()),
+        () ->
+            assertEquals(
+                Status.STATUS_ACTIVE,
+                result.statusAfterCatch(),
+                statusName(result.statusAfterCatch())),
         () ->
             assertTrue(
-                jobCrudStore.findById(ownWrite.id()).isPresent(),
-                "the caller's own write survives the commit: " + outcome),
+                jobCrudStore.findById(result.ownWrite().id()).isPresent(),
+                "the caller's own write survives the commit: " + result),
         () ->
             assertEquals(
                 0,
                 jobsWithBusinessKey(key),
-                "the loser's job rows must not survive without a reservation: " + outcome));
+                "the loser's job rows must not survive without a reservation: " + result));
   }
 
   @Test
@@ -170,32 +178,34 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
     String key = uniqueKey();
     holdWithRecurringMaster(key);
 
-    utx.begin();
-    JobHandle ownWrite = jobService.schedule(LATER, SimpleJob::execute).submit();
-    DuplicateBusinessKeyException thrown =
-        assertThrows(
-            DuplicateBusinessKeyException.class,
+    CallerResult result =
+        callerTransaction.writeOwnJobAndCatchDuplicate(
+            () -> {},
             () ->
                 jobService
                     .schedule(LATER, SimpleJob::execute)
                     .withIdempotencyKey(UUID.randomUUID().toString())
                     .withBusinessKey(key)
                     .submit());
-    Outcome outcome = commitCallerTransaction();
 
     assertAll(
-        () -> assertInstanceOf(BusinessKeyReservationConflictException.class, thrown.getCause()),
-        () -> assertEquals("STATUS_ACTIVE", outcome.statusAfterCatch(), outcome.toString()),
-        () -> assertNull(outcome.commitFailure(), outcome.toString()),
+        () ->
+            assertInstanceOf(
+                BusinessKeyReservationConflictException.class, result.duplicate().getCause()),
+        () ->
+            assertEquals(
+                Status.STATUS_ACTIVE,
+                result.statusAfterCatch(),
+                statusName(result.statusAfterCatch())),
         () ->
             assertTrue(
-                jobCrudStore.findById(ownWrite.id()).isPresent(),
-                "the caller's own write survives the commit: " + outcome),
+                jobCrudStore.findById(result.ownWrite().id()).isPresent(),
+                "the caller's own write survives the commit: " + result),
         () ->
             assertEquals(
                 0,
                 jobsWithBusinessKey(key),
-                "the loser's job rows must not survive without a reservation: " + outcome));
+                "the loser's job rows must not survive without a reservation: " + result));
   }
 
   // The race and REPEATABLE READ tests read the datasource by its WildFly JNDI name, and the
@@ -319,22 +329,20 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
   @Test
   void readCommitted_lateHolderPreCheck_callerCommitsItsOwnWrite() throws Exception {
     String key = uniqueKey();
-    try {
-      utx.begin();
-      JobHandle ownWrite = jobService.schedule(LATER, SimpleJob::execute).submit();
-      jobQueryService.findJobs(JobFilter.builder().businessKey(key).build(), 10, 0);
-      JobHandle holder = commitHolderOnAnotherThread(key, null);
-      assertThrows(
-          DuplicateBusinessKeyException.class,
-          () -> jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key).submit());
-      assertEquals(Status.STATUS_ACTIVE, utx.getStatus());
-      utx.commit();
-      assertTrue(jobCrudStore.findById(ownWrite.id()).isPresent());
-      assertEquals(1, jobsWithBusinessKey(key));
-      assertEquals(holder.id(), jobCrudStore.findActiveByBusinessKey(key).orElseThrow().getId());
-    } finally {
-      endCallerTransaction();
-    }
+    AtomicReference<JobHandle> holder = new AtomicReference<>();
+    CallerResult result =
+        callerTransaction.writeOwnJobAndCatchDuplicate(
+            () -> {
+              jobQueryService.findJobs(JobFilter.builder().businessKey(key).build(), 10, 0);
+              holder.set(commitHolderOnAnotherThread(key, null));
+            },
+            () -> jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key).submit());
+    assertEquals(
+        Status.STATUS_ACTIVE, result.statusAfterCatch(), statusName(result.statusAfterCatch()));
+    assertTrue(jobCrudStore.findById(result.ownWrite().id()).isPresent());
+    assertEquals(1, jobsWithBusinessKey(key));
+    assertEquals(
+        holder.get().id(), jobCrudStore.findActiveByBusinessKey(key).orElseThrow().getId());
   }
 
   @Test
@@ -409,13 +417,9 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
     return executor
         .submit(
             () -> {
-              try {
-                var builder = jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key);
-                if (idempotencyKey != null) builder.withIdempotencyKey(idempotencyKey);
-                return builder.submit();
-              } finally {
-                endCallerTransaction();
-              }
+              var builder = jobService.schedule(LATER, SimpleJob::execute).withBusinessKey(key);
+              if (idempotencyKey != null) builder.withIdempotencyKey(idempotencyKey);
+              return builder.submit();
             })
         .get(30, TimeUnit.SECONDS);
   }
@@ -457,17 +461,6 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
         "precondition: the active-holder pre-check does not see a recurring holder");
   }
 
-  private Outcome commitCallerTransaction() throws SystemException {
-    String status = statusName(utx.getStatus());
-    String failure = null;
-    try {
-      utx.commit();
-    } catch (Exception e) {
-      failure = e.getClass().getSimpleName();
-    }
-    return new Outcome(status, failure);
-  }
-
   private int jobsWithBusinessKey(String key) {
     return jobQueryService
         .findJobs(JobFilter.builder().businessKey(key).build(), 10, 0)
@@ -488,6 +481,4 @@ class BusinessKeyCallerTransactionIT extends BaseRatchetIT {
       default -> "STATUS_" + status;
     };
   }
-
-  private record Outcome(String statusAfterCatch, String commitFailure) {}
 }
