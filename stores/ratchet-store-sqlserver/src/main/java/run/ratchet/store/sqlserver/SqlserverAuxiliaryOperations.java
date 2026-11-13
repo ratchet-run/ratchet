@@ -416,18 +416,21 @@ final class SqlserverAuxiliaryOperations
     if (updated == 0) {
       return AcquireResult.SUPERSEDED;
     }
+    // DATEADD takes an int, so add whole seconds and the millisecond remainder separately.
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
     if (claim[4] != null) {
       // language=SQL Server
       String renew =
           """
           UPDATE scheduler_resource_waiter
-          SET lease_until = DATEADD(MILLISECOND, ?, SYSUTCDATETIME()) WHERE job_id = ?
+          SET lease_until = DATEADD(MILLISECOND, ?, DATEADD(SECOND, ?, SYSUTCDATETIME()))
+          WHERE job_id = ?
           """;
       ctx.em()
           .createNativeQuery(renew)
-          .setParameter(1, leaseMillis)
-          .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+          .setParameter(1, (int) (leaseMillis % 1000))
+          .setParameter(2, (int) (leaseMillis / 1000))
+          .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
           .executeUpdate();
     } else {
       // language=SQL Server
@@ -435,7 +438,7 @@ final class SqlserverAuxiliaryOperations
           """
           INSERT INTO scheduler_resource_waiter
             (job_id, resource_name, priority, wait_since, lease_until)
-          VALUES (?, ?, ?, ?, DATEADD(MILLISECOND, ?, SYSUTCDATETIME()))
+          VALUES (?, ?, ?, ?, DATEADD(MILLISECOND, ?, DATEADD(SECOND, ?, SYSUTCDATETIME())))
           """;
       ctx.em()
           .createNativeQuery(insert)
@@ -443,7 +446,8 @@ final class SqlserverAuxiliaryOperations
           .setParameter(2, resource)
           .setParameter(3, claim[2])
           .setParameter(4, claim[3])
-          .setParameter(5, leaseMillis)
+          .setParameter(5, (int) (leaseMillis % 1000))
+          .setParameter(6, (int) (leaseMillis / 1000))
           .executeUpdate();
     }
     return AcquireResult.AT_CAPACITY;
