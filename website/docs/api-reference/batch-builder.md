@@ -134,11 +134,11 @@ BatchBuilder withResource(String resourceName)
 
 Every child acquires a permit from the named resource pool before it runs. At capacity, children are rescheduled without counting as retries. The configured permit count caps how many children run at once. That count is shared with all other jobs using the same resource name, inside or outside the batch.
 
-The setting applies to every child regardless of call order. The no-op parent, progress hooks, and workflow branch jobs do not inherit it. Null or blank disables resource limiting. Other names are trimmed.
+The setting applies to every child regardless of call order. The no-op parent, progress hooks, and workflow branch jobs do not inherit it. Null or blank disables resource limiting. Other names are trimmed and must be at most 100 printable ASCII characters; anything else throws `IllegalArgumentException` here.
 
-`submit()` throws `UnsupportedOperationException` if a resource is set and the store does not advertise the `ResourcePermitStore` capability. Streaming batches have the same behavior at `start()`.
+`submit()` throws `UnsupportedOperationException` if a resource is set and the store does not advertise the `ResourcePermitStore` capability. It throws `ResourceNotConfiguredException` if the resource has no limit, before it writes anything. A resubmission with the idempotency key of an existing batch still returns that batch. Streaming batches have the same behavior at `start()`.
 
-Configure permit counts and retry delays in `scheduler_resource_limit`, using `max_concurrent` and `retry_delay_ms`. See [Performance Tuning](../deployment/performance-tuning.md).
+Set the permit count and retry delay with [`setResourceLimit`](./job-scheduler-service.md#setresourcelimit) before you submit. See [Performance Tuning](../deployment/performance-tuning.md#configure-resource-limits).
 
 ```java
 scheduler.enqueueBatch("Payments")

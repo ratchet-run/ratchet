@@ -284,14 +284,19 @@ This means Ratchet is responsive to new work (sub-second latency with wakeup) wh
 
 ## Resource Limiting
 
-Jobs can declare a shared resource they require, enabling cross-job-type concurrency control:
+Jobs can declare a shared resource they require, enabling cross-job-type concurrency control. Set the resource's limit first, usually at start-up:
 
 ```java
+// Once, at start-up: at most 5 payment API calls at a time
+scheduler.setResourceLimit(ResourceLimit.of("payment-api", 5));
+
 // Limit concurrent payment API calls to the configured pool size
 scheduler.enqueue(() -> paymentService.charge(paymentId))
     .withResource("payment-api")
     .submit();
 ```
+
+A submit that names a resource with no limit throws `ResourceNotConfiguredException` and writes nothing. See [Configure resource limits](../deployment/performance-tuning.md#configure-resource-limits).
 
 When a job with a resource runs, it asks the `ResourcePermitService` for a permit. If the resource is full, the job joins the resource's waiting line and is rescheduled without using a retry. This is distinct from retry logic: the job isn't failing, it's waiting for capacity. A wait is not recorded as an attempt, so it writes no execution row and publishes no `JobStartedEvent`. Waiting jobs get free permits in order of priority, then of waiting time, and a released permit wakes the next waiter on any node straight away. See [Resource Permit](./execution-model.md#step-details) for the limits of that order.
 

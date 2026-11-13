@@ -445,6 +445,66 @@ scheduler.scheduleRecurring("0 0 10 * * ?", ZoneId.of("UTC"),
     .submit();
 ```
 
+## Resource limits
+
+`JobSchedulerService` extends `ResourceLimits`, which manages the limits that `withResource(...)` acquires permits against. `ResourceLimits`, `ResourceLimit` and `ResourceNotConfiguredException` are stable API.
+
+```java
+public record ResourceLimit(
+    String resourceName, int maxConcurrent, Duration retryDelay, @Nullable String description) {
+  public static final Duration DEFAULT_RETRY_DELAY = Duration.ofSeconds(5);
+  public static ResourceLimit of(String resourceName, int maxConcurrent);
+  public ResourceLimit withRetryDelay(Duration retryDelay);
+  public ResourceLimit withDescription(@Nullable String description);
+}
+```
+
+`retryDelay` is how long a waiting job goes between checks when no wake-up reaches it. See [Permit-based backpressure](../deployment/performance-tuning.md#permit-based-backpressure).
+
+### setResourceLimit
+
+```java
+void setResourceLimit(ResourceLimit limit)
+```
+
+Creates the limit for `limit.resourceName()`, or replaces every value of an existing one, including a null description.
+
+- The name is trimmed and must be 1 to 100 printable ASCII characters. `maxConcurrent` must be at least 1. `retryDelay` must be from 0 to `Integer.MAX_VALUE` milliseconds and is stored in whole milliseconds. A description is trimmed, blank becomes null, and it must be at most 255 printable ASCII characters. Anything else, or a null limit, throws `IllegalArgumentException` before anything is written.
+- Throws `UnsupportedOperationException` if the store does not advertise the `ResourcePermitStore` capability.
+- Transaction attribute: REQUIRED. On SQL stores the limit row stays locked until commit, which holds up permit requests for that resource, so call it outside long transactions. On MongoDB the change applies at once, and a rollback does not undo it. A rejected argument or a missing capability leaves the caller's transaction usable.
+- Lowering a limit keeps permits already held. New jobs wait until enough permits are released. Raising a limit wakes waiting jobs after commit. A new retry delay applies from each job's next miss.
+
+Set limits at start-up, before you submit jobs that name them. See [Configure resource limits](../deployment/performance-tuning.md#configure-resource-limits).
+
+```java
+scheduler.setResourceLimit(
+    ResourceLimit.of("payment-gateway", 3).withRetryDelay(Duration.ofMillis(1500)));
+```
+
+### findResourceLimit
+
+```java
+Optional<ResourceLimit> findResourceLimit(String resourceName)
+```
+
+Returns the limit stored for the name, or empty. A null or blank name returns empty. The name is trimmed. A name that no limit can have (over 100 characters, or not printable ASCII) throws `IllegalArgumentException`. Returns empty on a store without the `ResourcePermitStore` capability. Name matching follows the store: MySQL, and SQL Server with a case-insensitive collation, ignore case.
+
+Transaction attribute: SUPPORTS.
+
+### listResourceLimits
+
+```java
+List<ResourceLimit> listResourceLimits()
+```
+
+Returns every stored limit, sorted by name. Returns an empty list on a store without the `ResourcePermitStore` capability. It reads all limits at once, so it suits a small number of resources.
+
+Transaction attribute: SUPPORTS.
+
+### ResourceNotConfiguredException
+
+`submit()` throws `run.ratchet.api.exception.ResourceNotConfiguredException` when a job or batch names a resource with no limit. It extends `IllegalArgumentException`, carries the name in `resourceName()`, and leaves the caller's transaction usable. A job whose limit is deleted after submit fails with the same exception when it is claimed, without using a retry.
+
 ## Event listener management
 
 ### addEventListener

@@ -150,9 +150,13 @@ Specifies a shared resource that this job requires. The job will acquire a permi
 This limits concurrent access to shared resources regardless of job type (e.g., capping concurrent API calls to a payment gateway at 5 total).
 
 **Parameters:**
-- `resourceName` -- the name of the resource to acquire. If null or blank, no resource limiting is applied.
+- `resourceName` -- the name of the resource to acquire. If null or blank, no resource limiting is applied. Other names are trimmed and must be at most 100 printable ASCII characters; anything else throws `IllegalArgumentException` here.
+
+The resource needs a limit before you submit. Set one with [`setResourceLimit`](./job-scheduler-service.md#setresourcelimit). Otherwise `submit()` throws `ResourceNotConfiguredException` and writes nothing. A store without the `ResourcePermitStore` capability makes `submit()` throw `UnsupportedOperationException` instead.
 
 ```java
+scheduler.setResourceLimit(ResourceLimit.of("payment-api", 5)); // once, at start-up
+
 scheduler.enqueue(() -> paymentGateway.charge(paymentId))
     .withResource("payment-api")
     .submit();
