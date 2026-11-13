@@ -172,6 +172,47 @@
       </build>
     </profile>
     <profile>
+      <id>micrometer</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-micrometer</artifactId>
+          <version>${ratchet.version}</version>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <version>3.6.1</version>
+            <executions>
+              <execution>
+                <id>micrometer-scenario</id>
+                <phase>generate-sources</phase>
+                <goals><goal>add-source</goal></goals>
+                <configuration>
+                  <sources><source>src/micrometer/java</source></sources>
+                </configuration>
+              </execution>
+              <execution>
+                <id>micrometer-scenario-tests</id>
+                <phase>generate-test-sources</phase>
+                <goals><goal>add-test-source</goal></goals>
+                <configuration>
+                  <sources><source>src/micrometer-it/java</source></sources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
       <id>postgresql-default</id>
       <activation>
         <property>

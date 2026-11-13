@@ -46,6 +46,9 @@ LANES = {
                         for java in JAVA for boot in BOOT] +
                        # Releases compile on Java 21, so this row stages on 21 and runs on 17 (issue #294).
                        [{"java": 17, "stage_java": 21, "boot": "3.5.16", "store": "postgresql", "provider": "default"}],
+    "spring_micrometer": [{"boot": "3.5.16", "mode": "jvm"},
+                          {"boot": "4.1.1", "mode": "jvm"},
+                          {"boot": "4.1.1", "mode": "native"}],
     "spring_native": [{"boot": boot, "store": store} for boot in BOOT for store in DATABASES],
     "micronaut_consumer": [{"lane": lane, "java": java, "store": store}
                            for lane, java in MICRONAUT_VERSIONS for store in MICRONAUT_STORES],
@@ -131,7 +134,7 @@ def classify(graph, paths):
         if path in {"pom.xml", ".github/workflows/ci.yml", "infra/ci/affected_lanes.py"} or path.startswith((".mvn/", ".github/actions/")):
             reasons.append(path)
         elif path.startswith("integrations/ratchet-spring-boot/consumer-tests/"):
-            triggers.update({"spring_consumer", "spring_native", "spring_runtime"})
+            triggers.update({"spring_consumer", "spring_native", "spring_runtime", "spring_micrometer"})
         elif path.startswith("integrations/ratchet-micronaut/consumer-tests/"):
             triggers.update({"micronaut_consumer", "micronaut_native"})
         elif path in {"infra/ci/check_runtime_consumer_reports.py", "infra/ci/runtime-consumer-expected.json"}:
@@ -161,6 +164,8 @@ def row_model(lane, row):
         return [QUARKUS], profiles, {store[p] for p in profiles if p in store}
     if lane == "showcase":
         return [SHOWCASE], {"wildfly-managed", "postgresql"}, {"postgresql"}
+    if lane == "spring_micrometer":
+        return [STARTER, STORE_MODULES["postgresql"]], {"github"}, {"postgresql"}
     store = row.get("store", "postgresql")
     if lane in {"micronaut_consumer", "micronaut_native"}:
         return MICRONAUT_ROOTS + [STORE_MODULES[store]], {"github"}, {store}
@@ -169,7 +174,7 @@ def row_model(lane, row):
 
 
 def reduce_rows(lane, rows):
-    if not rows or lane.startswith("quarkus_"):
+    if not rows or lane.startswith("quarkus_") or lane == "spring_micrometer":
         return rows
     if lane == "spring_consumer":
         groups = {}
