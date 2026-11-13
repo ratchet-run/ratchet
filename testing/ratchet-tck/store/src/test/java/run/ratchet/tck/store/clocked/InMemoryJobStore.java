@@ -658,6 +658,21 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
+  public synchronized List<WokenWaiter> wakeWaiters(String resource) {
+    return List.of();
+  }
+
+  @Override
+  public synchronized List<String> findResourcesWithWaiters(int limit) {
+    return List.of();
+  }
+
+  @Override
+  public synchronized int deleteStaleWaiters(int limit) {
+    return 0;
+  }
+
+  @Override
   public synchronized void releasePermit(String resource, UUID jobId, long claimSeq) {
     // No-op
   }

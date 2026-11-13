@@ -230,7 +230,7 @@ final class MysqlJobTerminalOperations {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
-    boolean paused = retryIntoPausedBatch(id);
+    boolean paused = retryIntoPausedBatch(ctx, id);
     // language=MySQL
     String sql =
         """
@@ -262,8 +262,9 @@ final class MysqlJobTerminalOperations {
         > 0;
   }
 
-  private boolean retryIntoPausedBatch(UUID id) {
+  static boolean retryIntoPausedBatch(MysqlStoreContext ctx, UUID id) {
     // Lock the parent before releasing the child, serializing with batch pause/resume sweeps.
+    // language=MySQL
     String sql =
         """
         SELECT status FROM scheduler_job_queue

@@ -515,13 +515,30 @@ final class SqlserverJobWriteOperations {
         SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
         WHERE job_id = ? AND status = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, UuidByteArrayConverter.toBytes(id))
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
+            .setParameter(3, storedStatus)
+            .executeUpdate();
+    if (updated > 0) {
+      deleteWaiterIfPresent(id);
+    }
     return true;
+  }
+
+  private void deleteWaiterIfPresent(UUID id) {
+    // Under RCSI a missing-row delete takes no gap lock.
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -727,6 +744,9 @@ final class SqlserverJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiterIfPresent(id);
+      }
     }
     return true;
   }

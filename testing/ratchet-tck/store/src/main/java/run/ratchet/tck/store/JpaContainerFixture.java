@@ -127,6 +127,15 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
 
   private volatile BiConsumer<String, NativeQueryEvent> nativeQueryObserver = (sql, event) -> {};
 
+  private volatile BiConsumer<String, RatchetTransientStoreException> transientFailureObserver =
+      (method, failure) -> {};
+
+  /** Test-only: sees every transient store failure, retried or not, with the store method name. */
+  public final void observeTransientFailures(
+      BiConsumer<String, RatchetTransientStoreException> observer) {
+    transientFailureObserver = Objects.requireNonNull(observer);
+  }
+
   /** Test-only synchronization at actual native statement boundaries; all statements still run. */
   public final void observeNativeQueries(BiConsumer<String, NativeQueryEvent> observer) {
     nativeQueryObserver = Objects.requireNonNull(observer);
@@ -428,6 +437,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
                     tx.rollback();
                   }
                   em.clear();
+                  transientFailureObserver.accept(method.getName(), transient_);
                   // A lost reservation race fails the same way on every attempt.
                   if (transient_ instanceof BusinessKeyReservationConflictException) {
                     throw transient_;

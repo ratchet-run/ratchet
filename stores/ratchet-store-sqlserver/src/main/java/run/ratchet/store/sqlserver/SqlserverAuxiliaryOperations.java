@@ -19,8 +19,12 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.WorkflowCondition;
@@ -33,6 +37,7 @@ import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.RowValues;
@@ -246,7 +251,7 @@ final class SqlserverAuxiliaryOperations
       // language=SQL Server
       String lockSql =
           """
-          SELECT resource_name FROM scheduler_resource_limit WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
+          SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
           WHERE resource_name = ?
           """;
       @SuppressWarnings("unchecked")
@@ -256,11 +261,17 @@ final class SqlserverAuxiliaryOperations
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
 
+      // Plain RCSI reads get a fresh statement snapshot after the resource lock.
+      // language=SQL Server
       List<?> claims =
           ctx.em()
               .createNativeQuery(
                   """
-                  SELECT status, claim_seq FROM scheduler_job_queue WHERE job_id = ?
+                  SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
+                         w.priority, w.wait_since
+                  FROM scheduler_job_queue q
+                  LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
+                  WHERE q.job_id = ?
                   """)
               .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
               .getResultList();
@@ -272,17 +283,20 @@ final class SqlserverAuxiliaryOperations
         return AcquireResult.SUPERSEDED;
       }
 
+      Object[] limit = (Object[]) lockedLimits.get(0);
+      int maxConcurrent = ((Number) limit[0]).intValue();
+      int retryDelayMs = ((Number) limit[1]).intValue();
+      // language=SQL Server
       int updated =
           ctx.em()
               .createNativeQuery(
                   """
-                  UPDATE scheduler_resource_permit SET node_id = ?, acquired_at = ?
+                  UPDATE scheduler_resource_permit SET node_id = ?, acquired_at = SYSUTCDATETIME()
                   WHERE id = ?
                   """)
               .setParameter(1, nodeId)
-              .setParameter(2, Timestamp.from(Instant.now()))
               .setParameter(
-                  3,
+                  2,
                   UuidByteArrayConverter.toBytes(
                       ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
               .executeUpdate();
@@ -290,14 +304,19 @@ final class SqlserverAuxiliaryOperations
         return AcquireResult.ACQUIRED;
       }
 
-      // SQL Server uses one statement snapshot even after waiting on FOR UPDATE. Keep the lock
+      int free = maxConcurrent - countPermits(resource);
+      if (free <= 0 || waitersAhead(resource, jobId, claim, free) >= free) {
+        return parkWaiter(resource, jobId, claimSeq, claim, retryDelayMs);
+      }
+
+      // SQL Server uses one statement snapshot even after waiting on a resource lock. Keep the lock
       // acquisition as its own statement, then count and insert together with a fresh snapshot.
       // language=SQL Server
       String insertSql =
           """
           INSERT INTO scheduler_resource_permit
             (id, resource_name, job_id, node_id, acquired_at)
-          SELECT ?, resource_name, ?, ?, ?
+          SELECT ?, resource_name, ?, ?, SYSUTCDATETIME()
           FROM scheduler_resource_limit
           WHERE resource_name = ?
             AND (
@@ -314,15 +333,245 @@ final class SqlserverAuxiliaryOperations
                       ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
               .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
               .setParameter(3, nodeId)
-              .setParameter(4, Timestamp.from(Instant.now()))
+              .setParameter(4, resource)
               .setParameter(5, resource)
-              .setParameter(6, resource)
               .executeUpdate();
-      return inserted > 0 ? AcquireResult.ACQUIRED : AcquireResult.AT_CAPACITY;
+      if (inserted == 0) {
+        return parkWaiter(resource, jobId, claimSeq, claim, retryDelayMs);
+      }
+      if (claim[4] != null) {
+        deleteWaiter(jobId);
+      }
+      return AcquireResult.ACQUIRED;
     } catch (IllegalArgumentException e) {
       throw e;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("try acquire permit", e);
+    }
+  }
+
+  private int countPermits(String resource) {
+    // language=SQL Server
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?
+        """;
+    return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult())
+        .intValue();
+  }
+
+  private int waitersAhead(String resource, UUID jobId, Object[] claim, int free) {
+    int priority = ((Number) (claim[4] != null ? claim[4] : claim[2])).intValue();
+    Object waitSince = claim[4] != null ? claim[5] : claim[3];
+    // language=SQL Server
+    String sql =
+        """
+        SELECT w.job_id FROM scheduler_resource_waiter w
+        JOIN scheduler_job_queue q ON q.job_id = w.job_id
+        WHERE w.resource_name = ? AND w.lease_until > SYSUTCDATETIME()
+          AND q.status IN ('PENDING', 'RUNNING') AND w.job_id <> ?
+          AND (w.priority > ? OR (w.priority = ? AND w.wait_since < ?)
+            OR (w.priority = ? AND w.wait_since = ? AND w.job_id < ?))
+        ORDER BY w.priority DESC, w.wait_since ASC, w.job_id ASC
+        OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, resource)
+        .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+        .setParameter(3, priority)
+        .setParameter(4, priority)
+        .setParameter(5, waitSince)
+        .setParameter(6, priority)
+        .setParameter(7, waitSince)
+        .setParameter(8, UuidByteArrayConverter.toBytes(jobId))
+        .setParameter(9, free)
+        .getResultList()
+        .size();
+  }
+
+  private AcquireResult parkWaiter(
+      String resource, UUID jobId, long claimSeq, Object[] claim, int retryDelayMs) {
+    boolean paused = SqlserverJobTerminalOperations.retryIntoPausedBatch(ctx, jobId);
+    // language=SQL Server
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, paused_from_status = ?, last_error = ?,
+            scheduled_time = DATEADD(MILLISECOND, ?, SYSUTCDATETIME()),
+            picked_by = NULL, picked_at = NULL, updated_at = SYSUTCDATETIME()
+        WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
+        """;
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, paused ? "PAUSED" : "PENDING")
+            .setParameter(2, paused ? "PENDING" : null)
+            .setParameter(3, "Waiting for resource: " + resource)
+            .setParameter(4, retryDelayMs)
+            .setParameter(5, UuidByteArrayConverter.toBytes(jobId))
+            .setParameter(6, claimSeq)
+            .executeUpdate();
+    if (updated == 0) {
+      return AcquireResult.SUPERSEDED;
+    }
+    long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
+    if (claim[4] != null) {
+      // language=SQL Server
+      String renew =
+          """
+          UPDATE scheduler_resource_waiter
+          SET lease_until = DATEADD(MILLISECOND, ?, SYSUTCDATETIME()) WHERE job_id = ?
+          """;
+      ctx.em()
+          .createNativeQuery(renew)
+          .setParameter(1, leaseMillis)
+          .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+          .executeUpdate();
+    } else {
+      // language=SQL Server
+      String insert =
+          """
+          INSERT INTO scheduler_resource_waiter
+            (job_id, resource_name, priority, wait_since, lease_until)
+          VALUES (?, ?, ?, ?, DATEADD(MILLISECOND, ?, SYSUTCDATETIME()))
+          """;
+      ctx.em()
+          .createNativeQuery(insert)
+          .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+          .setParameter(2, resource)
+          .setParameter(3, claim[2])
+          .setParameter(4, claim[3])
+          .setParameter(5, leaseMillis)
+          .executeUpdate();
+    }
+    return AcquireResult.AT_CAPACITY;
+  }
+
+  private int deleteWaiter(UUID jobId) {
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+        .executeUpdate();
+  }
+
+  @Override
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    try {
+      // language=SQL Server
+      String lock =
+          """
+          SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
+          WHERE resource_name = ?
+          """;
+      List<?> limits = ctx.em().createNativeQuery(lock).setParameter(1, resource).getResultList();
+      if (limits.isEmpty()) {
+        return List.of();
+      }
+      int max = ((Number) ((Object[]) limits.get(0))[0]).intValue();
+      // language=SQL Server
+      String heads =
+          """
+          SELECT w.job_id, q.status, w.priority, q.execution_target, w.wait_since, q.scheduled_time
+          FROM scheduler_resource_waiter w JOIN scheduler_job_queue q ON q.job_id = w.job_id
+          WHERE w.resource_name = ? AND w.lease_until > SYSUTCDATETIME()
+            AND q.status IN ('PENDING', 'RUNNING')
+          ORDER BY w.priority DESC, w.wait_since ASC, w.job_id ASC
+          OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
+          """;
+      List<?> rows =
+          ctx.em()
+              .createNativeQuery(heads)
+              .setParameter(1, resource)
+              .setParameter(2, max)
+              .getResultList();
+      if (rows.isEmpty()) {
+        return List.of();
+      }
+      int free = max - countPermits(resource);
+      if (free <= 0) {
+        return List.of();
+      }
+      List<Object[]> pending = new ArrayList<>();
+      Map<UUID, Integer> order = new HashMap<>();
+      for (Object row : rows.subList(0, Math.min(free, rows.size()))) {
+        Object[] head = (Object[]) row;
+        order.put(SqlserverJobRowMapper.uuidOrNull(head[0]), order.size());
+        if ("PENDING".equals(head[1].toString())) {
+          pending.add(head);
+        }
+      }
+      List<WokenWaiter> result = new ArrayList<>();
+      for (Object[] row : pending) {
+        // language=SQL Server
+        String wake =
+            """
+            UPDATE scheduler_job_queue WITH (UPDLOCK, READPAST, ROWLOCK)
+            SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
+            WHERE job_id = ? AND status = 'PENDING'
+            """;
+        if (ctx.em()
+                .createNativeQuery(wake)
+                .setParameter(1, row[4])
+                .setParameter(
+                    2, UuidByteArrayConverter.toBytes(SqlserverJobRowMapper.uuidOrNull(row[0])))
+                .executeUpdate()
+            == 1) {
+          result.add(
+              new WokenWaiter(
+                  SqlserverJobRowMapper.uuidOrNull(row[0]),
+                  ((Number) row[2]).intValue(),
+                  (String) row[3]));
+        }
+      }
+      // Preserve waiter order among the heads whose queue rows were available.
+      result.sort(Comparator.comparingInt(w -> order.get(w.jobId())));
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("wake resource waiters", e);
+    }
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public List<String> findResourcesWithWaiters(int limit) {
+    // language=SQL Server
+    String sql =
+        """
+        SELECT DISTINCT resource_name FROM scheduler_resource_waiter
+        ORDER BY resource_name OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
+        """;
+    try {
+      return ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find resources with waiters", e);
+    }
+  }
+
+  @Override
+  public int deleteStaleWaiters(int limit) {
+    // language=SQL Server
+    String sql =
+        """
+        SELECT w.job_id FROM scheduler_resource_waiter w
+        LEFT JOIN scheduler_job_queue q ON q.job_id = w.job_id
+        WHERE q.job_id IS NULL OR q.status NOT IN ('PENDING', 'RUNNING', 'PAUSED')
+        ORDER BY w.job_id OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
+        """;
+    try {
+      List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+      int deleted = 0;
+      for (Object id : ids) {
+        deleted += deleteWaiter(SqlserverJobRowMapper.uuidOrNull(id));
+      }
+      return deleted;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete stale resource waiters", e);
     }
   }
 

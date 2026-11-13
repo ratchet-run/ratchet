@@ -19,8 +19,13 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.WorkflowCondition;
@@ -34,6 +39,7 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.WorkflowConditionOrdering;
@@ -232,18 +238,24 @@ final class MysqlAuxiliaryOperations
       // language=MySQL
       String sql =
           """
-          SELECT max_concurrent FROM scheduler_resource_limit
+          SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit
           WHERE resource_name = ? FOR UPDATE
           """;
       List<?> limits = ctx.em().createNativeQuery(sql).setParameter(1, resource).getResultList();
       if (limits.isEmpty()) {
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
+      // This must be the first consistent read after locking the resource (REPEATABLE READ).
+      // language=MySQL
       List<?> claims =
           ctx.em()
               .createNativeQuery(
                   """
-                  SELECT status, claim_seq FROM scheduler_job_queue WHERE job_id = ?
+                  SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
+                         w.priority, w.wait_since
+                  FROM scheduler_job_queue q
+                  LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
+                  WHERE q.job_id = ?
                   """)
               .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
               .getResultList();
@@ -255,9 +267,12 @@ final class MysqlAuxiliaryOperations
         return AcquireResult.SUPERSEDED;
       }
 
-      int maxConcurrent = ((Number) limits.get(0)).intValue();
+      Object[] limit = (Object[]) limits.get(0);
+      int maxConcurrent = ((Number) limit[0]).intValue();
+      int retryDelayMs = ((Number) limit[1]).intValue();
       // The resource row serializes acquisitions. Read permits after taking that lock, using a
       // current read: a REPEATABLE READ snapshot may predate a different owner's committed permit.
+      // language=MySQL
       List<?> permits =
           ctx.em()
               .createNativeQuery(
@@ -274,17 +289,265 @@ final class MysqlAuxiliaryOperations
           return AcquireResult.ACQUIRED;
         }
       }
-      if (active >= maxConcurrent) {
-        return AcquireResult.AT_CAPACITY;
+      int free = maxConcurrent - active;
+      if (free <= 0 || waitersAhead(resource, jobId, claim, free) >= free) {
+        return parkWaiter(resource, jobId, claimSeq, claim, retryDelayMs);
       }
 
       ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId);
       ctx.em().persist(permit);
+      if (claim[4] != null) {
+        deleteWaiter(jobId);
+      }
       return AcquireResult.ACQUIRED;
     } catch (IllegalArgumentException e) {
       throw e;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("try acquire permit", e);
+    }
+  }
+
+  private int waitersAhead(String resource, UUID jobId, Object[] claim, int free) {
+    int priority = ((Number) (claim[4] != null ? claim[4] : claim[2])).intValue();
+    Object waitSince = claim[4] != null ? claim[5] : claim[3];
+    // language=MySQL
+    String sql =
+        """
+        SELECT w.job_id FROM scheduler_resource_waiter w
+        JOIN scheduler_job_queue q ON q.job_id = w.job_id
+        WHERE w.resource_name = ? AND w.lease_until > NOW(3)
+          AND q.status IN ('PENDING', 'RUNNING') AND w.job_id <> ?
+          AND (w.priority > ? OR (w.priority = ? AND w.wait_since < ?)
+            OR (w.priority = ? AND w.wait_since = ? AND w.job_id < ?))
+        ORDER BY w.priority DESC, w.wait_since ASC, w.job_id ASC LIMIT ?
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, resource)
+        .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+        .setParameter(3, priority)
+        .setParameter(4, priority)
+        .setParameter(5, waitSince)
+        .setParameter(6, priority)
+        .setParameter(7, waitSince)
+        .setParameter(8, UuidByteArrayConverter.toBytes(jobId))
+        .setParameter(9, free)
+        .getResultList()
+        .size();
+  }
+
+  private AcquireResult parkWaiter(
+      String resource, UUID jobId, long claimSeq, Object[] claim, int retryDelayMs) {
+    boolean paused = MysqlJobTerminalOperations.retryIntoPausedBatch(ctx, jobId);
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, paused_from_status = ?, last_error = ?,
+            scheduled_time = TIMESTAMPADD(MICROSECOND, ?, NOW(3)),
+            picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
+        """;
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, paused ? "PAUSED" : "PENDING")
+            .setParameter(2, paused ? "PENDING" : null)
+            .setParameter(3, "Waiting for resource: " + resource)
+            .setParameter(4, retryDelayMs * 1000L)
+            .setParameter(5, UuidByteArrayConverter.toBytes(jobId))
+            .setParameter(6, claimSeq)
+            .executeUpdate();
+    if (updated == 0) {
+      return AcquireResult.SUPERSEDED;
+    }
+    long leaseMicros = ResourceWaiterLease.leaseMillis(retryDelayMs) * 1000L;
+    if (claim[4] != null) {
+      // language=MySQL
+      String renew =
+          """
+          UPDATE scheduler_resource_waiter
+          SET lease_until = TIMESTAMPADD(MICROSECOND, ?, NOW(3)) WHERE job_id = ?
+          """;
+      ctx.em()
+          .createNativeQuery(renew)
+          .setParameter(1, leaseMicros)
+          .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+          .executeUpdate();
+    } else {
+      // language=MySQL
+      String insert =
+          """
+          INSERT INTO scheduler_resource_waiter
+            (job_id, resource_name, priority, wait_since, lease_until)
+          VALUES (?, ?, ?, ?, TIMESTAMPADD(MICROSECOND, ?, NOW(3)))
+          """;
+      ctx.em()
+          .createNativeQuery(insert)
+          .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+          .setParameter(2, resource)
+          .setParameter(3, claim[2])
+          .setParameter(4, claim[3])
+          .setParameter(5, leaseMicros)
+          .executeUpdate();
+    }
+    return AcquireResult.AT_CAPACITY;
+  }
+
+  private int deleteWaiter(UUID jobId) {
+    // language=MySQL
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+        .executeUpdate();
+  }
+
+  @Override
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    try {
+      // language=MySQL
+      String lock =
+          """
+          SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit
+          WHERE resource_name = ? FOR UPDATE
+          """;
+      List<?> limits = ctx.em().createNativeQuery(lock).setParameter(1, resource).getResultList();
+      if (limits.isEmpty()) {
+        return List.of();
+      }
+      int max = ((Number) ((Object[]) limits.get(0))[0]).intValue();
+      // language=MySQL
+      String heads =
+          """
+          SELECT w.job_id, q.status, w.priority, q.execution_target, w.wait_since, q.scheduled_time
+          FROM scheduler_resource_waiter w JOIN scheduler_job_queue q ON q.job_id = w.job_id
+          WHERE w.resource_name = ? AND w.lease_until > NOW(3)
+            AND q.status IN ('PENDING', 'RUNNING')
+          ORDER BY w.priority DESC, w.wait_since ASC, w.job_id ASC LIMIT ?
+          """;
+      List<?> rows =
+          ctx.em()
+              .createNativeQuery(heads)
+              .setParameter(1, resource)
+              .setParameter(2, max)
+              .getResultList();
+      if (rows.isEmpty()) {
+        return List.of();
+      }
+      // REQUIRES_NEW makes the heads read the first snapshot read, after the resource lock.
+      // Permits are inserted under that lock, so none are missing from the snapshot. An in-flight
+      // release or clean-up can only under-count free capacity; it wakes waiters after committing.
+      // language=MySQL
+      String held =
+          """
+          SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?
+          """;
+      int free =
+          max
+              - ((Number)
+                      ctx.em().createNativeQuery(held).setParameter(1, resource).getSingleResult())
+                  .intValue();
+      if (free <= 0) {
+        return List.of();
+      }
+      List<Object[]> pending = new ArrayList<>();
+      Map<UUID, Integer> order = new HashMap<>();
+      for (Object row : rows.subList(0, Math.min(free, rows.size()))) {
+        Object[] head = (Object[]) row;
+        order.put(MysqlJobRowMapper.uuidOrNull(head[0]), order.size());
+        if ("PENDING".equals(head[1].toString())) {
+          pending.add(head);
+        }
+      }
+      if (pending.isEmpty()) {
+        return List.of();
+      }
+      String placeholders = String.join(", ", Collections.nCopies(pending.size(), "?"));
+      // language=MySQL
+      String available =
+          """
+          SELECT job_id FROM scheduler_job_queue
+          WHERE job_id IN (%s) AND status = 'PENDING' FOR UPDATE SKIP LOCKED
+          """
+              .formatted(placeholders);
+      Query availableQuery = ctx.em().createNativeQuery(available);
+      for (int i = 0; i < pending.size(); i++) {
+        availableQuery.setParameter(i + 1, pending.get(i)[0]);
+      }
+      List<?> availableIds = availableQuery.getResultList();
+      var locked = new HashSet<UUID>();
+      for (Object id : availableIds) {
+        locked.add(MysqlJobRowMapper.uuidOrNull(id));
+      }
+      List<WokenWaiter> result = new ArrayList<>();
+      for (Object[] row : pending) {
+        if (!locked.contains(MysqlJobRowMapper.uuidOrNull(row[0]))) {
+          continue;
+        }
+        // language=MySQL
+        String wake =
+            """
+            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = NOW(3)
+            WHERE job_id = ? AND status = 'PENDING'
+            """;
+        if (ctx.em()
+                .createNativeQuery(wake)
+                .setParameter(1, row[4])
+                .setParameter(2, row[0])
+                .executeUpdate()
+            == 1) {
+          result.add(
+              new WokenWaiter(
+                  MysqlJobRowMapper.uuidOrNull(row[0]),
+                  ((Number) row[2]).intValue(),
+                  (String) row[3]));
+        }
+      }
+      // Preserve waiter order among the heads whose queue rows were available.
+      result.sort(Comparator.comparingInt(w -> order.get(w.jobId())));
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("wake resource waiters", e);
+    }
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public List<String> findResourcesWithWaiters(int limit) {
+    // language=MySQL
+    String sql =
+        """
+        SELECT DISTINCT resource_name FROM scheduler_resource_waiter ORDER BY resource_name LIMIT ?
+        """;
+    try {
+      return ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find resources with waiters", e);
+    }
+  }
+
+  @Override
+  public int deleteStaleWaiters(int limit) {
+    // language=MySQL
+    String sql =
+        """
+        SELECT w.job_id FROM scheduler_resource_waiter w
+        LEFT JOIN scheduler_job_queue q ON q.job_id = w.job_id
+        WHERE q.job_id IS NULL OR q.status NOT IN ('PENDING', 'RUNNING', 'PAUSED') LIMIT ?
+        """;
+    try {
+      List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+      int deleted = 0;
+      for (Object id : ids) {
+        deleted += deleteWaiter(MysqlJobRowMapper.uuidOrNull(id));
+      }
+      return deleted;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete stale resource waiters", e);
     }
   }
 

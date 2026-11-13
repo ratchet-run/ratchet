@@ -799,6 +799,23 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    return auxiliary.wakeWaiters(resource);
+  }
+
+  @Override
+  public List<String> findResourcesWithWaiters(int limit) {
+    return auxiliary.findResourcesWithWaiters(limit);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public int deleteStaleWaiters(int limit) {
+    return auxiliary.deleteStaleWaiters(limit);
+  }
+
+  @Override
   public void releasePermit(String resource, UUID jobId, long claimSeq) {
     auxiliary.releasePermit(resource, jobId, claimSeq);
   }

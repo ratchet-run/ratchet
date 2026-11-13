@@ -414,13 +414,41 @@ final class MysqlJobWriteOperations {
         SET scheduled_time = ?, updated_at = NOW(3)
         WHERE job_id = ? AND status = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, UuidByteArrayConverter.toBytes(id))
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
+            .setParameter(3, storedStatus)
+            .executeUpdate();
+    if (updated > 0) {
+      deleteWaiterIfPresent(id);
+    }
     return true;
+  }
+
+  private void deleteWaiterIfPresent(UUID id) {
+    // A missing-row DELETE takes a gap lock at REPEATABLE READ; avoid it with a plain read.
+    // language=MySQL
+    String exists =
+        """
+        SELECT job_id FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    if (!ctx.em()
+        .createNativeQuery(exists)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .getResultList()
+        .isEmpty()) {
+      // language=MySQL
+      String delete =
+          """
+          DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+          """;
+      ctx.em()
+          .createNativeQuery(delete)
+          .setParameter(1, UuidByteArrayConverter.toBytes(id))
+          .executeUpdate();
+    }
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -628,6 +656,9 @@ final class MysqlJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiterIfPresent(id);
+      }
     }
     return true;
   }
