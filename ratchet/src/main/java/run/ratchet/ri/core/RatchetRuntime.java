@@ -29,6 +29,7 @@ import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RatchetLifecycle;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.DurableTerminalEvents;
@@ -52,6 +53,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
   private final RecurringScheduler recurringScheduler;
   private final OrphanRecoveryTimer orphanRecoveryTimer;
   private final BatchRecoveryTimer batchRecoveryTimer;
+  private final CancelRequestRelay cancelRequestRelay;
   private final JobStateFlusher jobStateFlusher;
   private final DeadLetterService deadLetterService;
   private final DurableTerminalEvents durable;
@@ -82,6 +84,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       RecurringScheduler recurringScheduler,
       OrphanRecoveryTimer orphanRecoveryTimer,
       BatchRecoveryTimer batchRecoveryTimer,
+      CancelRequestRelay cancelRequestRelay,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetterService,
       @Nullable DurableTerminalEvents durable,
@@ -101,6 +104,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     this.recurringScheduler = recurringScheduler;
     this.orphanRecoveryTimer = orphanRecoveryTimer;
     this.batchRecoveryTimer = batchRecoveryTimer;
+    this.cancelRequestRelay = cancelRequestRelay;
     this.jobStateFlusher = jobStateFlusher;
     this.deadLetterService = deadLetterService;
     this.durable = durable;

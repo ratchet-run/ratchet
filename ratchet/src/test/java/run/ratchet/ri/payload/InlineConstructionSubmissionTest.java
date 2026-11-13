@@ -197,7 +197,8 @@ public class InlineConstructionSubmissionTest {
         Clock.systemUTC(),
         null,
         new JakartaAfterCommitRegistrar(),
-        mock(BatchService.class));
+        mock(BatchService.class),
+        null);
   }
 
   private DefaultJobCreationService service(ClassPolicy policy) {

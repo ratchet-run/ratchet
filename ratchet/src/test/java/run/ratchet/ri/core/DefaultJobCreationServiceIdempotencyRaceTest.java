@@ -409,4 +409,39 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
     // The happy-path short-circuit never reaches create().
     verify(jobCrudStore, times(0)).create(any(JobEntity.class));
   }
+
+  @Test
+  void submit_keyHeldByCanceledJob_saysTheKeyIsHeld() {
+    // A canceled holder explains that its body still owns the key and identifies that job.
+    UUID id = UUID.randomUUID();
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findBusinessKeyHolder("held"))
+        .thenReturn(Optional.of(new BusinessKeyHolder(id, JobType.SINGLE, JobStatus.CANCELED)));
+    JobBuilder builder =
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO)
+            .withIdempotencyKey("different")
+            .withBusinessKey("held");
+    DuplicateBusinessKeyException failure =
+        Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
+    assertTrue(failure.getMessage().contains("held by canceled job"));
+    assertTrue(failure.getMessage().contains(id.toString()));
+  }
+
+  @Test
+  void submit_keyHeldByLiveJob_keepsTheActiveJobMessage() {
+    // A pending holder retains the existing active-job duplicate-key explanation.
+    UUID id = UUID.randomUUID();
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findBusinessKeyHolder("held"))
+        .thenReturn(Optional.of(new BusinessKeyHolder(id, JobType.SINGLE, JobStatus.PENDING)));
+    JobBuilder builder =
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO)
+            .withIdempotencyKey("different")
+            .withBusinessKey("held");
+    DuplicateBusinessKeyException failure =
+        Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
+    assertTrue(failure.getMessage().contains("Active job already exists with business key"));
+  }
 }

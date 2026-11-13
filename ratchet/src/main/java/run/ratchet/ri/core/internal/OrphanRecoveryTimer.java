@@ -60,6 +60,12 @@ public class OrphanRecoveryTimer {
   private static final int MAX_STARTUP_CLEANUP_ATTEMPTS = 3;
   private static final String LEASE_NAME = "orphanRecovery";
 
+  static final int EXPIRED_HOLD_LIMIT = 500;
+
+  public int releaseOwnBusinessKeyHoldsAtStartup(String nodeId) {
+    throw new UnsupportedOperationException("not implemented yet");
+  }
+
   static final int EXHAUSTED_LIMIT = 100;
   static final int STALE_EXECUTION_LIMIT = 500;
   private final JobBulkStore jobBulkStore;

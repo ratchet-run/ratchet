@@ -88,6 +88,7 @@ class RatchetRuntimeTest {
         mock(RecurringScheduler.class),
         recovery,
         mock(BatchRecoveryTimer.class),
+        mock(CancelRequestRelay.class),
         mock(JobStateFlusher.class),
         mock(DeadLetterService.class),
         null,
@@ -121,6 +122,7 @@ class RatchetRuntimeTest {
             recurring,
             mock(OrphanRecoveryTimer.class),
             mock(BatchRecoveryTimer.class),
+            mock(CancelRequestRelay.class),
             mock(JobStateFlusher.class),
             mock(DeadLetterService.class),
             null,
@@ -208,6 +210,7 @@ class RatchetRuntimeTest {
         mock(RecurringScheduler.class),
         mock(OrphanRecoveryTimer.class),
         mock(BatchRecoveryTimer.class),
+        mock(CancelRequestRelay.class),
         mock(JobStateFlusher.class),
         mock(DeadLetterService.class),
         null,
@@ -245,5 +248,60 @@ class RatchetRuntimeTest {
     order.verify(executor).awaitIdle(timeout);
     order.verify(state).resetRunningJobsForNode();
     order.verify(executor).shutdownActiveExecutions();
+  }
+
+  @Test
+  void start_startsCancelRelayOnTheScheduledExecutor_andShutdownStopsIt() {
+    // The runtime starts the cancel relay on its scheduled executor and stops it at shutdown.
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    ScheduledExecutorService scheduled = mock(ScheduledExecutorService.class);
+    when(executors.getScheduledExecutor()).thenReturn(scheduled);
+    CancelRequestRelay relay = mock(CancelRequestRelay.class);
+    RatchetRuntime runtime =
+        new RatchetRuntime(
+            mock(Poller.class),
+            mock(RecurringScheduler.class),
+            mock(OrphanRecoveryTimer.class),
+            mock(BatchRecoveryTimer.class),
+            relay,
+            mock(JobStateFlusher.class),
+            mock(DeadLetterService.class),
+            null,
+            mock(JobArchivingService.class),
+            mock(LogPurgeTimer.class),
+            mock(PollerWakeupListener.class),
+            executors,
+            () -> "node-1",
+            mock(DrainController.class),
+            RatchetOptions.defaults(),
+            mock(JobExecutionCoordinator.class),
+            mock(ClusterCoordinator.class),
+            List::of,
+            hook -> {},
+            () -> {});
+    try {
+      runtime.start();
+      verify(relay).start(scheduled);
+    } finally {
+      runtime.onShutdown();
+    }
+    verify(relay).stop();
+  }
+
+  @Test
+  void start_releasesOwnHoldsRightAfterOwnPermits() {
+    // Startup releases this node's held keys immediately after its permits, before polling.
+    OrphanRecoveryTimer recovery = mock(OrphanRecoveryTimer.class);
+    Poller poller = mock(Poller.class);
+    RatchetRuntime runtime = runtimeWithNode(() -> "node-1", recovery, poller);
+    try {
+      runtime.start();
+      var order = inOrder(recovery, poller);
+      order.verify(recovery).cleanupOwnPermitsAtStartup("node-1");
+      order.verify(recovery).releaseOwnBusinessKeyHoldsAtStartup("node-1");
+      order.verify(poller).init();
+    } finally {
+      runtime.onShutdown();
+    }
   }
 }

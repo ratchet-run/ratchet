@@ -2654,6 +2654,7 @@ class JobTaskTest {
   @SuppressWarnings("unchecked")
   void handleSuccess_jobCanceledDuringExecution_discardsResultAndPublishesCancellation()
       throws Exception {
+    // A cancellation discards the result while leaving chain cascading to the cancel boundary.
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
@@ -2668,7 +2669,7 @@ class JobTaskTest {
     verify(observabilityFacade).recordJobCancellation(job);
     verify(observabilityFacade, never()).publishEvent(any(JobCompletedEvent.class));
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
-    verify(lifecycleFacade).cancelChain(job);
+    verify(lifecycleFacade, never()).cancelChain(any());
   }
 
   @Test
@@ -3011,6 +3012,7 @@ class JobTaskTest {
 
   @Test
   void call_canceledBeforeStart_takesNoPermitAndRecordsNoAttempt() throws Exception {
+    // A pre-start cancellation takes no permit or attempt and never cascades the chain here.
     JobEntity job = createTestJob();
     job.setResourceName("gpu");
     initJobTaskWithDefaultStubs(job);
@@ -3018,7 +3020,7 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(lifecycleFacade).cancelChain(job);
+    verify(lifecycleFacade, never()).cancelChain(any());
     verify(resilienceStrategy, never()).isServiceAvailable(anyString());
     verify(resourcePermitService, never())
         .tryAcquire(anyString(), any(UUID.class), anyLong(), anyString());
@@ -3930,5 +3932,275 @@ class JobTaskTest {
     }
     Assertions.assertFalse(history.getValue().getErrorMessage().contains("hunter2"));
     Assertions.assertFalse(history.getValue().getErrorMessage().contains("person@example.com"));
+  }
+
+  @Test
+  void userCancelledBodyStop_withCanceledStatus_endsCanceled() throws Exception {
+    // A cooperative user stop closes the attempt as canceled without failure or timeout work.
+    JobTimeoutHandler timeout = mock(JobTimeoutHandler.class);
+    jobTask = newJobTaskWithTimeoutHandler(timeout);
+    JobEntity job = cancelScenario(false);
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    job.setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    attempt.requestUserCancel();
+    failBody(() -> new CancellationRequestedException("user stop"));
+
+    jobTask.call();
+
+    verifyCanceledExecution(job);
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    verify(timeout, never()).processCooperativeTimeout(any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never()).moveToDlqAndHandlePermanentFailure(any(), any());
+    verify(lifecycleFacade, never()).cancelChain(any());
+    Assertions.assertNull(CallbackRecorder.context);
+  }
+
+  @Test
+  void userCancelledBodyStop_withUnknownStatus_isNotHandledAsCancel() throws Exception {
+    // An absent fresh status is insufficient to classify a cooperative failure as user cancel.
+    jobTask = newJobTaskWithTimeoutHandler(mock(JobTimeoutHandler.class));
+    JobEntity job = cancelScenario(false);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, (JobStatus) null);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    attempt.requestUserCancel();
+    failBody(() -> new CancellationRequestedException("user stop"));
+
+    jobTask.call();
+
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    verify(observabilityFacade, never())
+        .saveExecution(argThat(execution -> execution.getStatus() == ExecutionStatus.CANCELED));
+  }
+
+  @Test
+  void supersededAttemptFailure_withCanceledStatus_endsCanceled() throws Exception {
+    // A canceled superseded attempt closes canceled rather than recording a deferred failure.
+    JobEntity job = cancelScenario(false);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    failBody(
+        () -> {
+          attempt.markSuperseded();
+          return new IllegalStateException("superseded");
+        });
+    jobTask.call();
+    verifyCanceledExecution(job);
+  }
+
+  @Test
+  void rejectedRetryIncrement_withCanceledStatus_endsCanceled() throws Exception {
+    // A rejected retry increment consults the cancellation status before deferring failure.
+    JobEntity job = cancelScenario(false);
+    jobTask.attach(cancelAttempt());
+    failBody(() -> new IllegalStateException("body failed"));
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(-1);
+    jobTask.call();
+    verifyCanceledExecution(job);
+  }
+
+  @Test
+  void terminalSkippedSuccess_withCanceledStatus_endsCanceled() throws Exception {
+    // A success rejected by terminal state closes canceled rather than discarding the result.
+    JobEntity job = cancelScenario(false);
+    jobTask.attach(cancelAttempt());
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenReturn(JobStatus.RUNNING, JobStatus.RUNNING, JobStatus.CANCELED);
+    succeedBody();
+    jobTask.call();
+    verify(lifecycleFacade)
+        .completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+    verifyCanceledExecution(job);
+  }
+
+  @Test
+  void interruptedWorker_skipsTheCancelReadAndTheHoldRelease() throws Exception {
+    // An interrupted superseded worker keeps its interrupt and avoids cancellation store work.
+    JobEntity job = cancelScenario(true);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    failBody(
+        () -> {
+          attempt.markSuperseded();
+          Thread.currentThread().interrupt();
+          return new IllegalStateException("interrupted");
+        });
+    try {
+      jobTask.call();
+      verify(jobStore).getJobStatus(JOB_UUID);
+      verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void canceledKeyedJob_releasesItsHoldOnce() throws Exception {
+    // A canceled keyed attempt releases its own claim's hold exactly once when its body ends.
+    cancelScenario(true);
+    jobTask.attach(cancelAttempt());
+    succeedBody();
+    jobTask.call();
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+  }
+
+  @Test
+  void canceledJobWithoutKey_releasesNoHold() throws Exception {
+    // A canceled job without a business key never calls the hold store.
+    JobEntity job = cancelScenario(false);
+    jobTask.attach(cancelAttempt());
+    succeedBody();
+    jobTask.call();
+    verifyCanceledExecution(job);
+    verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+  }
+
+  @Test
+  void succeededKeyedJob_releasesNoHold() throws Exception {
+    // A successful keyed job leaves ordinary reservation cleanup to completion.
+    JobEntity job = cancelScenario(true);
+    jobTask.attach(cancelAttempt());
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(lifecycleFacade.completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+    succeedBody();
+    jobTask.call();
+    verify(observabilityFacade).recordJobSuccess(eq(job), anyLong());
+    verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+  }
+
+  @Test
+  void canceledBeforeStart_keyedJob_releasesHold() throws Exception {
+    // An entity-initialized task canceled before its body releases the claim's held key.
+    JobEntity job = createTestJob();
+    job.setBusinessKey("held");
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    jobTask.attach(cancelAttempt());
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    jobTask.call();
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void claimTaskWhoseRowIsCanceled_keyedJob_releasesHoldWithClaimSeq() throws Exception {
+    // A canceled loaded row releases the original claim sequence before returning early.
+    assertCanceledClaimHold(true);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+  }
+
+  @Test
+  void claimTaskWhoseRowIsCanceled_keylessJob_releasesNoHold() throws Exception {
+    // A keyless loaded row returns early without any held-key cleanup.
+    assertCanceledClaimHold(false);
+    verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+  }
+
+  private void assertCanceledClaimHold(boolean keyed) throws Exception {
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.CANCELED);
+    job.setBusinessKey(keyed ? "held" : null);
+    job.setClaimSeq(99L);
+    JobClaimDto claim =
+        new JobClaimDto(
+            JOB_UUID,
+            JobStatus.RUNNING,
+            JobExecutionType.SINGLE,
+            JobPriority.NORMAL,
+            Instant.EPOCH,
+            1,
+            30,
+            "node-1",
+            Instant.EPOCH,
+            null,
+            0,
+            3,
+            null,
+            null,
+            7L);
+    initJobTaskFromClaimWithDefaultStubs(claim, job);
+    jobTask.call();
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void supersededPermitAcquire_keyedJob_releasesHold() throws Exception {
+    // A rejected reschedule after superseded permit acquisition releases that claim's held key.
+    JobEntity job = createTestJob();
+    job.setBusinessKey("held");
+    job.setResourceName("gpu");
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    jobTask.attach(cancelAttempt());
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.SUPERSEDED);
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    jobTask.call();
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(0), eq(7L));
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void canceledAfterFailedExecutionRecord_usesAttemptStartTime() throws Exception {
+    // Cancellation before an execution record exists uses the attempt's original start time.
+    JobEntity job = cancelScenario(false);
+    JobAttemptControl attempt = cancelAttempt();
+    attempt.requestUserCancel();
+    jobTask.attach(attempt);
+    when(observabilityFacade.startExecution(JOB_UUID, 1, "node-1"))
+        .thenThrow(new IllegalStateException("execution write failed"));
+    jobTask.call();
+    verify(observabilityFacade).recordJobCancellation(job);
+    Assertions.assertEquals(attempt.executionStartTime(), job.getExecutionStartTime());
+  }
+
+  private JobAttemptControl cancelAttempt() {
+    return new JobAttemptControl(
+        JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW.minusSeconds(10), 0, 7L, "node-1");
+  }
+
+  private JobEntity cancelScenario(boolean keyed) {
+    JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
+    if (keyed) job.setBusinessKey("held");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    return job;
+  }
+
+  @SuppressWarnings("unchecked")
+  private void failBody(Supplier<RuntimeException> failure) throws Exception {
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            inv -> {
+              throw failure.get();
+            });
+  }
+
+  @SuppressWarnings("unchecked")
+  private void succeedBody() throws Exception {
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> inv.<Callable<?>>getArgument(2).call());
+  }
+
+  private void verifyCanceledExecution(JobEntity job) {
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getValue().getStatus());
+    verify(observabilityFacade).recordJobCancellation(job);
   }
 }

@@ -25,16 +25,19 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 
@@ -42,6 +45,9 @@ import run.ratchet.store.spi.RecurringJobStore;
 @Vetoed
 public class SystemJobCancellation {
   private static final Logger log = Logger.getLogger(SystemJobCancellation.class);
+  private final JobTerminalStore jobTerminalStore;
+  private final WorkflowScheduler workflowScheduler;
+  private final RatchetOptions options;
   private final InternalEventPublisher eventPublisher;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobCrudStore jobCrudStore;
@@ -61,7 +67,13 @@ public class SystemJobCancellation {
       JobWakeupService wakeupService,
       MetricsCollector metricsCollector,
       Clock clock,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      JobTerminalStore jobTerminalStore,
+      WorkflowScheduler workflowScheduler,
+      RatchetOptions options) {
+    this.jobTerminalStore = jobTerminalStore;
+    this.workflowScheduler = workflowScheduler;
+    this.options = options != null ? options : RatchetOptions.defaults();
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobCrudStore = jobCrudStore;
@@ -76,10 +88,10 @@ public class SystemJobCancellation {
   /** Cancels without a caller authorization check. */
   @Transactional
   public boolean cancel(UUID jobId) {
-    return cancelLoadedJob(jobId, jobCrudStore.findById(jobId).orElse(null));
+    return cancelLoadedJob(jobId, jobCrudStore.findById(jobId).orElse(null), false);
   }
 
-  boolean cancelLoadedJob(UUID jobId, JobEntity job) {
+  boolean cancelLoadedJob(UUID jobId, JobEntity job, boolean holdKey) {
     // Try PENDING → CANCELED first (most common case)
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {

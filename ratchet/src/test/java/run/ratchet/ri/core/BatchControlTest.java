@@ -109,7 +109,8 @@ class BatchControlTest {
         Clock.systemUTC(),
         null,
         registrar,
-        batchService);
+        batchService,
+        null);
   }
 
   @Test
@@ -313,10 +314,22 @@ class BatchControlTest {
             clock,
             null,
             registrar,
-            batchService);
+            batchService,
+            null);
     SystemJobCancellation cancellation =
         new SystemJobCancellation(
-            events, statuses, jobs, batchService, null, wakeup, null, clock, registrar);
+            events,
+            statuses,
+            jobs,
+            batchService,
+            null,
+            wakeup,
+            null,
+            clock,
+            registrar,
+            null,
+            null,
+            null);
     JobCancelledEvent previous = null;
     for (boolean standalone : List.of(false, true)) {
       reset(statuses, events, batchService);

@@ -167,6 +167,14 @@ public final class JobAttemptControl {
     return executionStartTime;
   }
 
+  public void requestUserCancel() {
+    throw new UnsupportedOperationException("not implemented yet");
+  }
+
+  public boolean isUserCancelRequested() {
+    throw new UnsupportedOperationException("not implemented yet");
+  }
+
   public void requestCancellation() {
     cancellationRequested.set(true);
   }

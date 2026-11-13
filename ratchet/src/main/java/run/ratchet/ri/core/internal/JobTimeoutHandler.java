@@ -258,6 +258,14 @@ public class JobTimeoutHandler {
     this.signalTimeoutLeaseTtl = Duration.ofSeconds(signalTimeoutLeaseTtlSeconds);
   }
 
+  public boolean requestUserCancel(UUID jobId) {
+    throw new UnsupportedOperationException("not implemented yet");
+  }
+
+  public List<JobAttemptControl> localAttemptsStartedBefore(Instant cutoff) {
+    throw new UnsupportedOperationException("not implemented yet");
+  }
+
   private long effectiveTimeoutSeconds(int jobTimeoutSec) {
     return jobTimeoutSec > 0 ? jobTimeoutSec : defaultTimeoutSeconds;
   }

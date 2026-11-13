@@ -27,6 +27,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -53,6 +54,7 @@ import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobCancelledEvent;
@@ -63,6 +65,7 @@ import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -87,6 +90,13 @@ class DefaultJobSchedulerServiceEventTest {
   private static final Instant FIXED_NOW = Instant.parse("2026-05-15T10:15:30Z");
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
+  private static final RatchetOptions OPTIONS =
+      RatchetOptions.builder()
+          .timeout(t -> t.defaultSlaSeconds(120))
+          .node(n -> n.orphanGraceSeconds(17))
+          .build();
+
+  @Mock private WorkflowScheduler workflowScheduler;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private JobPauseStore jobPauseStore;
@@ -136,9 +146,10 @@ class DefaultJobSchedulerServiceEventTest {
             null,
             metricsCollector,
             FIXED_CLOCK,
-            null,
+            OPTIONS,
             registrar,
-            batchService);
+            batchService,
+            workflowScheduler);
   }
 
   @ParameterizedTest
@@ -155,9 +166,7 @@ class DefaultJobSchedulerServiceEventTest {
     JobEntity child = job(previous, JobExecutionType.BATCH_CHILD);
     child.setDependsOn(REPLACEMENT_ID);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(child));
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), any(), eq(JobStatus.CANCELED), isNull()))
-        .thenAnswer(inv -> inv.getArgument(1) == previous);
+    stubCancellationSwap(previous, child, true);
     when(batchService.completeIfFinished(REPLACEMENT_ID)).thenReturn(true);
 
     assertTrue(service.cancelJob(JOB_ID));
@@ -325,9 +334,7 @@ class DefaultJobSchedulerServiceEventTest {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> REPLACEMENT_ID);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), isNull()))
-        .thenAnswer(inv -> inv.getArgument(1) == JobStatus.RUNNING);
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, holdUntil(job))).thenReturn(true);
     when(jobCrudStore.save(any(JobEntity.class))).thenReturn(job);
 
     assertEquals(
@@ -433,9 +440,7 @@ class DefaultJobSchedulerServiceEventTest {
   void cancelJobRunningCancellationPublishesCancelledEventAfterStateChange() {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), isNull()))
-        .thenAnswer(inv -> inv.getArgument(1) == JobStatus.RUNNING);
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, holdUntil(job))).thenReturn(true);
 
     assertTrue(service.cancelJob(JOB_ID));
 
@@ -662,5 +667,188 @@ class DefaultJobSchedulerServiceEventTest {
     assertEquals(JobPriority.HIGH, event.getPriority());
     assertEquals("node-a", event.getNodeId());
     assertEquals(FIXED_NOW, event.getTimestamp());
+  }
+
+  @Test
+  void cancelJob_runningKeyedJob_holdsKeyForTimeoutPlusGrace() {
+    // A user cancellation keeps a keyed running claim reserved for its timeout plus grace.
+    JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
+    job.setTimeoutSec(30);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47))).thenReturn(true);
+    assertTrue(service.cancelJob(JOB_ID));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47));
+  }
+
+  @Test
+  void cancelJob_runningKeyedJobWithoutTimeout_usesDefaultSla() {
+    // A missing job timeout uses the configured default SLA when calculating the hold.
+    JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
+    job.setTimeoutSec(0);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(137))).thenReturn(true);
+    assertTrue(service.cancelJob(JOB_ID));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(137));
+  }
+
+  @Test
+  void cancelJob_runningJobWithoutKey_passesNoHold() {
+    // Canceling a keyless running job never creates a held reservation.
+    JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
+    job.setBusinessKey(null);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, null)).thenReturn(true);
+    assertTrue(service.cancelJob(JOB_ID));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, null);
+  }
+
+  @Test
+  void cancelJobAsSystem_runningKeyedJob_passesNoHold() {
+    // System cancellation releases a keyed job without retaining its reservation.
+    JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, null)).thenReturn(true);
+    assertTrue(service.cancelJobAsSystem(JOB_ID));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, null);
+  }
+
+  @Test
+  void replace_runningKeyedJob_holdsKey() {
+    // Replacement uses the same timeout-plus-grace hold as user cancellation.
+    JobEntity job = replacementJob(JobStatus.RUNNING, JobExecutionType.SINGLE);
+    job.setTimeoutSec(30);
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47))).thenReturn(true);
+    replace();
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47));
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = JobStatus.class,
+      names = {"PENDING", "RUNNING", "PAUSED", "WAITING"})
+  void cancelJobAndReplace_cancelChainOncePerCancel(JobStatus previous) {
+    // Both public cancel operations cascade a single job's workflow exactly once.
+    JobEntity job = replacementJob(previous, JobExecutionType.SINGLE);
+    stubCancellationSwap(previous, job, true);
+    assertTrue(service.cancelJob(JOB_ID));
+    verify(workflowScheduler).cancelChain(job);
+    replace();
+    verify(workflowScheduler, times(2)).cancelChain(job);
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = JobExecutionType.class,
+      names = {"BATCH_CHILD", "BATCH_PARENT"})
+  void cancelJob_batchChildAndBatchParent_doNotCallCancelChainDirectly(JobExecutionType type) {
+    // Batch cancellation uses its batch cascade rather than a direct workflow chain cascade.
+    JobEntity job = job(JobStatus.PENDING, type);
+    if (type == JobExecutionType.BATCH_CHILD) job.setDependsOn(REPLACEMENT_ID);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    stubCancellationSwap(JobStatus.PENDING, job, true);
+    assertTrue(service.cancelJob(JOB_ID));
+    verify(workflowScheduler, never()).cancelChain(any());
+    if (type == JobExecutionType.BATCH_PARENT) verify(batchService).cancelBatch(job);
+    else verify(batchService).completeIfFinished(REPLACEMENT_ID);
+  }
+
+  @Test
+  void replace_batchChild_checksBatchCompletionAfterCommit() {
+    // Replacement checks child completion only after the cancellation transaction commits.
+    List<Runnable> callbacks = new ArrayList<>();
+    setUp(
+        action -> {
+          callbacks.add(action);
+          return AfterCommitRegistrar.Result.REGISTERED;
+        });
+    JobEntity child = replacementJob(JobStatus.PENDING, JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(REPLACEMENT_ID);
+    stubCancellationSwap(JobStatus.PENDING, child, true);
+    replace();
+    verifyNoInteractions(batchService);
+    callbacks.forEach(Runnable::run);
+    verify(batchService).completeIfFinished(REPLACEMENT_ID);
+    verify(workflowScheduler, never()).cancelChain(any());
+  }
+
+  @Test
+  void replace_batchParent_cancelsTheBatch() {
+    // Replacing a batch parent cancels its batch and arranges the committed cancellation sweep.
+    JobEntity parent = replacementJob(JobStatus.PENDING, JobExecutionType.BATCH_PARENT);
+    stubCancellationSwap(JobStatus.PENDING, parent, true);
+    replace();
+    verify(batchService).cancelBatch(parent);
+    verify(batchService).sweepCancelledBatch(JOB_ID);
+    verify(workflowScheduler, never()).cancelChain(any());
+  }
+
+  @Test
+  void cancelJob_allSwapsMissButJobStillLive_retriesOnce() {
+    // One live status refresh permits one retry pass and publishes only the winning transition.
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.PENDING);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(false, true);
+    assertTrue(service.cancelJob(JOB_ID));
+    verify(jobBatchStatusStore, times(2))
+        .compareAndSwapStatus(JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null);
+    assertEquals("PENDING", published(JobCancelledEvent.class).getPreviousStatus());
+    verify(workflowScheduler).cancelChain(job);
+  }
+
+  @Test
+  void cancelJob_allSwapsMissAndJobTerminal_doesNotRetry() {
+    // A terminal status after the missed swaps prevents a redundant retry pass.
+    JobEntity job = job(JobStatus.CANCELED, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.CANCELED);
+    assertFalse(service.cancelJob(JOB_ID));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, holdUntil(job));
+    for (JobStatus previous : List.of(JobStatus.PENDING, JobStatus.PAUSED, JobStatus.WAITING)) {
+      verify(jobBatchStatusStore).compareAndSwapStatus(JOB_ID, previous, JobStatus.CANCELED, null);
+    }
+  }
+
+  @Test
+  void cancelJob_failedSwap_runsNoCascade() {
+    // Unsuccessful cancellation never cascades into workflow or batch operations.
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.BATCH_PARENT);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    assertFalse(service.cancelJob(JOB_ID));
+    verifyNoInteractions(workflowScheduler, batchService);
+  }
+
+  private Instant holdUntil(JobEntity job) {
+    return FIXED_NOW.plusSeconds(
+        (job.getTimeoutSec() > 0 ? job.getTimeoutSec() : OPTIONS.timeout().defaultSlaSeconds())
+            + OPTIONS.node().orphanGraceSeconds());
+  }
+
+  private void stubCancellationSwap(JobStatus previous, JobEntity job, boolean hold) {
+    if (previous == JobStatus.RUNNING) {
+      when(jobTerminalStore.cancelRunningJob(
+              JOB_ID, hold && job.getBusinessKey() != null ? holdUntil(job) : null))
+          .thenReturn(true);
+    } else {
+      when(jobBatchStatusStore.compareAndSwapStatus(JOB_ID, previous, JobStatus.CANCELED, null))
+          .thenReturn(true);
+    }
+  }
+
+  private JobEntity replacementJob(JobStatus status, JobExecutionType type) {
+    JobEntity job = job(status, type);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> REPLACEMENT_ID);
+    return job;
+  }
+
+  private void replace() {
+    assertEquals(
+        REPLACEMENT_ID,
+        service
+            .replace(JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceEventTest::noopTask, null)
+            .id());
   }
 }

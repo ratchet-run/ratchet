@@ -56,6 +56,7 @@ import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -181,7 +182,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -205,7 +207,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         clock,
         options,
         afterCommitRegistrar,
-        batchService);
+        batchService,
+        workflowScheduler);
   }
 
   /**
@@ -236,7 +239,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -273,7 +277,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             wakeupService,
             metricsCollector,
             clock,
-            afterCommitRegistrar);
+            afterCommitRegistrar,
+            jobTerminalStore,
+            workflowScheduler,
+            effectiveOptions);
   }
 
   @Override
@@ -303,7 +310,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       authorizationPolicy.checkCancel(jobId, ownerPrincipal, currentPrincipal);
     }
 
-    return systemCancellation.cancelLoadedJob(jobId, job);
+    return systemCancellation.cancelLoadedJob(jobId, job, true);
   }
 
   /** Cancels as the recovery system, using the same transition, event and cascade path. */
