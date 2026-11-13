@@ -17,6 +17,7 @@ package example.ratchet;
 
 import static example.ratchet.verification.NativeVerification.await;
 import static example.ratchet.verification.NativeVerification.check;
+import static example.ratchet.verification.NativeVerification.hasStatus;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
@@ -27,7 +28,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
+import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.JobStatus;
 import run.ratchet.micrometer.MicrometerMetricsCollector;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -42,7 +45,8 @@ public class MicrometerVerification {
       Environment environment,
       ApplicationContext context,
       MeterRegistry registry,
-      JobSchedulerService scheduler) {
+      JobSchedulerService scheduler,
+      JobQueryService queries) {
     return args -> {
       if (!environment.getProperty("consumer.scenario", "normal").equals("micrometer")) return;
       MetricsCollector collector = context.getBean(MetricsCollector.class);
@@ -53,21 +57,24 @@ public class MicrometerVerification {
           .schedule(Duration.ofHours(1), MicrometerVerification::idle)
           .withBusinessKey("micrometer-pending")
           .submit();
-      scheduler.enqueue(MicrometerVerification::idle).submit();
+      var immediate = scheduler.enqueue(MicrometerVerification::idle).submit();
       await(
-          () -> {
-            var gauge = registry.find("ratchet.queue.jobs").tag("status", "PENDING").gauge();
-            if (gauge == null) return false;
-            double value = gauge.value();
-            return Double.isFinite(value) && value >= 1;
-          },
-          "PENDING queue gauge did not report a pending job");
+          () -> hasStatus(queries, immediate.id(), JobStatus.SUCCEEDED),
+          "immediate job did not succeed");
       await(
           () -> {
             var counter = registry.find("ratchet.jobs.completed").counter();
             return counter != null && counter.count() >= 1;
           },
           "Micrometer collector did not record a completed job");
+      // The delayed job is now the only pending job. The gauge caches its snapshot for 15 s, so
+      // the 60 s wait also outlasts a snapshot taken while the immediate job was still pending.
+      await(
+          () -> {
+            var gauge = registry.find("ratchet.queue.jobs").tag("status", "PENDING").gauge();
+            return gauge != null && gauge.value() == 1;
+          },
+          "PENDING queue gauge did not count exactly the delayed job");
       startupVerified = true;
     };
   }
