@@ -261,6 +261,61 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
+  /** Pins preservation of a user reschedule committed after wake reads the waiter line. */
+  @Test
+  void wakeDoesNotUndoARescheduleThatCommitsAfterItReadsTheLine() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-resched", 1, 60_000, null);
+    var holder = claimNewJob("holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-resched"));
+    var waiter = claimNewJob("waiter");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "waiter", "res-resched"));
+    permits.releasePermit("res-resched", holder.getId(), holder.getClaimSeq());
+    var userTime = new AtomicReference<Instant>();
+    var fired = new AtomicBoolean();
+    var caller = Thread.currentThread();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.contains(
+                        "SELECT W.JOB_ID, Q.STATUS, W.PRIORITY, Q.EXECUTION_TARGET, W.WAIT_SINCE")
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            var parked = store.findById(waiter.getId()).orElseThrow();
+                            userTime.set(
+                                Instant.now().plusSeconds(3600).truncatedTo(ChronoUnit.MILLIS));
+                            parked.setScheduledTime(userTime.get());
+                            store.save(parked);
+                          }));
+                }
+              });
+      var result = permits.wakeWaiters("res-resched");
+      assertTrue(fired.get(), "the user rescheduled after wake read the line");
+      assertTrue(result.stream().noneMatch(w -> w.jobId().equals(waiter.getId())));
+      assertEquals(
+          userTime.get(),
+          store
+              .findById(waiter.getId())
+              .orElseThrow()
+              .getScheduledTime()
+              .truncatedTo(ChronoUnit.MILLIS));
+      assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
   @Test
   void wakeSweepAndWaiterRowsDoNotDeadlockWithTerminalWritesResetsAndBatchSweeps()
       throws Exception {

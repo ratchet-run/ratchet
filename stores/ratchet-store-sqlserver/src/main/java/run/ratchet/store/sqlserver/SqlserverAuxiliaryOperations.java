@@ -509,18 +509,20 @@ final class SqlserverAuxiliaryOperations
       }
       List<WokenWaiter> result = new ArrayList<>();
       for (Object[] row : pending) {
+        // Skip a head whose due time changed after the line was read, as a user reschedule does.
         // language=SQL Server
         String wake =
             """
             UPDATE scheduler_job_queue WITH (UPDLOCK, READPAST, ROWLOCK)
             SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
-            WHERE job_id = ? AND status = 'PENDING'
+            WHERE job_id = ? AND status = 'PENDING' AND scheduled_time = ?
             """;
         if (ctx.em()
                 .createNativeQuery(wake)
                 .setParameter(1, row[4])
                 .setParameter(
                     2, UuidByteArrayConverter.toBytes(SqlserverJobRowMapper.uuidOrNull(row[0])))
+                .setParameter(3, row[5])
                 .executeUpdate()
             == 1) {
           result.add(

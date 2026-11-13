@@ -746,8 +746,9 @@ table has no foreign key, so a park never locks `scheduler_job`.
   resource lock first, reads up to `max_concurrent` live heads, counts the permits, and sets
   `scheduled_time = wait_since` on the PENDING heads within the free slots. It returns them so the
   engine can send wake-up hints. It never waits on a job row that another transaction holds. The
-  SQL stores skip that head and do not wake a later waiter in its place. MongoDB retries the
-  wake-up on a write conflict.
+  SQL stores skip that head and do not wake a later waiter in its place. They also skip a head
+  whose job's `scheduled_time` changed after they read the line, so a user reschedule that commits
+  in between is kept. MongoDB retries the wake-up on a write conflict.
 - `findResourcesWithWaiters(after, limit)` and `deleteStaleWaiters(limit)` serve the periodic
   sweep. The first returns distinct resource names that have waiter rows, in ascending order and
   after `after` (from the first name when it is null); the engine passes the last name it saw, so

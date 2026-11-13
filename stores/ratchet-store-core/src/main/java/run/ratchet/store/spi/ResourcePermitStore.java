@@ -31,7 +31,9 @@ public interface ResourcePermitStore {
   /**
    * Makes up to the free capacity of live head waiters due again, setting each one's due time back
    * to when it started waiting. Live waiters that are already running use up capacity but are not
-   * returned. Lease times are never renewed here.
+   * returned. Lease times are never renewed here. A head whose job's due time changed after the
+   * store read the line (for example a user reschedule, which also removes its waiter row) is not
+   * woken.
    *
    * <p>The wake never waits on a job row that another transaction holds. A store with row locks
    * skips that head and does not return it. A skipped head that is still waiting becomes due at its

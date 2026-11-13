@@ -23,9 +23,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Nullable;
@@ -475,7 +475,7 @@ final class PostgresqlAuxiliaryOperations
       // language=PostgreSQL
       String available =
           """
-          SELECT job_id FROM scheduler_job_queue
+          SELECT job_id, scheduled_time FROM scheduler_job_queue
           WHERE job_id IN (%s) AND status = 'PENDING' FOR UPDATE SKIP LOCKED
           """
               .formatted(placeholders);
@@ -483,14 +483,19 @@ final class PostgresqlAuxiliaryOperations
       for (int i = 0; i < pending.size(); i++) {
         availableQuery.setParameter(i + 1, pending.get(i)[0]);
       }
-      List<?> availableIds = availableQuery.getResultList();
-      var locked = new HashSet<UUID>();
-      for (Object id : availableIds) {
-        locked.add(PostgresqlJobRowMapper.uuidOrNull(id));
+      List<?> availableRows = availableQuery.getResultList();
+      Map<UUID, Instant> locked = new HashMap<>();
+      for (Object availableRow : availableRows) {
+        Object[] lockedRow = (Object[]) availableRow;
+        locked.put(
+            PostgresqlJobRowMapper.uuidOrNull(lockedRow[0]), RowValues.instantOrNull(lockedRow[1]));
       }
       List<WokenWaiter> result = new ArrayList<>();
       for (Object[] row : pending) {
-        if (!locked.contains(PostgresqlJobRowMapper.uuidOrNull(row[0]))) {
+        // Skip a head whose due time changed after the line was read, as a user reschedule does.
+        UUID jobId = PostgresqlJobRowMapper.uuidOrNull(row[0]);
+        if (!locked.containsKey(jobId)
+            || !Objects.equals(RowValues.instantOrNull(row[5]), locked.get(jobId))) {
           continue;
         }
         // language=PostgreSQL
