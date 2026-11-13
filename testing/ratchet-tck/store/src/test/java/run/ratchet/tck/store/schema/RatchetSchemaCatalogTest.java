@@ -41,6 +41,19 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
+  void partitionSchemaIncludesDurableRowsAndCascadeWithoutJobForeignKey() {
+    Table partitions = table("scheduler_partition");
+    assertEquals(List.of("set_id", "partition_index"), partitions.primaryKey());
+    assertEquals(1, partitions.foreignKeys().size());
+    assertEquals("scheduler_partition_set", partitions.foreignKeys().get(0).refTable());
+    assertTrue(index(table("scheduler_partition_set"), "uq_partition_set_key").unique());
+    assertEquals(List.of("child_job_id"), index(partitions, "idx_partition_child").columns());
+    assertEquals(
+        List.of("partition_set_id"),
+        index(table("scheduler_batch"), "idx_batch_partition_set").columns());
+  }
+
+  @Test
   void eventOutboxDeclaresOrderedRecoveryIndex() {
     Table outbox = table("scheduler_event_outbox");
     assertEquals(List.of("event_id"), outbox.primaryKey());

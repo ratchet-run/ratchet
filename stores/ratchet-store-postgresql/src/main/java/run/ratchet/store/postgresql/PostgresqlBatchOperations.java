@@ -241,8 +241,8 @@ final class PostgresqlBatchOperations implements BatchStore {
         """
         INSERT INTO scheduler_batch
           (batch_id, total_items, completed_items, failed_items,
-           completion_processed, progress_hook, reducer, fold_claimed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           completion_processed, progress_hook, reducer, fold_claimed_at, partition_set_id, generation)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (batch_id) DO UPDATE SET
           total_items = EXCLUDED.total_items,
           completed_items = EXCLUDED.completed_items,
@@ -251,9 +251,11 @@ final class PostgresqlBatchOperations implements BatchStore {
           progress_hook = EXCLUDED.progress_hook,
           reducer = EXCLUDED.reducer,
           fold_claimed_at = EXCLUDED.fold_claimed_at,
+          partition_set_id = EXCLUDED.partition_set_id,
+          generation = EXCLUDED.generation,
           version = scheduler_batch.version + 1
         RETURNING batch_id, total_items, completed_items, failed_items,
-                  completion_processed, version, progress_hook, reducer, fold_claimed_at
+                  completion_processed, version, progress_hook, reducer, fold_claimed_at, partition_set_id, generation
         """;
     Object row =
         ctx.em()
@@ -268,15 +270,17 @@ final class PostgresqlBatchOperations implements BatchStore {
             .setParameter(
                 8,
                 batch.getFoldClaimedAt() == null ? null : Timestamp.from(batch.getFoldClaimedAt()))
+            .setParameter(9, batch.getPartitionSetId())
+            .setParameter(10, batch.getGeneration())
             .getSingleResult();
     return row instanceof Object[] values ? mapBatchRow(values) : batch;
   }
 
   @Override
   public Optional<BatchEntity> findBatchById(UUID batchId) {
-    BatchEntity batch = ctx.em().find(BatchEntity.class, batchId);
-    refreshIfManaged(batch);
-    return Optional.ofNullable(batch);
+    // Native read: EclipseLink 4 maps a null native uuid column (partition_set_id) with a
+    // NullPointerException, so this store does not load BatchEntity through JPA.
+    return findBatchesByIds(List.of(batchId)).stream().findFirst();
   }
 
   @Override
@@ -290,7 +294,7 @@ final class PostgresqlBatchOperations implements BatchStore {
     String sql =
         """
         SELECT batch_id, total_items, completed_items, failed_items,
-               completion_processed, version, progress_hook, reducer, fold_claimed_at
+               completion_processed, version, progress_hook, reducer, fold_claimed_at, partition_set_id, generation
         FROM scheduler_batch
         WHERE batch_id IN (%s)
         """
@@ -529,6 +533,8 @@ final class PostgresqlBatchOperations implements BatchStore {
     batch.setProgressHook(parseProgressHook(row[6]));
     batch.setReducer(RowValues.stringOrNull(row[7]));
     batch.setFoldClaimedAt(RowValues.instantOrNull(row[8]));
+    batch.setPartitionSetId(RowValues.uuidOrNull(row[9]));
+    batch.setGeneration(row[10] == null ? null : ((Number) row[10]).intValue());
     return batch;
   }
 
@@ -537,12 +543,6 @@ final class PostgresqlBatchOperations implements BatchStore {
       return bool;
     }
     return value != null && ((Number) value).intValue() != 0;
-  }
-
-  private void refreshIfManaged(BatchEntity batch) {
-    if (batch != null && ctx.em().contains(batch)) {
-      ctx.em().refresh(batch);
-    }
   }
 
   private String progressHookJson(JobPayload progressHook) {

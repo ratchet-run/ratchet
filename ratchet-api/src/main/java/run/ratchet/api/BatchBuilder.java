@@ -18,6 +18,7 @@ package run.ratchet.api;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.api.exception.ResourceNotConfiguredException;
@@ -30,6 +31,18 @@ import run.ratchet.api.exception.ResourceNotConfiguredException;
  */
 @Incubating
 public interface BatchBuilder {
+  /**
+   * Configures nonoverlapping partition ranges. Indexes follow the supplied list order. After
+   * trimming, the key must contain 1 to 36 printable ASCII characters ({@code U+0020} through
+   * {@code U+007E}).
+   *
+   * @throws IllegalArgumentException if the key or ranges are invalid
+   * @throws IllegalStateException if items or reduction were already configured
+   */
+  @Incubating
+  PartitionedBatchBuilder forEachPartition(
+      String partitionKey, List<KeyRange> partitions, SerializableConsumer<KeyRange> action);
+
   /**
    * Folds partial child results, starting with a non-null identity. The combiner must be
    * deterministic and free of side effects: it may run more than once. Children with nothing to

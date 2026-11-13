@@ -33,6 +33,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_REJECTION_REASON;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_TIMEOUT;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -151,7 +152,8 @@ final class MongoSignalOperations implements SignalStore {
 
     try (ClientSession session = ctx.startSession()) {
       UpdateResult result =
-          session.withTransaction(() -> ctx.jobs().updateMany(session, filter, update));
+          session.withTransaction(
+              () -> ctx.jobs().updateMany(session, filter, update), TRANSACTION_OPTIONS);
       int updated = (int) result.getModifiedCount();
       log.debugf("deliverSignalByKey('%s'): %s job(s) unblocked", signalKey, updated);
       return updated;

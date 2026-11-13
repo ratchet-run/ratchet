@@ -40,6 +40,7 @@ import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
+import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
@@ -202,8 +203,11 @@ class RatchetRuntimeConfiguration {
   BatchRecoveryTimer batchRecoveryTimer(
       RatchetOptions options,
       BatchService batchService,
-      SingletonLeaseService singletonLeaseService) {
-    return new BatchRecoveryTimer(batchService, singletonLeaseService, options);
+      SingletonLeaseService singletonLeaseService,
+      PartitionService partitions) {
+    BatchRecoveryTimer timer = new BatchRecoveryTimer(batchService, singletonLeaseService, options);
+    timer.configurePartitions(partitions);
+    return timer;
   }
 
   @Singleton

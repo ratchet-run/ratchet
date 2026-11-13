@@ -70,6 +70,8 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
   // "DROP SCHEMA ... CASCADE", so the virgin state is restored table by table.
   private static final List<String> TABLES_CHILD_FIRST =
       List.of(
+          "scheduler_partition",
+          "scheduler_partition_set",
           "scheduler_business_key_reservation",
           "scheduler_job_queue",
           "scheduler_event_outbox",

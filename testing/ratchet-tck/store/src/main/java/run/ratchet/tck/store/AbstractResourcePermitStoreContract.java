@@ -715,6 +715,45 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     }
   }
 
+  /** Pins removal of the old waiter line when only the job's resource changes. */
+  @Test
+  void changingTheResourceMovesTheJobOutOfTheOldLine() {
+    resourcePermitStore().configureResource("old-res", 1, 0, null);
+    resourcePermitStore().configureResource("new-res", 1, 0, null);
+    var oldHolder = claimNewJob("old-holder");
+    assertEquals(ACQUIRED, acquire("old-res", oldHolder, "old-holder"));
+    var newHolder = claimNewJob("new-holder");
+    assertEquals(ACQUIRED, acquire("new-res", newHolder, "new-holder"));
+    var waiter = claimNewJob("waiter");
+    assertEquals(AT_CAPACITY, acquire("old-res", waiter, "waiter"));
+
+    var parked = store().findById(waiter.getId()).orElseThrow();
+    parked.setResourceName("new-res");
+    store().save(parked);
+    assertTrue(resourcePermitStore().findResourcesWithWaiters(null, 10).isEmpty());
+
+    var reclaimed = reclaim(waiter, "waiter");
+    assertEquals(AT_CAPACITY, acquire("new-res", reclaimed, "waiter"));
+    assertEquals(List.of("new-res"), resourcePermitStore().findResourcesWithWaiters(null, 10));
+  }
+
+  /** Pins parking and a current waiter lease at the maximum integer retry delay. */
+  @Test
+  void retryDelayAtTheIntLimitStillParksAndCounts() {
+    resourcePermitStore().configureResource("long-delay", 1, Integer.MAX_VALUE, null);
+    var holder = claimNewJob("holder");
+    assertEquals(ACQUIRED, acquire("long-delay", holder, "holder"));
+    var waiter = claimNewJob("waiter");
+    assertEquals(AT_CAPACITY, acquire("long-delay", waiter, "waiter"));
+    assertEquals(List.of("long-delay"), resourcePermitStore().findResourcesWithWaiters(null, 10));
+    var parked = store().findById(waiter.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, parked.getStatus());
+    assertTrue(parked.getScheduledTime().isAfter(Instant.now().plus(Duration.ofDays(20))));
+
+    release("long-delay", holder);
+    assertEquals(AT_CAPACITY, acquire("long-delay", claimNewJob("fresh"), "fresh"));
+  }
+
   private JobEntity claimDueJob(Instant due, JobPriority priority) {
     var job = newPendingJob();
     job.setScheduledTime(due);

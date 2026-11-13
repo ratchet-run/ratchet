@@ -77,7 +77,9 @@ class SqlserverAuxiliaryOperationsTest {
     assertTrue(sequence.sql.get(5).contains("claim_seq = ?"));
     assertTrue(sequence.sql.get(5).contains("DATEADD(MILLISECOND, ?, SYSUTCDATETIME())"));
     assertEquals(DUE, sequence.parameters.get(6).get(4));
-    assertEquals(ResourceWaiterLease.leaseMillis(1000), sequence.parameters.get(6).get(5));
+    long lease = ResourceWaiterLease.leaseMillis(1000);
+    assertEquals((int) (lease % 1000), sequence.parameters.get(6).get(5));
+    assertEquals((int) (lease / 1000), sequence.parameters.get(6).get(6));
     sequence.assertConsumed();
   }
 
@@ -99,7 +101,7 @@ class SqlserverAuxiliaryOperationsTest {
     assertEquals("PAUSED", sequence.parameters.get(6).get(1));
     assertEquals("PENDING", sequence.parameters.get(6).get(2));
     assertTrue(sequence.sql.get(7).contains("SET lease_until = DATEADD"));
-    assertEquals(2, sequence.parameters.get(7).size());
+    assertEquals(3, sequence.parameters.get(7).size());
     sequence.assertConsumed();
   }
 

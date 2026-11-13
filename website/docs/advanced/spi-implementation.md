@@ -746,15 +746,20 @@ table has no foreign key, so a park never locks `scheduler_job`.
   resource lock first, reads up to `max_concurrent` live heads, counts the permits, and sets
   `scheduled_time = wait_since` on the PENDING heads within the free slots. It returns them so the
   engine can send wake-up hints. It never waits on a job row that another transaction holds. The
-  SQL stores skip that head and do not wake a later waiter in its place. MongoDB retries the
-  wake-up on a write conflict.
+  SQL stores skip that head and do not wake a later waiter in its place. They also skip a head
+  whose job's `scheduled_time` changed after they read the line, so a user reschedule that commits
+  in between is kept. MongoDB retries the wake-up on a write conflict.
 - `findResourcesWithWaiters(after, limit)` and `deleteStaleWaiters(limit)` serve the periodic
   sweep. The first returns distinct resource names that have waiter rows, in ascending order and
   after `after` (from the first name when it is null); the engine passes the last name it saw, so
   successive sweeps page through every resource. The second deletes waiter rows whose job is gone
-  or no longer PENDING, RUNNING or PAUSED. With no waiters, the sweep costs one indexed read.
-- A user reschedule that changes `scheduled_time` deletes the waiter row. Engine reschedules keep
-  it.
+  or no longer PENDING, RUNNING or PAUSED. It must keep a row that a park renewed after the sweep
+  selected it; the SQL stores fence the delete on the `lease_until` they read. A delete can still
+  land after an acquire read the row and before its park renews it, so a park whose renew updates
+  nothing inserts the row again, with the priority and `wait_since` the acquire counted with. With
+  no waiters, the sweep costs one indexed read.
+- A user reschedule that changes `scheduled_time` deletes the waiter row, and so does a save that
+  changes the job's resource. Engine reschedules keep it.
 - `releasePermit`, `releaseAllPermits`, `configureResource` and `cleanupOrphanedPermits` do not
   wake anyone. After they commit, the engine calls `wakeWaiters` for the released or configured
   resource, or runs the sweep when it does not know the resource.

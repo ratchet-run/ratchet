@@ -195,7 +195,7 @@ The `ResilienceStrategy` SPI is consulted to check if the target service is avai
 
 **6. Resource Permit**
 
-If the job names a resource, the `ResourcePermitService` asks the store for a permit. The job gets one when the resource has a free slot and no live waiter is ahead of it. Otherwise the store parks the job in the same transaction. The job goes back to PENDING (PAUSED if its batch is paused), due again after the resource's `retry_delay_ms`, and it gets a row in `scheduler_resource_waiter`. Parking is not a failure and uses no retry. While the job waits, its `last_error` reads `Waiting for resource: <name>`.
+If the job names a resource, the `ResourcePermitService` asks the store for a permit. The job gets one when a slot is still free after the live waiters ahead of it are counted: with three free slots and one waiter ahead, it gets a permit. Otherwise the store parks the job in the same transaction. The job goes back to PENDING (PAUSED if its batch is paused), due again after the resource's `retry_delay_ms`, and it gets a row in `scheduler_resource_waiter`. Parking is not a failure and uses no retry. While the job waits, its `last_error` reads `Waiting for resource: <name>`.
 
 If the resource has no limit, the store throws `ResourceNotConfiguredException`. The attempt fails without using a retry, and the job goes to the dead-letter queue. `submit()` already rejects a resource with no limit, so this happens only when a limit was deleted after the job was submitted. Set the limit again and re-run the job with `retryJob`.
 

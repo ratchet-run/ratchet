@@ -419,34 +419,43 @@ final class SqlserverAuxiliaryOperations
     if (updated == 0) {
       return AcquireResult.SUPERSEDED;
     }
+    // DATEADD takes an int, so add whole seconds and the millisecond remainder separately.
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
+    int renewed = 0;
     if (claim[4] != null) {
       // language=SQL Server
       String renew =
           """
           UPDATE scheduler_resource_waiter
-          SET lease_until = DATEADD(MILLISECOND, ?, SYSUTCDATETIME()) WHERE job_id = ?
+          SET lease_until = DATEADD(MILLISECOND, ?, DATEADD(SECOND, ?, SYSUTCDATETIME()))
+          WHERE job_id = ?
           """;
-      ctx.em()
-          .createNativeQuery(renew)
-          .setParameter(1, leaseMillis)
-          .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
-          .executeUpdate();
-    } else {
+      renewed =
+          ctx.em()
+              .createNativeQuery(renew)
+              .setParameter(1, (int) (leaseMillis % 1000))
+              .setParameter(2, (int) (leaseMillis / 1000))
+              .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
+              .executeUpdate();
+    }
+    // The stale sweep can delete the row after the claim read it. Write it back with the keys
+    // the waiters-ahead count used.
+    if (renewed == 0) {
       // language=SQL Server
       String insert =
           """
           INSERT INTO scheduler_resource_waiter
             (job_id, resource_name, priority, wait_since, lease_until)
-          VALUES (?, ?, ?, ?, DATEADD(MILLISECOND, ?, SYSUTCDATETIME()))
+          VALUES (?, ?, ?, ?, DATEADD(MILLISECOND, ?, DATEADD(SECOND, ?, SYSUTCDATETIME())))
           """;
       ctx.em()
           .createNativeQuery(insert)
           .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
           .setParameter(2, resource)
-          .setParameter(3, claim[2])
-          .setParameter(4, claim[3])
-          .setParameter(5, leaseMillis)
+          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
+          .setParameter(5, (int) (leaseMillis % 1000))
+          .setParameter(6, (int) (leaseMillis / 1000))
           .executeUpdate();
     }
     return AcquireResult.AT_CAPACITY;
@@ -512,18 +521,20 @@ final class SqlserverAuxiliaryOperations
       }
       List<WokenWaiter> result = new ArrayList<>();
       for (Object[] row : pending) {
+        // Skip a head whose due time changed after the line was read, as a user reschedule does.
         // language=SQL Server
         String wake =
             """
             UPDATE scheduler_job_queue WITH (UPDLOCK, READPAST, ROWLOCK)
             SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
-            WHERE job_id = ? AND status = 'PENDING'
+            WHERE job_id = ? AND status = 'PENDING' AND scheduled_time = ?
             """;
         if (ctx.em()
                 .createNativeQuery(wake)
                 .setParameter(1, row[4])
                 .setParameter(
                     2, UuidByteArrayConverter.toBytes(SqlserverJobRowMapper.uuidOrNull(row[0])))
+                .setParameter(3, row[5])
                 .executeUpdate()
             == 1) {
           result.add(
@@ -578,7 +589,7 @@ final class SqlserverAuxiliaryOperations
     // language=SQL Server
     String sql =
         """
-        SELECT w.job_id FROM scheduler_resource_waiter w
+        SELECT w.job_id, w.lease_until FROM scheduler_resource_waiter w
         LEFT JOIN scheduler_job_queue q ON q.job_id = w.job_id
         WHERE q.job_id IS NULL OR q.status NOT IN ('PENDING', 'RUNNING', 'PAUSED')
         ORDER BY w.job_id OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
@@ -586,13 +597,28 @@ final class SqlserverAuxiliaryOperations
     try {
       List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
       int deleted = 0;
-      for (Object id : ids) {
-        deleted += deleteWaiter(SqlserverJobRowMapper.uuidOrNull(id));
+      // Fenced on the lease read above: a park that renewed the row after the read keeps it.
+      for (Object value : ids) {
+        Object[] row = (Object[]) value;
+        deleted += deleteStaleWaiter(row[0], row[1]);
       }
       return deleted;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete stale resource waiters", e);
     }
+  }
+
+  private int deleteStaleWaiter(Object jobId, Object leaseUntil) {
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND lease_until = ?
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, jobId)
+        .setParameter(2, leaseUntil)
+        .executeUpdate();
   }
 
   @Override

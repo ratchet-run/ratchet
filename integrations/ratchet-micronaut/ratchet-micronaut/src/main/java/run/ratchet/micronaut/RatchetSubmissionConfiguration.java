@@ -15,6 +15,7 @@
  */
 package run.ratchet.micronaut;
 
+import io.micronaut.context.BeanProvider;
 import io.micronaut.context.annotation.Factory;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.context.annotation.Secondary;
@@ -37,6 +38,7 @@ import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
 import run.ratchet.ri.core.JobTypeRateLimiter;
+import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
@@ -68,6 +70,7 @@ import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
@@ -78,6 +81,37 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 @Requires(beans = JobStore.class)
 @Requires(property = "ratchet.enabled", notEquals = "false")
 class RatchetSubmissionConfiguration {
+
+  @Singleton
+  @Requires(missingBeans = PartitionService.class)
+  PartitionService partitionService(
+      JobStore store,
+      ErrorSanitizer sanitizer,
+      PayloadSerializer serializer,
+      Clock clock,
+      RatchetOptions options,
+      BatchCompletionTransaction transactions,
+      JobAuthorizationPolicy policy,
+      CallerPrincipalProvider principal,
+      BeanProvider<MicronautDefaultJobSchedulerService> scheduler,
+      BeanProvider<BatchService> batchService) {
+    PartitionService service =
+        new PartitionService(
+            store.capability(PartitionStore.class).orElse(null),
+            store,
+            store.capability(JobStateStore.class).orElse(null),
+            store.capability(BatchStore.class).orElse(null),
+            sanitizer,
+            serializer,
+            clock,
+            options,
+            transactions,
+            policy,
+            principal);
+    service.configureBatchCancellation(parent -> batchService.get().cancelBatch(parent));
+    service.configureCancellation(id -> scheduler.get().cancelJobAsSystem(id));
+    return service;
+  }
 
   @Singleton
   @Requires(missingBeans = WorkflowConditionEvaluator.class)
@@ -101,20 +135,24 @@ class RatchetSubmissionConfiguration {
       CallerPrincipalProvider principalProvider,
       Clock clock,
       RatchetOptions options,
-      PayloadSerializer payloadSerializer) {
-    return new DefaultJobQueryService(
-        store.capability(JobQueryStore.class).orElse(null),
-        store,
-        store.capability(JobAnalyticsStore.class).orElse(null),
-        store.capability(JobAuditStore.class).orElse(null),
-        store.capability(RecurringJobStore.class).orElse(null),
-        authPolicy,
-        principalProvider,
-        clock,
-        options,
-        store.capability(JobPropertyStore.class).orElse(null),
-        store.capability(JobStateStore.class).orElse(null),
-        payloadSerializer);
+      PayloadSerializer payloadSerializer,
+      PartitionService partitions) {
+    DefaultJobQueryService service =
+        new DefaultJobQueryService(
+            store.capability(JobQueryStore.class).orElse(null),
+            store,
+            store.capability(JobAnalyticsStore.class).orElse(null),
+            store.capability(JobAuditStore.class).orElse(null),
+            store.capability(RecurringJobStore.class).orElse(null),
+            authPolicy,
+            principalProvider,
+            clock,
+            options,
+            store.capability(JobPropertyStore.class).orElse(null),
+            store.capability(JobStateStore.class).orElse(null),
+            payloadSerializer);
+    service.configurePartitions(partitions);
+    return service;
   }
 
   @Singleton
@@ -185,32 +223,36 @@ class RatchetSubmissionConfiguration {
       RatchetOptions options,
       AfterCommitRegistrar registrar,
       ErrorSanitizer errorSanitizer,
-      BatchCompletionTransaction conflictResolutionTransaction) {
-    return new MicronautDefaultJobCreationService(
-        batchService,
-        store,
-        store,
-        store.capability(BatchStore.class).orElse(null),
-        store,
-        store.capability(WorkflowConditionStore.class).orElse(null),
-        store.capability(RecurringJobStore.class).orElse(null),
-        wakeup,
-        recurring,
-        invocations,
-        validation,
-        principal,
-        tracing,
-        authorization,
-        policy,
-        events,
-        metrics,
-        clock,
-        store.capability(SignalStore.class).isPresent(),
-        store.capability(ResourcePermitStore.class).orElse(null),
-        options.callerPrincipalResolver(),
-        registrar,
-        errorSanitizer,
-        conflictResolutionTransaction);
+      BatchCompletionTransaction conflictResolutionTransaction,
+      PartitionService partitions) {
+    MicronautDefaultJobCreationService service =
+        new MicronautDefaultJobCreationService(
+            batchService,
+            store,
+            store,
+            store.capability(BatchStore.class).orElse(null),
+            store,
+            store.capability(WorkflowConditionStore.class).orElse(null),
+            store.capability(RecurringJobStore.class).orElse(null),
+            wakeup,
+            recurring,
+            invocations,
+            validation,
+            principal,
+            tracing,
+            authorization,
+            policy,
+            events,
+            metrics,
+            clock,
+            store.capability(SignalStore.class).isPresent(),
+            store.capability(ResourcePermitStore.class).orElse(null),
+            options.callerPrincipalResolver(),
+            registrar,
+            errorSanitizer,
+            conflictResolutionTransaction);
+    service.configurePartitions(partitions);
+    return service;
   }
 
   @Singleton
@@ -231,31 +273,35 @@ class RatchetSubmissionConfiguration {
       RatchetOptions options,
       AfterCommitRegistrar registrar,
       BatchService batchService,
+      PartitionService partitions,
       ResourcePermitService resourcePermitService) {
-    return new MicronautDefaultJobSchedulerService(
-        events,
-        store,
-        store,
-        store,
-        store,
-        store,
-        store.capability(BatchStore.class).orElse(null),
-        store,
-        store.capability(WorkflowConditionStore.class).orElse(null),
-        store.capability(RecurringJobStore.class).orElse(null),
-        wakeup,
-        recurring,
-        invocations,
-        creation,
-        principal,
-        authorization,
-        store.capability(SignalStore.class).orElse(null),
-        serializer,
-        metrics,
-        clock,
-        options,
-        registrar,
-        batchService,
-        resourcePermitService);
+    MicronautDefaultJobSchedulerService service =
+        new MicronautDefaultJobSchedulerService(
+            events,
+            store,
+            store,
+            store,
+            store,
+            store,
+            store.capability(BatchStore.class).orElse(null),
+            store,
+            store.capability(WorkflowConditionStore.class).orElse(null),
+            store.capability(RecurringJobStore.class).orElse(null),
+            wakeup,
+            recurring,
+            invocations,
+            creation,
+            principal,
+            authorization,
+            store.capability(SignalStore.class).orElse(null),
+            serializer,
+            metrics,
+            clock,
+            options,
+            registrar,
+            batchService,
+            resourcePermitService);
+    service.configurePartitions(partitions);
+    return service;
   }
 }

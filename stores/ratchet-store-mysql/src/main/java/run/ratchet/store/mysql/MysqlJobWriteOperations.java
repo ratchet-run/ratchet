@@ -210,6 +210,10 @@ final class MysqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
+    // A job whose resource changes leaves the old resource's waiting line.
+    if (row != null && !Objects.equals(row[9], job.getResourceName())) {
+      deleteWaiterIfPresent(job.getId());
+    }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
@@ -551,7 +555,7 @@ final class MysqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
+               c.terminal_status, c.resource_name
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?

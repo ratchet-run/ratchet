@@ -29,6 +29,7 @@ import static com.mongodb.client.model.Sorts.orderBy;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.client.ClientSession;
 import java.time.Instant;
@@ -380,7 +381,8 @@ final class MongoJobQueryOperations {
             int from = Math.min(offset, merged.size());
             int to = Math.min(from + safeLimit, merged.size());
             return new ArrayList<>(merged.subList(from, to));
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("search jobs with archive merge", e);
     }

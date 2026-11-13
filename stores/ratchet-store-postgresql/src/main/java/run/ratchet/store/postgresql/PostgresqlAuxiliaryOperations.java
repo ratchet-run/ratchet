@@ -24,9 +24,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Nullable;
@@ -375,6 +375,7 @@ final class PostgresqlAuxiliaryOperations
       return AcquireResult.SUPERSEDED;
     }
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
+    int renewed = 0;
     if (claim[4] != null) {
       // language=PostgreSQL
       String renew =
@@ -382,12 +383,16 @@ final class PostgresqlAuxiliaryOperations
           UPDATE scheduler_resource_waiter
           SET lease_until = statement_timestamp() + (? * INTERVAL '1 millisecond') WHERE job_id = ?
           """;
-      ctx.em()
-          .createNativeQuery(renew)
-          .setParameter(1, leaseMillis)
-          .setParameter(2, jobId)
-          .executeUpdate();
-    } else {
+      renewed =
+          ctx.em()
+              .createNativeQuery(renew)
+              .setParameter(1, leaseMillis)
+              .setParameter(2, jobId)
+              .executeUpdate();
+    }
+    // The stale sweep can delete the row after the claim read it. Write it back with the keys
+    // the waiters-ahead count used.
+    if (renewed == 0) {
       // language=PostgreSQL
       String insert =
           """
@@ -399,8 +404,8 @@ final class PostgresqlAuxiliaryOperations
           .createNativeQuery(insert)
           .setParameter(1, jobId)
           .setParameter(2, resource)
-          .setParameter(3, claim[2])
-          .setParameter(4, claim[3])
+          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
           .setParameter(5, leaseMillis)
           .executeUpdate();
     }
@@ -478,7 +483,7 @@ final class PostgresqlAuxiliaryOperations
       // language=PostgreSQL
       String available =
           """
-          SELECT job_id FROM scheduler_job_queue
+          SELECT job_id, scheduled_time FROM scheduler_job_queue
           WHERE job_id IN (%s) AND status = 'PENDING' FOR UPDATE SKIP LOCKED
           """
               .formatted(placeholders);
@@ -486,14 +491,19 @@ final class PostgresqlAuxiliaryOperations
       for (int i = 0; i < pending.size(); i++) {
         availableQuery.setParameter(i + 1, pending.get(i)[0]);
       }
-      List<?> availableIds = availableQuery.getResultList();
-      var locked = new HashSet<UUID>();
-      for (Object id : availableIds) {
-        locked.add(PostgresqlJobRowMapper.uuidOrNull(id));
+      List<?> availableRows = availableQuery.getResultList();
+      Map<UUID, Instant> locked = new HashMap<>();
+      for (Object availableRow : availableRows) {
+        Object[] lockedRow = (Object[]) availableRow;
+        locked.put(
+            PostgresqlJobRowMapper.uuidOrNull(lockedRow[0]), RowValues.instantOrNull(lockedRow[1]));
       }
       List<WokenWaiter> result = new ArrayList<>();
       for (Object[] row : pending) {
-        if (!locked.contains(PostgresqlJobRowMapper.uuidOrNull(row[0]))) {
+        // Skip a head whose due time changed after the line was read, as a user reschedule does.
+        UUID jobId = PostgresqlJobRowMapper.uuidOrNull(row[0]);
+        if (!locked.containsKey(jobId)
+            || !Objects.equals(RowValues.instantOrNull(row[5]), locked.get(jobId))) {
           continue;
         }
         // language=PostgreSQL
@@ -560,20 +570,35 @@ final class PostgresqlAuxiliaryOperations
     // language=PostgreSQL
     String sql =
         """
-        SELECT w.job_id FROM scheduler_resource_waiter w
+        SELECT w.job_id, w.lease_until FROM scheduler_resource_waiter w
         LEFT JOIN scheduler_job_queue q ON q.job_id = w.job_id
         WHERE q.job_id IS NULL OR q.status NOT IN ('PENDING', 'RUNNING', 'PAUSED') LIMIT ?
         """;
     try {
       List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
       int deleted = 0;
-      for (Object id : ids) {
-        deleted += deleteWaiter(PostgresqlJobRowMapper.uuidOrNull(id));
+      // Fenced on the lease read above: a park that renewed the row after the read keeps it.
+      for (Object value : ids) {
+        Object[] row = (Object[]) value;
+        deleted += deleteStaleWaiter(row[0], row[1]);
       }
       return deleted;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete stale resource waiters", e);
     }
+  }
+
+  private int deleteStaleWaiter(Object jobId, Object leaseUntil) {
+    // language=PostgreSQL
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND lease_until = ?
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, jobId)
+        .setParameter(2, leaseUntil)
+        .executeUpdate();
   }
 
   @Override

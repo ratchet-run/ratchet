@@ -59,6 +59,7 @@ public class PostgresqlTestFixture extends JpaContainerFixture {
 
   @Override
   public void cleanupStore() {
+    executeNativeSql("DELETE FROM scheduler_partition_set");
     // Order matters: delete children before parents, bkres before queue, queue before job.
     executeNativeSql("DELETE FROM scheduler_idempotency_key");
     executeNativeSql("DELETE FROM scheduler_business_key_reservation");

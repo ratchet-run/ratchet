@@ -21,7 +21,12 @@ import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.ACQUIRED;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.AT_CAPACITY;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.SUPERSEDED;
 
+import java.io.IOException;
+import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLNonTransientConnectionException;
+import java.sql.SQLRecoverableException;
+import java.sql.SQLTransientConnectionException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -256,14 +261,211 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
+  /** Pins preservation of a user reschedule committed after wake reads the waiter line. */
+  @Test
+  void wakeDoesNotUndoARescheduleThatCommitsAfterItReadsTheLine() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-resched", 1, 60_000, null);
+    var holder = claimNewJob("holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-resched"));
+    var waiter = claimNewJob("waiter");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "waiter", "res-resched"));
+    permits.releasePermit("res-resched", holder.getId(), holder.getClaimSeq());
+    var userTime = new AtomicReference<Instant>();
+    var fired = new AtomicBoolean();
+    var caller = Thread.currentThread();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.contains(
+                        "SELECT W.JOB_ID, Q.STATUS, W.PRIORITY, Q.EXECUTION_TARGET, W.WAIT_SINCE")
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            var parked = store.findById(waiter.getId()).orElseThrow();
+                            userTime.set(
+                                Instant.now().plusSeconds(3600).truncatedTo(ChronoUnit.MILLIS));
+                            parked.setScheduledTime(userTime.get());
+                            store.save(parked);
+                          }));
+                }
+              });
+      var result = permits.wakeWaiters("res-resched");
+      assertTrue(fired.get(), "the user rescheduled after wake read the line");
+      assertTrue(result.stream().noneMatch(w -> w.jobId().equals(waiter.getId())));
+      assertEquals(
+          userTime.get(),
+          store
+              .findById(waiter.getId())
+              .orElseThrow()
+              .getScheduledTime()
+              .truncatedTo(ChronoUnit.MILLIS));
+      assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  /** Pins preservation of a waiter renewed after the stale sweep reads its previous park. */
+  @Test
+  void staleSweepKeepsAWaiterThatParkedAgainAfterTheSweepReadIt() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-sweep", 1, 0, null);
+    var holder = claimNewJob("holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-sweep"));
+    var waiter = claimNewJob("node-a");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-sweep"));
+    var reclaimed = store.claimNextBatch(1, "node-a");
+    assertEquals(1, reclaimed.size());
+    var failed = reclaimed.get(0);
+    assertEquals(waiter.getId(), failed.getId());
+    assertTrue(
+        store.markJobFailedTerminal(
+            failed.getId(), "boom", failed.getAttempts(), failed.getClaimSeq()));
+    var fired = new AtomicBoolean();
+    var caller = Thread.currentThread();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.trim().startsWith("SELECT W.JOB_ID")
+                    && normalized.contains(
+                        "FROM SCHEDULER_RESOURCE_WAITER W LEFT JOIN SCHEDULER_JOB_QUEUE")
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            assertTrue(store.resetFailedToPending(waiter.getId()));
+                            var claims = store.claimNextBatch(1, "node-a");
+                            assertEquals(1, claims.size());
+                            assertEquals(waiter.getId(), claims.get(0).getId());
+                            assertEquals(
+                                AT_CAPACITY,
+                                acquire(permits, claims.get(0), "node-a", "res-sweep"));
+                          }));
+                }
+              });
+      int deleted = permits.deleteStaleWaiters(10);
+      assertTrue(fired.get(), "the waiter parked again after the sweep read it");
+      assertEquals(0, deleted);
+      assertEquals(List.of("res-sweep"), permits.findResourcesWithWaiters(null, 10));
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  /** Pins a waiter kept in line when the stale sweep deletes its row while it parks again. */
+  @Test
+  void parkKeepsItsPlaceWhenTheSweepDeletesTheRowBeforeTheRenew() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-sweep", 1, 0, null);
+    var holder = claimNewJob("holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-sweep"));
+    var waiter = claimNewJob("node-a");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-sweep"));
+    var reclaimed = store.claimNextBatch(1, "node-a");
+    assertEquals(1, reclaimed.size());
+    var failed = reclaimed.get(0);
+    assertEquals(waiter.getId(), failed.getId());
+    assertTrue(
+        store.markJobFailedTerminal(
+            failed.getId(), "boom", failed.getAttempts(), failed.getClaimSeq()));
+    var sweepRead = new AtomicBoolean();
+    var renewReached = new CountDownLatch(1);
+    var sweepDone = new CountDownLatch(1);
+    var deleteLandedFirst = new AtomicBoolean();
+    var park = new AtomicReference<Future<AcquireResult>>();
+    var caller = Thread.currentThread();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.trim().startsWith("SELECT W.JOB_ID")
+                    && normalized.contains(
+                        "FROM SCHEDULER_RESOURCE_WAITER W LEFT JOIN SCHEDULER_JOB_QUEUE")
+                    && sweepRead.compareAndSet(false, true)) {
+                  park.set(
+                      executor.submit(
+                          () -> {
+                            assertTrue(store.resetFailedToPending(waiter.getId()));
+                            var claims = store.claimNextBatch(1, "node-a");
+                            assertEquals(1, claims.size());
+                            return acquire(permits, claims.get(0), "node-a", "res-sweep");
+                          }));
+                  awaitLatch(renewReached);
+                }
+                if (Thread.currentThread() != caller
+                    && !event.completed()
+                    && event.operation().equals("executeUpdate")
+                    && normalized.trim().startsWith("UPDATE SCHEDULER_RESOURCE_WAITER")
+                    && normalized.contains("SET LEASE_UNTIL")) {
+                  renewReached.countDown();
+                  // A store whose delete waits for the park's commit cannot finish the sweep here.
+                  try {
+                    deleteLandedFirst.set(sweepDone.await(5, TimeUnit.SECONDS));
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                  }
+                }
+              });
+      permits.deleteStaleWaiters(10);
+      sweepDone.countDown();
+      assertTrue(sweepRead.get(), "the job parked again after the sweep read its row");
+      assertEquals(AT_CAPACITY, park.get().get(30, TimeUnit.SECONDS));
+      assertEquals(
+          List.of("res-sweep"),
+          permits.findResourcesWithWaiters(null, 10),
+          "sweep delete landed before the renew: " + deleteLandedFirst.get());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
   @Test
   void wakeSweepAndWaiterRowsDoNotDeadlockWithTerminalWritesResetsAndBatchSweeps()
       throws Exception {
+    Duration softLimit = Duration.ofSeconds(15);
+    int softRounds = 500;
+    Duration hardCap = Duration.ofSeconds(60);
     var permits = fixture().resourcePermitStore();
     var batches = fixture().batchStore();
     var store = fixture().store();
     permits.configureResource("res-race", 2, 0, null);
     store.upsertHeartbeat("stress", Instant.now().plusSeconds(3600));
+    // The test holds both permits until a worker parks, so parking does not depend on timing. The
+    // holders run on the live "stress" node and sit outside ids and the batch, so orphan recovery,
+    // cancel and save leave them alone.
+    var holders = List.of(claimNewJob("stress"), claimNewJob("stress"));
+    for (var holder : holders) {
+      assertEquals(ACQUIRED, acquire(permits, holder, "stress"));
+    }
     var parent = fixture().newBatchParentJob();
     parent.setScheduledTime(Instant.now().plusSeconds(3600));
     parent = store.create(parent);
@@ -278,6 +480,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
       }
       ids.add(store.create(job).getId());
     }
+    var connectionFailures = new ConcurrentLinkedQueue<Throwable>();
+    var holdReleased = new AtomicBoolean();
     var failures = new ConcurrentLinkedQueue<Throwable>();
     var escapedLockFailures = new ConcurrentHashMap<String, AtomicInteger>();
     var lastLockFailure = new ThreadLocal<String>();
@@ -288,7 +492,6 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var woken = new AtomicInteger();
     var lockFailures = new ConcurrentHashMap<String, AtomicInteger>();
     var start = new CountDownLatch(1);
-    long deadline = System.nanoTime() + Duration.ofSeconds(15).toNanos();
     Runnable worker =
         () -> {
           for (var job : store.claimNextBatch(3, "stress")) {
@@ -318,12 +521,31 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
             }
           }
         };
+    Connection checkerConnection;
+    try {
+      checkerConnection = fixture().openConnection();
+    } catch (SQLException e) {
+      throw new AssertionError(
+          "Test set-up failed: could not open the checker's JDBC connection", e);
+    }
+    // Each role thread uses at most one pooled store connection at a time, and the checker
+    // reuses one raw connection for the whole run instead of opening one per round, so the run
+    // itself uses at most roles.size() sessions at once, the same for every store. Idle pooled
+    // connections and the database's own processes still count against the server's limit.
     List<Runnable> roles =
         List.of(
             worker,
             worker,
             worker,
             worker,
+            () -> {
+              if (holdReleased.get() || parks.get() == 0) return;
+              for (var holder : holders) {
+                permits.releasePermit("res-race", holder.getId(), holder.getClaimSeq());
+              }
+              holdReleased.set(true);
+              woken.addAndGet(permits.wakeWaiters("res-race").size());
+            },
             () -> {
               for (var job : store.claimNextBatch(1, "crashed")) {
                 acquire(permits, job, "crashed");
@@ -357,8 +579,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               }
             },
             () -> {
-              try (var connection = fixture().openConnection();
-                  var statement = connection.createStatement();
+              try (var statement = checkerConnection.createStatement();
                   var rows =
                       statement.executeQuery(
                           """
@@ -371,29 +592,41 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                 throw new IllegalStateException(e);
               }
             });
+    int sessionBound = roles.size();
     var executor = Executors.newFixedThreadPool(roles.size());
     var futures = new ArrayList<Future<?>>();
     fixture()
         .observeTransientFailures(
             (method, failure) -> {
-              if (isLockFailure(failure)) {
+              if (!isConnectionFailure(failure) && isLockFailure(failure)) {
                 var counts = isWaiterFailure(method, failure) ? waiterLockFailures : lockFailures;
                 counts.computeIfAbsent(method, ignored -> new AtomicInteger()).incrementAndGet();
                 lastLockFailure.set(method);
                 lockFailureSamples.putIfAbsent(method, rootMessage(failure));
               }
             });
+    long runStart = System.nanoTime();
+    long softDeadline = runStart + softLimit.toNanos();
+    long hardDeadline = runStart + hardCap.toNanos();
     try {
       for (Runnable role : roles) {
         futures.add(
             executor.submit(
                 () -> {
                   awaitLatch(start);
-                  for (int round = 0; round < 500 && System.nanoTime() < deadline; round++) {
+                  for (int round = 0; System.nanoTime() < hardDeadline; round++) {
+                    boolean softLimitReached =
+                        round >= softRounds || System.nanoTime() >= softDeadline;
+                    if (softLimitReached
+                        && acquisitions.get() > 0
+                        && parks.get() > 0
+                        && woken.get() > 0) break;
                     try {
                       role.run();
                     } catch (Throwable failure) {
-                      if (isLockFailure(failure)) {
+                      if (isConnectionFailure(failure)) {
+                        connectionFailures.add(failure);
+                      } else if (isLockFailure(failure)) {
                         String method = lastLockFailure.get();
                         escapedLockFailures
                             .computeIfAbsent(
@@ -408,13 +641,14 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                 }));
       }
       start.countDown();
-      for (var future : futures) future.get(45, TimeUnit.SECONDS);
+      for (var future : futures) future.get(hardCap.plusSeconds(30).toSeconds(), TimeUnit.SECONDS);
     } finally {
       executor.shutdownNow();
       try {
         assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
       } finally {
         fixture().observeTransientFailures((method, failure) -> {});
+        checkerConnection.close();
       }
     }
     System.out.println(
@@ -431,6 +665,20 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     lockFailureSamples.forEach(
         (method, message) ->
             System.out.println("Resource race lock failure in " + method + ": " + message));
+    if (!connectionFailures.isEmpty()) {
+      var failure =
+          new AssertionError(
+              "Test set-up failed: "
+                  + connectionFailures.size()
+                  + " database connection failures during the stress run. Its "
+                  + sessionBound
+                  + " threads hold at most one session each, but idle pooled connections and the"
+                  + " database's own processes count against the same server limit. These are not"
+                  + " store failures. Waiter lock failures seen: "
+                  + waiterLockFailures);
+      connectionFailures.stream().limit(5).forEach(failure::addSuppressed);
+      throw failure;
+    }
     // Deadlocks between existing statements (the batch sweeps against the claim, completion and
     // park; permit clean-up against an acquire's permit insert) are reported, not asserted.
     assertTrue(
@@ -441,8 +689,25 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
       failures.forEach(failure::addSuppressed);
       throw failure;
     }
+    if (acquisitions.get() == 0 || parks.get() == 0 || woken.get() == 0) {
+      throw new AssertionError(
+          "The stress run did not reach an acquire, a park and a wake-up within "
+              + hardCap.toSeconds()
+              + " s: acquisitions="
+              + acquisitions.get()
+              + ", parks="
+              + parks.get()
+              + ", woken="
+              + woken.get()
+              + ", hold released="
+              + holdReleased.get()
+              + ", other lock failures="
+              + lockFailures
+              + ", escaped after retries="
+              + escapedLockFailures);
+    }
     assertTrue(acquisitions.get() > 0, "workers must acquire permits");
-    assertTrue(parks.get() > 0, "workers must exercise parking");
+    assertTrue(parks.get() > 0, "workers must exercise parking while the test held every permit");
     assertTrue(woken.get() > 0, "wake must return waiters");
   }
 
@@ -576,5 +841,23 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
   private AcquireResult acquire(
       ResourcePermitStore permits, JobEntity job, String nodeId, String resource) {
     return permits.tryAcquirePermit(resource, job.getId(), job.getClaimSeq(), nodeId);
+  }
+
+  /**
+   * A failure to reach the database: a JDBC connection exception, SQLState class 08, or an I/O
+   * error under the driver (Oracle's listener refusals, such as ORA-12516, are I/O errors).
+   */
+  private static boolean isConnectionFailure(Throwable failure) {
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      if (cause instanceof SQLTransientConnectionException
+          || cause instanceof SQLNonTransientConnectionException
+          || cause instanceof SQLRecoverableException
+          || cause instanceof IOException) return true;
+      if (cause instanceof SQLException sql) {
+        String state = sql.getSQLState();
+        if (state != null && state.startsWith("08")) return true;
+      }
+    }
+    return false;
   }
 }

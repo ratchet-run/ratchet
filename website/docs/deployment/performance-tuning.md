@@ -182,7 +182,7 @@ scheduler.enqueue(() -> callExternalApi())
     .submit();
 ```
 
-When all permits for a resource are in use, jobs that need it wait in line in `scheduler_resource_waiter`. A released permit wakes the next waiter at once and sends the cluster wake-up hint. `retry_delay_ms` sets how often a waiting job re-checks when no wake-up reaches it. It also sets how long the job keeps its place in the line: `retry_delay_ms` plus the larger of `retry_delay_ms` and 10 seconds. A short delay means more re-checks. With a long one, a waiter whose wake-up was lost waits longer, up to the next orphan-recovery sweep. See [Resource Permit](../concepts/execution-model.md#step-details) for the order waiters are served in and its limits.
+When all permits for a resource are in use, jobs that need it wait in line in `scheduler_resource_waiter`. A released permit makes the next waiter due at once and sends the cluster wake-up hint. `retry_delay_ms` sets how often a waiting job re-checks when no wake-up reaches it. It also sets how long the job keeps its place in the line: `retry_delay_ms` plus the larger of `retry_delay_ms` and 10 seconds. A short delay means more re-checks. With a long one, a waiter whose wake-up was lost can wait up to one retry delay, unless an orphan-recovery sweep reaches its resource first. One sweep covers up to 64 resources, so with more waiting resources than that it can take several sweeps. See [Resource Permit](../concepts/execution-model.md#step-details) for the order waiters are served in and its limits.
 
 ### Monitoring permits
 

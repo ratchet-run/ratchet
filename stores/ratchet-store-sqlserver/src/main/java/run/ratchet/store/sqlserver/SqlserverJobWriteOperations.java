@@ -107,6 +107,7 @@ final class SqlserverJobWriteOperations {
   private static final int IDX_HOT_LAST_ERROR = 6;
   private static final int IDX_HOT_VERSION = 7;
   private static final int IDX_HOT_TERMINAL_STATUS = 8;
+  private static final int IDX_HOT_RESOURCE_NAME = 9;
 
   private final SqlserverStoreContext ctx;
   private final SqlserverBusinessKeyReservations reservations;
@@ -442,6 +443,10 @@ final class SqlserverJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
+    // A job whose resource changes leaves the old resource's waiting line.
+    if (row != null && !Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())) {
+      deleteWaiterIfPresent(job.getId());
+    }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
@@ -636,7 +641,7 @@ final class SqlserverJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
+               c.terminal_status, c.resource_name
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?

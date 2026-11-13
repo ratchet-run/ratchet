@@ -16,20 +16,33 @@
 package run.ratchet.quarkus.observability;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.BatchPartition;
 import run.ratchet.api.ExecutionHistorySummary;
 import run.ratchet.api.JobDetail;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPage;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSummary;
+import run.ratchet.api.PartitionSetSummary;
 import run.ratchet.api.QueueHealthSnapshot;
 
 /** Supplies a fixed queue-health snapshot; this app has no Ratchet engine or store. */
 @ApplicationScoped
 public class StubJobQueryService implements JobQueryService {
+
+  @Override
+  public Optional<PartitionSetSummary> getPartitionSet(String key) {
+    return Optional.empty();
+  }
+
+  @Override
+  public JobPage<BatchPartition> getBatchPartitions(String key, int limit, int offset) {
+    return new JobPage<>(List.of(), 0, limit, offset, false, null);
+  }
 
   @Override
   public QueueHealthSnapshot getQueueHealth() {
