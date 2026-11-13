@@ -17,6 +17,7 @@ package run.ratchet.api;
 
 import java.time.Duration;
 import java.util.Collection;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 /** A generation of a durable partition set. Callbacks and progress cover this generation. */
 @Incubating
@@ -37,7 +38,11 @@ public interface PartitionedBatchBuilder {
   @Incubating
   PartitionedBatchBuilder withTimeout(Duration timeout);
 
-  /** Sets the child resource pool; blank clears it. */
+  /**
+   * Sets the child resource pool; blank clears it. Follows the rules of {@link
+   * BatchBuilder#withResource(String)}: {@code submit()} throws {@link
+   * ResourceNotConfiguredException}, before it writes anything, if the resource has no limit.
+   */
   @Incubating
   PartitionedBatchBuilder withResource(String resourceName);
 
