@@ -76,7 +76,11 @@ class SqlserverAuxiliaryOperationsTest {
     assertEquals(8, sequence.sql.size());
     assertTrue(sequence.sql.get(4).contains("WITH (UPDLOCK, ROWLOCK)"));
     assertTrue(sequence.sql.get(5).contains("claim_seq = ?"));
-    assertTrue(sequence.sql.get(5).contains("DATEADD(MILLISECOND, ?, SYSUTCDATETIME())"));
+    assertTrue(
+        sequence
+            .sql
+            .get(5)
+            .contains("DATEADD(MILLISECOND, ?, DATEADD(MICROSECOND, -1, SYSUTCDATETIME()))"));
     assertEquals(DUE, sequence.parameters.get(7).get(4));
     long lease = ResourceWaiterLease.leaseMillis(1000);
     assertEquals((int) (lease % 1000), sequence.parameters.get(7).get(5));
