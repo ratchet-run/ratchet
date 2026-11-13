@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.ToIntFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -686,21 +687,13 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var store = fixture().store();
     permits.configureResource("res-race", 2, 0, null);
     store.upsertHeartbeat("stress", Instant.now().plusSeconds(3600));
-    // The reserved waiter stays PENDING with a live 10 s lease at retry 0, so the first wake
-    // after the holders release returns it. Holders run on the live "stress" node outside ids
-    // and the batch, so orphan recovery, cancel and save leave them alone.
+    // The reserved waiter is excluded until a wake returns it, then rejoins the run.
+    // Holders run on the live "stress" node outside ids and the batch, so orphan recovery,
+    // cancel and save leave them alone.
     var holders = List.of(claimNewJob("res-race", "stress"), claimNewJob("res-race", "stress"));
     for (var holder : holders) {
       assertEquals(ACQUIRED, acquire(permits, holder, "stress"));
     }
-    var reservedJob = fixture().newPendingJob();
-    reservedJob.setResourceName("res-race");
-    reservedJob.setTags(List.of("reserved"));
-    var reserved = store.create(reservedJob);
-    var reservedClaims = store.claimNextBatch(1, "reserved");
-    assertEquals(1, reservedClaims.size());
-    assertEquals(reserved.getId(), reservedClaims.get(0).getId());
-    assertEquals(AT_CAPACITY, acquire(permits, reservedClaims.get(0), "reserved"));
     var workerTags = new NodeTagFilter(List.of(), List.of("reserved"));
     var parent = fixture().newBatchParentJob();
     parent.setScheduledTime(Instant.now().plusSeconds(3600));
@@ -717,6 +710,24 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
       }
       ids.add(store.create(job).getId());
     }
+    var reservedJob = fixture().newPendingJob();
+    reservedJob.setResourceName("res-race");
+    reservedJob.setTags(List.of("reserved"));
+    var reserved = store.create(reservedJob);
+    var reservedClaims =
+        store.claimNextBatch(1, "reserved", new NodeTagFilter(List.of("reserved"), List.of()));
+    assertEquals(1, reservedClaims.size());
+    assertEquals(reserved.getId(), reservedClaims.get(0).getId());
+    assertEquals(AT_CAPACITY, acquire(permits, reservedClaims.get(0), "reserved"));
+    var reservedWoken = new AtomicBoolean();
+    ToIntFunction<String> wake =
+        resource -> {
+          var result = permits.wakeWaiters(resource);
+          if (result.stream().anyMatch(waiter -> waiter.jobId().equals(reserved.getId()))) {
+            reservedWoken.set(true);
+          }
+          return result.size();
+        };
     var connectionFailures = new ConcurrentLinkedQueue<Throwable>();
     var holdReleased = new AtomicBoolean();
     var failures = new ConcurrentLinkedQueue<Throwable>();
@@ -731,7 +742,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var start = new CountDownLatch(1);
     Runnable worker =
         () -> {
-          for (var job : store.claimNextBatch(3, "stress", workerTags)) {
+          for (var job :
+              store.claimNextBatch(
+                  3, "stress", reservedWoken.get() ? NodeTagFilter.NONE : workerTags)) {
             var result = acquire(permits, job, "stress");
             if (result == AT_CAPACITY) parks.incrementAndGet();
             if (result != ACQUIRED) continue;
@@ -754,7 +767,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               }
             } finally {
               permits.releasePermit("res-race", job.getId(), job.getClaimSeq());
-              woken.addAndGet(permits.wakeWaiters("res-race").size());
+              woken.addAndGet(wake.applyAsInt("res-race"));
             }
           }
         };
@@ -781,10 +794,12 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                 permits.releasePermit("res-race", holder.getId(), holder.getClaimSeq());
               }
               holdReleased.set(true);
-              woken.addAndGet(permits.wakeWaiters("res-race").size());
+              woken.addAndGet(wake.applyAsInt("res-race"));
             },
             () -> {
-              for (var job : store.claimNextBatch(1, "crashed", workerTags)) {
+              for (var job :
+                  store.claimNextBatch(
+                      1, "crashed", reservedWoken.get() ? NodeTagFilter.NONE : workerTags)) {
                 acquire(permits, job, "crashed");
               }
             },
@@ -793,7 +808,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               store.resetOrphanJobsBefore(Instant.now().plusSeconds(60), 100_000, 100);
               // Recover only crashed claims; live workers have a heartbeat beyond the cutoff.
               permits.cleanupOrphanedPermits(List.of("crashed"));
-              woken.addAndGet(permits.wakeWaiters("res-race").size());
+              woken.addAndGet(wake.applyAsInt("res-race"));
             },
             () -> {
               if (store.transitionToPaused(parentId, JobStatus.PENDING)) {
@@ -805,13 +820,22 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
             },
             () -> {
               for (String resource : permits.findResourcesWithWaiters(null, 10))
-                woken.addAndGet(permits.wakeWaiters(resource).size());
+                woken.addAndGet(wake.applyAsInt(resource));
               permits.deleteStaleWaiters(10);
             },
             () -> {
               var job = store.findById(ids.get(ThreadLocalRandom.current().nextInt(ids.size())));
               if (job.isPresent() && job.get().getStatus() == JobStatus.PENDING) {
-                job.get().setScheduledTime(Instant.now().minusSeconds(1));
+                if (ThreadLocalRandom.current().nextBoolean()) {
+                  job.get().setScheduledTime(Instant.now().minusSeconds(1));
+                } else {
+                  // A resource change takes the job row that parks and wake-ups lock.
+                  job.get()
+                      .setResourceName(
+                          "res-race".equals(job.get().getResourceName())
+                              ? "res-moved"
+                              : "res-race");
+                }
                 store.save(job.get());
               }
             },
