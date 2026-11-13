@@ -505,6 +505,47 @@ Transaction attribute: SUPPORTS.
 
 `submit()` throws `run.ratchet.api.exception.ResourceNotConfiguredException` when a job or batch names a resource with no limit. It extends `IllegalArgumentException`, carries the name in `resourceName()`, and leaves the caller's transaction usable. A job whose limit is deleted after submit fails with the same exception when it is claimed, without using a retry.
 
+## Business key lookup
+
+### findBusinessKeyHolder
+
+```java
+Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey)
+```
+
+Returns the active holder of a business key from the same reservation that `JobBuilder.submit()` checks. A holder can be a job or a recurring master. `BusinessKeyHolder` contains `id()`, `type()` and `status()`. The id is the job id or recurring master id. `cancelJob(id)` cancels either.
+
+For a job, the type is its public type (`SINGLE` for a job from `JobBuilder`) and the status is its live `PENDING`, `RUNNING`, `PAUSED` or `WAITING` status. For a recurring master, the type is `RECURRING` and the status is `PAUSED` when paused, or `PENDING` otherwise. This matches `JobQueryService.getRecurringMasters()`. Status is never null or terminal.
+
+Returns empty when no reservation exists, including after the holder finishes, is canceled, or is deleted. It also returns empty if a reservation exists but its owner row is not visible to the read. This can happen during a store's own write or between MongoDB's reservation and owner reads.
+
+Key handling matches `JobBuilder.withBusinessKey`: null or blank returns empty, and the key is trimmed. More than 255 characters after trimming, or a character outside printable ASCII (U+0020 to U+007E), throws `IllegalArgumentException`.
+
+This is a point-in-time read. A later `submit()` can still lose a race. Treat the answer as a hint or pre-check, not a lock.
+
+The call never starts a transaction that outlives it. Finding a holder, finding none, or rejecting an invalid key never marks the caller transaction rollback-only. A store failure throws and, as with `submit()`, can leave it rollback-only.
+
+Whether the read joins a caller transaction depends on the store. The bundled SQL stores join it, so the read sees the caller's own uncommitted submissions. The MongoDB store does not. A MongoDB submission commits in its own session and is not rolled back with the caller transaction, and the lookup sees only committed data.
+
+On MySQL under the default REPEATABLE READ, the transaction's first plain read fixes its snapshot. The lookup does not see a holder that commits after that point. It can still return a holder that ends after that point, because the end is not visible until a fresh snapshot. Call outside a transaction or use READ COMMITTED for the latest state.
+
+There is no per-job authorization check, matching `submit()`, which reports a held key to any caller.
+
+The method is inherited from the stable `BusinessKeyLookup` interface. Inject that interface when only the lookup is needed:
+
+```java
+@Inject
+BusinessKeyLookup businessKeys;
+
+void inspect(String key) {
+    businessKeys.findBusinessKeyHolder(key).ifPresent(holder -> {
+        System.out.println(holder.id() + " " + holder.type() + " " + holder.status());
+    });
+}
+```
+
+`JobQueryService.findJobs` searches job rows, including finished jobs. It sees recurring masters only when the filter's `types` is exactly `RECURRING`, which reads the recurring store. Other searches need the query capability and find nothing without it. Use this lookup to ask whether a key is held now.
+
 ## Event listener management
 
 ### addEventListener

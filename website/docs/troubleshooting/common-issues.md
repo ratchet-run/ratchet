@@ -302,19 +302,33 @@ If you see persistent failures, check if your code is double-submitting in a ret
 
 ### Active business key violation
 
-```
-ERROR: duplicate key value violates unique constraint "pk_scheduler_business_key_reservation"
-```
+`submit()` throws `DuplicateBusinessKeyException` when an active job (PENDING, RUNNING, PAUSED, or WAITING) or a recurring job already holds the business key with a different idempotency key. Ratchet reports this without a database constraint error. Retrying does not help until the holder releases the key.
 
-An active job (PENDING, RUNNING, PAUSED, or WAITING) already holds the business key. When `submit()` finds that job with a different idempotency key, it throws `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state and releases the key.
+Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
 
-When two submissions race for the same business key, the loser's insert fails on the reservation. If the losing builder uses its generated idempotency key, `submit()` throws `DuplicateBusinessKeyException` straight away. If you set a custom idempotency key, Ratchet reads the winner in a new transaction. A different key throws `DuplicateBusinessKeyException`, and the same key throws `DuplicateIdempotencyKeyException`. If that read fails or finds no active job, Ratchet rethrows the original `RatchetTransientStoreException`. Retrying in a fresh transaction reports the conflict, returns the original job for a matching idempotency key, or succeeds if the other job has already finished.
+`DuplicateIdempotencyKeyException` and `RatchetTransientStoreException` still leave the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
 
-If this is unexpected, query for the existing active job:
+On MySQL and SQL Server, after the store reports the conflict, the caller keeps a lock on the holder's key until its transaction ends. The holder's completion waits for that lock. Keep the caller's transaction short.
+
+If this is unexpected, call [`findBusinessKeyHolder`](../api-reference/job-scheduler-service#business-key-lookup) first. It returns the current job or recurring master with its type and status. The answer is a point-in-time pre-check; a later submit can still lose a race.
+
+For a database-level fallback, query the reservation table. It covers both kinds of holder:
 
 ```sql
--- Live status / scheduled_time are on scheduler_job_queue; created_at is cold metadata
--- on scheduler_job. Join the two to see the active job holding the key.
+-- owner_table is QUEUE for a one-off job (owner_job_id = scheduler_job.job_id)
+-- or RECURRING for a recurring job (owner_job_id = scheduler_recurring_job.id).
+SELECT business_key, owner_table, owner_job_id, reserved_at
+FROM scheduler_business_key_reservation
+WHERE business_key = 'your-business-key';
+```
+
+On MySQL, Oracle and SQL Server `owner_job_id` is the UUID stored as 16 raw bytes. On MongoDB the same data is in the `scheduler_business_key_reservation` collection, with the business key as `_id`.
+
+For a one-off holder, this query shows the job's status:
+
+```sql
+-- One-off jobs only. Live status / scheduled_time are on scheduler_job_queue;
+-- created_at is cold metadata on scheduler_job.
 SELECT q.job_id, q.status, q.scheduled_time, c.created_at
 FROM scheduler_job_queue q
 JOIN scheduler_job c ON c.job_id = q.job_id

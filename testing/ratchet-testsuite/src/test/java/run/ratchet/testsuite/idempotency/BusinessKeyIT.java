@@ -144,12 +144,12 @@ class BusinessKeyIT extends BaseRatchetIT {
   }
 
   private void assertActiveBusinessKeyOwner(String businessKey, JobHandle expectedOwner) {
-    var active = jobCrudStore.findActiveByBusinessKey(businessKey);
+    var active = jobCrudStore.findBusinessKeyHolder(businessKey);
 
     assertTrue(active.isPresent(), "Replacement must take ownership of the business key");
     assertEquals(
         expectedOwner.id(),
-        active.get().getId(),
-        "findActiveByBusinessKey must return the live replacement job");
+        active.get().id(),
+        "findBusinessKeyHolder must return the live replacement job");
   }
 }

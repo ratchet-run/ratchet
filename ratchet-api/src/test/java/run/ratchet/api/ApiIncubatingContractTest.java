@@ -27,6 +27,13 @@ import run.ratchet.api.exception.ResourceNotConfiguredException;
 class ApiIncubatingContractTest {
 
   @Test
+  void businessKeyLookupIsStable() {
+    assertFalse(BusinessKeyLookup.class.isAnnotationPresent(Incubating.class));
+    assertFalse(BusinessKeyHolder.class.isAnnotationPresent(Incubating.class));
+    assertTrue(BusinessKeyLookup.class.isAssignableFrom(JobSchedulerService.class));
+  }
+
+  @Test
   void jobBuilderFamilyIsIncubating() {
     // The fluent builder family is uniformly incubating at the type level rather than a mix of
     // stable types with incubating methods, so the whole builder surface may evolve together.

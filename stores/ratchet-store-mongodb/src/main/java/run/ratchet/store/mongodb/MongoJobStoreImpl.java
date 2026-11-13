@@ -34,6 +34,7 @@ import org.bson.BsonBinaryWriter;
 import org.bson.codecs.Codec;
 import org.bson.codecs.EncoderContext;
 import org.bson.io.BasicOutputBuffer;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -209,8 +210,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return crud.findActiveByBusinessKey(businessKey);
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return crud.findBusinessKeyHolder(businessKey);
   }
 
   @Override

@@ -138,6 +138,9 @@ public class JdbcContainerExtension
 
       container = createContainer(dbType);
       container.start();
+      if ("mysql".equals(dbType)) {
+        grantMysqlProcessPrivilege(container);
+      }
 
       // PostgreSQL needs `stringtype=unspecified` so the JDBC driver sends Java Strings as
       // untyped text, letting the server cast them to JSONB on insert. Without this, any JPA
@@ -248,6 +251,21 @@ public class JdbcContainerExtension
       statement.execute(ddl);
     } catch (SQLException failure) {
       throw new IllegalStateException("Could not initialize transactional job test table", failure);
+    }
+  }
+
+  /**
+   * Lets the test user read {@code information_schema.INNODB_TRX}, so race tests can see a session
+   * waiting on a row lock. The grant runs before any test connection opens, which global privileges
+   * need. Testcontainers gives root the test user's password.
+   */
+  private static void grantMysqlProcessPrivilege(JdbcDatabaseContainer<?> mysql) {
+    try (Connection c =
+            DriverManager.getConnection(mysql.getJdbcUrl(), "root", mysql.getPassword());
+        Statement s = c.createStatement()) {
+      s.execute("GRANT PROCESS ON *.* TO '" + mysql.getUsername() + "'@'%'");
+    } catch (SQLException e) {
+      throw new IllegalStateException("Could not grant PROCESS to the MySQL test user", e);
     }
   }
 

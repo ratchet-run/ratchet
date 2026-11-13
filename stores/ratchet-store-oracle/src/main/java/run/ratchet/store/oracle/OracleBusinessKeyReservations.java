@@ -46,6 +46,25 @@ final class OracleBusinessKeyReservations {
     this.ctx = ctx;
   }
 
+  boolean tryReserve(String businessKey, UUID ownerJobId, String ownerTable) {
+    // This hint applies only to single-table INSERT, names the unique key, and disables
+    // APPEND and parallel DML.
+    String sql =
+        """
+        INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(scheduler_business_key_reservation
+          (business_key)) */ INTO scheduler_business_key_reservation
+          (business_key, owner_job_id, owner_table, reserved_at)
+        VALUES (?, ?, ?, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP))
+        """;
+    return ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, businessKey)
+            .setParameter(2, UuidRawConverter.toBytes(ownerJobId))
+            .setParameter(3, ownerTable)
+            .executeUpdate()
+        == 1;
+  }
+
   void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {
     Objects.requireNonNull(businessKey, "businessKey");
     // Keep DML local: Oracle stores UUIDs as binary values and uses dialect-specific timestamps.

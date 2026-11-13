@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -37,6 +38,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.dto.JobClaimDto;
@@ -176,6 +178,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  // The conflict is raised before any write and must not mark the caller's transaction.
+  @Transactional(dontRollbackOn = BusinessKeyReservationConflictException.class)
   public JobEntity create(JobEntity job) {
     return jobs.create(job);
   }
@@ -211,8 +215,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return jobs.findActiveByBusinessKey(businessKey);
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return jobs.findBusinessKeyHolder(businessKey);
   }
 
   @Override

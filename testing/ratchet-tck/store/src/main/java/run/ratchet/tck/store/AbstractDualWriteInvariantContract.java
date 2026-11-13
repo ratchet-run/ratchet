@@ -66,7 +66,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
 
     assertEquals(JobStatus.SUCCEEDED, store().getJobStatus(first.getId()));
     assertTrue(
-        store().findActiveByBusinessKey(bk).isEmpty(),
+        store().findBusinessKeyHolder(bk).isEmpty(),
         "Business key should be released after terminal SUCCEEDED");
 
     JobEntity second = persist(jobWithBusinessKey(bk));
@@ -86,7 +86,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
 
     assertEquals(JobStatus.FAILED, store().getJobStatus(first.getId()));
     assertTrue(
-        store().findActiveByBusinessKey(bk).isEmpty(),
+        store().findBusinessKeyHolder(bk).isEmpty(),
         "Business key should be released after terminal FAILED");
 
     JobEntity second = persist(jobWithBusinessKey(bk));
@@ -103,7 +103,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
 
     assertEquals(JobStatus.CANCELED, store().getJobStatus(first.getId()));
     assertTrue(
-        store().findActiveByBusinessKey(bk).isEmpty(),
+        store().findBusinessKeyHolder(bk).isEmpty(),
         "Business key should be released after terminal CANCELED");
 
     JobEntity second = persist(jobWithBusinessKey(bk));
@@ -122,9 +122,9 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     assertTrue(store().resetFailedToPending(id), "resetFailedToPending should succeed");
 
     assertEquals(JobStatus.PENDING, store().getJobStatus(id));
-    var active = store().findActiveByBusinessKey(bk);
+    var active = store().findBusinessKeyHolder(bk);
     assertTrue(active.isPresent(), "Business key should be re-reserved after reset");
-    assertEquals(id, active.get().getId());
+    assertEquals(id, active.get().id());
 
     try {
       persist(jobWithBusinessKey(bk));
@@ -241,7 +241,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
         store().tryPickUpJob(id, "node-late"),
         "tryPickUpJob must not pick up a CANCELED job after enqueue cancel");
     assertTrue(
-        store().findActiveByBusinessKey(bk).isEmpty(),
+        store().findBusinessKeyHolder(bk).isEmpty(),
         "cancel before claim must free the business key");
   }
 
@@ -273,7 +273,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
         1,
         successCount.get(),
         "Exactly one concurrent enqueue with the same business key should succeed");
-    var active = store().findActiveByBusinessKey(bk);
+    var active = store().findBusinessKeyHolder(bk);
     assertTrue(active.isPresent(), "Surviving job should own the business key");
   }
 

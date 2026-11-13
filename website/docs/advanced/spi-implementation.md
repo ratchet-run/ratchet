@@ -690,6 +690,12 @@ A store advertises each of these by implementing the interface; the engine probe
 | `JobPropertyStore` | Indexed plaintext extension metadata | `putProperty()`, `getProperty()`, `getPropertiesByPrefix()` |
 | `JobStateStore` | Mutable per-job, per-namespace JSON state with version CAS | `getState()`, `initState()`, `updateState()`, `VersionedState` |
 
+### Business-key reservation contract
+
+For a job that has a business key and is not created in a terminal state, `JobCrudStore.create()` must reserve the key before writing the idempotency key or job rows. A job created in a terminal state does not reserve its key, so it can be created while another job holds that key. A held key must raise `BusinessKeyReservationConflictException` without writing anything for the losing job. The caller's transaction must remain usable. Never raise this exception after writing job data.
+
+`AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners and holders committed after the caller's first read.
+
 ### Claim-fenced job state
 
 The `JobStateStore` overloads that accept `expectedClaimSeq` return `StateWriteResult`.

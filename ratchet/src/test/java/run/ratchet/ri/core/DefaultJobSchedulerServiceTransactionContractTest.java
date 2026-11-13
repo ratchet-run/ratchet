@@ -17,6 +17,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
@@ -24,6 +25,7 @@ import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -35,6 +37,17 @@ import run.ratchet.api.SignalDecision;
 import run.ratchet.ri.core.internal.DefaultRecurringAnnotationMaintenanceService;
 
 class DefaultJobSchedulerServiceTransactionContractTest {
+
+  @Test
+  void businessKeyLookupSupportsCallerTransactionAndInvalidKeysDoNotRollBack()
+      throws NoSuchMethodException {
+    assertSupports("findBusinessKeyHolder", String.class);
+    Transactional boundary =
+        DefaultJobSchedulerService.class
+            .getMethod("findBusinessKeyHolder", String.class)
+            .getAnnotation(Transactional.class);
+    assertTrue(Arrays.asList(boundary.dontRollbackOn()).contains(IllegalArgumentException.class));
+  }
 
   @Test
   void listenerRegistration_isNotSupportedTransactionAttribute() throws NoSuchMethodException {
