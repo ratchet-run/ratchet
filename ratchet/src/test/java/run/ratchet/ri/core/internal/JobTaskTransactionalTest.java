@@ -501,6 +501,51 @@ class JobTaskTransactionalTest {
     verify(store, never()).incrementRetryAttempt(any(), any());
   }
 
+  @Test
+  void userCancelledBodyThatStopsEndsCanceledAndReleasesItsKeyHold() {
+    // The body sees the stop request and throws; the rolled-back attempt ends CANCELED.
+    job.setBusinessKey("transactional-key");
+    BODY.set(
+        () -> {
+          attempt.requestUserCancel();
+          when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          throw new IllegalStateException("stopped after the cancel request");
+        });
+    task.call();
+    assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+    verify(observer).recordJobCancellation(job);
+    verify(observer, never()).recordJobFailure(any(), any(), anyInt());
+    verify(store, times(1)).releaseBusinessKeyHold(job.getId(), 7L);
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycle, never())
+        .completeSuccessInCurrentTransaction(
+            any(), any(), any(), any(), any(), anyLong(), anyLong());
+    verifyNoInteractions(finalizer);
+  }
+
+  @Test
+  void userCancelledBodyThatReturnsEndsCanceledAndReleasesItsKeyHold() {
+    // The cancel moved the job out of RUNNING, so the in-transaction success write misses.
+    job.setBusinessKey("transactional-key");
+    BODY.set(
+        () -> {
+          attempt.requestUserCancel();
+          when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          return 42;
+        });
+    when(lifecycle.completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new CompletionRejectedException());
+    task.call();
+    assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+    verify(observer).recordJobCancellation(job);
+    verify(store, times(1)).releaseBusinessKeyHold(job.getId(), 7L);
+    verify(lifecycle, never()).runFollowups(any());
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    verifyNoInteractions(finalizer);
+  }
+
   @ParameterizedTest
   @EnumSource(
       value = JobStatus.class,
