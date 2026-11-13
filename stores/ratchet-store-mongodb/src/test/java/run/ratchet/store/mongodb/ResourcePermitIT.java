@@ -18,9 +18,7 @@ package run.ratchet.store.mongodb;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.mongodb.MongoFieldNames.ACTIVE_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
@@ -30,6 +28,7 @@ import java.util.List;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 class ResourcePermitIT extends BaseDocumentStoreIT {
 
@@ -37,17 +36,25 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
   void acquireAndRelease_withinLimit() {
     store().configureResource("gpu", 2, 5000, "GPU resource pool");
 
-    JobEntity j1 = store().save(newPendingJob());
-    JobEntity j2 = store().save(newPendingJob());
-    JobEntity j3 = store().save(newPendingJob());
+    JobEntity j1 = claimNewJob();
+    JobEntity j2 = claimNewJob();
+    JobEntity j3 = claimNewJob();
 
-    assertTrue(store().tryAcquirePermit("gpu", j1.getId(), "node-1"));
-    assertTrue(store().tryAcquirePermit("gpu", j2.getId(), "node-1"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("gpu", j1.getId(), j1.getClaimSeq(), "node-1"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("gpu", j2.getId(), j2.getClaimSeq(), "node-1"));
 
-    assertFalse(store().tryAcquirePermit("gpu", j3.getId(), "node-1"));
+    assertEquals(
+        AcquireResult.AT_CAPACITY,
+        store().tryAcquirePermit("gpu", j3.getId(), j3.getClaimSeq(), "node-1"));
 
-    store().releasePermit("gpu", j1.getId());
-    assertTrue(store().tryAcquirePermit("gpu", j3.getId(), "node-1"));
+    store().releasePermit("gpu", j1.getId(), j1.getClaimSeq());
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("gpu", j3.getId(), j3.getClaimSeq(), "node-1"));
     assertEquals(1, permitCount("gpu", j3));
     assertEquals(2, activeCount("gpu"));
   }
@@ -56,13 +63,18 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
   void releaseAllPermits_clearsForJob() {
     store().configureResource("db-conn", 3, 5000, "DB connection pool");
 
-    JobEntity j1 = store().save(newPendingJob());
-    store().tryAcquirePermit("db-conn", j1.getId(), "node-1");
+    JobEntity j1 = claimNewJob();
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("db-conn", j1.getId(), j1.getClaimSeq(), "node-1"));
+    assertEquals(1, permitCount("db-conn", j1));
 
     store().releaseAllPermits(j1.getId());
 
-    JobEntity j2 = store().save(newPendingJob());
-    assertTrue(store().tryAcquirePermit("db-conn", j2.getId(), "node-1"));
+    JobEntity j2 = claimNewJob();
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("db-conn", j2.getId(), j2.getClaimSeq(), "node-1"));
     assertEquals(0, permitCount("db-conn", j1));
     assertEquals(1, permitCount("db-conn", j2));
     assertEquals(1, activeCount("db-conn"));
@@ -73,19 +85,31 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     store().configureResource("api", 1, 5000, "API slot");
     store().configureResource("disk", 1, 5000, "Disk slot");
 
-    JobEntity first = store().save(newPendingJob());
-    JobEntity second = store().save(newPendingJob());
+    JobEntity first = claimNewJob();
+    JobEntity second = claimNewJob();
 
-    assertTrue(store().tryAcquirePermit("api", first.getId(), "node-1"));
-    assertTrue(store().tryAcquirePermit("disk", first.getId(), "node-1"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("api", first.getId(), first.getClaimSeq(), "node-1"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("disk", first.getId(), first.getClaimSeq(), "node-1"));
 
-    assertFalse(store().tryAcquirePermit("api", second.getId(), "node-2"));
-    assertFalse(store().tryAcquirePermit("disk", second.getId(), "node-2"));
+    assertEquals(
+        AcquireResult.AT_CAPACITY,
+        store().tryAcquirePermit("api", second.getId(), second.getClaimSeq(), "node-2"));
+    assertEquals(
+        AcquireResult.AT_CAPACITY,
+        store().tryAcquirePermit("disk", second.getId(), second.getClaimSeq(), "node-2"));
 
     store().releaseAllPermits(first.getId());
 
-    assertTrue(store().tryAcquirePermit("api", second.getId(), "node-2"));
-    assertTrue(store().tryAcquirePermit("disk", second.getId(), "node-2"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("api", second.getId(), second.getClaimSeq(), "node-2"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("disk", second.getId(), second.getClaimSeq(), "node-2"));
     assertEquals(0, permitCount("api", first));
     assertEquals(0, permitCount("disk", first));
     assertEquals(1, permitCount("api", second));
@@ -98,18 +122,24 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
   void configuredResource_deniesAfterPoolIsExhaustedUntilRelease() {
     store().configureResource("cpu", 1, 5000, "CPU slot");
 
-    JobEntity first = store().save(newPendingJob());
-    JobEntity second = store().save(newPendingJob());
+    JobEntity first = claimNewJob();
+    JobEntity second = claimNewJob();
 
-    assertTrue(store().tryAcquirePermit("cpu", first.getId(), "node-1"));
-    assertFalse(store().tryAcquirePermit("cpu", second.getId(), "node-2"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("cpu", first.getId(), first.getClaimSeq(), "node-1"));
+    assertEquals(
+        AcquireResult.AT_CAPACITY,
+        store().tryAcquirePermit("cpu", second.getId(), second.getClaimSeq(), "node-2"));
     assertEquals(1, permitCount("cpu", first));
     assertEquals(0, permitCount("cpu", second));
     assertEquals(1, activeCount("cpu"));
 
-    store().releasePermit("cpu", first.getId());
+    store().releasePermit("cpu", first.getId(), first.getClaimSeq());
 
-    assertTrue(store().tryAcquirePermit("cpu", second.getId(), "node-2"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store().tryAcquirePermit("cpu", second.getId(), second.getClaimSeq(), "node-2"));
     assertEquals(0, permitCount("cpu", first));
     assertEquals(1, permitCount("cpu", second));
     assertEquals(1, activeCount("cpu"));
@@ -120,17 +150,36 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     store().configureResource("cleanup-api", 4, 5000, "API slots");
     store().configureResource("cleanup-disk", 3, 5000, "Disk slots");
 
-    JobEntity staleApiOne = store().save(newPendingJob());
-    JobEntity staleApiTwo = store().save(newPendingJob());
-    JobEntity staleDisk = store().save(newPendingJob());
-    JobEntity liveApi = store().save(newPendingJob());
-    JobEntity liveDisk = store().save(newPendingJob());
+    JobEntity staleApiOne = claimNewJob();
+    JobEntity staleApiTwo = claimNewJob();
+    JobEntity staleDisk = claimNewJob();
+    JobEntity liveApi = claimNewJob();
+    JobEntity liveDisk = claimNewJob();
 
-    assertTrue(store().tryAcquirePermit("cleanup-api", staleApiOne.getId(), "stale-node-1"));
-    assertTrue(store().tryAcquirePermit("cleanup-api", staleApiTwo.getId(), "stale-node-2"));
-    assertTrue(store().tryAcquirePermit("cleanup-disk", staleDisk.getId(), "stale-node-1"));
-    assertTrue(store().tryAcquirePermit("cleanup-api", liveApi.getId(), "live-node"));
-    assertTrue(store().tryAcquirePermit("cleanup-disk", liveDisk.getId(), "live-node"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store()
+            .tryAcquirePermit(
+                "cleanup-api", staleApiOne.getId(), staleApiOne.getClaimSeq(), "stale-node-1"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store()
+            .tryAcquirePermit(
+                "cleanup-api", staleApiTwo.getId(), staleApiTwo.getClaimSeq(), "stale-node-2"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store()
+            .tryAcquirePermit(
+                "cleanup-disk", staleDisk.getId(), staleDisk.getClaimSeq(), "stale-node-1"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store()
+            .tryAcquirePermit("cleanup-api", liveApi.getId(), liveApi.getClaimSeq(), "live-node"));
+    assertEquals(
+        AcquireResult.ACQUIRED,
+        store()
+            .tryAcquirePermit(
+                "cleanup-disk", liveDisk.getId(), liveDisk.getClaimSeq(), "live-node"));
 
     int cleaned = store().cleanupOrphanedPermits(List.of("stale-node-1", "stale-node-2"));
 
@@ -146,10 +195,18 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
 
   @Test
   void unconfiguredResource_failsHard() {
-    JobEntity job = store().save(newPendingJob());
+    JobEntity job = claimNewJob();
     assertThrows(
         IllegalArgumentException.class,
-        () -> store().tryAcquirePermit("nonexistent-resource", job.getId(), "node-1"));
+        () ->
+            store()
+                .tryAcquirePermit(
+                    "nonexistent-resource", job.getId(), job.getClaimSeq(), "node-1"));
+  }
+
+  private JobEntity claimNewJob() {
+    store().save(newPendingJob());
+    return store().claimNextBatch(1, "node-1").get(0);
   }
 
   private long permitCount(String resource, JobEntity job) {

@@ -699,6 +699,33 @@ Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Re
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
 
+### Claim-owned resource permits
+
+`tryAcquirePermit` and `releasePermit` take the attempt's `claimSeq`, and a permit belongs to
+that claim:
+
+- Check that the resource is configured first, and throw `IllegalArgumentException` when it is not.
+- Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq`. This is
+  a point-in-time check. Unlike the job-state fence above, it need not be atomic with the write:
+  a claim change that commits after it does not fence the permit write, so the earlier claim can
+  still get `ACQUIRED`. That claim then holds the permit until it releases it. If that leaves the
+  resource at capacity, the newer claim waits. If a slot is still free, the newer claim gets its
+  own permit, and both attempts hold one at the same time.
+- A repeat call by the same claim returns `ACQUIRED` and uses no more capacity.
+- Otherwise insert a permit for the claim when the resource has capacity (`ACQUIRED`), or return
+  `AT_CAPACITY`. Count every permit of the resource, including one that an older claim of the
+  same job still holds. A retry never reuses its earlier attempt's permit. When the resource is
+  full, the retry waits until that permit is released or cleaned up. When a slot is free, the
+  retry takes it, and the job holds two permits until the older one goes.
+- `releasePermit` removes only the permit that belongs to the given claim.
+- `cleanupOrphanedPermits` removes permits by the node id they carry.
+
+The bundled stores record the claim in the permit's id, a name-based UUID of resource, job and
+claim, so the permit table needs no claim column. Do not add a unique key on resource and job:
+a job can hold one permit per claim. The capacity check and the insert must be atomic against
+other acquires of the same resource. The SQL stores lock the resource-limit row, and the MongoDB
+store increments a counter on it.
+
 ### Current claim
 
 `JobClaimStore.currentClaim(UUID)` backs `JobContext.isCurrentAttempt()`. It returns the status

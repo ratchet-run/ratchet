@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.sqlserver;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -54,11 +55,12 @@ class SqlserverResourcePermitStoreContractTest extends AbstractResourcePermitSto
     String source =
         Files.readString(
             Path.of("src/main/java/run/ratchet/store/sqlserver/SqlserverAuxiliaryOperations.java"));
-    int start = source.indexOf("public boolean tryAcquirePermit");
+    int start = source.indexOf("public AcquireResult tryAcquirePermit");
     int end = source.indexOf("public void releasePermit");
     assertTrue(start >= 0, "tryAcquirePermit method should exist in source");
     assertTrue(end > start, "releasePermit should appear after tryAcquirePermit in source");
     String method = source.substring(start, end);
+    assertFalse(method.contains("SET id = ?"));
 
     assertTrue(
         method.contains("INSERT INTO scheduler_resource_permit")

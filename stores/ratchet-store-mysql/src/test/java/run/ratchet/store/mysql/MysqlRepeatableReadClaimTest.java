@@ -52,6 +52,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 /** Real claim transactions must not fence concurrent enqueue at MySQL's default isolation. */
 class MysqlRepeatableReadClaimTest {
@@ -207,14 +208,20 @@ class MysqlRepeatableReadClaimTest {
     permits.configureResource("capacity-one", 1, 100, "test");
     var winner = fixture.store().create(fixture.newPendingJob()).getId();
     var loser = fixture.store().create(fixture.newPendingJob()).getId();
+    fixture.store().claimNextBatch(2, "node-1");
+    long winnerClaim = fixture.store().findById(winner).orElseThrow().getClaimSeq();
+    long loserClaim = fixture.store().findById(loser).orElseThrow().getClaimSeq();
     var em = emf.createEntityManager();
     try {
       var store = store(em);
       em.getTransaction().begin();
       em.createNativeQuery("SELECT COUNT(*) FROM scheduler_resource_permit").getSingleResult();
-      assertTrue(permits.tryAcquirePermit("capacity-one", winner, "other-node"));
-      assertFalse(
-          store.tryAcquirePermit("capacity-one", loser, "stale-node"),
+      assertEquals(
+          AcquireResult.ACQUIRED,
+          permits.tryAcquirePermit("capacity-one", winner, winnerClaim, "other-node"));
+      assertEquals(
+          AcquireResult.AT_CAPACITY,
+          store.tryAcquirePermit("capacity-one", loser, loserClaim, "stale-node"),
           "A pre-existing snapshot must not hide a committed permit");
     } finally {
       if (em.getTransaction().isActive()) em.getTransaction().rollback();

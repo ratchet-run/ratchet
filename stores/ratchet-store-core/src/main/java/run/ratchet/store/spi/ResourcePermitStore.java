@@ -23,8 +23,29 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface ResourcePermitStore {
 
+  /** Outcome of {@link #tryAcquirePermit(String, UUID, long, String)}. */
+  enum AcquireResult {
+    /** The claim holds the permit. */
+    ACQUIRED,
+    /** The configured resource has no free capacity. */
+    AT_CAPACITY,
+    /** The claim did not own the running job when the store checked it. */
+    SUPERSEDED
+  }
+
   /**
    * Attempts to acquire capacity for a configured resource.
+   *
+   * <p>An unconfigured resource throws before checking the claim. The store then checks that the
+   * job is RUNNING under the supplied claim, and returns SUPERSEDED without writing anything when
+   * it is not. This is a point-in-time check: a claim change that commits after it does not fence
+   * the permit write, so the earlier claim can still get ACQUIRED. That claim then holds the permit
+   * until it releases it, and the newer claim waits for it.
+   *
+   * <p>The same claim acquires idempotently. An older claim's permit of the same job counts against
+   * capacity like any other permit: when the resource is full, a newer claim gets AT_CAPACITY until
+   * that permit is released or cleaned up. A new permit is inserted only when capacity is
+   * available.
    *
    * <p>SQL stores that implement this with row locks require the caller's store operation to run in
    * one active transaction so the capacity check and permit insert observe the same locked resource
@@ -32,24 +53,26 @@ public interface ResourcePermitStore {
    *
    * @param resource configured resource name to acquire against; never {@code null}
    * @param jobId job id the permit is being acquired for; never {@code null}
+   * @param claimSeq claim that must own the running job when the store checks it
    * @param nodeId stable identity of the acquiring node; never {@code null} or blank
-   * @return {@code true} when a permit was acquired, {@code false} when the resource exists but is
-   *     already at capacity
+   * @return whether the claim acquired capacity, must wait, or did not own the job at the check
    * @throws IllegalArgumentException when {@code resource} has not been configured
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
-  boolean tryAcquirePermit(String resource, UUID jobId, String nodeId);
+  AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId);
 
   /**
-   * Releases one permit. Missing permits are a no-op.
+   * Releases only the permit belonging to the supplied resource, job and claim. Missing permits are
+   * a no-op. A permit that another claim of the same job holds stays in place.
    *
    * @param resource configured resource name to release against; never {@code null}
    * @param jobId job id that owns the permit; never {@code null}
+   * @param claimSeq claim that owns the permit
    * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store cannot
    *     complete the release
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
-  void releasePermit(String resource, UUID jobId);
+  void releasePermit(String resource, UUID jobId, long claimSeq);
 
   /**
    * Releases all permits for one job. Unknown jobs are a no-op.
@@ -82,7 +105,7 @@ public interface ResourcePermitStore {
   void configureResource(String name, int maxConcurrent, int retryDelayMs, String description);
 
   /**
-   * Cleans permits owned by stale nodes. Transaction attribute: {@code REQUIRED}.
+   * Removes permits by the node id they carry. Transaction attribute: {@code REQUIRED}.
    *
    * @param staleNodeIds node ids whose permits should be released; never {@code null}, may be empty
    *     (no-op when empty)

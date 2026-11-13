@@ -17,6 +17,7 @@ package run.ratchet.ri.core;
 
 import java.util.List;
 import java.util.UUID;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 /**
  * SPI for the distributed semaphore that allows N concurrent job holders per named resource.
@@ -30,12 +31,16 @@ public interface ResourcePermitService {
   /**
    * Attempts to acquire a permit atomically using pessimistic locking.
    *
-   * @return true if permit was acquired, false if resource is at capacity
+   * <p>The capacity check is atomic, but the claim check is point in time. A claim change that
+   * commits after it does not stop the write, so the earlier claim can still get ACQUIRED and holds
+   * the permit until it releases it.
+   *
+   * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim did not own the job at the check
    */
-  boolean tryAcquire(String resourceName, UUID jobId, String nodeId);
+  AcquireResult tryAcquire(String resourceName, UUID jobId, long claimSeq, String nodeId);
 
-  /** Releases a permit held by a job. Safe to call even if the job holds no permit. */
-  void release(String resourceName, UUID jobId);
+  /** Releases a permit held by the supplied claim. Safe to call even if the job holds no permit. */
+  void release(String resourceName, UUID jobId, long claimSeq);
 
   /** Releases all permits held by a job. */
   void releaseAll(UUID jobId);

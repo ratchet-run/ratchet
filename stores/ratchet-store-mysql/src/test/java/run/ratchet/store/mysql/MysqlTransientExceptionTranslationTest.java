@@ -151,7 +151,7 @@ class MysqlTransientExceptionTranslationTest {
         new MysqlAuxiliaryOperations(throwingContext("executeUpdate"));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   @Test

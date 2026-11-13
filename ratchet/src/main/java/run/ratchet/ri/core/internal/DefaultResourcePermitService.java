@@ -24,14 +24,16 @@ import org.jboss.logging.Logger;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 /**
  * Distributed semaphore allowing N concurrent job holders per named resource.
  *
  * <pre>{@code
- * if (resourcePermitService.tryAcquire(resourceName, jobId, nodeId)) {
+ * AcquireResult result = resourcePermitService.tryAcquire(resourceName, jobId, claimSeq, nodeId);
+ * if (result == AcquireResult.ACQUIRED) {
  *     try { // execute job
- *     } finally { resourcePermitService.release(resourceName, jobId); }
+ *     } finally { resourcePermitService.release(resourceName, jobId, claimSeq); }
  * } else { // reschedule }
  * }</pre>
  *
@@ -76,25 +78,23 @@ public class DefaultResourcePermitService implements ResourcePermitService {
    * <p>TX attribute: REQUIRED. SQL stores depend on the caller's active transaction so the capacity
    * check and permit insert share the same locked resource row.
    *
-   * @return true if permit was acquired, false if resource is at capacity
+   * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim did not own the job at the check
    */
   @Override
-  public boolean tryAcquire(String resourceName, UUID jobId, String nodeId) {
+  public AcquireResult tryAcquire(String resourceName, UUID jobId, long claimSeq, String nodeId) {
     if (resourcePermitStore == null) {
       // No permit store: gating disabled, so every acquisition succeeds (unbounded concurrency).
-      return true;
+      return AcquireResult.ACQUIRED;
     }
-    boolean acquired = resourcePermitStore.tryAcquirePermit(resourceName, jobId, nodeId);
-    if (acquired) {
-      log.debugf("Job %s acquired permit for resource %s", jobId, resourceName);
-    } else {
-      log.debugf("Resource %s at capacity - job %s must wait", resourceName, jobId);
-    }
-    return acquired;
+    AcquireResult result =
+        resourcePermitStore.tryAcquirePermit(resourceName, jobId, claimSeq, nodeId);
+    log.debugf(
+        "Permit result %s for job %s claim %s resource %s", result, jobId, claimSeq, resourceName);
+    return result;
   }
 
   /**
-   * Releases a permit held by a job.
+   * Releases a permit held by the supplied claim.
    *
    * <p>TX attribute: REQUIRED. Store implementations may depend on the caller's active transaction.
    * The poller wakeup still fires if the store release throws, so waiters are not stranded until
@@ -103,10 +103,10 @@ public class DefaultResourcePermitService implements ResourcePermitService {
    * <p>Safe to call even if the job holds no permit.
    */
   @Override
-  public void release(String resourceName, UUID jobId) {
+  public void release(String resourceName, UUID jobId, long claimSeq) {
     try {
       if (resourcePermitStore != null) {
-        resourcePermitStore.releasePermit(resourceName, jobId);
+        resourcePermitStore.releasePermit(resourceName, jobId, claimSeq);
         log.debugf("Job %s released permit for resource %s", jobId, resourceName);
       }
     } finally {

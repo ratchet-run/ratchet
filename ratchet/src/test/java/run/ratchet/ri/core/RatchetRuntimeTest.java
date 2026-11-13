@@ -24,11 +24,87 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.internal.*;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.spi.*;
 
 class RatchetRuntimeTest {
+  @Test
+  void defaultNodeCleansStartupPermitsAfterInitBeforePolling() {
+    DefaultNodeIdentityProvider node = mock(DefaultNodeIdentityProvider.class);
+    when(node.getNodeId()).thenReturn("node-1");
+    OrphanRecoveryTimer recovery = mock(OrphanRecoveryTimer.class);
+    Poller poller = mock(Poller.class);
+    RatchetRuntime runtime = runtimeWithNode(node, recovery, poller);
+
+    try {
+      runtime.start();
+      var order = inOrder(node, recovery, poller);
+      order.verify(node).init();
+      order.verify(recovery).cleanupOwnPermitsAtStartup("node-1");
+      order.verify(poller).init();
+    } finally {
+      runtime.onShutdown();
+    }
+  }
+
+  @Test
+  void customNodeCleansStartupPermitsBeforePolling() {
+    NodeIdentityProvider node = () -> "custom-1";
+    OrphanRecoveryTimer recovery = mock(OrphanRecoveryTimer.class);
+    Poller poller = mock(Poller.class);
+    RatchetRuntime runtime = runtimeWithNode(node, recovery, poller);
+
+    try {
+      runtime.start();
+      var order = inOrder(recovery, poller);
+      order.verify(recovery).cleanupOwnPermitsAtStartup("custom-1");
+      order.verify(poller).init();
+    } finally {
+      runtime.onShutdown();
+    }
+  }
+
+  @Test
+  void startupPermitCleanupFailureStopsStartupBeforePolling() {
+    OrphanRecoveryTimer recovery = mock(OrphanRecoveryTimer.class);
+    Poller poller = mock(Poller.class);
+    var failure = new RatchetTransientStoreException("cleanup failed");
+    doThrow(failure).when(recovery).cleanupOwnPermitsAtStartup("custom-1");
+    RatchetRuntime runtime = runtimeWithNode(() -> "custom-1", recovery, poller);
+
+    assertSame(failure, assertThrows(RatchetTransientStoreException.class, runtime::start));
+    verify(poller, never()).init();
+    verify(poller).stop();
+  }
+
+  private static RatchetRuntime runtimeWithNode(
+      NodeIdentityProvider node, OrphanRecoveryTimer recovery, Poller poller) {
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    when(executors.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
+    return new RatchetRuntime(
+        poller,
+        mock(RecurringScheduler.class),
+        recovery,
+        mock(BatchRecoveryTimer.class),
+        mock(JobStateFlusher.class),
+        mock(DeadLetterService.class),
+        null,
+        mock(JobArchivingService.class),
+        mock(LogPurgeTimer.class),
+        mock(PollerWakeupListener.class),
+        executors,
+        node,
+        mock(DrainController.class),
+        RatchetOptions.defaults(),
+        mock(JobExecutionCoordinator.class),
+        mock(ClusterCoordinator.class),
+        List::of,
+        hook -> {},
+        () -> {});
+  }
+
   @Test
   void partialStartupFailureDrainsAndReleasesHooksExactlyOnce() {
     Poller poller = mock(Poller.class);

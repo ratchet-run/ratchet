@@ -138,6 +138,7 @@ import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
 
@@ -2747,7 +2748,8 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, "node-1")).thenReturn(true);
+    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, 0L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
@@ -2756,7 +2758,31 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(resourcePermitService).release("api-gateway", JOB_UUID);
+    verify(resourcePermitService).tryAcquire("api-gateway", JOB_UUID, 0L, "node-1");
+    verify(resourcePermitService).release("api-gateway", JOB_UUID, 0L);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_releaseUsesSameClaimAsAcquire() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("api-gateway");
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(resourcePermitService).tryAcquire("api-gateway", JOB_UUID, 7L, "node-1");
+    verify(resourcePermitService).release("api-gateway", JOB_UUID, 7L);
   }
 
   @Test
@@ -2768,7 +2794,8 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, "node-1")).thenReturn(false);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 0L, "node-1"))
+        .thenReturn(AcquireResult.AT_CAPACITY);
     when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
     when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(0L)))
         .thenReturn(true);
@@ -2778,7 +2805,47 @@ class JobTaskTest {
     verify(jobStore)
         .scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(0L));
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
-    verify(resourcePermitService, never()).release(anyString(), any(UUID.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+  }
+
+  @Test
+  void call_supersededPermit_rejectedRescheduleDoesNotExecuteOrRelease() throws Exception {
+    assertSupersededPermit(false);
+  }
+
+  @Test
+  void call_supersededPermit_successfulRescheduleUsesAttemptClaim() throws Exception {
+    assertSupersededPermit(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertSupersededPermit(boolean rescheduled) throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setClaimSeq(7L);
+    job.setAttempts(2);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.SUPERSEDED);
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
+        .thenReturn(rescheduled);
+
+    jobTask.call();
+
+    verify(jobStore)
+        .scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(7L));
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(
+        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+    Assertions.assertEquals(
+        AttemptSupersededException.class.getName(), execution.getValue().getErrorClass());
   }
 
   @Test
