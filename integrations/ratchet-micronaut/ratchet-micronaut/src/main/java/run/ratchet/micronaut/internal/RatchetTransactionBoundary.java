@@ -24,7 +24,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 /**
- * Advises factory-produced transaction carriers before Micronaut Data's transaction interceptor.
+ * Runs every transaction type of factory-produced carriers on Ratchet's transaction manager,
+ * keeping Micronaut Data's default-manager transaction interceptor out of their invocation.
  * Class-level carriers also copy their Jakarta transaction annotation onto the factory method;
  * method-only products carry this marker alone.
  */

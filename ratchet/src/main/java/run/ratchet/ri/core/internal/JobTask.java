@@ -28,9 +28,11 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
@@ -51,12 +53,16 @@ import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.api.internal.ContinuationBindings;
+import run.ratchet.api.internal.JobCheckpoints;
 import run.ratchet.api.internal.JobContinuation;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.core.TransactionalCompletion;
 import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocation;
@@ -83,6 +89,8 @@ import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.TerminalOutcome;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.ExtensionValidation;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -92,6 +100,14 @@ import run.ratchet.store.util.PayloadEncryptor;
  * dispatch. Each instance is single-use and discarded after completion.
  */
 public class JobTask implements Callable<Void> {
+
+  private ConnectionPoolSize connectionPoolSize;
+  private PoolRegistry connectionPools;
+
+  void configureConnectionPoolWarning(ConnectionPoolSize size, PoolRegistry pools) {
+    this.connectionPoolSize = size;
+    this.connectionPools = pools;
+  }
 
   private static final Logger log = Logger.getLogger(JobTask.class);
 
@@ -116,6 +132,7 @@ public class JobTask implements Callable<Void> {
   private final PreExecutionValidator validationFacade;
   private final PreExecutionArgResolver argResolver;
   private final JobPayloadInvoker payloadInvoker;
+  private final JobTransaction jobTransaction;
   private final JobSuccessFinalizer successFinalizer;
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
@@ -134,7 +151,10 @@ public class JobTask implements Callable<Void> {
   private boolean stateFlushed;
   private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
+  private volatile long terminalRetryBaseDelayMs = 1_000;
+  private volatile long terminalRetryMaxDelayMs = 30_000;
   private JobClaimDto claim;
+  private Long loadedClaimSeq;
   private JobExecutionEntity currentExecution;
   private TracingCollector.ExecutionScope currentScope =
       TracingCollector.NoOpExecutionScope.INSTANCE;
@@ -154,6 +174,7 @@ public class JobTask implements Callable<Void> {
     this.observabilityFacade = null;
     this.validationFacade = null;
     this.payloadInvoker = null;
+    this.jobTransaction = null;
     this.successFinalizer = null;
     this.retryPolicy = null;
     this.resilienceStrategy = null;
@@ -179,6 +200,7 @@ public class JobTask implements Callable<Void> {
       ExecutionObserver observabilityFacade,
       PreExecutionValidator validationFacade,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -202,6 +224,7 @@ public class JobTask implements Callable<Void> {
     this.observabilityFacade = observabilityFacade;
     this.validationFacade = validationFacade;
     this.payloadInvoker = payloadInvoker;
+    this.jobTransaction = jobTransaction;
     this.successFinalizer = successFinalizer;
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
@@ -225,8 +248,8 @@ public class JobTask implements Callable<Void> {
   }
 
   /**
-   * Does NOT run in a transaction to avoid holding database connections for long-running jobs. All
-   * database updates are performed in separate short transactions.
+   * Runs orchestration outside a transaction. Annotated job bodies and their success completion use
+   * the JobTransaction carrier; ordinary jobs use separate short transactions for store updates.
    */
   @Override
   @SuppressWarnings("java:S1181")
@@ -259,10 +282,13 @@ public class JobTask implements Callable<Void> {
       return null;
     }
 
+    ResilienceTarget target = payloadInvoker.resilienceTarget(jobEntity.getPayload());
+    boolean transactional = target.transactional();
     String nodeId = nodeIdProvider.getNodeId();
     if (claim != null
         && (jobEntity.getStatus() != JobStatus.RUNNING
-            || (jobEntity.getPickedBy() != null && !nodeId.equals(jobEntity.getPickedBy())))) {
+            || (jobEntity.getPickedBy() != null && !nodeId.equals(jobEntity.getPickedBy()))
+            || (transactional && !Objects.equals(loadedClaimSeq, claim.claimSeq())))) {
       log.infof(
           "Job %s claim no longer owned by this node (status=%s, pickedBy=%s) - skipping execution",
           jobId, jobEntity.getStatus(), jobEntity.getPickedBy());
@@ -352,33 +378,34 @@ public class JobTask implements Callable<Void> {
     }
 
     if (attempt != null && attempt.token().isPresent()) {
-      checkpointWriter =
-          new JobCheckpointWriter(
-              jobId,
-              attempt,
-              jobStore.capability(JobStateStore.class).orElse(null),
-              afterCommitRegistrar,
-              payloadSerializer,
-              jobStateFlusher,
-              jobEntity.getJobType() == JobExecutionType.BATCH_CHILD
-                  ? jobStore
-                      .capability(PartitionStore.class)
-                      .<CheckpointSeedSource>map(
-                          store ->
-                              childId ->
-                                  store
-                                      .findPartitionByChild(childId)
-                                      .map(
-                                          row ->
-                                              row.getCheckpoint() == null
-                                                  ? null
-                                                  : PayloadEncryptor.decryptJsonColumn(
-                                                      row.getCheckpoint(),
-                                                      EncryptionTarget.partitionCheckpoint(
-                                                          row.getSetId(),
-                                                          row.getPartitionIndex()))))
-                      .orElse(null)
-                  : null);
+      if (!transactional)
+        checkpointWriter =
+            new JobCheckpointWriter(
+                jobId,
+                attempt,
+                jobStore.capability(JobStateStore.class).orElse(null),
+                afterCommitRegistrar,
+                payloadSerializer,
+                jobStateFlusher,
+                jobEntity.getJobType() == JobExecutionType.BATCH_CHILD
+                    ? jobStore
+                        .capability(PartitionStore.class)
+                        .<CheckpointSeedSource>map(
+                            store ->
+                                childId ->
+                                    store
+                                        .findPartitionByChild(childId)
+                                        .map(
+                                            row ->
+                                                row.getCheckpoint() == null
+                                                    ? null
+                                                    : PayloadEncryptor.decryptJsonColumn(
+                                                        row.getCheckpoint(),
+                                                        EncryptionTarget.partitionCheckpoint(
+                                                            row.getSetId(),
+                                                            row.getPartitionIndex()))))
+                        .orElse(null)
+                    : null);
       jobStore
           .capability(JobStateStore.class)
           .ifPresent(
@@ -401,7 +428,7 @@ public class JobTask implements Callable<Void> {
         attempt != null ? attempt.cancellationIdentity() : null,
         attempt != null ? attempt.token().orElse(null) : null,
         attempt != null ? () -> attempt.isCurrent(jobStore) : () -> false,
-        checkpointWriter,
+        transactional ? TRANSACTIONAL_CHECKPOINTS : checkpointWriter,
         progressWriter);
 
     // The JobContext/MDC bound above must be cleared on every exit. Open the clearing try right
@@ -412,6 +439,7 @@ public class JobTask implements Callable<Void> {
       continuation = ContinuationBindings.continuationOf(JobContext.current());
       if (continuation != null) {
         continuation.supported(jobStore.capability(JobStateStore.class).isPresent());
+        continuation.transactional(transactional);
       }
       if (jobEntity.getCallerPrincipal() != null) {
         log.debugf("Job %s created by user (present)", jobId);
@@ -461,10 +489,16 @@ public class JobTask implements Callable<Void> {
 
       Object jobResult;
       permitAcquired = false;
-      ResilienceTarget target = payloadInvoker.resilienceTarget(jobEntity.getPayload());
       String resilienceServiceName = target.serviceName();
       try {
         currentScope = observabilityFacade.startExecutionScope(jobEntity);
+        if (transactional && jobStore.capability(TransactionalCompletionStore.class).isEmpty()) {
+          UnsupportedOperationException failure =
+              new UnsupportedOperationException(
+                  "@TransactionalJob requires a store advertising TransactionalCompletionStore");
+          handleNonRetryableFailure(failure, job.getAttempts(), sanitizeError(failure));
+          return null;
+        }
         if (wasJobCanceledDuringExecution()) {
           handleCanceledDuringExecution(start);
           return null;
@@ -516,6 +550,10 @@ public class JobTask implements Callable<Void> {
         dispatchPayload = payloadInvoker.materializeArguments(dispatchPayload, payloadSerializer);
 
         JobPayload invocationPayload = dispatchPayload;
+        if (transactional) {
+          executeTransactional(start, invocationPayload, target);
+          return null;
+        }
         jobResult =
             resilienceStrategy.execute(
                 target.serviceName(),
@@ -599,6 +637,7 @@ public class JobTask implements Callable<Void> {
                           "Job " + claim.id() + " not found - may have been deleted"));
     }
     if (job != null && claim != null) {
+      loadedClaimSeq = job.getClaimSeq();
       job.setClaimSeq(claim.claimSeq());
     }
     return job;
@@ -1288,6 +1327,297 @@ public class JobTask implements Callable<Void> {
     return payloadSerializer.serialize(Map.of("count", count), ExtensionValidation.MAX_STATE_BYTES);
   }
 
+  private static final JobCheckpoints TRANSACTIONAL_CHECKPOINTS =
+      new JobCheckpoints() {
+        @Override
+        public void write(String value) {
+          throw new IllegalStateException("@TransactionalJob does not support checkpoint()");
+        }
+
+        @Override
+        public Optional<String> read() {
+          return Optional.empty();
+        }
+      };
+
+  private enum TransactionState {
+    COMMITTED,
+    COMMIT_UNKNOWN,
+    FENCE_REJECTED,
+    ROLLED_BACK
+  }
+
+  private static final class TransactionOutcome {
+    private TransactionState state;
+    private boolean workDone;
+    private TransactionalCompletion completion;
+    private SerializedJobResult serializedResult;
+    private Instant end;
+    private Throwable failure;
+
+    private void reset() {
+      state = null;
+      workDone = false;
+      completion = null;
+      serializedResult = null;
+      end = null;
+      failure = null;
+    }
+  }
+
+  private void executeTransactional(Instant start, JobPayload payload, ResilienceTarget target) {
+    TransactionalPoolWarning.check(connectionPoolSize, connectionPools);
+    TransactionOutcome outcome = new TransactionOutcome();
+    CircuitBreakerExceptionFilter filter =
+        target
+            .exceptionFilter()
+            .merge(
+                new CircuitBreakerExceptionFilter(
+                    List.of(), List.of(TransactionalOutcomeException.class), null));
+    Object result = null;
+    Throwable failure = null;
+    try {
+      result =
+          resilienceStrategy.execute(
+              target.serviceName(), filter, () -> runTransactionalPayload(start, payload, outcome));
+    } catch (Throwable thrown) {
+      // Unwrap before inspecting exception types, including circuit-open rejection.
+      failure = thrown instanceof TransactionalOutcomeException ? thrown.getCause() : thrown;
+    }
+
+    if (outcome.state == TransactionState.COMMITTED) {
+      handleTransactionalSuccess(start, outcome);
+      return;
+    }
+    if (outcome.state == TransactionState.COMMIT_UNKNOWN) {
+      resolveCommitOutcome(start, outcome);
+      return;
+    }
+    if (outcome.state == TransactionState.FENCE_REJECTED) {
+      if (jobStore.getJobStatus(job.getId()) == JobStatus.CANCELED) {
+        handleCanceledDuringExecution(start);
+      } else {
+        handleSupersededSuccess();
+      }
+      return;
+    }
+    if (failure == null) {
+      // A custom strategy can return a fallback after a rolled-back supplier invocation.
+      handleSuccess(start, result);
+    } else if (failure instanceof CircuitBreakerOpenException rejection) {
+      flushStateQuietly();
+      rescheduleForCircuitBreaker(job, target.serviceName(), rejection);
+    } else {
+      handleFailureSafely(failure);
+    }
+  }
+
+  private Object runTransactionalPayload(
+      Instant start, JobPayload payload, TransactionOutcome outcome) throws Exception {
+    outcome.reset();
+    for (int transactionAttempt = 1; ; transactionAttempt++) {
+      try {
+        Object result =
+            jobTransaction.run(
+                () -> {
+                  Object value = runPayload(payload);
+                  if (attempt != null && attempt.isSuperseded()) {
+                    throw new CompletionRejectedException();
+                  }
+                  SerializedJobResult serialized =
+                      resultPersistenceStrategy.serialize(job.getId(), value);
+                  Instant end = effective().instant();
+                  TransactionalCompletion completion =
+                      lifecycleFacade.completeSuccessInCurrentTransaction(
+                          job,
+                          serialized.json(),
+                          serialized.type(),
+                          start,
+                          end,
+                          Duration.between(start, end).toMillis(),
+                          queueWaitMs(start));
+                  outcome.serializedResult = serialized;
+                  outcome.end = end;
+                  outcome.completion = completion;
+                  outcome.workDone = true;
+                  return value;
+                });
+        outcome.state = TransactionState.COMMITTED;
+        return result;
+      } catch (CompletionRejectedException rejected) {
+        outcome.state = TransactionState.FENCE_REJECTED;
+        outcome.failure = rejected;
+        throw new TransactionalOutcomeException(rejected);
+      } catch (Throwable failure) {
+        outcome.failure = failure;
+        if (outcome.workDone) {
+          outcome.state = TransactionState.COMMIT_UNKNOWN;
+          log.warnf(
+              failure,
+              "Job %s transaction commit failed; outcome unknown (container or manager default"
+                  + " transaction timeout applies)",
+              job.getId());
+          throw new TransactionalOutcomeException(failure);
+        }
+        boolean transientFailure = JobSuccessFinalizer.isTransientStoreFailure(failure);
+        if (transientFailure
+            && transactionAttempt < 5
+            && sleepTransactionBackoff(transactionAttempt)) {
+          outcome.reset();
+          continue;
+        }
+        outcome.state = TransactionState.ROLLED_BACK;
+        if (transientFailure) throw new TransactionalOutcomeException(failure);
+        if (failure instanceof Exception exception) throw exception;
+        if (failure instanceof Error error) throw error;
+        throw new IllegalStateException(failure);
+      }
+    }
+  }
+
+  private static boolean sleepTransactionBackoff(int attempt) {
+    try {
+      Thread.sleep((25L << (attempt - 1)) + ThreadLocalRandom.current().nextLong(26));
+      return true;
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
+  }
+
+  void setTerminalRetryDelays(long baseDelayMs, long maxDelayMs) {
+    if (baseDelayMs <= 0 || maxDelayMs < baseDelayMs) {
+      throw new IllegalArgumentException("Invalid terminal retry delays");
+    }
+    terminalRetryBaseDelayMs = baseDelayMs;
+    terminalRetryMaxDelayMs = maxDelayMs;
+  }
+
+  private void resolveCommitOutcome(Instant start, TransactionOutcome outcome) {
+    TransactionalCompletionStore store =
+        jobStore.capability(TransactionalCompletionStore.class).orElseThrow();
+    boolean interrupted = Thread.interrupted();
+    TerminalOutcome terminal = null;
+    try {
+      for (int readAttempt = 1; readAttempt <= 5; readAttempt++) {
+        interrupted |= Thread.interrupted();
+        try {
+          terminal = store.terminalOutcome(job.getId(), expectedClaimSeq());
+          break;
+        } catch (RuntimeException readFailure) {
+          if (!JobSuccessFinalizer.isTransientStoreFailure(readFailure)
+              || (readAttempt == 5 && attempt == null)) {
+            log.errorf(
+                readFailure,
+                "Job %s commit outcome could not be resolved; leaving it for orphan recovery"
+                    + " or restart",
+                job.getId());
+            return;
+          }
+          if (terminalRetryRevoked()) return;
+          if (readAttempt == 5) break;
+          interrupted |= Thread.interrupted();
+          if (!sleepTransactionBackoff(readAttempt)) {
+            interrupted = true;
+            Thread.interrupted();
+            if (terminalRetryRevoked()) return;
+          }
+        }
+      }
+      if (terminal == null) {
+        log.warnf(
+            "Job %s commit outcome remains unknown; continuing outcome reads; body will not rerun",
+            job.getId());
+        long delayMs = terminalRetryBaseDelayMs;
+        while (terminal == null) {
+          TerminalRetryWait wait = waitForTerminalRetry(delayMs);
+          interrupted |= wait.interrupted();
+          if (wait.revoked()) return;
+          try {
+            terminal = store.terminalOutcome(job.getId(), expectedClaimSeq());
+          } catch (RuntimeException readFailure) {
+            interrupted |= Thread.interrupted();
+            if (terminalRetryRevoked()) return;
+            if (!JobSuccessFinalizer.isTransientStoreFailure(readFailure)) {
+              log.errorf(
+                  readFailure,
+                  "Job %s commit outcome could not be resolved; leaving it for orphan recovery"
+                      + " or restart",
+                  job.getId());
+              return;
+            }
+          }
+          delayMs = nextTerminalRetryDelay(delayMs);
+        }
+      }
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
+    }
+    switch (terminal) {
+      case COMMITTED -> handleTransactionalSuccess(start, outcome);
+      case ROLLED_BACK -> handleFailureSafely(outcome.failure);
+      case CANCELED -> handleCanceledDuringExecution(start);
+      case SUPERSEDED -> handleSupersededSuccess();
+    }
+  }
+
+  private boolean terminalRetryRevoked() {
+    if (attempt == null || !attempt.isRevoked()) return false;
+    log.warnf(
+        "Job %s terminal retry stopped by shutdown or the watchdog; leaving it for its owner,"
+            + " orphan recovery or restart",
+        job.getId());
+    return true;
+  }
+
+  private record TerminalRetryWait(boolean interrupted, boolean revoked) {}
+
+  private TerminalRetryWait waitForTerminalRetry(long delayMs) {
+    boolean interrupted = Thread.interrupted();
+    if (terminalRetryRevoked()) return new TerminalRetryWait(interrupted, true);
+    try {
+      Thread.sleep(delayMs);
+    } catch (InterruptedException sleepInterrupted) {
+      interrupted = true;
+      if (terminalRetryRevoked()) return new TerminalRetryWait(true, true);
+    }
+    return new TerminalRetryWait(interrupted, false);
+  }
+
+  private long nextTerminalRetryDelay(long delayMs) {
+    return delayMs >= terminalRetryMaxDelayMs / 2 ? terminalRetryMaxDelayMs : delayMs * 2;
+  }
+
+  private long queueWaitMs(Instant start) {
+    return job.getPickedAt() != null ? Duration.between(job.getPickedAt(), start).toMillis() : 0;
+  }
+
+  private void handleSupersededSuccess() {
+    markAttemptSuperseded();
+    log.infof("Job %s already in terminal state, skipping success handling", job.getId());
+    saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+  }
+
+  private void handleTransactionalSuccess(Instant start, TransactionOutcome outcome) {
+    lifecycleFacade.runFollowups(outcome.completion);
+    flushStateQuietly();
+    long executionMs = Duration.between(start, outcome.end).toMillis();
+    observabilityFacade.recordJobSuccess(job, executionMs);
+    currentScope.success(executionMs);
+    if (currentExecution != null) {
+      currentExecution.markSucceeded();
+      observabilityFacade.saveExecution(currentExecution);
+    }
+    job.setStatus(JobStatus.SUCCEEDED);
+    job.setJobResult(outcome.serializedResult.json());
+    job.setResultType(outcome.serializedResult.type());
+    job.setExecutionStartTime(start);
+    job.setExecutionEndTime(outcome.end);
+    job.setExecutionDurationMs(executionMs);
+    job.setQueueWaitMs(queueWaitMs(start));
+    callbackInvoker.invokeOnSuccess(job);
+  }
+
   private void handleSuccess(Instant start, Object jobResult) {
     Instant endTime = effective().instant();
     long executionMs = Duration.between(start, endTime).toMillis();
@@ -1302,6 +1632,31 @@ public class JobTask implements Callable<Void> {
     JobSuccessFinalizer.Outcome finalizationState =
         successFinalizer.finalizeSuccess(
             job, resultJson, resultType, start, endTime, executionMs, queueMs);
+    if (finalizationState == JobSuccessFinalizer.Outcome.STUCK && attempt != null) {
+      log.warnf(
+          "Job %s success finalization remains stuck; continuing minimal writes; body will not"
+              + " rerun",
+          job.getId());
+      boolean interrupted = Thread.interrupted();
+      long delayMs = terminalRetryBaseDelayMs;
+      try {
+        while (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
+          TerminalRetryWait wait = waitForTerminalRetry(delayMs);
+          interrupted |= wait.interrupted();
+          if (wait.revoked()) return;
+          finalizationState =
+              successFinalizer.finalizeMinimalSuccess(
+                  job, resultJson, resultType, start, endTime, executionMs, queueMs);
+          if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
+            interrupted |= Thread.interrupted();
+            if (terminalRetryRevoked()) return;
+          }
+          delayMs = nextTerminalRetryDelay(delayMs);
+        }
+      } finally {
+        if (interrupted) Thread.currentThread().interrupt();
+      }
+    }
     if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
       markAttemptSuperseded();
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());

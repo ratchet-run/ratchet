@@ -18,15 +18,18 @@ package run.ratchet.micronaut.internal.tx;
 import io.micronaut.core.annotation.Creator;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.time.Instant;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.TransactionalCompletion;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobTerminalStore;
 
 /**
@@ -58,5 +61,25 @@ public class MicronautPostExecutionHandler extends PostExecutionHandler {
         afterCommitRegistrar,
         completionTransaction,
         durableEvents);
+  }
+
+  @Override
+  @Transactional(value = TxType.MANDATORY, rollbackOn = Exception.class)
+  public TransactionalCompletion completeSuccessInCurrentTransaction(
+      JobEntity source,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs) {
+    return super.completeSuccessInCurrentTransaction(
+        source, resultJson, resultType, start, end, durationMs, queueWaitMs);
+  }
+
+  @Override
+  @Transactional(TxType.NOT_SUPPORTED)
+  public void runFollowups(TransactionalCompletion completion) {
+    super.runFollowups(completion);
   }
 }

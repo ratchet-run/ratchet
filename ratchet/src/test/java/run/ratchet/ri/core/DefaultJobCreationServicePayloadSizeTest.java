@@ -119,25 +119,25 @@ class DefaultJobCreationServicePayloadSizeTest {
 
   @Test
   void oversizedBatchChildIsNeverBulkInserted() {
-    when(jobCrudStore.create(any())).thenAnswer(invocation -> saved(invocation.getArgument(0)));
-
     DefaultBatchBuilder builder = new DefaultBatchBuilder("payload-limit", service);
     builder.forEach(List.of(OVERSIZED_ARGUMENT), DefaultJobCreationServicePayloadSizeTest::consume);
 
     assertThrows(PayloadTooLargeException.class, () -> service.submit(builder));
+    // Child payloads are prepared before the parent row, so no row is written.
+    verify(jobCrudStore, never()).create(any());
     verify(jobBulkStore, never()).bulkInsert(any());
   }
 
   @Test
   void oversizedStreamingChildIsNeverBulkInserted() {
-    when(jobCrudStore.create(any())).thenAnswer(invocation -> saved(invocation.getArgument(0)));
-
     DefaultStreamingBatchBuilder<String> builder =
         new DefaultStreamingBatchBuilder<>("payload-limit", service);
     builder.fromStream(Stream.of(OVERSIZED_ARGUMENT));
     builder.process(DefaultJobCreationServicePayloadSizeTest::consume);
 
     assertThrows(PayloadTooLargeException.class, () -> service.submit(builder));
+    // The first streamed item is prepared before the parent row, so no row is written.
+    verify(jobCrudStore, never()).create(any());
     verify(jobBulkStore, never()).bulkInsert(any());
   }
 

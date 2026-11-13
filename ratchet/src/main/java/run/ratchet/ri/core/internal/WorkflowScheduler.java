@@ -42,6 +42,7 @@ import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
+import run.ratchet.ri.core.CompletionReads;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.payload.RuntimeArguments;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -356,12 +357,17 @@ public class WorkflowScheduler extends ChainScheduler {
   }
 
   private Map<UUID, JobEntity> loadChildJobs(List<WorkflowConditionEntity> conditions) {
+    return loadChildJobs(conditions, CompletionReads.plain(jobCrudStore, conditionStore));
+  }
+
+  private Map<UUID, JobEntity> loadChildJobs(
+      List<WorkflowConditionEntity> conditions, CompletionReads reads) {
     List<UUID> childIds =
         conditions.stream().map(WorkflowConditionEntity::getChildJobId).distinct().toList();
     if (childIds.isEmpty()) {
       return Map.of();
     }
-    return jobCrudStore.findByIds(childIds).stream()
+    return reads.findByIds(childIds).stream()
         .collect(Collectors.toMap(JobEntity::getId, Function.identity(), (left, right) -> left));
   }
 
@@ -372,17 +378,20 @@ public class WorkflowScheduler extends ChainScheduler {
 
   public WorkflowCompletionPlan planCompletion(
       JobEntity parent, boolean cancelAll, Object combinedValue) {
+    return planCompletion(
+        parent, cancelAll, combinedValue, CompletionReads.plain(jobCrudStore, conditionStore));
+  }
+
+  public WorkflowCompletionPlan planCompletion(
+      JobEntity parent, boolean cancelAll, Object combinedValue, CompletionReads reads) {
     Map<UUID, DependencyTransition> mutations = new LinkedHashMap<>();
     List<Object> events = new ArrayList<>();
     if (cancelAll) {
-      planCanceledChain(parent, Set.of(), mutations, events);
+      planCanceledChain(parent, Set.of(), mutations, events, reads);
       return new WorkflowCompletionPlan(new ArrayList<>(mutations.values()), events, false);
     }
-    List<WorkflowConditionEntity> conditions =
-        conditionStore == null
-            ? List.of()
-            : conditionStore.findConditionsByParentJobId(parent.getId());
-    Map<UUID, JobEntity> children = loadChildJobs(conditions);
+    List<WorkflowConditionEntity> conditions = reads.findConditionsByParentJobId(parent.getId());
+    Map<UUID, JobEntity> children = loadChildJobs(conditions, reads);
     Set<UUID> conditionalIds =
         conditions.stream().map(WorkflowConditionEntity::getChildJobId).collect(Collectors.toSet());
     WorkflowConditionEntity selected = null;
@@ -457,10 +466,10 @@ public class WorkflowScheduler extends ChainScheduler {
     }
     boolean newWork = selected != null;
     if (parent.getStatus() == JobStatus.FAILED || parent.getStatus() == JobStatus.CANCELED) {
-      planCanceledChain(parent, conditionalIds, mutations, events);
+      planCanceledChain(parent, conditionalIds, mutations, events, reads);
     } else {
       List<JobEntity> linearChildren =
-          findAllDependants(parent.getId()).stream()
+          findAllDependants(parent.getId(), reads).stream()
               .filter(child -> !conditionalIds.contains(child.getId()))
               .toList();
       if (linearChildren.isEmpty() && parent.getJobType() == JobExecutionType.CHAIN_STEP) {
@@ -472,7 +481,7 @@ public class WorkflowScheduler extends ChainScheduler {
                 parent.getPublicJobType(),
                 parent.getPriority(),
                 parent.getPickedBy(),
-                findRootJobId(parent)));
+                findRootJobId(parent, reads)));
       }
       for (JobEntity child : linearChildren) {
         if (isUnstarted(child) && CHAIN_LOCK_TIME.equals(child.getScheduledTime())) {
@@ -490,7 +499,7 @@ public class WorkflowScheduler extends ChainScheduler {
                     child.getPublicJobType(),
                     child.getPriority(),
                     child.getPickedBy(),
-                    findRootJobId(parent)));
+                    findRootJobId(parent, reads)));
           }
         }
       }
@@ -502,7 +511,8 @@ public class WorkflowScheduler extends ChainScheduler {
       JobEntity parent,
       Set<UUID> skipped,
       Map<UUID, DependencyTransition> mutations,
-      List<Object> events) {
+      List<Object> events,
+      CompletionReads reads) {
     Deque<UUID> pending = new ArrayDeque<>();
     Set<UUID> visited = new HashSet<>();
     pending.push(parent.getId());
@@ -512,7 +522,7 @@ public class WorkflowScheduler extends ChainScheduler {
       if (!visited.add(id)) {
         continue;
       }
-      for (JobEntity child : findAllDependants(id)) {
+      for (JobEntity child : findAllDependants(id, reads)) {
         if (id.equals(parent.getId()) && skipped.contains(child.getId())) {
           continue;
         }
@@ -534,7 +544,7 @@ public class WorkflowScheduler extends ChainScheduler {
               parent.getPublicJobType(),
               parent.getPriority(),
               parent.getPickedBy(),
-              findRootJobId(parent),
+              findRootJobId(parent, reads),
               parent.getLastError() != null ? parent.getLastError() : parent.getStatus().name()));
     }
   }

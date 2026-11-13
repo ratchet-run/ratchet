@@ -112,6 +112,8 @@ public final class ChaosCluster implements AutoCloseable {
     properties.put("spring.flyway.enabled", false);
     properties.put("spring.liquibase.enabled", false);
     properties.put("spring.main.web-application-type", "servlet");
+    // A transactional body and its REQUIRES_NEW gate need two connections, plus scheduler work.
+    properties.put("spring.datasource.hikari.maximum-pool-size", 16);
     properties.put("server.port", 0);
     properties.put("server.shutdown", "graceful");
     properties.putAll(overrides);
@@ -156,17 +158,21 @@ public final class ChaosCluster implements AutoCloseable {
   public String submit(
       int i, String key, long durationMs, String idempotencyKey, String businessKey)
       throws Exception {
-    return submit(i, key, durationMs, idempotencyKey, businessKey, 0, null, "", 1);
+    return submit(i, key, durationMs, idempotencyKey, businessKey, 0, null, "", 1, false);
   }
 
   public synchronized String submit(String key, long durationMs, int failTimes, int maxRetries)
       throws Exception {
-    return submit(liveSubmitter(), key, durationMs, "", "", failTimes, maxRetries, "", 1);
+    return submit(liveSubmitter(), key, durationMs, "", "", failTimes, maxRetries, "", 1, false);
   }
 
   public String submitGated(String key, long durationMs, int maxRetries, String point, int times)
       throws Exception {
-    return submit(liveSubmitter(), key, durationMs, "", "", 0, maxRetries, point, times);
+    return submit(liveSubmitter(), key, durationMs, "", "", 0, maxRetries, point, times, false);
+  }
+
+  public String submitTransactional(String key) throws Exception {
+    return submit(liveSubmitter(), key, 0, "", "", 0, 0, "transactional-write", 1, true);
   }
 
   private int liveSubmitter() {
@@ -192,7 +198,8 @@ public final class ChaosCluster implements AutoCloseable {
       int failTimes,
       Integer maxRetries,
       String gatePoint,
-      int gateTimes)
+      int gateTimes,
+      boolean transactional)
       throws Exception {
     String id =
         node(i)
@@ -213,7 +220,9 @@ public final class ChaosCluster implements AutoCloseable {
                     + "&gatePoint="
                     + encode(gatePoint)
                     + "&gateTimes="
-                    + gateTimes)
+                    + gateTimes
+                    + "&transactional="
+                    + transactional)
             .trim();
     submitted.add(id);
     kinds.put(id, new Oracle.JobKind(failTimes, maxRetries == null ? 0 : maxRetries));
