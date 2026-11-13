@@ -276,20 +276,26 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
 -- Authoritative ownership lookup for active business keys across both the executable queue
 -- (owner_table='QUEUE') and recurring masters (owner_table='RECURRING'). INSERTed in the
 -- same transaction as the live-row insert; DELETEd in the same transaction as the terminal
--- hot DELETE or recurring cancel. The unique key on business_key serializes concurrent
--- enqueues — a duplicate insert triggers a unique violation translated to the existing
--- DuplicateBusinessKey error path, replacing the race-prone UNION SELECT check.
+-- hot DELETE or recurring cancel. A running cancel keeps the row as a hold until the body ends.
+-- The unique key on business_key serializes concurrent enqueues — a duplicate insert triggers a
+-- unique violation translated to the existing DuplicateBusinessKey error path, replacing the
+-- race-prone UNION SELECT check.
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
     business_key VARCHAR(255)                 NOT NULL,
     owner_job_id BINARY(16)                   NOT NULL,
     owner_table  ENUM ('QUEUE','RECURRING')   NOT NULL,
     reserved_at  DATETIME(6)                  NOT NULL,
+    held_until     DATETIME(6) NULL,
+    held_by_node   VARCHAR(64) NULL,
+    held_claim_seq BIGINT NULL,
     PRIMARY KEY (business_key),
-    INDEX idx_bk_owner (owner_job_id)
+    INDEX idx_bk_owner (owner_job_id),
+    INDEX idx_bk_held_until (held_until)
     -- owner_job_id is polymorphic across scheduler_job (QUEUE owner) and
     -- scheduler_recurring_job (RECURRING owner); the FK is dropped at the application layer
-    -- because no single parent table exists. Cancel paths DELETE the reservation rows.
+    -- because no single parent table exists. Running cancellation may keep a hold until the body
+    -- ends; other cancel paths delete it.
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;

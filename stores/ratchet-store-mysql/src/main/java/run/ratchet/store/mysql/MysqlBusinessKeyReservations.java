@@ -17,6 +17,7 @@ package run.ratchet.store.mysql;
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -137,5 +138,154 @@ final class MysqlBusinessKeyReservations {
     q.setParameter(i++, BusinessKeyReservations.ownerTableFor(job.getJobType()));
     q.setParameter(i, nowTs);
     return i + 1;
+  }
+
+  void holdReservation(UUID id, Instant until, String nodeId, long claimSeq) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_business_key_reservation
+        SET held_until = ?, held_by_node = ?, held_claim_seq = ?
+        WHERE owner_job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, Timestamp.from(until))
+        .setParameter(2, nodeId)
+        .setParameter(3, claimSeq)
+        .setParameter(4, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
+  }
+
+  boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return ctx.timedStoreOperation(
+        "release_business_key_hold",
+        () -> {
+          try {
+            // Read without locking the owner index; delete through the primary key.
+            // language=MySQL
+            String selectSql =
+                """
+                SELECT business_key FROM scheduler_business_key_reservation
+                WHERE owner_job_id = ? AND held_claim_seq = ? AND held_until IS NOT NULL
+                """;
+            List<?> keys =
+                ctx.em()
+                    .createNativeQuery(selectSql)
+                    .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+                    .setParameter(2, claimSeq)
+                    .getResultList();
+            if (keys.isEmpty()) {
+              return false;
+            }
+            // language=MySQL
+            String deleteSql =
+                """
+                DELETE FROM scheduler_business_key_reservation
+                WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
+                  AND held_until IS NOT NULL
+                """;
+            return ctx.em()
+                    .createNativeQuery(deleteSql)
+                    .setParameter(1, keys.get(0))
+                    .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+                    .setParameter(3, claimSeq)
+                    .executeUpdate()
+                > 0;
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("release business key hold", e);
+          }
+        },
+        released -> released ? "deleted" : "miss");
+  }
+
+  int releaseBusinessKeyHolds(List<String> nodeIds) {
+    if (nodeIds.isEmpty()) {
+      return 0;
+    }
+    return ctx.timedStoreOperation(
+        "release_business_key_holds",
+        () -> {
+          try {
+            int deleted = 0;
+            for (int start = 0; start < nodeIds.size(); start += 500) {
+              List<String> chunk = nodeIds.subList(start, Math.min(start + 500, nodeIds.size()));
+              String predicate =
+                  "held_until IS NOT NULL AND held_by_node IN ("
+                      + String.join(",", Collections.nCopies(chunk.size(), "?"))
+                      + ")";
+              Query select =
+                  ctx.em()
+                      .createNativeQuery(
+                          "SELECT business_key FROM scheduler_business_key_reservation WHERE "
+                              + predicate);
+              for (int i = 0; i < chunk.size(); i++) {
+                select.setParameter(i + 1, chunk.get(i));
+              }
+              List<?> keys = select.getResultList();
+              for (Object key : keys) {
+                Query delete =
+                    ctx.em()
+                        .createNativeQuery(
+                            "DELETE FROM scheduler_business_key_reservation WHERE business_key = ?"
+                                + " AND "
+                                + predicate)
+                        .setParameter(1, key);
+                for (int i = 0; i < chunk.size(); i++) {
+                  delete.setParameter(i + 2, chunk.get(i));
+                }
+                deleted += delete.executeUpdate();
+              }
+            }
+            return deleted;
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("release business key holds", e);
+          }
+        },
+        count -> count > 0 ? "deleted" : "miss");
+  }
+
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    if (limit <= 0) {
+      return 0;
+    }
+    return ctx.timedStoreOperation(
+        "delete_expired_business_key_holds",
+        () -> {
+          try {
+            // language=MySQL
+            String selectSql =
+                """
+                SELECT business_key FROM scheduler_business_key_reservation
+                WHERE held_until IS NOT NULL AND held_until < ?
+                ORDER BY held_until LIMIT ?
+                """;
+            List<?> keys =
+                ctx.em()
+                    .createNativeQuery(selectSql)
+                    .setParameter(1, Timestamp.from(now))
+                    .setParameter(2, limit)
+                    .getResultList();
+            // language=MySQL
+            String deleteSql =
+                """
+                DELETE FROM scheduler_business_key_reservation
+                WHERE business_key = ? AND held_until IS NOT NULL AND held_until < ?
+                """;
+            int deleted = 0;
+            for (Object key : keys) {
+              deleted +=
+                  ctx.em()
+                      .createNativeQuery(deleteSql)
+                      .setParameter(1, key)
+                      .setParameter(2, Timestamp.from(now))
+                      .executeUpdate();
+            }
+            return deleted;
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("delete expired business key holds", e);
+          }
+        },
+        count -> count > 0 ? "deleted" : "miss");
   }
 }

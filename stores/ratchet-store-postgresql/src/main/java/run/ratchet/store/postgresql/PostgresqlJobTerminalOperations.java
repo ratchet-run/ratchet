@@ -254,25 +254,47 @@ final class PostgresqlJobTerminalOperations {
   }
 
   private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
+    return lockExpectedQueueClaim(id, expected) != null;
+  }
+
+  private Object[] lockExpectedQueueClaim(UUID id, JobStatus expected) {
     // The terminal cancel path deletes any live queue row after updating the cold row. Lock the
     // expected hot row first so this multi-statement path preserves CAS semantics inside the
     // method transaction: either this caller owns the expected status, or it reports a miss.
     // language=PostgreSQL
     String gateSql =
         """
-        SELECT job_id
+        SELECT picked_by, claim_seq
         FROM scheduler_job_queue
         WHERE job_id = ? AND status = ?
         FOR UPDATE
         """;
     @SuppressWarnings("unchecked")
-    List<Object> rows =
+    List<Object[]> rows =
         ctx.em()
             .createNativeQuery(gateSql)
             .setParameter(1, id)
             .setParameter(2, expected.name())
             .getResultList();
-    return !rows.isEmpty();
+    return rows.isEmpty() ? null : rows.get(0);
+  }
+
+  boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return ctx.timedStoreOperation(
+        "cancel_running_job",
+        () -> {
+          try {
+            Object[] claim = lockExpectedQueueClaim(id, JobStatus.RUNNING);
+            return claim != null && doCancelJob(id, keyHeldUntil, claim);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("cancel running job", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
+  }
+
+  boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return reservations.releaseBusinessKeyHold(jobId, claimSeq);
   }
 
   boolean cancelJob(UUID id) {
@@ -281,6 +303,10 @@ final class PostgresqlJobTerminalOperations {
   }
 
   private boolean doCancelJob(UUID id) {
+    return doCancelJob(id, null, null);
+  }
+
+  private boolean doCancelJob(UUID id, @Nullable Instant keyHeldUntil, Object[] claim) {
     try {
       // language=PostgreSQL
       String selectSql =
@@ -360,7 +386,12 @@ final class PostgresqlJobTerminalOperations {
       if (!batchRows.isEmpty() && batchRows.get(0) != null) {
         batches.incrementFailedAtomic(PostgresqlJobRowMapper.uuidOrNull(batchRows.get(0)));
       }
-      reservations.deleteReservationByOwner(id);
+      if (keyHeldUntil == null) {
+        reservations.deleteReservationByOwner(id);
+      } else {
+        reservations.holdReservation(
+            id, keyHeldUntil, (String) claim[0], ((Number) claim[1]).longValue());
+      }
       return coldUpdated > 0;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cancel job", e);

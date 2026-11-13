@@ -17,8 +17,12 @@ package run.ratchet.store.postgresql;
 
 import jakarta.persistence.Query;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.BusinessKeyHolder;
@@ -27,6 +31,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.util.BusinessKeyReservations;
 import run.ratchet.store.util.SqlIdempotencyKeys;
 import run.ratchet.store.util.StatusClassifier;
@@ -126,6 +131,44 @@ final class PostgresqlJobReadOperations {
     }
   }
 
+  @SuppressWarnings("unchecked")
+  Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    List<UUID> uniqueIds = List.copyOf(new LinkedHashSet<>(ids));
+    if (uniqueIds.size() > JobCrudStore.STATUS_READ_LIMIT) {
+      throw new IllegalArgumentException("Too many job ids");
+    }
+    if (uniqueIds.isEmpty()) {
+      return Map.of();
+    }
+    try {
+      // language=PostgreSQL
+      String sql =
+          """
+          SELECT c.job_id, q.status, c.terminal_status
+          FROM scheduler_job c
+          LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+          WHERE c.job_id IN (%s)
+          """
+              .formatted(String.join(",", Collections.nCopies(uniqueIds.size(), "?")));
+      Query query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (UUID id : uniqueIds) {
+        query.setParameter(parameter++, id);
+      }
+      List<Object[]> rows = query.getResultList();
+      Map<UUID, JobStatus> result = new HashMap<>();
+      for (Object[] row : rows) {
+        String status = (String) (row[1] != null ? row[1] : row[2]);
+        if (status != null) {
+          result.put(PostgresqlJobRowMapper.uuidOrNull(row[0]), JobStatus.valueOf(status));
+        }
+      }
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find job statuses by ids", e);
+    }
+  }
+
   List<JobEntity> findByIds(List<UUID> ids) {
     try {
       if (ids.isEmpty()) {
@@ -175,12 +218,15 @@ final class PostgresqlJobReadOperations {
       // language=PostgreSQL
       String sql =
           """
-          SELECT br.owner_job_id, br.owner_table, q.status, q.job_type, r.is_paused
+          SELECT br.owner_job_id, br.owner_table, q.status, q.job_type, r.is_paused,
+                 br.held_until, c.job_type
           FROM scheduler_business_key_reservation br
           LEFT JOIN scheduler_job_queue q
             ON br.owner_table = 'QUEUE' AND q.job_id = br.owner_job_id
           LEFT JOIN scheduler_recurring_job r
             ON br.owner_table = 'RECURRING' AND r.id = br.owner_job_id
+          LEFT JOIN scheduler_job c
+            ON br.held_until IS NOT NULL AND c.job_id = br.owner_job_id
           WHERE br.business_key = ?
           """;
       List<Object[]> rows =
@@ -190,6 +236,15 @@ final class PostgresqlJobReadOperations {
       }
       Object[] row = rows.get(0);
       UUID id = PostgresqlJobRowMapper.uuidOrNull(row[0]);
+      if (row[5] != null) {
+        return row[6] == null
+            ? Optional.empty()
+            : Optional.of(
+                new BusinessKeyHolder(
+                    id,
+                    JobExecutionType.valueOf((String) row[6]).toPublicType(),
+                    JobStatus.CANCELED));
+      }
       if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(row[1]) && row[2] != null) {
         JobStatus status = JobStatus.valueOf((String) row[2]);
         if (!StatusClassifier.isLiveStatus(status)) {

@@ -236,6 +236,33 @@ public abstract class AbstractSchemaMigratorContract {
   }
 
   @Test
+  void businessKeyHoldMigrationIsIdempotentOnRepeat() throws Exception {
+    resetDatabase();
+    String version = appliedVersion(newMigrator().migrate(), "business_key_hold");
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      boolean upper = metadata.storesUpperCaseIdentifiers();
+      try (ResultSet columns =
+          metadata.getColumns(
+              connection.getCatalog(),
+              connection.getSchema(),
+              upper ? "SCHEDULER_BUSINESS_KEY_RESERVATION" : "scheduler_business_key_reservation",
+              upper ? "HELD_UNTIL" : "held_until")) {
+        assertTrue(columns.next(), "scheduler_business_key_reservation.held_until must exist");
+      }
+      try (var statement =
+          connection.prepareStatement("DELETE FROM ratchet_schema_version WHERE version = ?")) {
+        statement.setString(1, version);
+        statement.executeUpdate();
+      }
+    }
+    var repeated = newMigrator().migrate();
+    assertEquals(
+        List.of(version),
+        repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+  }
+
+  @Test
   void partitionSetsMigrationIsIdempotentOnRepeat() throws Exception {
     resetDatabase();
     String version = appliedVersion(newMigrator().migrate(), "partition_sets");

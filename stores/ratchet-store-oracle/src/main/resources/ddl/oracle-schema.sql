@@ -235,17 +235,22 @@ CREATE INDEX IF NOT EXISTS idx_signal_timeout_status ON scheduler_job_queue (sta
 CREATE INDEX IF NOT EXISTS idx_signal_delivery_id ON scheduler_job_queue (signal_delivery_id);
 
 -- 4b. Business-key active-uniqueness reservation table.
+-- A held row keeps a business-key reservation after a running job is cancelled, until its body ends.
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
     business_key VARCHAR2(255) NOT NULL,
     owner_job_id RAW(16)       NOT NULL,
     owner_table  VARCHAR2(16)  NOT NULL,
     reserved_at  TIMESTAMP(6)  NOT NULL,
+    held_until     TIMESTAMP(6),
+    held_by_node   VARCHAR2(64),
+    held_claim_seq NUMBER(19),
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
     CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);
+CREATE INDEX IF NOT EXISTS idx_bk_held_until ON scheduler_business_key_reservation (held_until);
 
 -- Lookup/relationship indexes (cold).
 CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on, job_id);

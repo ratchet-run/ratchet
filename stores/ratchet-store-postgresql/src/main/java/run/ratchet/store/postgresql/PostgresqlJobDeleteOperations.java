@@ -300,4 +300,12 @@ final class PostgresqlJobDeleteOperations {
       query.setParameter(index++, parameter);
     }
   }
+
+  int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return reservations.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return reservations.deleteExpiredBusinessKeyHolds(now, limit);
+  }
 }

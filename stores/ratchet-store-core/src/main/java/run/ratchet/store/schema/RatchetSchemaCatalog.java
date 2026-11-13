@@ -54,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 20;
+  public static final int CURRENT_VERSION = 21;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -303,14 +303,18 @@ public final class RatchetSchemaCatalog {
   private static Table schedulerBusinessKeyReservation() {
     // fk_bk_owner_job is intentionally omitted. owner_job_id is polymorphic — reservations can be
     // owned by either scheduler_job rows (QUEUE) or scheduler_recurring_job rows (RECURRING) — so
-    // a single FK is not possible. Cancel paths DELETE the reservation rows.
+    // a single FK is not possible. Running cancellation may retain a hold until the body ends.
     return Table.builder("scheduler_business_key_reservation")
         .column(required("business_key", TEXT))
         .column(required("owner_job_id", UUID))
         .column(required("owner_table", TEXT))
         .column(required("reserved_at", TIMESTAMP_TZ))
+        .column(nullable("held_until", TIMESTAMP_TZ))
+        .column(nullable("held_by_node", TEXT))
+        .column(nullable("held_claim_seq", INT64))
         .primaryKey("business_key")
         .index(Index.of("idx_bk_owner", "owner_job_id"))
+        .index(Index.of("idx_bk_held_until", "held_until"))
         .build();
   }
 

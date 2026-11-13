@@ -386,11 +386,11 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   // ───────────────────────── concurrency races ─────────────────────────
 
   /**
-   * The retry path (background timer in {@code RetryBufferDrainer}) can race with an operator-
-   * triggered {@code cancelJob}. Either outcome — RESET-wins (PENDING, BK held) or CANCEL-wins
-   * (CANCELED, BK released) — is correct, but the BK state MUST match the winner. A torn write (job
-   * reset to PENDING but BK released by cancel, or job CANCELED but BK still reserved) leaks the BK
-   * and silently blocks future enqueues.
+   * The retry path (background timer in {@code RetryBufferDrainer}) can race with an
+   * operator-triggered {@code cancelJob}. Either outcome — RESET-wins (PENDING, BK held) or
+   * CANCEL-wins (CANCELED, BK released) — is correct, but the BK state MUST match the winner. A
+   * torn write (job reset to PENDING but BK released by cancel, or job CANCELED but BK still
+   * reserved) leaks the BK and silently blocks future enqueues.
    */
   @Test
   void concurrentResetAndCancel_BKStateMatchesWinner() {
@@ -601,6 +601,23 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     assertEquals(job.getId(), claim.getId());
     assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
     assertEquals(JobStatus.CANCELED, store().getJobStatus(job.getId()));
+    assertReservationConflict(
+        assertThrows(RuntimeException.class, () -> persist(jobWithBusinessKey(bk))));
+  }
+
+  @Test
+  void save_canceledHeldJob_keepsHold() {
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var canceled = store().findById(job.getId()).orElseThrow();
+    canceled.setSupersededBy(UUID.randomUUID());
+    store().save(canceled);
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
     assertReservationConflict(
         assertThrows(RuntimeException.class, () -> persist(jobWithBusinessKey(bk))));
   }

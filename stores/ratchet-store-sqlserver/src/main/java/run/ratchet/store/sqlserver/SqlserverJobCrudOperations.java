@@ -274,16 +274,16 @@ final class SqlserverJobCrudOperations implements JobCrudStore, JobBulkStore, Jo
 
   @Override
   public int releaseBusinessKeyHolds(List<String> nodeIds) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return deletes.releaseBusinessKeyHolds(nodeIds);
   }
 
   @Override
   public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return deletes.deleteExpiredBusinessKeyHolds(now, limit);
   }
 
   @Override
   public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
-    throw new UnsupportedOperationException("status read not implemented yet");
+    return reads.findStatusesByIds(ids);
   }
 }

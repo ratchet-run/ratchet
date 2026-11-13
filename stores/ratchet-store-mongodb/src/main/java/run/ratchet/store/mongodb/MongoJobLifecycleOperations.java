@@ -492,6 +492,10 @@ final class MongoJobLifecycleOperations
 
   @Override
   public boolean cancelJob(UUID id) {
+    return cancelJob(id, false, null);
+  }
+
+  private boolean cancelJob(UUID id, boolean runningOnly, @Nullable Instant keyHeldUntil) {
     return booleanMutation(
         "cancel_job",
         () -> {
@@ -499,6 +503,7 @@ final class MongoJobLifecycleOperations
           return transactionalStatusMutation(
               id,
               JobStatus.CANCELED,
+              keyHeldUntil,
               session -> {
                 UpdateResult runningResult =
                     ctx.jobs()
@@ -516,6 +521,9 @@ final class MongoJobLifecycleOperations
                                 set(TERMINATED_AT, DocumentMapper.toDate(now)),
                                 inc(VERSION, 1)));
                 if (runningResult.getModifiedCount() > 0) {
+                  return runningResult;
+                }
+                if (runningOnly) {
                   return runningResult;
                 }
                 return ctx.jobs()
@@ -921,9 +929,25 @@ final class MongoJobLifecycleOperations
 
   private boolean transactionalStatusMutation(
       UUID id, JobStatus status, Function<ClientSession, UpdateResult> mutation) {
+    return transactionalStatusMutation(id, status, null, mutation);
+  }
+
+  private boolean transactionalStatusMutation(
+      UUID id,
+      JobStatus status,
+      @Nullable Instant keyHeldUntil,
+      Function<ClientSession, UpdateResult> mutation) {
     try (ClientSession session = ctx.startSession()) {
       TransactionBody<Boolean> body =
           () -> {
+            Document claim =
+                keyHeldUntil == null
+                    ? null
+                    : ctx.jobs()
+                        .find(session, and(eq(ID, id), eq(STATUS, "RUNNING")))
+                        .projection(new Document(PICKED_BY, 1).append(CLAIM_SEQ, 1))
+                        .first();
+            if (keyHeldUntil != null && claim == null) return false;
             UpdateResult result = mutation.apply(session);
             if (result.getModifiedCount() == 0) {
               return false;
@@ -941,7 +965,7 @@ final class MongoJobLifecycleOperations
                 }
               }
             }
-            reservations.syncForStoredJob(session, id, status);
+            reservations.syncForStoredJob(session, id, status, keyHeldUntil, claim);
             return true;
           };
       if (status == JobStatus.CANCELED) {
@@ -982,11 +1006,11 @@ final class MongoJobLifecycleOperations
 
   @Override
   public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return cancelJob(id, true, keyHeldUntil);
   }
 
   @Override
   public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return reservations.releaseBusinessKeyHold(jobId, claimSeq);
   }
 }

@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -712,7 +713,16 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
-    throw new UnsupportedOperationException("status read not implemented yet");
+  public synchronized Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    List<UUID> uniqueIds = List.copyOf(new LinkedHashSet<>(ids));
+    if (uniqueIds.size() > STATUS_READ_LIMIT) {
+      throw new IllegalArgumentException("Too many job ids");
+    }
+    Map<UUID, JobStatus> result = new HashMap<>();
+    for (UUID id : uniqueIds) {
+      JobEntity job = jobs.get(id);
+      if (job != null && job.getStatus() != null) result.put(id, job.getStatus());
+    }
+    return result;
   }
 }

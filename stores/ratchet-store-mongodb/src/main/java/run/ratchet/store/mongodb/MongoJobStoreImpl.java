@@ -1202,26 +1202,26 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return lifecycle.cancelRunningJob(id, keyHeldUntil);
   }
 
   @Override
   public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return lifecycle.releaseBusinessKeyHold(jobId, claimSeq);
   }
 
   @Override
   public int releaseBusinessKeyHolds(List<String> nodeIds) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return crud.releaseBusinessKeyHolds(nodeIds);
   }
 
   @Override
   public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+    return crud.deleteExpiredBusinessKeyHolds(now, limit);
   }
 
   @Override
   public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
-    throw new UnsupportedOperationException("status read not implemented yet");
+    return crud.findStatusesByIds(ids);
   }
 }
