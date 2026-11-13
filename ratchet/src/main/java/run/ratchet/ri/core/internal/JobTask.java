@@ -1154,10 +1154,13 @@ public class JobTask implements Callable<Void> {
     if (validationFacade.shouldNotRetry(ex)) {
       // The stored count is not incremented, but observers get the 1-based attempt that failed.
       int failedAttempt = job.getAttempts() + 1;
-      observabilityFacade.recordJobFailure(job, ex, failedAttempt);
-      currentScope.failure(ex.getClass().getName(), sanitized, failedAttempt);
       logIfTimeout(ex);
       handleNonRetryableFailure(ex, job.getAttempts(), sanitized);
+      // A cancel that won the failure write counts as a cancellation only.
+      if (!cancelHandled) {
+        observabilityFacade.recordJobFailure(job, ex, failedAttempt);
+        currentScope.failure(ex.getClass().getName(), sanitized, failedAttempt);
+      }
       return;
     }
 

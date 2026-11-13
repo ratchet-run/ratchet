@@ -69,6 +69,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -82,6 +83,7 @@ class WorkflowSchedulerTest {
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobCrudStore jobCrudStore;
+  @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private WorkflowConditionStore conditionStore;
   @Mock private WorkflowConditionEvaluator conditionEvaluator;
@@ -110,10 +112,17 @@ class WorkflowSchedulerTest {
   @BeforeEach
   void setUp() {
     lenient().when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    lenient()
+        .when(
+            jobBatchStatusStore.compareAndSwapStatus(
+                any(), any(), eq(JobStatus.CANCELED), isNull()))
+        .thenReturn(false);
     scheduler =
         new WorkflowScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             conditionStore,
             conditionEvaluator,
             FIXED_CLOCK,
@@ -149,18 +158,25 @@ class WorkflowSchedulerTest {
         .thenReturn(List.of(child, callback));
     when(jobCrudStore.findDependants(eq(callback.getId()), anyInt(), anyInt()))
         .thenReturn(List.of(step));
-    when(jobTerminalStore.cancelJob(callback.getId()))
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            callback.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
         .thenAnswer(
             invocation -> {
               callback.setStatus(JobStatus.CANCELED);
               return true;
             });
-    when(jobTerminalStore.cancelJob(step.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            step.getId(), JobStatus.WAITING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     assertEquals(1, scheduler.cancelBatchCallbacks(parent));
-    verify(jobTerminalStore).cancelJob(callback.getId());
-    verify(jobTerminalStore).cancelJob(step.getId());
-    verify(jobTerminalStore, never()).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(callback.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(step.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(child.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(child.getId()), any());
     verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
   }
 
@@ -195,9 +211,13 @@ class WorkflowSchedulerTest {
         .thenReturn(List.of());
     when(jobCrudStore.findDependants(eq(callbackDescendant.getId()), anyInt(), anyInt()))
         .thenReturn(List.of());
-    when(jobTerminalStore.cancelJob(any(UUID.class)))
+    when(jobBatchStatusStore.compareAndSwapStatus(any(), any(), eq(JobStatus.CANCELED), isNull()))
         .thenAnswer(
             invocation -> {
+              if (linearDescendant.getId().equals(invocation.getArgument(0))
+                  && invocation.getArgument(1) != JobStatus.WAITING) {
+                return false;
+              }
               if (callback.getId().equals(invocation.getArgument(0))) {
                 callback.setStatus(JobStatus.CANCELED);
               }
@@ -206,16 +226,23 @@ class WorkflowSchedulerTest {
 
     assertEquals(1, scheduler.cancelBatchCallbacks(parent));
 
-    InOrder order = inOrder(jobCrudStore, jobTerminalStore);
+    InOrder order = inOrder(jobCrudStore, jobBatchStatusStore);
     order.verify(jobCrudStore).findDependants(parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
-    order.verify(jobTerminalStore).cancelJob(linear.getId());
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(linear.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
     order
         .verify(jobCrudStore)
         .findDependants(
             parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, JobCrudStore.DEFAULT_PAGE_LIMIT);
-    verify(jobTerminalStore).cancelJob(callback.getId());
-    verify(jobTerminalStore).cancelJob(linearDescendant.getId());
-    verify(jobTerminalStore).cancelJob(callbackDescendant.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(callback.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(
+            linearDescendant.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(
+            callbackDescendant.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
     for (JobEntity child : firstPage) {
       if (child.getJobType() == JobExecutionType.BATCH_CHILD) {
         verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
@@ -297,7 +324,9 @@ class WorkflowSchedulerTest {
     assertEquals(FIXED_NOW, mutation.scheduledTime());
     assertEquals(ChainScheduler.CHAIN_LOCK_TIME, child.getScheduledTime());
     verify(jobCrudStore, never()).save(any());
-    verify(jobTerminalStore, never()).cancelJob(any());
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(any(), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(any(), any());
     assertTrue(plan.newWorkAvailable());
   }
 
@@ -313,7 +342,9 @@ class WorkflowSchedulerTest {
     WorkflowCompletionPlan plan = scheduler.planCompletion(parent, false);
     assertEquals(JobStatus.CANCELED, plan.dependencies().get(0).status());
     assertEquals(JobStatus.PENDING, child.getStatus());
-    verify(jobTerminalStore, never()).cancelJob(any());
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(any(), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(any(), any());
   }
 
   @Test
@@ -345,11 +376,14 @@ class WorkflowSchedulerTest {
     when(conditionEvaluator.evaluate(first, parent)).thenReturn(true);
     when(jobCrudStore.findById(matched.getId())).thenReturn(Optional.of(matched));
     when(jobCrudStore.findById(unmatched.getId())).thenReturn(Optional.of(unmatched));
-    when(jobTerminalStore.cancelJob(unmatched.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            unmatched.getId(), JobStatus.WAITING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     scheduler.scheduleNext(parent);
 
-    verify(jobTerminalStore).cancelJob(unmatched.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(unmatched.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -365,13 +399,19 @@ class WorkflowSchedulerTest {
     when(conditionEvaluator.evaluate(second, parent)).thenReturn(false);
     when(jobCrudStore.findById(pending.getId())).thenReturn(Optional.of(pending));
     when(jobCrudStore.findById(waiting.getId())).thenReturn(Optional.of(waiting));
-    when(jobTerminalStore.cancelJob(pending.getId())).thenReturn(true);
-    when(jobTerminalStore.cancelJob(waiting.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            pending.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            waiting.getId(), JobStatus.WAITING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     assertFalse(scheduler.scheduleNext(parent));
 
-    verify(jobTerminalStore).cancelJob(pending.getId());
-    verify(jobTerminalStore).cancelJob(waiting.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(pending.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(waiting.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
     verify(jobCrudStore, never()).save(pending);
     verify(jobCrudStore, never()).save(waiting);
   }
@@ -399,6 +439,8 @@ class WorkflowSchedulerTest {
         new WorkflowScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             conditionStore,
             conditionEvaluator,
             FIXED_CLOCK,
@@ -505,13 +547,16 @@ class WorkflowSchedulerTest {
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
     when(conditionEvaluator.evaluate(condition, parent)).thenReturn(false);
     when(jobCrudStore.findById(failureBranch.getId())).thenReturn(Optional.of(failureBranch));
-    when(jobTerminalStore.cancelJob(failureBranch.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            failureBranch.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
     when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
         .thenReturn(List.of(failureBranch, linearChild));
 
     assertTrue(scheduler.scheduleNext(parent));
 
-    verify(jobTerminalStore).cancelJob(failureBranch.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(failureBranch.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
     verify(jobCrudStore).save(linearChild);
     assertEquals(FIXED_NOW, linearChild.getScheduledTime());
   }
@@ -532,13 +577,18 @@ class WorkflowSchedulerTest {
         .thenReturn(List.of(failureBranch, linearChild));
     when(jobCrudStore.findDependants(eq(linearChild.getId()), anyInt(), anyInt()))
         .thenReturn(List.of());
-    when(jobTerminalStore.cancelJob(linearChild.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            linearChild.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     assertTrue(scheduler.scheduleNext(parent));
 
     verify(jobCrudStore).save(failureBranch);
-    verify(jobTerminalStore).cancelJob(linearChild.getId());
-    verify(jobTerminalStore, never()).cancelJob(failureBranch.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(linearChild.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(failureBranch.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(failureBranch.getId()), any());
     assertEquals(FIXED_NOW, failureBranch.getScheduledTime());
   }
 
@@ -550,11 +600,14 @@ class WorkflowSchedulerTest {
     when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
         .thenReturn(List.of(child));
     when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());
-    when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     assertFalse(scheduler.scheduleNext(parent));
 
-    verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -566,17 +619,23 @@ class WorkflowSchedulerTest {
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
     when(conditionEvaluator.evaluate(condition, parent)).thenReturn(false);
     when(jobCrudStore.findById(branch.getId())).thenReturn(Optional.of(branch));
-    when(jobTerminalStore.cancelJob(branch.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            branch.getId(), JobStatus.WAITING, JobStatus.CANCELED, null))
+        .thenReturn(true);
     when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
         .thenReturn(List.of(linearChild));
     when(jobCrudStore.findDependants(eq(linearChild.getId()), anyInt(), anyInt()))
         .thenReturn(List.of());
-    when(jobTerminalStore.cancelJob(linearChild.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            linearChild.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     assertFalse(scheduler.scheduleNext(parent));
 
-    verify(jobTerminalStore).cancelJob(branch.getId());
-    verify(jobTerminalStore).cancelJob(linearChild.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(branch.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(linearChild.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -595,15 +654,21 @@ class WorkflowSchedulerTest {
     when(jobCrudStore.findById(secondChild.getId())).thenReturn(Optional.of(secondChild));
     when(jobCrudStore.findById(firstChild.getId())).thenReturn(Optional.of(firstChild));
     when(jobCrudStore.findById(thirdChild.getId())).thenReturn(Optional.of(thirdChild));
-    when(jobTerminalStore.cancelJob(firstChild.getId())).thenReturn(true);
-    when(jobTerminalStore.cancelJob(thirdChild.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            firstChild.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            thirdChild.getId(), JobStatus.WAITING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     assertTrue(scheduler.scheduleNext(parent));
 
     verify(jobCrudStore).save(secondChild);
     verify(conditionEvaluator, never()).evaluate(third, parent);
-    verify(jobTerminalStore).cancelJob(firstChild.getId());
-    verify(jobTerminalStore).cancelJob(thirdChild.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(firstChild.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(thirdChild.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -623,7 +688,9 @@ class WorkflowSchedulerTest {
     assertTrue(scheduler.scheduleNext(parent));
 
     verify(jobCrudStore).save(existingChild);
-    verify(jobTerminalStore, never()).cancelJob(missingChildId);
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(missingChildId), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(missingChildId), any());
   }
 
   @Test
@@ -637,12 +704,15 @@ class WorkflowSchedulerTest {
     when(conditionEvaluator.evaluate(condition, parent))
         .thenThrow(new IllegalStateException("predicate permanently unevaluable"));
     when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
-    when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     // No throw: the broken branch is canceled and the result commits; the parent is left as-is.
     assertFalse(scheduler.scheduleNext(parent));
 
-    verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
     verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt(), isNull());
     assertEquals(JobStatus.SUCCEEDED, parent.getStatus());
   }
@@ -661,7 +731,9 @@ class WorkflowSchedulerTest {
         assertThrows(KeyProviderUnavailableException.class, () -> scheduler.scheduleNext(parent));
 
     assertEquals("KMS unreachable", thrown.getMessage());
-    verify(jobTerminalStore, never()).cancelJob(child.getId());
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(child.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(child.getId()), any());
   }
 
   @Test
@@ -672,11 +744,14 @@ class WorkflowSchedulerTest {
         .thenReturn(List.of(child));
     when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of());
-    when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     scheduler.cancelChain(parent);
 
-    verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -694,14 +769,22 @@ class WorkflowSchedulerTest {
     when(jobCrudStore.findById(pending.getId())).thenReturn(Optional.of(pending));
     when(jobCrudStore.findById(waiting.getId())).thenReturn(Optional.of(waiting));
     when(jobCrudStore.findById(running.getId())).thenReturn(Optional.of(running));
-    when(jobTerminalStore.cancelJob(pending.getId())).thenReturn(true);
-    when(jobTerminalStore.cancelJob(waiting.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            pending.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            waiting.getId(), JobStatus.WAITING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     scheduler.cancelChain(parent);
 
-    verify(jobTerminalStore).cancelJob(pending.getId());
-    verify(jobTerminalStore).cancelJob(waiting.getId());
-    verify(jobTerminalStore, never()).cancelJob(running.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(pending.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(waiting.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(running.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(running.getId()), any());
   }
 
   @Test
@@ -715,7 +798,9 @@ class WorkflowSchedulerTest {
 
     scheduler.cancelChain(parent);
 
-    verify(jobTerminalStore, never()).cancelJob(missingChildId);
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(missingChildId), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(missingChildId), any());
   }
 
   @Test
@@ -726,11 +811,14 @@ class WorkflowSchedulerTest {
     when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt())).thenReturn(List.of());
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
     when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
-    when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.WAITING, JobStatus.CANCELED, null))
+        .thenReturn(true);
 
     scheduler.cancelChain(parent);
 
-    verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(child.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -746,6 +834,9 @@ class WorkflowSchedulerTest {
     when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt())).thenReturn(List.of());
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
     when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(false);
     when(jobTerminalStore.cancelRunningJob(child.getId(), heldUntil)).thenReturn(true);
 
     scheduler.cancelChain(parent);
@@ -758,6 +849,8 @@ class WorkflowSchedulerTest {
     return new WorkflowScheduler(
         jobCrudStore,
         jobTerminalStore,
+        jobBatchStatusStore,
+        RatchetOptions.defaults(),
         conditionStore,
         conditionEvaluator,
         FIXED_CLOCK,

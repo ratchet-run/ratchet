@@ -252,6 +252,7 @@ class RatchetExecutionConfiguration {
   @ConditionalOnMissingBean
   WorkflowScheduler workflowScheduler(
       JobStore store,
+      RatchetOptions options,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
       InternalEventPublisher eventPublisher,
@@ -259,6 +260,8 @@ class RatchetExecutionConfiguration {
     return new WorkflowScheduler(
         store,
         store,
+        store,
+        options,
         store.capability(WorkflowConditionStore.class).orElse(null),
         conditionEvaluator,
         clock,

@@ -36,6 +36,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.api.event.ChainStartedEvent;
@@ -53,6 +54,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -76,14 +78,12 @@ public class WorkflowScheduler extends ChainScheduler {
 
   private final WorkflowConditionStore conditionStore;
   private final WorkflowConditionEvaluator conditionEvaluator;
-  private final JobTerminalStore jobTerminalStore;
   private final Clock clock;
 
   protected WorkflowScheduler() {
     super();
     this.conditionStore = null;
     this.conditionEvaluator = null;
-    this.jobTerminalStore = null;
     this.clock = null;
   }
 
@@ -91,6 +91,8 @@ public class WorkflowScheduler extends ChainScheduler {
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
       JobTerminalStore jobTerminalStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      RatchetOptions options,
       Instance<WorkflowConditionStore> conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
@@ -99,6 +101,8 @@ public class WorkflowScheduler extends ChainScheduler {
     this(
         jobCrudStore,
         jobTerminalStore,
+        jobBatchStatusStore,
+        options,
         conditionStore.isResolvable() ? conditionStore.get() : null,
         conditionEvaluator,
         clock,
@@ -109,13 +113,21 @@ public class WorkflowScheduler extends ChainScheduler {
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
       JobTerminalStore jobTerminalStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      RatchetOptions options,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
       InternalEventPublisher eventPublisher,
       AfterCommitRegistrar afterCommitRegistrar) {
-    super(jobCrudStore, jobTerminalStore, clock, eventPublisher, afterCommitRegistrar);
-    this.jobTerminalStore = jobTerminalStore;
+    super(
+        jobCrudStore,
+        jobTerminalStore,
+        jobBatchStatusStore,
+        options,
+        clock,
+        eventPublisher,
+        afterCommitRegistrar);
     this.conditionStore = conditionStore;
     this.conditionEvaluator = conditionEvaluator;
     this.clock = clock;
@@ -145,9 +157,7 @@ public class WorkflowScheduler extends ChainScheduler {
               && childJob.getStatus() != JobStatus.WAITING)) {
         continue;
       }
-      // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
-      // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
-      if (jobTerminalStore.cancelJob(childJob.getId())) {
+      if (cancelDependant(childJob)) {
         canceledCount.incrementAndGet();
         log.infof(
             "Canceled workflow branch job %s due to parent job %s failure",
@@ -172,7 +182,7 @@ public class WorkflowScheduler extends ChainScheduler {
     int count = 0;
     for (JobEntity child : children.values()) {
       if ((child.getStatus() == JobStatus.PENDING || child.getStatus() == JobStatus.WAITING)
-          && jobTerminalStore.cancelJob(child.getId())) {
+          && cancelDependant(child)) {
         count++;
       }
     }
@@ -294,7 +304,7 @@ public class WorkflowScheduler extends ChainScheduler {
               && childJob.getStatus() != JobStatus.WAITING)) {
         continue;
       }
-      if (jobTerminalStore.cancelJob(childJob.getId())) {
+      if (cancelDependant(childJob)) {
         log.infof(
             "Canceled unmatched workflow branch job %s for condition %s",
             childJob.getId(), condition.getId());

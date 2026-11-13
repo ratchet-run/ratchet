@@ -304,13 +304,15 @@ Each attempt has its own request flag, so a retry starts with the flag cleared. 
 
 When a cancelled job stops by throwing any exception, the attempt ends as `CANCELED`. Its execution record is `CANCELED`, and there is no retry, DLQ entry, `JobExecutionTimedOutEvent` or `onFailure` callback. The cancel publishes the one `JobCancelledEvent`. It also cancels the chain and workflow steps that wait on the job, so they never start, whatever the body does next. A resource permit held by the job is released when the body ends.
 
+A step that waits on a cancelled or failed job can start just before Ratchet cancels it. Ratchet then cancels that step as a running job, and holds its business key as described below. The step gets its stop request from the store check every 5 seconds, so the request arrives within about 10 seconds. No `JobCancelledEvent` is published for the step. The `ChainFailedEvent` for a cancelled job has the error message `Job was canceled`, because a cancelled job has no error of its own.
+
 If the job has a business key, the key stays held until the body ends, so a new job with the same key cannot run alongside the old body. While the key is held, `submit()` throws `DuplicateBusinessKeyException` and `findBusinessKeyHolder` returns the cancelled job with status `CANCELED`. The hold ends in one of three ways:
 
 - The worker releases it when the body ends.
 - The orphan scan on another node releases it when it cleans up the node that ran the body. A node also releases its own holds when it starts.
 - The orphan scan deletes it once its limit has passed. The limit is the cancel time plus the job's timeout (or `ratchet.timeout.default-sla-seconds`) plus `ratchet.node.orphan-grace-seconds`.
 
-If the worker thread is interrupted when the body ends, for example by the watchdog at the deadline or by a node shutdown, the worker neither checks for the cancel nor releases the key. The attempt's execution record can then show a failure, and the key can stay held until the limit. Only `cancelJob` and `replace` of a running job hold the key. A hard timeout does not.
+If the worker thread is interrupted when the body ends, for example by the watchdog at the deadline or by a node shutdown, the worker neither checks for the cancel nor releases the key. The attempt's execution record can then show a failure, and the key can stay held until the limit. Only `cancelJob` and `replace` of a running job, and the cancel of a running step described above, hold the key. A hard timeout does not.
 
 ## Performance Characteristics
 

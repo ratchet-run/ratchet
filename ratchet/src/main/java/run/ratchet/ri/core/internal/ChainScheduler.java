@@ -27,12 +27,14 @@ import java.util.Set;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
@@ -58,6 +60,8 @@ public class ChainScheduler {
   protected final JobTerminalStore jobTerminalStore;
   protected final InternalEventPublisher eventPublisher;
   private final Clock clock;
+  private final JobBatchStatusStore jobBatchStatusStore;
+  private final RatchetOptions options;
   protected final AfterCommitRegistrar afterCommitRegistrar;
 
   protected ChainScheduler() {
@@ -65,17 +69,23 @@ public class ChainScheduler {
     this.jobTerminalStore = null;
     this.eventPublisher = null;
     this.clock = null;
+    this.jobBatchStatusStore = null;
+    this.options = null;
     this.afterCommitRegistrar = null;
   }
 
   public ChainScheduler(
       JobCrudStore jobCrudStore,
       JobTerminalStore jobTerminalStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      RatchetOptions options,
       Clock clock,
       InternalEventPublisher eventPublisher,
       AfterCommitRegistrar afterCommitRegistrar) {
     this.jobCrudStore = jobCrudStore;
     this.jobTerminalStore = jobTerminalStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
+    this.options = options != null ? options : RatchetOptions.defaults();
     this.clock = clock != null ? clock : Clock.systemUTC();
     this.eventPublisher = eventPublisher;
     this.afterCommitRegistrar = afterCommitRegistrar;
@@ -111,9 +121,7 @@ public class ChainScheduler {
               || status == JobStatus.WAITING
               || (failed.getJobType() == JobExecutionType.BATCH_PARENT
                   && status == JobStatus.PAUSED)) {
-            // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
-            // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
-            if (jobTerminalStore.cancelJob(child.getId())) {
+            if (cancelDependant(child)) {
               log.warnf(
                   "Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
               canceled = true;
@@ -130,6 +138,20 @@ public class ChainScheduler {
     if (canceled || failed.getJobType() == JobExecutionType.CHAIN_STEP) {
       publishChainFailed(failed);
     }
+  }
+
+  /**
+   * Cancels a dependant that had not started when it was loaded. If a worker has claimed it since,
+   * the store keeps its business key until its body ends and the node tick asks the body to stop.
+   */
+  protected boolean cancelDependant(JobEntity child) {
+    return LiveJobCancellation.cancel(
+            child.getId(),
+            LiveJobCancellation.keyHeldUntil(child, clock.instant(), options),
+            jobCrudStore,
+            jobBatchStatusStore,
+            jobTerminalStore)
+        != null;
   }
 
   public boolean scheduleNext(JobEntity finished) {
@@ -232,6 +254,8 @@ public class ChainScheduler {
     if (eventPublisher == null) {
       return;
     }
+    // A cancelled job has no error of its own.
+    String error = failed.getLastError();
     publishAfterCommit(
         new ChainFailedEvent(
             failed.getId(),
@@ -241,7 +265,7 @@ public class ChainScheduler {
             failed.getPriority(),
             failed.getPickedBy(),
             findRootJobId(failed),
-            failed.getLastError()));
+            error == null || error.isBlank() ? "Job was canceled" : error));
   }
 
   /**

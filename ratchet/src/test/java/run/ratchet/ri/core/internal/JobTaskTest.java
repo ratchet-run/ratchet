@@ -2441,9 +2441,9 @@ class JobTaskTest {
     JobEntity job = jobWithFailureCallback();
     RuntimeException original = new RuntimeException("original");
     stubWorkerFailure(task, job, original);
-    doThrow(new IllegalStateException("observer failed"))
-        .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts() + 1);
+    // The failure metric is recorded after the failure write, so break the handler before it.
+    when(validationFacade.shouldNotRetry(original))
+        .thenThrow(new IllegalStateException("validation failed"));
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -2463,9 +2463,9 @@ class JobTaskTest {
     JobEntity job = jobWithFailureCallback();
     RuntimeException original = new RuntimeException("original");
     stubWorkerFailure(task, job, original);
-    doThrow(new IllegalStateException("observer failed"))
-        .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts() + 1);
+    // The failure metric is recorded after the failure write, so break the handler before it.
+    when(validationFacade.shouldNotRetry(original))
+        .thenThrow(new IllegalStateException("validation failed"));
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
 
     task.call();
@@ -2481,9 +2481,9 @@ class JobTaskTest {
     JobEntity job = jobWithFailureCallback();
     RuntimeException original = new RuntimeException("original");
     stubWorkerFailure(task, job, original);
-    doThrow(new IllegalStateException("observer failed"))
-        .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts() + 1);
+    // The failure metric is recorded after the failure write, so break the handler before it.
+    when(validationFacade.shouldNotRetry(original))
+        .thenThrow(new IllegalStateException("validation failed"));
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     doThrow(new LinkageError("boom")).when(invoker).invoke(any());
@@ -2492,6 +2492,26 @@ class JobTaskTest {
 
     verify(invoker).invoke(any());
     Assertions.assertEquals(JobStatus.FAILED, job.getStatus());
+  }
+
+  @Test
+  void nonRetryableFailureRecordsOneFailureMetricAfterTheFailureWrite() throws Exception {
+    // An ordinary non-retryable failure counts one failure, after the job moves to FAILED.
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    JobEntity job = jobWithFailureCallback();
+    RuntimeException error = new RuntimeException("do not retry");
+    stubWorkerFailure(task, job, error);
+    int failedAttempt = job.getAttempts() + 1;
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+
+    task.call();
+
+    InOrder order = inOrder(lifecycleFacade, observabilityFacade);
+    order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    order.verify(observabilityFacade).recordJobFailure(job, error, failedAttempt);
+    verify(observabilityFacade, times(1)).recordJobFailure(any(), any(), anyInt());
   }
 
   @Test
@@ -2564,10 +2584,9 @@ class JobTaskTest {
             "\"hello\"", true, EncryptionTarget.signal(job.getSignalKey())));
     task.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
-    when(validationFacade.shouldNotRetry(any())).thenReturn(true);
-    doThrow(new IllegalStateException("observer failed"))
-        .when(observabilityFacade)
-        .recordJobFailure(eq(job), any(), eq(1));
+    // The failure metric is recorded after the failure write, so break the handler before it.
+    when(validationFacade.shouldNotRetry(any()))
+        .thenThrow(new IllegalStateException("validation failed"));
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     JobMdcContext.clear();
@@ -2579,7 +2598,7 @@ class JobTaskTest {
     Assertions.assertTrue(invoked.getValue().args().get(1) instanceof PayloadDecryptionException);
     Assertions.assertNotNull(invoked.getValue().args().get(0));
     ArgumentCaptor<Throwable> original = ArgumentCaptor.forClass(Throwable.class);
-    verify(observabilityFacade).recordJobFailure(eq(job), original.capture(), eq(1));
+    verify(validationFacade).shouldNotRetry(original.capture());
     Assertions.assertSame(original.getValue(), invoked.getValue().args().get(1));
     Assertions.assertNull(JobContext.currentOrNull());
   }

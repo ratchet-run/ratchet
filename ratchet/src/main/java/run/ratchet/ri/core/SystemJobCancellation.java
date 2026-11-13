@@ -19,7 +19,6 @@ import jakarta.enterprise.inject.Vetoed;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
@@ -31,6 +30,7 @@ import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.LiveJobCancellation;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.MetricsCollector;
@@ -121,44 +121,21 @@ public class SystemJobCancellation {
   }
 
   JobStatus cancelLive(UUID jobId, JobEntity job, boolean holdKey) {
-    Instant keyHeldUntil = null;
-    if (holdKey && job != null && job.getBusinessKey() != null) {
-      long timeout =
-          job.getTimeoutSec() > 0 ? job.getTimeoutSec() : options.timeout().defaultSlaSeconds();
-      keyHeldUntil =
-          effective()
-              .instant()
-              .plusSeconds(timeout)
-              .plusSeconds(options.node().orphanGraceSeconds());
-    }
-    for (int pass = 0; pass < 2; pass++) {
-      for (JobStatus status :
-          List.of(JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.WAITING)) {
-        boolean won =
-            status == JobStatus.RUNNING
-                ? jobTerminalStore.cancelRunningJob(jobId, keyHeldUntil)
-                : jobBatchStatusStore.compareAndSwapStatus(jobId, status, JobStatus.CANCELED, null);
-        if (won) {
-          log.debugf("Canceled job %s from %s", jobId, status);
-          cascadeCancel(job);
-          if (job != null
-              && job.getJobType() != JobExecutionType.BATCH_CHILD
-              && job.getJobType() != JobExecutionType.BATCH_PARENT
-              && workflowScheduler != null) {
-            workflowScheduler.cancelChain(job);
-          }
-          return status;
-        }
-      }
-      if (pass == 0) {
-        JobStatus current = jobCrudStore.getJobStatus(jobId);
-        if (current != JobStatus.PENDING
-            && current != JobStatus.RUNNING
-            && current != JobStatus.PAUSED
-            && current != JobStatus.WAITING) break;
+    Instant keyHeldUntil =
+        holdKey ? LiveJobCancellation.keyHeldUntil(job, effective().instant(), options) : null;
+    JobStatus previous =
+        LiveJobCancellation.cancel(
+            jobId, keyHeldUntil, jobCrudStore, jobBatchStatusStore, jobTerminalStore);
+    if (previous != null) {
+      cascadeCancel(job);
+      if (job != null
+          && job.getJobType() != JobExecutionType.BATCH_CHILD
+          && job.getJobType() != JobExecutionType.BATCH_PARENT
+          && workflowScheduler != null) {
+        workflowScheduler.cancelChain(job);
       }
     }
-    return null;
+    return previous;
   }
 
   /**
