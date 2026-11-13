@@ -59,6 +59,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.JobContext;
@@ -568,8 +569,50 @@ class JobTaskTransactionalTest {
     verifyNoInteractions(finalizer);
   }
 
+  @ParameterizedTest
+  @ValueSource(ints = {1, 6})
+  void fenceBounceDoesNotStopCommitResolution(int bounceRead) throws Exception {
+    loseCommitAcknowledgement();
+    task.setTerminalRetryDelays(1, 2);
+    AtomicInteger bodies = new AtomicInteger();
+    AtomicInteger reads = new AtomicInteger();
+    AtomicInteger callbacks = new AtomicInteger();
+    BODY.set(bodies::incrementAndGet);
+    job.setOnSuccessPayload(payload("afterCommit", "()V"));
+    CALLBACK.set(callbacks::incrementAndGet);
+    when(transactions.terminalOutcome(job.getId(), 7L))
+        .thenAnswer(
+            inv -> {
+              int read = reads.incrementAndGet();
+              if (read == bounceRead) {
+                // Stand in for a background progress flush whose fenced write bounced.
+                attempt.markSuperseded();
+              }
+              if (read <= bounceRead) {
+                throw new IllegalStateException(new SQLTransientException("read unavailable"));
+              }
+              return TerminalOutcome.COMMITTED;
+            });
+    try {
+      task.call();
+      assertTrue(attempt.isSuperseded());
+      assertFalse(attempt.isRevoked());
+      assertEquals(bounceRead + 1, reads.get());
+      assertEquals(1, bodies.get());
+      assertEquals(1, callbacks.get());
+      assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+      verify(lifecycle).runFollowups(completion);
+      verify(observer).recordJobSuccess(job, 0L);
+      verify(observer).saveExecution(execution);
+      verify(carrier).run(any());
+      verifyNoInteractions(finalizer);
+    } finally {
+      CALLBACK.remove();
+    }
+  }
+
   @Test
-  void supersededSlowResolutionExitsAndRestoresInterrupt() throws Exception {
+  void revokedSlowResolutionExitsAndRestoresInterrupt() throws Exception {
     loseCommitAcknowledgement();
     task.setTerminalRetryDelays(1, 2);
     AtomicInteger bodies = new AtomicInteger();
@@ -608,13 +651,13 @@ class JobTaskTransactionalTest {
     worker.start();
     try {
       assertTrue(slowRead.await(5, TimeUnit.SECONDS));
-      attempt.markSuperseded();
+      attempt.revoke();
       worker.interrupt();
     } finally {
       shutdown.countDown();
       worker.join(5_000);
       if (worker.isAlive()) {
-        attempt.markSuperseded();
+        attempt.revoke();
         worker.interrupt();
         worker.join(5_000);
       }

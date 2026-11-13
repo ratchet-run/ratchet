@@ -473,7 +473,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       acceptingExecutions.set(false);
       for (TrackingFutureTask task : activeFutures) {
         if (task.attempt != null) {
-          task.attempt.markSuperseded();
+          task.attempt.revoke();
         }
         task.cancel(true);
       }

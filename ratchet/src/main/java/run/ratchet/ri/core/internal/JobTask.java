@@ -1500,13 +1500,13 @@ public class JobTask implements Callable<Void> {
                 job.getId());
             return;
           }
-          if (terminalRetryAttemptSuperseded()) return;
+          if (terminalRetryRevoked()) return;
           if (readAttempt == 5) break;
           interrupted |= Thread.interrupted();
           if (!sleepTransactionBackoff(readAttempt)) {
             interrupted = true;
             Thread.interrupted();
-            if (terminalRetryAttemptSuperseded()) return;
+            if (terminalRetryRevoked()) return;
           }
         }
       }
@@ -1518,12 +1518,12 @@ public class JobTask implements Callable<Void> {
         while (terminal == null) {
           TerminalRetryWait wait = waitForTerminalRetry(delayMs);
           interrupted |= wait.interrupted();
-          if (wait.superseded()) return;
+          if (wait.revoked()) return;
           try {
             terminal = store.terminalOutcome(job.getId(), expectedClaimSeq());
           } catch (RuntimeException readFailure) {
             interrupted |= Thread.interrupted();
-            if (terminalRetryAttemptSuperseded()) return;
+            if (terminalRetryRevoked()) return;
             if (!JobSuccessFinalizer.isTransientStoreFailure(readFailure)) {
               log.errorf(
                   readFailure,
@@ -1547,24 +1547,25 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private boolean terminalRetryAttemptSuperseded() {
-    if (attempt == null || !attempt.isSuperseded()) return false;
+  private boolean terminalRetryRevoked() {
+    if (attempt == null || !attempt.isRevoked()) return false;
     log.warnf(
-        "Job %s terminal retry superseded; leaving it for its owner, orphan recovery or restart",
+        "Job %s terminal retry stopped by shutdown or the watchdog; leaving it for its owner,"
+            + " orphan recovery or restart",
         job.getId());
     return true;
   }
 
-  private record TerminalRetryWait(boolean interrupted, boolean superseded) {}
+  private record TerminalRetryWait(boolean interrupted, boolean revoked) {}
 
   private TerminalRetryWait waitForTerminalRetry(long delayMs) {
     boolean interrupted = Thread.interrupted();
-    if (terminalRetryAttemptSuperseded()) return new TerminalRetryWait(interrupted, true);
+    if (terminalRetryRevoked()) return new TerminalRetryWait(interrupted, true);
     try {
       Thread.sleep(delayMs);
     } catch (InterruptedException sleepInterrupted) {
       interrupted = true;
-      if (terminalRetryAttemptSuperseded()) return new TerminalRetryWait(true, true);
+      if (terminalRetryRevoked()) return new TerminalRetryWait(true, true);
     }
     return new TerminalRetryWait(interrupted, false);
   }
@@ -1628,13 +1629,13 @@ public class JobTask implements Callable<Void> {
         while (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
           TerminalRetryWait wait = waitForTerminalRetry(delayMs);
           interrupted |= wait.interrupted();
-          if (wait.superseded()) return;
+          if (wait.revoked()) return;
           finalizationState =
               successFinalizer.finalizeMinimalSuccess(
                   job, resultJson, resultType, start, endTime, executionMs, queueMs);
           if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
             interrupted |= Thread.interrupted();
-            if (terminalRetryAttemptSuperseded()) return;
+            if (terminalRetryRevoked()) return;
           }
           delayMs = nextTerminalRetryDelay(delayMs);
         }

@@ -3224,7 +3224,38 @@ class JobTaskTest {
   }
 
   @Test
-  void handleSuccess_supersededSlowFinalizationExitsAndRestoresInterrupt() throws Exception {
+  void handleSuccess_fenceBounceDuringSlowFinalizationStillDiscardsExecution() throws Exception {
+    AtomicInteger bodies = new AtomicInteger();
+    var scenario = stuckSuccessScenario(bodies);
+    AtomicInteger writes = new AtomicInteger();
+    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            inv -> {
+              int write = writes.incrementAndGet();
+              if (write == 2) {
+                scenario.attempt().markSuperseded();
+              }
+              if (write <= 2) throw new RatchetTransientStoreException("busy");
+              return false;
+            });
+
+    jobTask.call();
+
+    Assertions.assertEquals(1, bodies.get());
+    Assertions.assertEquals(3, writes.get());
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    Assertions.assertFalse(scenario.attempt().isRevoked());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+  }
+
+  @Test
+  void handleSuccess_revokedSlowFinalizationExitsAndRestoresInterrupt() throws Exception {
     AtomicInteger bodies = new AtomicInteger();
     var scenario = stuckSuccessScenario(bodies);
     CountDownLatch slowWrite = new CountDownLatch(1);
@@ -3262,13 +3293,13 @@ class JobTaskTest {
     worker.start();
     try {
       Assertions.assertTrue(slowWrite.await(5, TimeUnit.SECONDS));
-      scenario.attempt().markSuperseded();
+      scenario.attempt().revoke();
       worker.interrupt();
     } finally {
       shutdown.countDown();
       worker.join(5_000);
       if (worker.isAlive()) {
-        scenario.attempt().markSuperseded();
+        scenario.attempt().revoke();
         worker.interrupt();
         worker.join(5_000);
       }
