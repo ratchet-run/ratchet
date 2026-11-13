@@ -289,6 +289,9 @@ class SchemaMigratorTest {
               if ("scheduler_job".equals(table)) {
                 return uniqueIndexRows("uk_idempotency_key", List.of("idempotency_key"));
               }
+              if ("scheduler_partition_set".equals(table)) {
+                return uniqueIndexRows("uq_partition_set_key", List.of("set_key"));
+              }
               return uniqueIndexRows("unused", List.of());
             });
   }

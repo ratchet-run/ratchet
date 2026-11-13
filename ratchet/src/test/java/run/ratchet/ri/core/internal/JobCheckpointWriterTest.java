@@ -90,6 +90,51 @@ class JobCheckpointWriterTest {
   }
 
   @Test
+  void seedLoadsOnceAndFirstWriteCreatesOwnVersionZero() {
+    CheckpointSeedSource source = mock(CheckpointSeedSource.class);
+    when(source.seed(id)).thenReturn(Optional.of("seed-json"));
+    when(serializer.deserialize("seed-json", Map.class)).thenReturn(Map.of("value", "seed"));
+    writer = new JobCheckpointWriter(id, attempt, store, registrar, serializer, flusher, source);
+    assertEquals(Optional.of("seed"), writer.read());
+    assertEquals(Optional.of("seed"), writer.read());
+    verify(source, times(1)).seed(id);
+    writer.write("own");
+    verify(store).initState(id, JobCheckpointWriter.NAMESPACE, "own", 7L);
+    writer.write("next");
+    verify(store).updateState(id, JobCheckpointWriter.NAMESPACE, "next", 0, 7L);
+  }
+
+  @Test
+  void supersededWriteNeverExposesSeedAsDurable() {
+    when(serializer.deserialize("seed-json", Map.class)).thenReturn(Map.of("value", "seed"));
+    writer =
+        new JobCheckpointWriter(
+            id,
+            attempt,
+            store,
+            registrar,
+            serializer,
+            flusher,
+            ignored -> Optional.of("seed-json"));
+    assertEquals(Optional.of("seed"), writer.read());
+    when(store.initState(id, JobCheckpointWriter.NAMESPACE, "own", 7L))
+        .thenReturn(StateWriteResult.SUPERSEDED);
+    assertThrows(AttemptSupersededException.class, () -> writer.write("own"));
+    assertTrue(writer.read().isEmpty());
+  }
+
+  @Test
+  void ownStateWinsOverSeed() {
+    CheckpointSeedSource source = mock(CheckpointSeedSource.class);
+    when(store.getState(id, JobCheckpointWriter.NAMESPACE))
+        .thenReturn(Optional.of(new VersionedState("own-json", 3)));
+    when(serializer.deserialize("own-json", Map.class)).thenReturn(Map.of("value", "own"));
+    writer = new JobCheckpointWriter(id, attempt, store, registrar, serializer, flusher, source);
+    assertEquals(Optional.of("own"), writer.read());
+    verifyNoInteractions(source);
+  }
+
+  @Test
   void absentStateIsInitializedAndSteadyStateUsesOneUpdate() {
     writer.write("one");
     verify(store).initState(id, JobCheckpointWriter.NAMESPACE, "one", 7L);

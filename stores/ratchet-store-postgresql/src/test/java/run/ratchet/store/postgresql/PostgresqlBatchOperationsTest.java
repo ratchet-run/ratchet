@@ -153,7 +153,7 @@ class PostgresqlBatchOperationsTest {
                   return switch (method.getName()) {
                     case "setParameter" -> proxy;
                     case "getSingleResult" ->
-                        new Object[] {BATCH_ID, 4, 1, 2, false, 7, null, null, null};
+                        new Object[] {BATCH_ID, 4, 1, 2, false, 7, null, null, null, null, null};
                     default -> throw new UnsupportedOperationException(method.getName());
                   };
                 });

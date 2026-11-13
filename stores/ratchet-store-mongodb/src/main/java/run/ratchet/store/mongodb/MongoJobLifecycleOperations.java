@@ -51,8 +51,10 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import static run.ratchet.store.mongodb.MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.MongoWriteConcernException;
+import com.mongodb.ReadPreference;
 import com.mongodb.TransactionOptions;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.TransactionBody;
@@ -389,7 +391,8 @@ final class MongoJobLifecycleOperations
                   reservations.releaseByOwner(session, jobId);
                   batches.incrementCompletedAtomic(session, batchId);
                   return true;
-                });
+                },
+                TRANSACTION_OPTIONS);
           }
         },
         updated -> updated ? "updated" : "miss");
@@ -451,7 +454,8 @@ final class MongoJobLifecycleOperations
                                   set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
                                   inc(VERSION, 1)));
                   return result.getModifiedCount() > 0;
-                });
+                },
+                TRANSACTION_OPTIONS);
           }
         });
   }
@@ -592,7 +596,8 @@ final class MongoJobLifecycleOperations
                                   set(UPDATED_AT, now),
                                   inc(VERSION, 1)));
                   return (int) result.getModifiedCount();
-                });
+                },
+                TRANSACTION_OPTIONS);
           }
         });
   }
@@ -634,7 +639,8 @@ final class MongoJobLifecycleOperations
                                   inc(VERSION, 1)));
                   reservations.releaseByOwners(session, ids);
                   return (int) result.getModifiedCount();
-                });
+                },
+                TRANSACTION_OPTIONS);
           }
         });
   }
@@ -746,7 +752,8 @@ final class MongoJobLifecycleOperations
             batchCounts.forEach(
                 (batchId, count) -> decrementRetryFailures(session, batchId, count));
             return modified;
-          });
+          },
+          TRANSACTION_OPTIONS);
     } catch (RatchetTransientStoreException e) {
       throw e;
     } catch (RuntimeException e) {
@@ -942,9 +949,13 @@ final class MongoJobLifecycleOperations
         // Do not undo an unacknowledged cancel: it is the requested outcome, and batch recovery
         // finishes the child cascade if the parent is CANCELED while its batch is still open.
         return session.withTransaction(
-            body, TransactionOptions.builder().writeConcern(ctx.claimWriteConcern()).build());
+            body,
+            TransactionOptions.builder()
+                .readPreference(ReadPreference.primary())
+                .writeConcern(ctx.claimWriteConcern())
+                .build());
       }
-      return session.withTransaction(body);
+      return session.withTransaction(body, TRANSACTION_OPTIONS);
     }
   }
 

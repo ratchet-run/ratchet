@@ -171,3 +171,8 @@ print("Ratchet MongoDB initialization complete.");
 // Durable terminal event recovery, ordered by creation time and event id.
 db.scheduler_event_outbox.createIndex(
     {created_at: 1, _id: 1}, {name: "idx_event_outbox_created"});
+
+db.scheduler_partition_set.createIndex({set_key: 1}, {name: "uq_partition_set_key", unique: true});
+db.scheduler_partition.createIndex({set_id: 1, partition_index: 1}, {name: "uq_partition_index", unique: true});
+db.scheduler_partition.createIndex({child_job_id: 1}, {name: "idx_partition_child"});
+db.scheduler_batch.createIndex({partition_set_id: 1}, {name: "idx_batch_partition_set"});

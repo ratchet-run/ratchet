@@ -45,6 +45,7 @@ import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
@@ -111,6 +112,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
         List.of(
             RecurringJobStore.class,
             BatchStore.class,
+            PartitionStore.class,
             WorkflowConditionStore.class,
             SignalStore.class,
             ResourcePermitStore.class,

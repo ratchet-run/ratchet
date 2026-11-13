@@ -173,6 +173,10 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
           WHERE c.terminal_status IS NOT NULL
             AND NOT EXISTS (SELECT 1 FROM scheduler_batch b WHERE b.batch_id = c.depends_on
               AND b.completion_processed = FALSE AND b.reducer IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM scheduler_batch pb
+              JOIN scheduler_partition_set ps ON ps.set_id = pb.partition_set_id
+              WHERE pb.partition_set_id IS NOT NULL AND ps.sealed_generation < pb.generation
+                AND (c.job_id = pb.batch_id OR (c.job_type = 'BATCH_CHILD' AND c.depends_on = pb.batch_id)))
             AND c.terminated_at < ?
           ORDER BY c.terminated_at ASC
           LIMIT ?
@@ -201,6 +205,10 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
         WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ?
             AND NOT EXISTS (SELECT 1 FROM scheduler_batch b WHERE b.batch_id = c.depends_on
               AND b.completion_processed = FALSE AND b.reducer IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM scheduler_batch pb
+              JOIN scheduler_partition_set ps ON ps.set_id = pb.partition_set_id
+              WHERE pb.partition_set_id IS NOT NULL AND ps.sealed_generation < pb.generation
+                AND (c.job_id = pb.batch_id OR (c.job_type = 'BATCH_CHILD' AND c.depends_on = pb.batch_id)))
         """;
     return ctx.countByNative(sql, Timestamp.from(olderThan));
   }

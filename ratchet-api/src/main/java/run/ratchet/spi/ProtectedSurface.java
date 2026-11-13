@@ -77,5 +77,8 @@ public enum ProtectedSurface {
    * the surface, the owning job id, and the namespace, so a blob lifted to another job — or to
    * another namespace on the same job — fails the authentication tag.
    */
-  EXTENSION_STATE
+  EXTENSION_STATE,
+
+  /** A sealed checkpoint bound to the partition set id and index, preventing relocation. */
+  PARTITION_CHECKPOINT
 }

@@ -18,6 +18,7 @@ package run.ratchet.store.mongodb;
 import com.github.dockerjava.api.model.Ulimit;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.ReadPreference;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
@@ -73,37 +74,54 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
 
   static {
     MONGO.start();
-    MongoClientSettings settings =
-        MongoClientSettings.builder()
-            .applyConnectionString(new ConnectionString(MONGO.getConnectionString()))
-            .uuidRepresentation(UuidRepresentation.STANDARD)
-            .applyToClusterSettings(b -> b.serverSelectionTimeout(15, TimeUnit.SECONDS))
-            .applyToSocketSettings(b -> b.connectTimeout(10, TimeUnit.SECONDS))
-            .build();
-    CLIENT = MongoClients.create(settings);
+    CLIENT = newClient(ReadPreference.primary());
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(MongoTestFixture::closeSharedResources, "ratchet-mongo-test-shutdown"));
   }
 
+  private static MongoClient newClient(ReadPreference readPreference) {
+    MongoClientSettings settings =
+        MongoClientSettings.builder()
+            .applyConnectionString(new ConnectionString(MONGO.getConnectionString()))
+            .uuidRepresentation(UuidRepresentation.STANDARD)
+            .readPreference(readPreference)
+            .applyToClusterSettings(b -> b.serverSelectionTimeout(15, TimeUnit.SECONDS))
+            .applyToSocketSettings(b -> b.connectTimeout(10, TimeUnit.SECONDS))
+            .build();
+    return MongoClients.create(settings);
+  }
+
+  private final MongoClient client;
+  private final boolean ownsClient;
   private final MongoDatabase database;
   private final MongoJobStore store;
   private final AtomicBoolean closed = new AtomicBoolean();
 
   public MongoTestFixture() {
+    this(CLIENT, false);
+  }
+
+  MongoTestFixture(ReadPreference readPreference) {
+    this(newClient(readPreference), true);
+  }
+
+  private MongoTestFixture(MongoClient client, boolean ownsClient) {
+    this.client = client;
+    this.ownsClient = ownsClient;
     this.database =
-        CLIENT.getDatabase("ratchet_test_" + UUID.randomUUID().toString().substring(0, 8));
-    this.store = new MongoJobStoreImpl(CLIENT, database, RatchetOptions.defaults());
+        client.getDatabase("ratchet_test_" + UUID.randomUUID().toString().substring(0, 8));
+    this.store = new MongoJobStoreImpl(client, database, RatchetOptions.defaults());
     // @PostConstruct is CDI-only; instantiation here bypasses it, leaving collections without
     // their unique indexes. Initialize explicitly so contract tests see the same schema as a
     // production deployment.
-    new MongoCollectionInitializer(database, CLIENT).initialize();
+    new MongoCollectionInitializer(database, client).initialize();
   }
 
   MongoArchiveOperations archiveOperations(Clock clock) {
     MongoStoreContext ctx =
         new MongoStoreContext(
-            CLIENT, database, RatchetOptions.defaults().store().priorityBoostIntervalMinutes());
+            client, database, RatchetOptions.defaults().store().priorityBoostIntervalMinutes());
     return new MongoArchiveOperations(ctx, clock);
   }
 
@@ -180,7 +198,13 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     // Drop the per-class database so the shared container does not accumulate state. The
     // shared CLIENT lives for the JVM lifetime; closing it here would break every contract class
     // that runs after this one.
-    database.drop();
+    try {
+      database.drop();
+    } finally {
+      if (ownsClient) {
+        client.close();
+      }
+    }
   }
 
   private static void closeSharedResources() {
