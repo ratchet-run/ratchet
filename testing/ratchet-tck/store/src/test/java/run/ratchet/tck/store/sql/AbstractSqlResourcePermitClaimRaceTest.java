@@ -85,6 +85,30 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     fixture().cleanupStore();
   }
 
+  /** Pins a park with no retry delay as due to a claim that reads the same database clock tick. */
+  @Test
+  void parkWithNoDelayIsDueToAClaimInTheSameClockTick() {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-tick", 1, 0, null);
+    assertEquals(
+        ACQUIRED, acquire(permits, claimNewJob("res-tick", "holder"), "holder", "res-tick"));
+    var waiter = new AtomicReference<>(claimNewJob("res-tick", "node-a"));
+    // SQL Server's clock moves in steps of a few milliseconds, so two statements in one
+    // transaction often read the same value.
+    for (int round = 1; round <= 200; round++) {
+      String message = "round " + round + ": a job parked with no delay is due at once";
+      fixture()
+          .runInTransaction(
+              () -> {
+                assertEquals(AT_CAPACITY, acquire(permits, waiter.get(), "node-a", "res-tick"));
+                var claims = store.claimNextBatch(1, "node-a");
+                assertEquals(1, claims.size(), message);
+                waiter.set(claims.get(0));
+              });
+    }
+  }
+
   @Test
   void staleClaimThatPassedTheCheckHoldsPermitUntilItReleases() {
     ResourcePermitStore permits = fixture().resourcePermitStore();
