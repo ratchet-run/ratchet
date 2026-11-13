@@ -43,7 +43,7 @@ import run.ratchet.consumer.sql.SqlDatabase;
 import run.ratchet.store.spi.JobStore;
 
 /** Uses the normal consumer datasource and Ratchet-selected Spring transaction manager. */
-class TransactionalJobIT {
+class TransactionalJobTest {
   @Test
   void successCommitsApplicationRowAndJob() throws Exception {
     verify("success");
