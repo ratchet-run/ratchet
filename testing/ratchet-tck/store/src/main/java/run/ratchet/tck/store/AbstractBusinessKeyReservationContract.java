@@ -243,8 +243,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
               });
       assertTrue(duplicateStarted.await(30, TimeUnit.SECONDS), "Duplicate did not start");
       assumeTrue(
-          awaitBlockedSession(duplicateSession.get(), holderSession.get(), Duration.ofSeconds(30)),
-          NEEDS_LOCK_WAIT_HOOKS);
+          observeBlocked(duplicateSession.get(), holderSession.get()), NEEDS_LOCK_WAIT_HOOKS);
       var probing =
           workers.submit(
               () ->
@@ -258,7 +257,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
       // The duplicate is still waiting on the idempotency key, so it can block the probe only if
       // it reserved the business key before it wrote the idempotency key.
       assertTrue(
-          awaitBlockedSession(probeSession.get(), duplicateSession.get(), Duration.ofSeconds(30)),
+          observeBlocked(probeSession.get(), duplicateSession.get()),
           "Probe must be blocked by the duplicate's business-key reservation");
       commitHolder.countDown();
       holding.get(30, TimeUnit.SECONDS);
@@ -337,9 +336,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
                       }));
       assertTrue(attempting.await(30, TimeUnit.SECONDS), "Loser did not start");
       // The hook confirms the loser is blocked by the winner before the winner ends.
-      assumeTrue(
-          awaitBlockedSession(loserSession.get(), winnerSession.get(), Duration.ofSeconds(30)),
-          NEEDS_LOCK_WAIT_HOOKS);
+      assumeTrue(observeBlocked(loserSession.get(), winnerSession.get()), NEEDS_LOCK_WAIT_HOOKS);
       assertThrows(
           TimeoutException.class,
           () -> second.get(500, TimeUnit.MILLISECONDS),
@@ -374,6 +371,18 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
       Thread.currentThread().interrupt();
       throw new IllegalStateException("Interrupted waiting for release", e);
     }
+  }
+
+  /** Returns false only when the fixture cannot observe lock waits; the caller then skips. */
+  private boolean observeBlocked(Object waiter, Object holder) {
+    boolean observed = awaitBlockedSession(waiter, holder, Duration.ofSeconds(30));
+    if (observed && (waiter == null || holder == null)) {
+      // A hook that reports a wait without both session ids has not checked who is waiting.
+      throw new IllegalStateException(
+          "awaitBlockedSession reported a lock wait, but ownerSessionId() returned null;"
+              + " override ownerSessionId() on this contract class");
+    }
+    return observed;
   }
 
   private JobEntity create(JobEntity job) {

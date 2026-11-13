@@ -172,9 +172,15 @@ public interface JobStoreContractFixture {
    *
    * <p>A store whose create joins the caller's transaction must override this and {@link
    * #supportsOwnerTransaction()}. Otherwise the business-key reservation contract skips its
-   * owner-transaction tests.
+   * owner-transaction tests. This default fails when {@link #supportsOwnerTransaction()} returns
+   * true, because running the work without a shared transaction would make those tests pass without
+   * testing anything.
    */
   default void inOwnerTransaction(Runnable work) {
+    if (supportsOwnerTransaction()) {
+      throw new IllegalStateException(
+          "supportsOwnerTransaction() is true, so override inOwnerTransaction(Runnable) too");
+    }
     work.run();
   }
 
