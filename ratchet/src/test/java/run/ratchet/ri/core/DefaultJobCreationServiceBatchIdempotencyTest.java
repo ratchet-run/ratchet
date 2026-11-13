@@ -33,10 +33,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -249,19 +251,26 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
   }
 
   @Test
-  void streamingParentInsertRaceClosesStreamWithoutReadingIt() {
+  void streamingParentInsertRaceClosesStreamAfterReadingOnlyItsFirstItem() {
     DefaultJobCreationService service = newService();
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey("stream-42")).thenReturn(Optional.empty());
     DuplicateIdempotencyKeyException collision =
         new DuplicateIdempotencyKeyException("stream-42", new RuntimeException("duplicate"));
     when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+    // The first item is prepared before the parent insert so an invalid target writes no rows.
+    AtomicInteger reads = new AtomicInteger();
+    Iterator<String> items =
+        Stream.of("first", "second").peek(item -> reads.incrementAndGet()).iterator();
     @SuppressWarnings("unchecked")
     Stream<String> stream = mock(Stream.class);
+    when(stream.iterator()).thenReturn(items);
     DefaultStreamingBatchBuilder<String> builder = streamingBuilder(service, stream);
     builder.withIdempotencyKey("stream-42");
 
     assertSame(collision, assertThrows(DuplicateIdempotencyKeyException.class, builder::start));
 
+    assertEquals(1, reads.get());
+    verify(stream).iterator();
     verify(stream).close();
     verifyNoMoreInteractions(stream);
     verifyNoInteractions(jobBulkStore, batchStore, workflowConditionStore);

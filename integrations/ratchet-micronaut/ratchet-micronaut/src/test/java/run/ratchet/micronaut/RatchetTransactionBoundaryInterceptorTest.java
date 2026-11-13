@@ -20,6 +20,8 @@ import static org.mockito.Mockito.*;
 
 import io.micronaut.aop.InterceptPhase;
 import io.micronaut.aop.MethodInvocationContext;
+import io.micronaut.core.convert.ConversionService;
+import io.micronaut.core.type.ReturnType;
 import io.micronaut.inject.ExecutableMethod;
 import io.micronaut.transaction.TransactionCallback;
 import io.micronaut.transaction.TransactionDefinition;
@@ -28,12 +30,16 @@ import io.micronaut.transaction.TransactionOperations;
 import io.micronaut.transaction.TransactionOperationsRegistry;
 import io.micronaut.transaction.TransactionStatus;
 import io.micronaut.transaction.exceptions.IllegalTransactionStateException;
+import io.micronaut.transaction.interceptor.TransactionalInterceptor;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 import org.junit.jupiter.api.Test;
+import org.reactivestreams.Publisher;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundaryInterceptor;
+import run.ratchet.micronaut.internal.RatchetTransactionOperations;
 
 class RatchetTransactionBoundaryInterceptorTest {
   @Test
@@ -63,7 +69,8 @@ class RatchetTransactionBoundaryInterceptorTest {
     var context = invocation(new Child(), "supports");
     when(context.proceed()).thenReturn("result");
     assertEquals("result", interceptor.intercept(context));
-    verify(operations, never()).execute(any(), any());
+    verify(operations)
+        .execute(argThat(d -> d.getPropagationBehavior() == Propagation.SUPPORTS), any());
   }
 
   @Test
@@ -73,12 +80,14 @@ class RatchetTransactionBoundaryInterceptorTest {
     var mandatory = invocation(new Child(), "mandatory");
     assertThrows(IllegalTransactionStateException.class, () -> interceptor.intercept(mandatory));
     verify(mandatory, never()).proceed();
+    verify(operations, never()).execute(any(), any());
     TransactionStatus<?> status = mock(TransactionStatus.class);
     doReturn(Optional.of(status)).when(operations).findTransactionStatus();
     var required = invocation(new Child(), "required");
     when(required.proceed()).thenReturn("joined");
     assertEquals("joined", interceptor.intercept(required));
-    verify(operations, never()).execute(any(), any());
+    verify(operations)
+        .execute(argThat(d -> d.getPropagationBehavior() == Propagation.REQUIRED), any());
   }
 
   @SuppressWarnings("unchecked")
@@ -97,9 +106,9 @@ class RatchetTransactionBoundaryInterceptorTest {
 
   private static RatchetTransactionBoundaryInterceptor interceptor(
       TransactionOperations<Object> operations) {
-    TransactionOperationsRegistry registry = mock(TransactionOperationsRegistry.class);
-    doReturn(operations).when(registry).provideSynchronous(TransactionOperations.class, null);
-    return new RatchetTransactionBoundaryInterceptor(registry);
+    RatchetTransactionOperations transactions = mock(RatchetTransactionOperations.class);
+    doReturn(operations).when(transactions).operations();
+    return new RatchetTransactionBoundaryInterceptor(transactions, dataInterceptor());
   }
 
   @SuppressWarnings("unchecked")
@@ -107,10 +116,89 @@ class RatchetTransactionBoundaryInterceptorTest {
     MethodInvocationContext<Object, Object> context = mock(MethodInvocationContext.class);
     ExecutableMethod<Object, Object> method = mock(ExecutableMethod.class);
     when(method.getMethodName()).thenReturn(name);
+    doReturn(Child.class).when(method).getDeclaringType();
+    doReturn(ReturnType.of(Object.class)).when(context).getReturnType();
     when(method.getArgumentTypes()).thenReturn(new Class<?>[0]);
     when(context.getExecutableMethod()).thenReturn(method);
     when(context.getTarget()).thenReturn(target);
     return context;
+  }
+
+  private static TransactionalInterceptor dataInterceptor() {
+    return new TransactionalInterceptor(
+        mock(TransactionOperationsRegistry.class), null, ConversionService.SHARED);
+  }
+
+  @Test
+  void everyPropagationExecutesOnSelectedManager() {
+    for (String name :
+        new String[] {
+          "required", "mandatory", "requiresNew", "notSupported", "supports", "never"
+        }) {
+      TransactionOperations<Object> operations = operations();
+      doReturn(Optional.of(mock(TransactionStatus.class))).when(operations).findTransactionStatus();
+      var context = invocation(new Child(), name);
+      interceptor(operations).intercept(context);
+      Transactional annotation;
+      try {
+        annotation = Parent.class.getMethod(name).getAnnotation(Transactional.class);
+      } catch (NoSuchMethodException failure) {
+        throw new AssertionError(failure);
+      }
+      TxType type = annotation == null ? TxType.REQUIRED : annotation.value();
+      verify(operations)
+          .execute(
+              argThat(
+                  d ->
+                      d.getPropagationBehavior().name().equals(type.name())
+                          && d.getName().equals("Child." + name)),
+              any());
+      verify(context).proceed();
+    }
+  }
+
+  @Test
+  void skipsDataInterceptorOnlyWhenTransactionStereotypeIsBound() {
+    TransactionOperations<Object> operations = operations();
+    RatchetTransactionOperations transactions = mock(RatchetTransactionOperations.class);
+    doReturn(operations).when(transactions).operations();
+    TransactionalInterceptor data = dataInterceptor();
+    var interceptor = new RatchetTransactionBoundaryInterceptor(transactions, data);
+    var context = invocation(new Child(), "required");
+    when(context.hasStereotype(io.micronaut.transaction.annotation.Transactional.class))
+        .thenReturn(true);
+    when(context.proceed(data)).thenReturn("skipped");
+    assertEquals("skipped", interceptor.intercept(context));
+    verify(context).proceed(data);
+    verify(context, never()).proceed();
+  }
+
+  @Test
+  void unannotatedMethodSimplyProceeds() {
+    TransactionOperations<Object> operations = operations();
+    var context = invocation(new Unannotated(), "plain");
+    when(context.proceed()).thenReturn("plain");
+    assertEquals("plain", interceptor(operations).intercept(context));
+    verify(operations, never()).execute(any(), any());
+  }
+
+  @Test
+  void rejectsAsyncAndReactiveMethodsBeforeExecuting() {
+    for (Class<?> type : new Class<?>[] {CompletionStage.class, Publisher.class}) {
+      TransactionOperations<Object> operations = operations();
+      var context = invocation(new Child(), "required");
+      doReturn(ReturnType.of(type)).when(context).getReturnType();
+      IllegalStateException failure =
+          assertThrows(
+              IllegalStateException.class, () -> interceptor(operations).intercept(context));
+      assertTrue(failure.getMessage().contains("required"));
+      verify(operations, never()).execute(any(), any());
+      verify(context, never()).proceed();
+    }
+  }
+
+  public static class Unannotated {
+    public void plain() {}
   }
 
   @Transactional
@@ -119,6 +207,15 @@ class RatchetTransactionBoundaryInterceptorTest {
 
     @Transactional(TxType.SUPPORTS)
     public void supports() {}
+
+    @Transactional(TxType.REQUIRES_NEW)
+    public void requiresNew() {}
+
+    @Transactional(TxType.NOT_SUPPORTED)
+    public void notSupported() {}
+
+    @Transactional(TxType.NEVER)
+    public void never() {}
 
     @Transactional(TxType.MANDATORY)
     public void mandatory() {}

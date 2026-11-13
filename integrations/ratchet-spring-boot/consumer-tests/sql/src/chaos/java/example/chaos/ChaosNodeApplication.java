@@ -43,6 +43,7 @@ import org.springframework.web.bind.annotation.RestController;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.TransactionalJob;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.exception.AttemptSupersededException;
@@ -89,6 +90,11 @@ public class ChaosNodeApplication {
           create table if not exists chaos_gate_hit (
             hit_id varchar(36) primary key, point varchar(32), job_id varchar(36),
             incarnation varchar(36), reached_us bigint, released integer default 0)
+          """);
+      jdbc.execute(
+          """
+          create table if not exists chaos_business (
+            job_id varchar(36) primary key, node_id varchar(128), incarnation varchar(36))
           """);
       System.out.println("RATCHET_RUNTIME_READY " + env.getRequiredProperty("local.server.port"));
     };
@@ -156,13 +162,15 @@ public class ChaosNodeApplication {
         @RequestParam(name = "failTimes", defaultValue = "0") int failTimes,
         @RequestParam(name = "maxRetries", required = false) Integer maxRetries,
         @RequestParam(name = "gatePoint", defaultValue = "") String gatePoint,
-        @RequestParam(name = "gateTimes", defaultValue = "1") int gateTimes) {
+        @RequestParam(name = "gateTimes", defaultValue = "1") int gateTimes,
+        @RequestParam(name = "transactional", defaultValue = "false") boolean transactional) {
       return worker.transaction.execute(
           tx -> {
             String submissionTag = "submit:" + UUID.randomUUID();
             var builder =
-                scheduler
-                    .enqueue(() -> worker.work(run, key, durationMs, failTimes))
+                (transactional
+                        ? scheduler.enqueue(() -> worker.transactionalWork(run, key))
+                        : scheduler.enqueue(() -> worker.work(run, key, durationMs, failTimes)))
                     .withTags("chaos", "run:" + run, submissionTag);
             if (!idempotencyKey.isEmpty()) builder.withIdempotencyKey(idempotencyKey);
             if (!businessKey.isEmpty()) builder.withBusinessKey(businessKey);
@@ -212,6 +220,36 @@ public class ChaosNodeApplication {
       node = env.getRequiredProperty("ratchet.node.id");
       incarnation = env.getRequiredProperty("chaos.incarnation");
       clock = DbClock.expression(env.getRequiredProperty("chaos.store"));
+    }
+
+    @TransactionalJob
+    public void transactionalWork(String runId, String key) throws InterruptedException {
+      UUID job = JobContext.current().jobId();
+      String attempt = UUID.randomUUID().toString();
+      // This observation must commit before the business insert can block on a stale writer.
+      transaction.executeWithoutResult(
+          tx ->
+              jdbc.update(
+                  "insert into chaos_attempt values (?, ?, ?, ?, ?, ?, "
+                      + clock
+                      + ", null, null, null, null)",
+                  attempt,
+                  runId,
+                  key,
+                  job.toString(),
+                  node,
+                  incarnation));
+      try {
+        // JdbcTemplate joins Ratchet's transaction; REQUIRES_NEW would escape its rollback.
+        jdbc.update(
+            "insert into chaos_business values (?, ?, ?)", job.toString(), node, incarnation);
+        gate("transactional-write", job);
+        // This ledger observation commits independently and can remain ok after a fenced rollback.
+        finish(attempt, "ok");
+      } catch (InterruptedException interrupted) {
+        finish(attempt, "interrupted");
+        throw interrupted;
+      }
     }
 
     public void work(String runId, String key, long durationMs, int failTimes)

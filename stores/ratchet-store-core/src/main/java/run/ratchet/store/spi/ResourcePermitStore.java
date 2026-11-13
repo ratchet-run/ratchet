@@ -36,7 +36,7 @@ public interface ResourcePermitStore {
    * to when it started waiting. Live waiters that are already running use up capacity but are not
    * returned. Lease times are never renewed here. A head whose job's due time changed after the
    * store read the line (for example a user reschedule, which also removes its waiter row) is not
-   * woken.
+   * woken. A head is woken only while its job still names {@code resource}.
    *
    * <p>The wake never waits on a job row that another transaction holds. A store with row locks
    * skips that head and does not return it. A skipped head that is still waiting becomes due at its
@@ -88,6 +88,10 @@ public interface ResourcePermitStore {
    * clock its claim compares against plus retry delay (PAUSED in a paused batch), preserving
    * attempts and its first wait key, and renews the lease. A fenced park miss returns SUPERSEDED
    * and parks nothing.
+   *
+   * <p>A waiter row is written only while {@code resource} is the job's stored resource, checked
+   * under a job-row lock or write conflict that a resource change must also take. An attempt for a
+   * resource the job no longer names parks the job without a waiter row.
    *
    * @param resource configured resource name to acquire against; never {@code null}
    * @param jobId job id the permit is being acquired for; never {@code null}

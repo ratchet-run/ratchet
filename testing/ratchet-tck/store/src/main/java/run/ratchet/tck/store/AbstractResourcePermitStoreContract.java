@@ -62,7 +62,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void configureAndAcquirePermit_succeeds() {
     resourcePermitStore().configureResource("res-1", 2, 1000, "test");
-    var job = claimNewJob("node-1");
+    var job = claimNewJob("res-1", "node-1");
 
     assertEquals(
         ACQUIRED,
@@ -73,8 +73,8 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void tryAcquirePermit_failsAtCapacity() {
     resourcePermitStore().configureResource("res-limited", 1, 1000, "limited resource");
-    var firstJob = claimNewJob("node-1");
-    var secondJob = claimNewJob("node-1");
+    var firstJob = claimNewJob("res-limited", "node-1");
+    var secondJob = claimNewJob("res-limited", "node-1");
 
     assertEquals(ACQUIRED, acquire("res-limited", firstJob, "node-1"), "First acquire succeeds");
     assertEquals(
@@ -85,7 +85,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
 
   @Test
   void tryAcquirePermit_unconfiguredResource_failsHard() {
-    var job = persist(newPendingJob());
+    var job = persist(pendingJob("missing-resource"));
 
     ResourceNotConfiguredException exception =
         assertThrows(
@@ -140,14 +140,14 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void configureResource_lowerLimitKeepsHeldPermitsAndBlocksNewAcquires() {
     resourcePermitStore().configureResource("res-lower", 2, 1000, "lower");
-    var first = claimNewJob("node-1");
-    var second = claimNewJob("node-1");
+    var first = claimNewJob("res-lower", "node-1");
+    var second = claimNewJob("res-lower", "node-1");
     assertEquals(ACQUIRED, acquire("res-lower", first, "node-1"));
     assertEquals(ACQUIRED, acquire("res-lower", second, "node-1"));
 
     resourcePermitStore().configureResource("res-lower", 1, 1000, "lower");
 
-    var third = claimNewJob("node-1");
+    var third = claimNewJob("res-lower", "node-1");
     assertEquals(
         AT_CAPACITY,
         acquire("res-lower", third, "node-1"),
@@ -159,14 +159,14 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void configureResource_raisedLimitAdmitsTheNextAcquire() {
     resourcePermitStore().configureResource("res-raise", 1, 1000, "raise");
-    var first = claimNewJob("node-1");
+    var first = claimNewJob("res-raise", "node-1");
     assertEquals(ACQUIRED, acquire("res-raise", first, "node-1"));
 
     resourcePermitStore().configureResource("res-raise", 2, 1000, "raise");
 
     assertEquals(
         ACQUIRED,
-        acquire("res-raise", claimNewJob("node-1"), "node-1"),
+        acquire("res-raise", claimNewJob("res-raise", "node-1"), "node-1"),
         "the raised limit has a free slot");
   }
 
@@ -203,8 +203,8 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void releasePermit_freesCapacity() {
     resourcePermitStore().configureResource("res-release", 1, 1000, "release test");
-    var firstJob = claimNewJob("node-1");
-    var secondJob = claimNewJob("node-1");
+    var firstJob = claimNewJob("res-release", "node-1");
+    var secondJob = claimNewJob("res-release", "node-1");
 
     assertEquals(ACQUIRED, acquire("res-release", firstJob, "node-1"));
     release("res-release", firstJob);
@@ -219,14 +219,14 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   void releaseAllPermits_freesAllForJob() {
     resourcePermitStore().configureResource("res-A", 1, 1000, "resource A");
     resourcePermitStore().configureResource("res-B", 1, 1000, "resource B");
-    var job = claimNewJob("node-1");
+    var job = claimNewJob("res-A", "node-1");
 
     assertEquals(ACQUIRED, acquire("res-A", job, "node-1"));
     assertEquals(ACQUIRED, acquire("res-B", job, "node-1"));
 
     resourcePermitStore().releaseAllPermits(job.getId());
 
-    var otherJob = claimNewJob("node-1");
+    var otherJob = claimNewJob("res-A", "node-1");
     assertEquals(
         ACQUIRED,
         acquire("res-A", otherJob, "node-1"),
@@ -263,7 +263,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     Runnable[] tasks = new Runnable[threadCount];
     for (int i = 0; i < threadCount; i++) {
       final String nodeId = "node-" + i;
-      final var job = claimNewJob(nodeId);
+      final var job = claimNewJob("res-cap", nodeId);
       tasks[i] =
           () -> {
             if (acquire("res-cap", job, nodeId) == ACQUIRED) {
@@ -283,7 +283,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void cleanupOrphanedPermits_removesStaleNodePermits() {
     resourcePermitStore().configureResource("res-orphan", 1, 1000, "orphan test");
-    var job = claimNewJob("stale-node");
+    var job = claimNewJob("res-orphan", "stale-node");
 
     assertEquals(ACQUIRED, acquire("res-orphan", job, "stale-node"));
 
@@ -291,7 +291,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
 
     assertTrue(cleaned >= 1, "cleanupOrphanedPermits should remove the stale permit");
 
-    var otherJob = claimNewJob("node-1");
+    var otherJob = claimNewJob("res-orphan", "node-1");
     assertEquals(
         ACQUIRED,
         acquire("res-orphan", otherJob, "node-1"),
@@ -312,7 +312,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void tryAcquirePermit_sameClaimTwice_idempotent() {
     resourcePermitStore().configureResource("res-idem", 1, 1000, "idempotent test");
-    var job = claimNewJob("node-1");
+    var job = claimNewJob("res-idem", "node-1");
 
     assertEquals(ACQUIRED, acquire("res-idem", job, "node-1"), "First acquire should succeed");
     assertEquals(
@@ -320,7 +320,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
         acquire("res-idem", job, "node-1"),
         "Second acquire by the same claim should be idempotent");
 
-    var otherJob = claimNewJob("node-1");
+    var otherJob = claimNewJob("res-idem", "node-1");
     assertEquals(
         AT_CAPACITY,
         acquire("res-idem", otherJob, "node-1"),
@@ -337,7 +337,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void newerClaimWaitsUntilDeadNodeCleanup() {
     resourcePermitStore().configureResource("res-reclaim", 1, 1000, "orphan reclaim");
-    var first = claimNewJob("dead-node");
+    var first = claimNewJob("res-reclaim", "dead-node");
     assertEquals(ACQUIRED, acquire("res-reclaim", first, "dead-node"));
 
     assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
@@ -350,7 +350,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     resourcePermitStore().wakeWaiters("res-reclaim");
     retry = reclaim(retry, "live-node");
     assertEquals(ACQUIRED, acquire("res-reclaim", retry, "live-node"));
-    var other = claimNewJob("other-node");
+    var other = claimNewJob("res-reclaim", "other-node");
     assertEquals(AT_CAPACITY, acquire("res-reclaim", other, "other-node"));
     resourcePermitStore().cleanupOrphanedPermits(List.of("dead-node"));
     // No free slot: cleanup must not wake the parked job while the live retry holds capacity.
@@ -369,7 +369,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void newerClaimWaitsUntilOlderClaimReleases() {
     resourcePermitStore().configureResource("res-timeout", 1, 1000, "retry");
-    var first = claimNewJob("node-a");
+    var first = claimNewJob("res-timeout", "node-a");
     assertEquals(ACQUIRED, acquire("res-timeout", first, "node-a"));
 
     scheduleImmediateRetry(first);
@@ -380,7 +380,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     retry = reclaim(retry, "node-b");
     assertEquals(ACQUIRED, acquire("res-timeout", retry, "node-b"));
     release("res-timeout", first);
-    var other = claimNewJob("node-c");
+    var other = claimNewJob("res-timeout", "node-c");
     assertEquals(
         AT_CAPACITY,
         acquire("res-timeout", other, "node-c"),
@@ -390,7 +390,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void newerClaimOnSameNodeWaitsUntilOlderClaimReleases() {
     resourcePermitStore().configureResource("res-same-node", 1, 1000, "retry");
-    var first = claimNewJob("node-a");
+    var first = claimNewJob("res-same-node", "node-a");
     assertEquals(ACQUIRED, acquire("res-same-node", first, "node-a"));
 
     scheduleImmediateRetry(first);
@@ -401,7 +401,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     retry = reclaim(retry, "node-a");
     assertEquals(ACQUIRED, acquire("res-same-node", retry, "node-a"));
     release("res-same-node", first);
-    var other = claimNewJob("node-c");
+    var other = claimNewJob("res-same-node", "node-c");
     assertEquals(
         AT_CAPACITY,
         acquire("res-same-node", other, "node-c"),
@@ -411,13 +411,13 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void newerClaimCountsOlderClaimPermitAgainstCapacity() {
     resourcePermitStore().configureResource("res-two", 2, 1000, "two slots");
-    var first = claimNewJob("node-a");
+    var first = claimNewJob("res-two", "node-a");
     assertEquals(ACQUIRED, acquire("res-two", first, "node-a"));
     scheduleImmediateRetry(first);
     var retry = reclaim(first, "node-b");
     assertEquals(ACQUIRED, acquire("res-two", retry, "node-b"), "a free slot admits the retry");
     assertEquals(ACQUIRED, acquire("res-two", retry, "node-b"));
-    var third = claimNewJob("node-c");
+    var third = claimNewJob("res-two", "node-c");
     assertEquals(
         AT_CAPACITY,
         acquire("res-two", third, "node-c"),
@@ -431,7 +431,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void staleAttemptRelease_freesPermitTheNewerAttemptNeverTook() {
     resourcePermitStore().configureResource("res-untaken", 1, 1000, "untaken permit");
-    var first = claimNewJob("node-a");
+    var first = claimNewJob("res-untaken", "node-a");
     assertEquals(ACQUIRED, acquire("res-untaken", first, "node-a"));
 
     scheduleImmediateRetry(first);
@@ -439,7 +439,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     reclaim(first, "node-b");
     release("res-untaken", first);
 
-    var other = claimNewJob("node-c");
+    var other = claimNewJob("res-untaken", "node-c");
     assertEquals(
         ACQUIRED,
         acquire("res-untaken", other, "node-c"),
@@ -449,7 +449,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void tryAcquirePermit_rejectsAttemptWhoseJobWasReset() {
     resourcePermitStore().configureResource("res-stale", 1, 1000, "stale acquire");
-    var stalled = claimNewJob("node-a");
+    var stalled = claimNewJob("res-stale", "node-a");
     assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
 
     assertEquals(
@@ -466,7 +466,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void tryAcquirePermit_rejectsOlderClaimWhileNewerClaimRuns() {
     resourcePermitStore().configureResource("res-older", 1, 1000, "older claim");
-    var first = claimNewJob("node-a");
+    var first = claimNewJob("res-older", "node-a");
     scheduleImmediateRetry(first);
     var retry = reclaim(first, "node-b");
 
@@ -475,14 +475,14 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
         acquire("res-older", first, "node-a"),
         "the older claim must not take a permit while the newer claim runs");
     assertEquals(ACQUIRED, acquire("res-older", retry, "node-b"));
-    var other = claimNewJob("node-c");
+    var other = claimNewJob("res-older", "node-c");
     assertEquals(AT_CAPACITY, acquire("res-older", other, "node-c"));
   }
 
   @Test
   void tryAcquirePermit_rejectsAttemptWhoseJobEnded() {
     resourcePermitStore().configureResource("res-ended", 1, 1000, "ended job");
-    var ended = claimNewJob("node-a");
+    var ended = claimNewJob("res-ended", "node-a");
     assertTrue(store().cancelJob(ended.getId()));
 
     assertEquals(
@@ -494,10 +494,10 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void waitersAreServedInTheOrderTheyStartedWaiting() {
     resourcePermitStore().configureResource("ordered", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("ordered", "holder");
     assertEquals(ACQUIRED, acquire("ordered", holder, "holder"));
-    var a = claimDueJob(Instant.now().minusSeconds(30), JobPriority.NORMAL);
-    var b = claimDueJob(Instant.now().minusSeconds(20), JobPriority.NORMAL);
+    var a = claimDueJob("ordered", Instant.now().minusSeconds(30), JobPriority.NORMAL);
+    var b = claimDueJob("ordered", Instant.now().minusSeconds(20), JobPriority.NORMAL);
     Instant original = a.getScheduledTime();
     assertEquals(AT_CAPACITY, acquire("ordered", a, "node"));
     assertEquals(AT_CAPACITY, acquire("ordered", b, "node"));
@@ -508,7 +508,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     assertEquals(
         millis(original), millis(store().findById(a.getId()).orElseThrow().getScheduledTime()));
     // Claim A and a fresh job together, then let the fresh job ask first.
-    var c = persist(newPendingJob());
+    var c = persist(pendingJob("ordered"));
     var claims = store().claimNextBatch(2, "node");
     assertEquals(2, claims.size());
     var fresh = claims.stream().filter(j -> j.getId().equals(c.getId())).findFirst().orElseThrow();
@@ -520,11 +520,11 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void higherPriorityWaiterGoesFirstThenTheOlderOne() {
     resourcePermitStore().configureResource("priority", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("priority", "holder");
     assertEquals(ACQUIRED, acquire("priority", holder, "holder"));
-    var old = claimDueJob(Instant.now().minusSeconds(40), JobPriority.NORMAL);
-    var young = claimDueJob(Instant.now().minusSeconds(30), JobPriority.NORMAL);
-    var high = claimDueJob(Instant.now().minusSeconds(20), JobPriority.HIGH);
+    var old = claimDueJob("priority", Instant.now().minusSeconds(40), JobPriority.NORMAL);
+    var young = claimDueJob("priority", Instant.now().minusSeconds(30), JobPriority.NORMAL);
+    var high = claimDueJob("priority", Instant.now().minusSeconds(20), JobPriority.HIGH);
     for (var job : List.of(old, young, high)) {
       assertEquals(AT_CAPACITY, acquire("priority", job, "node"));
     }
@@ -543,10 +543,10 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void waiterWhoseLeaseRanOutStopsCounting() throws InterruptedException {
     resourcePermitStore().configureResource("expired", 1, 1000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("expired", "holder");
     assertEquals(ACQUIRED, acquire("expired", holder, "holder"));
-    var old = claimNewJob("old");
-    var young = claimNewJob("young");
+    var old = claimNewJob("expired", "old");
+    var young = claimNewJob("expired", "young");
     assertEquals(AT_CAPACITY, acquire("expired", old, "old"));
     long parkedAt = System.nanoTime();
     release("expired", holder);
@@ -564,13 +564,13 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   void pausedWaiterDoesNotCount() {
     batchStore();
     resourcePermitStore().configureResource("paused", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("paused", "holder");
     assertEquals(ACQUIRED, acquire("paused", holder, "holder"));
     var parent = newBatchParentJob();
     parent.setScheduledTime(Instant.now().plusSeconds(3600));
     parent = persist(parent);
     persistBatch(parent.getId(), 1);
-    var child = newPendingJob();
+    var child = pendingJob("paused");
     child.setDependsOn(parent.getId());
     child.setJobType(JobExecutionType.BATCH_CHILD);
     child = persist(child);
@@ -582,17 +582,17 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     assertEquals(JobStatus.PAUSED, store().getJobStatus(child.getId()));
     release("paused", holder);
     assertTrue(resourcePermitStore().wakeWaiters("paused").isEmpty());
-    assertEquals(ACQUIRED, acquire("paused", claimNewJob("fresh"), "fresh"));
+    assertEquals(ACQUIRED, acquire("paused", claimNewJob("paused", "fresh"), "fresh"));
   }
 
   @Test
   void findResourcesWithWaitersPagesInAscendingOrder() {
     for (String resource : List.of("page-c", "page-a", "page-b")) {
       resourcePermitStore().configureResource(resource, 1, 60_000, null);
-      var holder = claimNewJob("holder");
+      var holder = claimNewJob(resource, "holder");
       assertEquals(ACQUIRED, acquire(resource, holder, "holder"));
       for (int i = 0; i < 2; i++) {
-        var waiter = claimNewJob("waiter");
+        var waiter = claimNewJob(resource, "waiter");
         assertEquals(AT_CAPACITY, acquire(resource, waiter, "waiter"));
       }
     }
@@ -606,14 +606,14 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void staleWaiterRowsAreSkippedAndRemoved() {
     resourcePermitStore().configureResource("stale", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("stale", "holder");
     assertEquals(ACQUIRED, acquire("stale", holder, "holder"));
-    var waiter = claimNewJob("waiter");
+    var waiter = claimNewJob("stale", "waiter");
     assertEquals(AT_CAPACITY, acquire("stale", waiter, "waiter"));
     assertTrue(store().cancelJob(waiter.getId()));
     release("stale", holder);
     assertTrue(resourcePermitStore().wakeWaiters("stale").isEmpty());
-    assertEquals(ACQUIRED, acquire("stale", claimNewJob("fresh"), "fresh"));
+    assertEquals(ACQUIRED, acquire("stale", claimNewJob("stale", "fresh"), "fresh"));
     assertEquals(List.of("stale"), resourcePermitStore().findResourcesWithWaiters(null, 10));
     assertEquals(1, resourcePermitStore().deleteStaleWaiters(10));
     assertTrue(resourcePermitStore().findResourcesWithWaiters(null, 10).isEmpty());
@@ -622,13 +622,13 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void wakeUpWakesAsManyWaitersAsArePermitsFree() {
     resourcePermitStore().configureResource("many", 2, 60_000, null);
-    var h1 = claimNewJob("h1");
-    var h2 = claimNewJob("h2");
+    var h1 = claimNewJob("many", "h1");
+    var h2 = claimNewJob("many", "h2");
     assertEquals(ACQUIRED, acquire("many", h1, "h1"));
     assertEquals(ACQUIRED, acquire("many", h2, "h2"));
-    var a = claimDueJob(Instant.now().minusSeconds(40), JobPriority.NORMAL);
-    var b = claimDueJob(Instant.now().minusSeconds(30), JobPriority.NORMAL);
-    var c = claimDueJob(Instant.now().minusSeconds(20), JobPriority.NORMAL);
+    var a = claimDueJob("many", Instant.now().minusSeconds(40), JobPriority.NORMAL);
+    var b = claimDueJob("many", Instant.now().minusSeconds(30), JobPriority.NORMAL);
+    var c = claimDueJob("many", Instant.now().minusSeconds(20), JobPriority.NORMAL);
     for (var job : List.of(a, b, c)) assertEquals(AT_CAPACITY, acquire("many", job, "node"));
     release("many", h1);
     release("many", h2);
@@ -646,11 +646,13 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void wakeUpRestoresTheWaitersOriginalDueTime() {
     resourcePermitStore().configureResource("due", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("due", "holder");
     assertEquals(ACQUIRED, acquire("due", holder, "holder"));
     var waiter =
         claimDueJob(
-            Instant.now().minusSeconds(10).truncatedTo(ChronoUnit.MILLIS), JobPriority.NORMAL);
+            "due",
+            Instant.now().minusSeconds(10).truncatedTo(ChronoUnit.MILLIS),
+            JobPriority.NORMAL);
     assertEquals(AT_CAPACITY, acquire("due", waiter, "node"));
     release("due", holder);
     var woken = resourcePermitStore().wakeWaiters("due");
@@ -665,9 +667,9 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void supersededAttemptParksNothing() {
     resourcePermitStore().configureResource("superseded", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("superseded", "holder");
     assertEquals(ACQUIRED, acquire("superseded", holder, "holder"));
-    var old = claimNewJob("old");
+    var old = claimNewJob("superseded", "old");
     scheduleImmediateRetry(old);
     var current = reclaim(old, "current");
     assertEquals(SUPERSEDED, acquire("superseded", old, "old"));
@@ -680,9 +682,9 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void missParksTheJobInsideTheAcquire() {
     resourcePermitStore().configureResource("park", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("park", "holder");
     assertEquals(ACQUIRED, acquire("park", holder, "holder"));
-    var waiter = claimNewJob("waiter");
+    var waiter = claimNewJob("park", "waiter");
     Instant before = Instant.now();
     assertEquals(AT_CAPACITY, acquire("park", waiter, "waiter"));
     Instant after = Instant.now();
@@ -699,10 +701,10 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void userRescheduleRemovesTheWaiterForBothGenericUpdatePaths() {
     resourcePermitStore().configureResource("reschedule", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("reschedule", "holder");
     assertEquals(ACQUIRED, acquire("reschedule", holder, "holder"));
     for (boolean changeAnotherHotField : List.of(false, true)) {
-      var waiter = claimNewJob("waiter");
+      var waiter = claimNewJob("reschedule", "waiter");
       assertEquals(AT_CAPACITY, acquire("reschedule", waiter, "waiter"));
       var parked = store().findById(waiter.getId()).orElseThrow();
       var userTime = Instant.now().plusSeconds(3600).truncatedTo(ChronoUnit.MILLIS);
@@ -720,11 +722,11 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   void changingTheResourceMovesTheJobOutOfTheOldLine() {
     resourcePermitStore().configureResource("old-res", 1, 0, null);
     resourcePermitStore().configureResource("new-res", 1, 0, null);
-    var oldHolder = claimNewJob("old-holder");
+    var oldHolder = claimNewJob("old-res", "old-holder");
     assertEquals(ACQUIRED, acquire("old-res", oldHolder, "old-holder"));
-    var newHolder = claimNewJob("new-holder");
+    var newHolder = claimNewJob("new-res", "new-holder");
     assertEquals(ACQUIRED, acquire("new-res", newHolder, "new-holder"));
-    var waiter = claimNewJob("waiter");
+    var waiter = claimNewJob("old-res", "waiter");
     assertEquals(AT_CAPACITY, acquire("old-res", waiter, "waiter"));
 
     var parked = store().findById(waiter.getId()).orElseThrow();
@@ -741,9 +743,9 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   @Test
   void retryDelayAtTheIntLimitStillParksAndCounts() {
     resourcePermitStore().configureResource("long-delay", 1, Integer.MAX_VALUE, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("long-delay", "holder");
     assertEquals(ACQUIRED, acquire("long-delay", holder, "holder"));
-    var waiter = claimNewJob("waiter");
+    var waiter = claimNewJob("long-delay", "waiter");
     assertEquals(AT_CAPACITY, acquire("long-delay", waiter, "waiter"));
     assertEquals(List.of("long-delay"), resourcePermitStore().findResourcesWithWaiters(null, 10));
     var parked = store().findById(waiter.getId()).orElseThrow();
@@ -751,11 +753,38 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     assertTrue(parked.getScheduledTime().isAfter(Instant.now().plus(Duration.ofDays(20))));
 
     release("long-delay", holder);
-    assertEquals(AT_CAPACITY, acquire("long-delay", claimNewJob("fresh"), "fresh"));
+    assertEquals(AT_CAPACITY, acquire("long-delay", claimNewJob("long-delay", "fresh"), "fresh"));
   }
 
-  private JobEntity claimDueJob(Instant due, JobPriority priority) {
-    var job = newPendingJob();
+  /** Pins stale-resource parking without joining a line for the job's previous resource. */
+  @Test
+  void staleAttemptForTheOldResourceParksWithoutJoiningItsLine() {
+    resourcePermitStore().configureResource("old-res", 1, 0, null);
+    resourcePermitStore().configureResource("new-res", 1, 0, null);
+    var oldHolder = claimNewJob("old-res", "old-holder");
+    assertEquals(ACQUIRED, acquire("old-res", oldHolder, "old-holder"));
+    var newHolder = claimNewJob("new-res", "new-holder");
+    assertEquals(ACQUIRED, acquire("new-res", newHolder, "new-holder"));
+    var waiter = claimNewJob("old-res", "waiter");
+    assertEquals(AT_CAPACITY, acquire("old-res", waiter, "waiter"));
+    var attempt = reclaim(waiter, "waiter");
+    var moved = store().findById(waiter.getId()).orElseThrow();
+    moved.setResourceName("new-res");
+    store().save(moved);
+    assertTrue(resourcePermitStore().findResourcesWithWaiters(null, 10).isEmpty());
+
+    assertEquals(AT_CAPACITY, acquire("old-res", attempt, "waiter"));
+    assertTrue(resourcePermitStore().findResourcesWithWaiters(null, 10).isEmpty());
+    var next = reclaim(attempt, "waiter");
+    assertEquals(AT_CAPACITY, acquire("new-res", next, "waiter"));
+    assertEquals(List.of("new-res"), resourcePermitStore().findResourcesWithWaiters(null, 10));
+    release("old-res", oldHolder);
+    assertTrue(resourcePermitStore().wakeWaiters("old-res").isEmpty());
+    assertTrue(resourcePermitStore().wakeWaiters("new-res").isEmpty());
+  }
+
+  private JobEntity claimDueJob(String resource, Instant due, JobPriority priority) {
+    var job = pendingJob(resource);
     job.setScheduledTime(due);
     job.setPriority(priority);
     var saved = persist(job);
@@ -775,12 +804,18 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     resourcePermitStore().releasePermit(resource, claimed.getId(), claimed.getClaimSeq());
   }
 
-  private JobEntity claimNewJob(String nodeId) {
-    var pending = persist(newPendingJob());
+  private JobEntity claimNewJob(String resource, String nodeId) {
+    var pending = persist(pendingJob(resource));
     var claimed = store().claimNextBatch(1, nodeId);
     assertEquals(1, claimed.size());
     assertEquals(pending.getId(), claimed.get(0).getId());
     return claimed.get(0);
+  }
+
+  private JobEntity pendingJob(String resource) {
+    var job = newPendingJob();
+    job.setResourceName(resource);
+    return job;
   }
 
   private JobEntity reclaim(JobEntity previous, String nodeId) {

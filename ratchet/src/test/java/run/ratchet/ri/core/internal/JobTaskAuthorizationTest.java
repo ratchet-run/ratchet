@@ -47,6 +47,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -107,6 +108,7 @@ class JobTaskAuthorizationTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
@@ -254,6 +256,7 @@ class JobTaskAuthorizationTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,

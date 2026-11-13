@@ -272,7 +272,7 @@ final class SqlserverAuxiliaryOperations
               .createNativeQuery(
                   """
                   SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
-                         w.priority, w.wait_since
+                         w.priority, w.wait_since, w.resource_name
                   FROM scheduler_job_queue q
                   LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
                   WHERE q.job_id = ?
@@ -365,8 +365,9 @@ final class SqlserverAuxiliaryOperations
   }
 
   private int waitersAhead(String resource, UUID jobId, Object[] claim, int free) {
-    int priority = ((Number) (claim[4] != null ? claim[4] : claim[2])).intValue();
-    Object waitSince = claim[4] != null ? claim[5] : claim[3];
+    int priority =
+        ((Number) (claim[4] != null && resource.equals(claim[6]) ? claim[4] : claim[2])).intValue();
+    Object waitSince = claim[4] != null && resource.equals(claim[6]) ? claim[5] : claim[3];
     // language=SQL Server
     String sql =
         """
@@ -419,6 +420,22 @@ final class SqlserverAuxiliaryOperations
     if (updated == 0) {
       return AcquireResult.SUPERSEDED;
     }
+    // Never wait for the job row here: a save can hold it while it waits for this queue row.
+    // Write the waiter row only while the job still names this resource.
+    // language=SQL Server
+    String currentResource =
+        """
+        SELECT resource_name FROM scheduler_job WITH (UPDLOCK, READPAST, ROWLOCK) WHERE job_id = ?
+        """;
+    List<?> resources =
+        ctx.em()
+            .createNativeQuery(currentResource)
+            .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+            .getResultList();
+    if (resources.isEmpty() || !resource.equals(resources.get(0))) {
+      return AcquireResult.AT_CAPACITY;
+    }
+
     // DATEADD takes an int, so add whole seconds and the millisecond remainder separately.
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
     int renewed = 0;
@@ -427,7 +444,8 @@ final class SqlserverAuxiliaryOperations
       String renew =
           """
           UPDATE scheduler_resource_waiter
-          SET lease_until = DATEADD(MILLISECOND, ?, DATEADD(SECOND, ?, SYSUTCDATETIME()))
+          SET lease_until = DATEADD(MILLISECOND, ?, DATEADD(SECOND, ?, SYSUTCDATETIME())),
+              resource_name = ?, priority = ?, wait_since = ?
           WHERE job_id = ?
           """;
       renewed =
@@ -435,7 +453,10 @@ final class SqlserverAuxiliaryOperations
               .createNativeQuery(renew)
               .setParameter(1, (int) (leaseMillis % 1000))
               .setParameter(2, (int) (leaseMillis / 1000))
-              .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
+              .setParameter(3, resource)
+              .setParameter(4, claim[4] != null && resource.equals(claim[6]) ? claim[4] : claim[2])
+              .setParameter(5, claim[4] != null && resource.equals(claim[6]) ? claim[5] : claim[3])
+              .setParameter(6, UuidByteArrayConverter.toBytes(jobId))
               .executeUpdate();
     }
     // The stale sweep can delete the row after the claim read it. Write it back with the keys
@@ -452,8 +473,8 @@ final class SqlserverAuxiliaryOperations
           .createNativeQuery(insert)
           .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
           .setParameter(2, resource)
-          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
-          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
+          .setParameter(3, claim[4] != null && resource.equals(claim[6]) ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null && resource.equals(claim[6]) ? claim[5] : claim[3])
           .setParameter(5, (int) (leaseMillis % 1000))
           .setParameter(6, (int) (leaseMillis / 1000))
           .executeUpdate();
@@ -525,9 +546,11 @@ final class SqlserverAuxiliaryOperations
         // language=SQL Server
         String wake =
             """
-            UPDATE scheduler_job_queue WITH (UPDLOCK, READPAST, ROWLOCK)
-            SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
-            WHERE job_id = ? AND status = 'PENDING' AND scheduled_time = ?
+            UPDATE q SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
+            FROM scheduler_job_queue q WITH (UPDLOCK, READPAST, ROWLOCK)
+            JOIN scheduler_job c WITH (UPDLOCK, READPAST, ROWLOCK) ON c.job_id = q.job_id
+            WHERE q.job_id = ? AND q.status = 'PENDING' AND q.scheduled_time = ?
+              AND c.resource_name = ?
             """;
         if (ctx.em()
                 .createNativeQuery(wake)
@@ -535,6 +558,7 @@ final class SqlserverAuxiliaryOperations
                 .setParameter(
                     2, UuidByteArrayConverter.toBytes(SqlserverJobRowMapper.uuidOrNull(row[0])))
                 .setParameter(3, row[5])
+                .setParameter(4, resource)
                 .executeUpdate()
             == 1) {
           result.add(

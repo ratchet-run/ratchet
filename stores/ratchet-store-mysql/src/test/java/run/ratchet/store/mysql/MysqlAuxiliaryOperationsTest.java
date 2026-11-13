@@ -104,13 +104,13 @@ class MysqlAuxiliaryOperationsTest {
                 new Object[] {firstBytes, "PENDING", 4, "target", DUE, DUE},
                 new Object[] {secondBytes, "PENDING", 3, null, DUE, DUE}),
             0,
-            List.<Object[]>of(new Object[] {secondBytes, DUE}),
+            List.<Object[]>of(new Object[] {secondBytes, DUE, "res"}),
             1);
     var result = sequence.operations().wakeWaiters("res");
     assertEquals(List.of(second), result.stream().map(w -> w.jobId()).toList());
     assertEquals(5, sequence.sql.size());
     assertTrue(
-        sequence.sql.get(3).contains("IN (?, ?) AND status = 'PENDING' FOR UPDATE SKIP LOCKED"));
+        sequence.sql.get(3).contains("IN (?, ?) AND q.status = 'PENDING' FOR UPDATE SKIP LOCKED"));
     assertTrue(Arrays.equals(firstBytes, (byte[]) sequence.parameters.get(3).get(1)));
     assertTrue(Arrays.equals(secondBytes, (byte[]) sequence.parameters.get(3).get(2)));
     assertTrue(Arrays.equals(secondBytes, (byte[]) sequence.parameters.get(4).get(2)));
@@ -128,7 +128,7 @@ class MysqlAuxiliaryOperationsTest {
                 new Object[] {first, "PENDING", 4, "target", DUE, DUE},
                 new Object[] {second, "PENDING", 3, null, DUE, DUE}),
             0,
-            List.<Object[]>of(new Object[] {second, DUE}, new Object[] {first, DUE}),
+            List.<Object[]>of(new Object[] {second, DUE, "res"}, new Object[] {first, DUE, "res"}),
             1,
             1);
     assertEquals(
@@ -136,6 +136,30 @@ class MysqlAuxiliaryOperationsTest {
         sequence.operations().wakeWaiters("res").stream().map(w -> w.jobId()).toList());
     assertEquals(6, sequence.sql.size());
     sequence.assertConsumed();
+  }
+
+  @Test
+  void parkWithoutCurrentResourceWritesNoWaiter() {
+    for (List<String> resources : List.of(List.of("other"), List.<String>of())) {
+      var sequence =
+          new NativeSequence(
+              List.<Object[]>of(new Object[] {1, 1000}),
+              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null}),
+              List.of(UUID.randomUUID()),
+              List.of(),
+              1,
+              resources);
+      assertEquals(
+          AcquireResult.AT_CAPACITY,
+          sequence.operations().tryAcquirePermit("res", UUID.randomUUID(), 7L, "node"));
+      assertTrue(
+          sequence.sql.stream()
+              .noneMatch(
+                  sql ->
+                      sql.startsWith("INSERT INTO scheduler_resource_waiter")
+                          || sql.startsWith("UPDATE scheduler_resource_waiter")));
+      sequence.assertConsumed();
+    }
   }
 
   private static final Timestamp DUE = Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"));
@@ -244,13 +268,21 @@ class MysqlAuxiliaryOperationsTest {
                         : sql.contains("scheduler_job_queue")
                             ? Collections.singletonList(
                                 new Object[] {
-                                  "RUNNING", claimSeq, 2, Timestamp.from(Instant.now()), null, null
+                                  "RUNNING",
+                                  claimSeq,
+                                  2,
+                                  Timestamp.from(Instant.now()),
+                                  null,
+                                  null,
+                                  null
                                 })
-                            : sql.contains("max_concurrent")
-                                ? Collections.singletonList(new Object[] {1, 1000})
-                                : Collections.singletonList(
-                                    UuidByteArrayConverter.toBytes(
-                                        ResourcePermitEntity.idFor("res", expectedJobId, 0L)));
+                            : sql.startsWith("SELECT resource_name FROM scheduler_job")
+                                ? List.of("res")
+                                : sql.contains("max_concurrent")
+                                    ? Collections.singletonList(new Object[] {1, 1000})
+                                    : Collections.singletonList(
+                                        UuidByteArrayConverter.toBytes(
+                                            ResourcePermitEntity.idFor("res", expectedJobId, 0L)));
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });
