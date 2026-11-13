@@ -418,6 +418,7 @@ final class SqlserverAuxiliaryOperations
     }
     // DATEADD takes an int, so add whole seconds and the millisecond remainder separately.
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
+    int renewed = 0;
     if (claim[4] != null) {
       // language=SQL Server
       String renew =
@@ -426,13 +427,17 @@ final class SqlserverAuxiliaryOperations
           SET lease_until = DATEADD(MILLISECOND, ?, DATEADD(SECOND, ?, SYSUTCDATETIME()))
           WHERE job_id = ?
           """;
-      ctx.em()
-          .createNativeQuery(renew)
-          .setParameter(1, (int) (leaseMillis % 1000))
-          .setParameter(2, (int) (leaseMillis / 1000))
-          .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
-          .executeUpdate();
-    } else {
+      renewed =
+          ctx.em()
+              .createNativeQuery(renew)
+              .setParameter(1, (int) (leaseMillis % 1000))
+              .setParameter(2, (int) (leaseMillis / 1000))
+              .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
+              .executeUpdate();
+    }
+    // The stale sweep can delete the row after the claim read it. Write it back with the keys
+    // the waiters-ahead count used.
+    if (renewed == 0) {
       // language=SQL Server
       String insert =
           """
@@ -444,8 +449,8 @@ final class SqlserverAuxiliaryOperations
           .createNativeQuery(insert)
           .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
           .setParameter(2, resource)
-          .setParameter(3, claim[2])
-          .setParameter(4, claim[3])
+          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
           .setParameter(5, (int) (leaseMillis % 1000))
           .setParameter(6, (int) (leaseMillis / 1000))
           .executeUpdate();

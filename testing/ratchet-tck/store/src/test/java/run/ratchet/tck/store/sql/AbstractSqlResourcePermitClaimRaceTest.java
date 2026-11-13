@@ -372,6 +372,82 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
+  /** Pins a waiter kept in line when the stale sweep deletes its row while it parks again. */
+  @Test
+  void parkKeepsItsPlaceWhenTheSweepDeletesTheRowBeforeTheRenew() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-sweep", 1, 0, null);
+    var holder = claimNewJob("holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-sweep"));
+    var waiter = claimNewJob("node-a");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-sweep"));
+    var reclaimed = store.claimNextBatch(1, "node-a");
+    assertEquals(1, reclaimed.size());
+    var failed = reclaimed.get(0);
+    assertEquals(waiter.getId(), failed.getId());
+    assertTrue(
+        store.markJobFailedTerminal(
+            failed.getId(), "boom", failed.getAttempts(), failed.getClaimSeq()));
+    var sweepRead = new AtomicBoolean();
+    var renewReached = new CountDownLatch(1);
+    var sweepDone = new CountDownLatch(1);
+    var deleteLandedFirst = new AtomicBoolean();
+    var park = new AtomicReference<Future<AcquireResult>>();
+    var caller = Thread.currentThread();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.trim().startsWith("SELECT W.JOB_ID")
+                    && normalized.contains(
+                        "FROM SCHEDULER_RESOURCE_WAITER W LEFT JOIN SCHEDULER_JOB_QUEUE")
+                    && sweepRead.compareAndSet(false, true)) {
+                  park.set(
+                      executor.submit(
+                          () -> {
+                            assertTrue(store.resetFailedToPending(waiter.getId()));
+                            var claims = store.claimNextBatch(1, "node-a");
+                            assertEquals(1, claims.size());
+                            return acquire(permits, claims.get(0), "node-a", "res-sweep");
+                          }));
+                  awaitLatch(renewReached);
+                }
+                if (Thread.currentThread() != caller
+                    && !event.completed()
+                    && event.operation().equals("executeUpdate")
+                    && normalized.trim().startsWith("UPDATE SCHEDULER_RESOURCE_WAITER")
+                    && normalized.contains("SET LEASE_UNTIL")) {
+                  renewReached.countDown();
+                  // A store whose delete waits for the park's commit cannot finish the sweep here.
+                  try {
+                    deleteLandedFirst.set(sweepDone.await(5, TimeUnit.SECONDS));
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                  }
+                }
+              });
+      permits.deleteStaleWaiters(10);
+      sweepDone.countDown();
+      assertTrue(sweepRead.get(), "the job parked again after the sweep read its row");
+      assertEquals(AT_CAPACITY, park.get().get(30, TimeUnit.SECONDS));
+      assertEquals(
+          List.of("res-sweep"),
+          permits.findResourcesWithWaiters(null, 10),
+          "sweep delete landed before the renew: " + deleteLandedFirst.get());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
   @Test
   void wakeSweepAndWaiterRowsDoNotDeadlockWithTerminalWritesResetsAndBatchSweeps()
       throws Exception {

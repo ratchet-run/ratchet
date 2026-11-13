@@ -363,6 +363,7 @@ final class MysqlAuxiliaryOperations
       return AcquireResult.SUPERSEDED;
     }
     long leaseMicros = ResourceWaiterLease.leaseMillis(retryDelayMs) * 1000L;
+    int renewed = 0;
     if (claim[4] != null) {
       // language=MySQL
       String renew =
@@ -370,12 +371,16 @@ final class MysqlAuxiliaryOperations
           UPDATE scheduler_resource_waiter
           SET lease_until = TIMESTAMPADD(MICROSECOND, ?, NOW(3)) WHERE job_id = ?
           """;
-      ctx.em()
-          .createNativeQuery(renew)
-          .setParameter(1, leaseMicros)
-          .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
-          .executeUpdate();
-    } else {
+      renewed =
+          ctx.em()
+              .createNativeQuery(renew)
+              .setParameter(1, leaseMicros)
+              .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+              .executeUpdate();
+    }
+    // The stale sweep can delete the row after the claim read it. Write it back with the keys
+    // the waiters-ahead count used.
+    if (renewed == 0) {
       // language=MySQL
       String insert =
           """
@@ -387,8 +392,8 @@ final class MysqlAuxiliaryOperations
           .createNativeQuery(insert)
           .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
           .setParameter(2, resource)
-          .setParameter(3, claim[2])
-          .setParameter(4, claim[3])
+          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
           .setParameter(5, leaseMicros)
           .executeUpdate();
     }

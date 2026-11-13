@@ -372,6 +372,7 @@ final class PostgresqlAuxiliaryOperations
       return AcquireResult.SUPERSEDED;
     }
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
+    int renewed = 0;
     if (claim[4] != null) {
       // language=PostgreSQL
       String renew =
@@ -379,12 +380,16 @@ final class PostgresqlAuxiliaryOperations
           UPDATE scheduler_resource_waiter
           SET lease_until = statement_timestamp() + (? * INTERVAL '1 millisecond') WHERE job_id = ?
           """;
-      ctx.em()
-          .createNativeQuery(renew)
-          .setParameter(1, leaseMillis)
-          .setParameter(2, jobId)
-          .executeUpdate();
-    } else {
+      renewed =
+          ctx.em()
+              .createNativeQuery(renew)
+              .setParameter(1, leaseMillis)
+              .setParameter(2, jobId)
+              .executeUpdate();
+    }
+    // The stale sweep can delete the row after the claim read it. Write it back with the keys
+    // the waiters-ahead count used.
+    if (renewed == 0) {
       // language=PostgreSQL
       String insert =
           """
@@ -396,8 +401,8 @@ final class PostgresqlAuxiliaryOperations
           .createNativeQuery(insert)
           .setParameter(1, jobId)
           .setParameter(2, resource)
-          .setParameter(3, claim[2])
-          .setParameter(4, claim[3])
+          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
           .setParameter(5, leaseMillis)
           .executeUpdate();
     }

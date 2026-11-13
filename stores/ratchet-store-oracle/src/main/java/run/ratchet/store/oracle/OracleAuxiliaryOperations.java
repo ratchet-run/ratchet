@@ -400,6 +400,7 @@ final class OracleAuxiliaryOperations
       return AcquireResult.SUPERSEDED;
     }
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
+    int renewed = 0;
     if (claim[4] != null) {
       // language=Oracle
       String renew =
@@ -407,12 +408,16 @@ final class OracleAuxiliaryOperations
           UPDATE scheduler_resource_waiter
           SET lease_until = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) + NUMTODSINTERVAL(? / 1000, 'SECOND') WHERE job_id = ?
           """;
-      ctx.em()
-          .createNativeQuery(renew)
-          .setParameter(1, leaseMillis)
-          .setParameter(2, UuidRawConverter.toBytes(jobId))
-          .executeUpdate();
-    } else {
+      renewed =
+          ctx.em()
+              .createNativeQuery(renew)
+              .setParameter(1, leaseMillis)
+              .setParameter(2, UuidRawConverter.toBytes(jobId))
+              .executeUpdate();
+    }
+    // The stale sweep can delete the row after the claim read it. Write it back with the keys
+    // the waiters-ahead count used.
+    if (renewed == 0) {
       // language=Oracle
       String insert =
           """
@@ -424,8 +429,8 @@ final class OracleAuxiliaryOperations
           .createNativeQuery(insert)
           .setParameter(1, UuidRawConverter.toBytes(jobId))
           .setParameter(2, resource)
-          .setParameter(3, claim[2])
-          .setParameter(4, claim[3])
+          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
           .setParameter(5, leaseMillis)
           .executeUpdate();
     }
