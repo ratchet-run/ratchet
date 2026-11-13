@@ -708,8 +708,9 @@ that claim:
 - Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq`. This is
   a point-in-time check. Unlike the job-state fence above, it need not be atomic with the write:
   a claim change that commits after it does not fence the permit write, so the earlier claim can
-  still get `ACQUIRED`. That claim then holds the permit until it releases it, and the newer claim
-  waits for it.
+  still get `ACQUIRED`. That claim then holds the permit until it releases it. If that leaves the
+  resource at capacity, the newer claim waits. If a slot is still free, the newer claim gets its
+  own permit, and both attempts hold one at the same time.
 - A repeat call by the same claim returns `ACQUIRED` and uses no more capacity.
 - Otherwise insert a permit for the claim when the resource has capacity (`ACQUIRED`), or return
   `AT_CAPACITY`. Count every permit of the resource, including one that an older claim of the
