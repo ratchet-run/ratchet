@@ -33,6 +33,7 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobStartedEvent;
@@ -229,23 +230,25 @@ class ResourcePermitIT extends BaseRatchetIT {
     try {
       JobHandle holder =
           jobService.enqueue(ResourceTestJob::executeGated).withResource("wake-res").submit();
-      awaitGatedRunning();
-
-      JobHandle waiter =
-          jobService.enqueue(ResourceTestJob::execute).withResource("wake-res").submit();
-      awaitWaiting(waiter, "wake-res");
-      assertParkedWithCheckAhead(waiter);
-
+      assertWaiterStartsSoonAfterHolderFinishes("wake-res", holder);
+    } finally {
       ResourceTestJob.openGate();
-      JobAssertions.assertJobCompleted(jobCrudStore, holder);
-      // The waiter's next check is about 30 seconds away. Freeing the permit should start it now.
-      await()
-          .alias("waiter starts soon after the holder frees the permit")
-          .atMost(Duration.ofSeconds(5))
-          .pollInterval(Duration.ofMillis(100))
-          .until(() -> starts(waiter) == 1);
+    }
+  }
 
-      JobAssertions.assertJobCompleted(jobCrudStore, waiter);
+  @Test
+  // The MongoDB store has no TransactionalCompletionStore, so it cannot run a @TransactionalJob.
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  void transactionalHolder_shouldStartTheWaiterWithoutWaitingOutItsRetryDelay() {
+    resourcePermitService.configureResource("tx-wake-res", 1, 30_000, "test");
+    ResourceTestJob.closeGate();
+    try {
+      JobHandle holder =
+          jobService
+              .enqueue(ResourceTestJob::executeGatedTransactional)
+              .withResource("tx-wake-res")
+              .submit();
+      assertWaiterStartsSoonAfterHolderFinishes("tx-wake-res", holder);
     } finally {
       ResourceTestJob.openGate();
     }
@@ -258,6 +261,25 @@ class ResourcePermitIT extends BaseRatchetIT {
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
     assertEquals(0, ResourceTestJob.getCompletedCount(), "Job body should not execute");
+  }
+
+  private void assertWaiterStartsSoonAfterHolderFinishes(String resource, JobHandle holder) {
+    awaitGatedRunning();
+
+    JobHandle waiter = jobService.enqueue(ResourceTestJob::execute).withResource(resource).submit();
+    awaitWaiting(waiter, resource);
+    assertParkedWithCheckAhead(waiter);
+
+    ResourceTestJob.openGate();
+    JobAssertions.assertJobCompleted(jobCrudStore, holder);
+    // The waiter's next check is about 30 seconds away. Freeing the permit should start it now.
+    await()
+        .alias("waiter starts soon after the holder frees the permit")
+        .atMost(Duration.ofSeconds(5))
+        .pollInterval(Duration.ofMillis(100))
+        .until(() -> starts(waiter) == 1);
+
+    JobAssertions.assertJobCompleted(jobCrudStore, waiter);
   }
 
   private void assertOneSucceededAttempt(JobHandle handle) {

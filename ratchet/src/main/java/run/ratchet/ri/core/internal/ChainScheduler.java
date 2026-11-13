@@ -31,6 +31,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.api.event.ChainStartedEvent;
+import run.ratchet.ri.core.CompletionReads;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -206,10 +207,14 @@ public class ChainScheduler {
   }
 
   protected List<JobEntity> findAllDependants(UUID parentId) {
+    return findAllDependants(parentId, CompletionReads.plain(jobCrudStore, null));
+  }
+
+  protected List<JobEntity> findAllDependants(UUID parentId, CompletionReads reads) {
     List<JobEntity> dependants = new ArrayList<>();
     int offset = 0;
     while (true) {
-      List<JobEntity> page = jobCrudStore.findDependants(parentId, DEPENDANT_PAGE_SIZE, offset);
+      List<JobEntity> page = reads.findDependants(parentId, DEPENDANT_PAGE_SIZE, offset);
       dependants.addAll(page);
       if (page.size() < DEPENDANT_PAGE_SIZE) {
         return dependants;
@@ -282,11 +287,15 @@ public class ChainScheduler {
   }
 
   protected UUID findRootJobId(JobEntity job) {
+    return findRootJobId(job, CompletionReads.plain(jobCrudStore, null));
+  }
+
+  protected UUID findRootJobId(JobEntity job, CompletionReads reads) {
     UUID rootId = job.getId();
     UUID parentId = job.getDependsOn();
     Set<UUID> seen = new HashSet<>();
     while (parentId != null && seen.add(parentId)) {
-      JobEntity parent = jobCrudStore.findById(parentId).orElse(null);
+      JobEntity parent = reads.findById(parentId).orElse(null);
       if (parent == null) {
         return parentId;
       }

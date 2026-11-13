@@ -759,6 +759,7 @@ final class PostgresqlJobTerminalOperations {
         """
         UPDATE scheduler_job c
         SET terminal_status = 'SUCCEEDED',
+            claim_seq = q.claim_seq,
             job_result = CAST(? AS jsonb), result_type = ?,
             execution_start_time = ?, execution_end_time = ?,
             execution_duration_ms = ?, queue_wait_ms = ?,
@@ -792,6 +793,7 @@ final class PostgresqlJobTerminalOperations {
         """
         UPDATE scheduler_job c
         SET terminal_status = 'SUCCEEDED',
+            claim_seq = q.claim_seq,
             execution_start_time = ?, execution_end_time = ?,
             execution_duration_ms = ?, queue_wait_ms = ?,
             total_attempts = q.attempts, terminated_at = statement_timestamp()

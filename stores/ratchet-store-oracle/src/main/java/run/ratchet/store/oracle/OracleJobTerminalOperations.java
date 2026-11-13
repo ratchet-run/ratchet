@@ -827,16 +827,19 @@ final class OracleJobTerminalOperations {
       Long queueWaitMs) {
     // language=Oracle
     String sql =
-        "UPDATE scheduler_job c SET c.terminal_status = 'SUCCEEDED', c.job_result = ?,"
-            + " c.result_type = ?, c.execution_start_time = ?, c.execution_end_time = ?,"
-            + " c.execution_duration_ms = ?, c.queue_wait_ms = ?,"
-            + " c.total_attempts ="
-            + " (SELECT q.attempts FROM scheduler_job_queue q WHERE q.job_id = c.job_id),"
-            + " c.terminated_at = "
-            + NOW_UTC
-            + " WHERE c.job_id = ? AND c.terminal_status IS NULL"
-            + " AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = c.job_id"
-            + " AND q.status = 'RUNNING')";
+        """
+        UPDATE scheduler_job c SET c.terminal_status = 'SUCCEEDED',
+            c.job_result = ?, c.result_type = ?,
+            c.execution_start_time = ?, c.execution_end_time = ?,
+            c.execution_duration_ms = ?, c.queue_wait_ms = ?,
+            c.claim_seq = (SELECT q.claim_seq FROM scheduler_job_queue q WHERE q.job_id = c.job_id),
+            c.total_attempts = (SELECT q.attempts FROM scheduler_job_queue q WHERE q.job_id = c.job_id),
+            c.terminated_at = %s
+        WHERE c.job_id = ? AND c.terminal_status IS NULL
+          AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = c.job_id
+                      AND q.status = 'RUNNING')
+        """
+            .formatted(NOW_UTC);
     int coldUpdated =
         ctx.em()
             .createNativeQuery(sql)
@@ -859,16 +862,18 @@ final class OracleJobTerminalOperations {
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     // language=Oracle
     String sql =
-        "UPDATE scheduler_job c SET c.terminal_status = 'SUCCEEDED',"
-            + " c.execution_start_time = ?, c.execution_end_time = ?,"
-            + " c.execution_duration_ms = ?, c.queue_wait_ms = ?,"
-            + " c.total_attempts ="
-            + " (SELECT q.attempts FROM scheduler_job_queue q WHERE q.job_id = c.job_id),"
-            + " c.terminated_at = "
-            + NOW_UTC
-            + " WHERE c.job_id = ? AND c.terminal_status IS NULL"
-            + " AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = c.job_id"
-            + " AND q.status = 'RUNNING')";
+        """
+        UPDATE scheduler_job c SET c.terminal_status = 'SUCCEEDED',
+            c.execution_start_time = ?, c.execution_end_time = ?,
+            c.execution_duration_ms = ?, c.queue_wait_ms = ?,
+            c.claim_seq = (SELECT q.claim_seq FROM scheduler_job_queue q WHERE q.job_id = c.job_id),
+            c.total_attempts = (SELECT q.attempts FROM scheduler_job_queue q WHERE q.job_id = c.job_id),
+            c.terminated_at = %s
+        WHERE c.job_id = ? AND c.terminal_status IS NULL
+          AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = c.job_id
+                      AND q.status = 'RUNNING')
+        """
+            .formatted(NOW_UTC);
     int coldUpdated =
         ctx.em()
             .createNativeQuery(sql)

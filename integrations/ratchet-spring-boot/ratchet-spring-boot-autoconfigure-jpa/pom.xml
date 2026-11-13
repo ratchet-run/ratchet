@@ -28,6 +28,11 @@
   </dependencyManagement>
   <dependencies>
     <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-spring-boot-autoconfigure</artifactId>
       <version>${project.version}</version>

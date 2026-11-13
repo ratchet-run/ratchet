@@ -17,14 +17,20 @@ package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.objectweb.asm.Type;
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.JobContext;
+import run.ratchet.api.TransactionalJob;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.payload.JobPayloadFactory;
@@ -102,6 +108,20 @@ public class JobPayloadInvoker {
    * when its target cannot be resolved.
    */
   public ResilienceTarget resilienceTarget(JobPayload payload) {
+    if (JobPayloadFactory.isRecurringDispatchShim(payload)) {
+      ResilienceTarget dispatcher = directResilienceTarget(payload);
+      try {
+        ResilienceTarget body = directResilienceTarget(recurringBody(payload));
+        return new ResilienceTarget(
+            dispatcher.serviceName(), dispatcher.exceptionFilter(), body.transactional());
+      } catch (RuntimeException ignored) {
+        return dispatcher;
+      }
+    }
+    return directResilienceTarget(payload);
+  }
+
+  private ResilienceTarget directResilienceTarget(JobPayload payload) {
     String fallback = simpleClassName(payload.target()) + "." + payload.method();
     try {
       Class<?> targetClass = loadAllowedClass(payload.target());
@@ -125,11 +145,16 @@ public class JobPayloadInvoker {
               ? CircuitBreakerExceptionFilter.RECORD_ALL
               : CircuitBreakerExceptionFilter.of(
                   annotation.recordExceptions(), annotation.ignoreExceptions());
-      ResilienceTarget resolved = new ResilienceTarget(serviceName, filter);
+      ResilienceTarget resolved =
+          new ResilienceTarget(
+              serviceName,
+              filter,
+              method.isAnnotationPresent(TransactionalJob.class)
+                  || targetClass.isAnnotationPresent(TransactionalJob.class));
       ResilienceTarget existing = resilienceTargetCache.get(targetClass).putIfAbsent(key, resolved);
       return existing != null ? existing : resolved;
     } catch (Exception e) {
-      return new ResilienceTarget(fallback, CircuitBreakerExceptionFilter.RECORD_ALL);
+      return new ResilienceTarget(fallback, CircuitBreakerExceptionFilter.RECORD_ALL, false);
     }
   }
 
@@ -138,9 +163,129 @@ public class JobPayloadInvoker {
    *
    * @param serviceName the protected service key
    * @param exceptionFilter exception accounting rules from the target annotation
+   * @param transactional whether the job body joins its success completion transaction
    */
   public record ResilienceTarget(
-      String serviceName, CircuitBreakerExceptionFilter exceptionFilter) {}
+      String serviceName, CircuitBreakerExceptionFilter exceptionFilter, boolean transactional) {}
+
+  /** Checks transactional capability and transaction escapes before persisting a job. */
+  public void validateTransactionalSubmission(JobPayload payload, boolean capabilityAvailable) {
+    if (!resilienceTarget(payload).transactional()) return;
+    if (!capabilityAvailable) {
+      throw new UnsupportedOperationException(
+          "@TransactionalJob requires a store advertising TransactionalCompletionStore");
+    }
+    try {
+      if (JobPayloadFactory.isRecurringDispatchShim(payload)) payload = recurringBody(payload);
+      Class<?> targetClass = loadAllowedClass(payload.target());
+      Method method = resolveMethod(targetClass, payload);
+      rejectTransactionEscape(method);
+      rejectTransactionEscape(targetClass);
+      rejectSupertypeTransactionEscapes(targetClass, method, new HashSet<>());
+    } catch (ReflectiveOperationException ignored) {
+      // Best effort: execution retains the usual target-resolution diagnostics.
+    }
+  }
+
+  /** Assignability may conservatively reject an unrelated overload with the same name and arity. */
+  private static void rejectSupertypeTransactionEscapes(
+      Class<?> targetClass, Method jobMethod, Set<Class<?>> visited) {
+    Class<?> superclass = targetClass.getSuperclass();
+    if (superclass != null && superclass != Object.class) {
+      rejectSupertypeTransactionEscape(superclass, jobMethod, visited);
+    }
+    for (Class<?> supertype : targetClass.getInterfaces()) {
+      rejectSupertypeTransactionEscape(supertype, jobMethod, visited);
+    }
+  }
+
+  private static void rejectSupertypeTransactionEscape(
+      Class<?> supertype, Method jobMethod, Set<Class<?>> visited) {
+    if (!visited.add(supertype)) return;
+    rejectTransactionEscape(supertype);
+    if (!Modifier.isStatic(jobMethod.getModifiers())) {
+      for (Method candidate : supertype.getDeclaredMethods()) {
+        if (Modifier.isPrivate(candidate.getModifiers())
+            || Modifier.isStatic(candidate.getModifiers())
+            || !candidate.getName().equals(jobMethod.getName())
+            || candidate.getParameterCount() != jobMethod.getParameterCount()) continue;
+        Class<?>[] parameters = candidate.getParameterTypes();
+        Class<?>[] jobParameters = jobMethod.getParameterTypes();
+        boolean matches = true;
+        for (int i = 0; i < parameters.length; i++) {
+          if (!parameters[i].isAssignableFrom(jobParameters[i])) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) rejectTransactionEscape(candidate);
+      }
+    }
+    rejectSupertypeTransactionEscapes(supertype, jobMethod, visited);
+  }
+
+  private static JobPayload recurringBody(JobPayload dispatcher) {
+    List<Object> args = dispatcher.args();
+    String descriptor =
+        Boolean.TRUE.equals(args.get(2))
+            ? Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(JobContext.class))
+            : "()V";
+    return new JobPayload(
+        (String) args.get(0), (String) args.get(1), descriptor, false, List.of(), null);
+  }
+
+  /**
+   * Rejects transaction escapes throughout composed annotations. A meta-annotation declaring
+   * REQUIRES_NEW is rejected even when an aliased attribute resets it to REQUIRED.
+   */
+  private static void rejectTransactionEscape(AnnotatedElement target) {
+    for (Annotation annotation : target.getAnnotations()) {
+      inspectTransactionAnnotation(
+          annotation, annotation.annotationType().getName(), new HashSet<>());
+    }
+  }
+
+  private static boolean inspectTransactionAnnotation(
+      Annotation annotation, String writtenName, Set<Class<?>> visited) {
+    Class<? extends Annotation> type = annotation.annotationType();
+    if (type.getName().startsWith("java.lang.annotation.") || !visited.add(type)) return false;
+    boolean transactional =
+        List.of(
+                "jakarta.transaction.Transactional",
+                "org.springframework.transaction.annotation.Transactional",
+                "jakarta.ejb.TransactionAttribute",
+                "io.micronaut.transaction.annotation.Transactional")
+            .contains(type.getName());
+    for (Annotation meta : type.getAnnotations()) {
+      transactional |= inspectTransactionAnnotation(meta, writtenName, visited);
+    }
+    if (transactional) {
+      for (Method attribute : type.getDeclaredMethods()) {
+        if (attribute.getParameterCount() != 0) continue;
+        // A package-private composed annotation from another package is otherwise unreadable.
+        attribute.trySetAccessible();
+        Object propagation;
+        try {
+          propagation = attribute.invoke(annotation);
+        } catch (ReflectiveOperationException ignored) {
+          continue;
+        }
+        if (propagation instanceof Enum<?> value
+            && List.of(
+                    "org.springframework.transaction.annotation.Propagation",
+                    "jakarta.transaction.Transactional$TxType",
+                    "jakarta.ejb.TransactionAttributeType",
+                    "io.micronaut.transaction.TransactionDefinition$Propagation")
+                .contains(value.getDeclaringClass().getName())
+            && List.of("REQUIRES_NEW", "NOT_SUPPORTED", "NEVER").contains(value.name())) {
+          throw new IllegalArgumentException(
+              "@TransactionalJob cannot use " + writtenName + " with " + value.name());
+        }
+      }
+    }
+    visited.remove(type);
+    return transactional;
+  }
 
   private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
     if (className == null || className.isEmpty()) {

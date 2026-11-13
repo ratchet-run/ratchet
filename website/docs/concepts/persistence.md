@@ -249,7 +249,7 @@ UUID id = UuidV7Factory.create();
 
 ## JobStore SPI
 
-The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by also implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB stores advertise every capability.
+The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by also implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, Oracle, and SQL Server stores advertise every capability. The MongoDB store advertises every capability except `TransactionalCompletionStore`, so it cannot run [transactional jobs](./transactional-jobs.md).
 
 ```java
 public interface JobStore
@@ -294,6 +294,7 @@ public interface JobStore
 | `SignalStore` | Atomic signal delivery, signal-timeout scans, and signal-event lookup |
 | `ResourcePermitStore` | Resource permit acquisition and release |
 | `EventOutboxStore` | Durable terminal event reads and bounded deletion; rows commit on `JobCompletionPlan` |
+| `TransactionalCompletionStore` | Completion outcome resolution and current planning reads in an existing transaction (optional; SQL stores only) |
 | `LockStore` | Distributed lock acquisition and release |
 | `ArchiveStore` | Job archival to the archive table/collection |
 | `JobQueryStore` | Read-only list/detail/queue-health queries and tag lookups |

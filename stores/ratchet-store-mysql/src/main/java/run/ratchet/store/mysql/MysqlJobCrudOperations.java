@@ -65,6 +65,10 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
     return writes.save(job);
   }
 
+  Optional<JobEntity> findById(UUID id, boolean sharedLock) {
+    return reads.findById(id, sharedLock);
+  }
+
   @Override
   public Optional<JobEntity> findById(UUID id) {
     return reads.findById(id);
@@ -89,6 +93,10 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
     return reads.getJobStatus(id);
   }
 
+  List<JobEntity> findByIds(List<UUID> ids, boolean sharedLock) {
+    return reads.findByIds(ids, sharedLock);
+  }
+
   @Override
   public List<JobEntity> findByIds(List<UUID> ids) {
     return reads.findByIds(ids);
@@ -107,6 +115,10 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
     return reads.findByIdempotencyKey(idempotencyKey);
+  }
+
+  List<JobEntity> findDependants(UUID parentJobId, int limit, int offset, boolean sharedLock) {
+    return reads.findDependants(parentJobId, limit, offset, sharedLock);
   }
 
   @Override

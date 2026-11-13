@@ -319,8 +319,8 @@ public final class JobContext {
    * the work. Values are limited to 1 MiB including JSON framing: store keys and positions, not
    * data. Values are encrypted at rest when payload encryption is enabled.
    *
-   * @throws IllegalStateException outside an executing persisted attempt, including lifecycle
-   *     callbacks
+   * @throws IllegalStateException in a {@link TransactionalJob}, or outside an executing persisted
+   *     attempt, including lifecycle callbacks
    * @throws UnsupportedOperationException if the store does not support job state; call {@link
    *     #lastCheckpoint()} before doing work to check support
    * @throws AttemptSupersededException if this attempt has been replaced; stop doing work, as its
@@ -337,6 +337,7 @@ public final class JobContext {
    * Returns the latest committed checkpoint from this execution, otherwise the value saved by an
    * earlier execution. An uncommitted or rolled-back value is never returned. See {@link
    * #checkpoint(String)} for transaction, durability, idempotency, size and encryption rules.
+   * Returns empty in a {@link TransactionalJob}.
    *
    * @throws IllegalStateException outside an executing persisted attempt, including lifecycle
    *     callbacks
@@ -361,7 +362,12 @@ public final class JobContext {
     if (progress != null) progress.report(done, total);
   }
 
-  /** Requests another execution at the next poll. See {@link #requestContinuation(Duration)}. */
+  /**
+   * Requests another execution at the next poll. See {@link #requestContinuation(Duration)}.
+   *
+   * @throws IllegalStateException in a {@link TransactionalJob}, or outside an executing persisted
+   *     attempt
+   */
   public void requestContinuation() {
     requestContinuation(Duration.ZERO);
   }
@@ -390,8 +396,8 @@ public final class JobContext {
    *
    * @throws NullPointerException if delay is null
    * @throws IllegalArgumentException if delay is negative
-   * @throws IllegalStateException outside an executing persisted attempt, including lifecycle
-   *     callbacks
+   * @throws IllegalStateException in a {@link TransactionalJob}, or outside an executing persisted
+   *     attempt, including lifecycle callbacks
    * @throws UnsupportedOperationException if the store does not support job state
    */
   public void requestContinuation(Duration delay) {

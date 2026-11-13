@@ -43,6 +43,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -70,6 +71,12 @@ import run.ratchet.store.spi.JobStore;
 public class DefaultJobExecutorService implements JobExecutorService {
 
   private static final Logger log = Logger.getLogger(DefaultJobExecutorService.class);
+  private ConnectionPoolSize connectionPoolSize;
+
+  public void configureConnectionPoolWarning(ConnectionPoolSize size) {
+    this.connectionPoolSize = size;
+  }
+
   private final PoolRegistry poolRegistry;
   private final JobTimeoutHandler timeoutHandler;
   private final ExecutorProvider executorProvider;
@@ -81,6 +88,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final ExecutionObserver executionObserver;
   private final PreExecutionValidator preExecutionValidator;
   private final JobPayloadInvoker payloadInvoker;
+  private final JobTransaction jobTransaction;
   private final JobSuccessFinalizer successFinalizer;
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
@@ -110,6 +118,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.executionObserver = null;
     this.preExecutionValidator = null;
     this.payloadInvoker = null;
+    this.jobTransaction = null;
     this.successFinalizer = null;
     this.retryPolicy = null;
     this.resilienceStrategy = null;
@@ -137,6 +146,66 @@ public class DefaultJobExecutorService implements JobExecutorService {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
+      JobSuccessFinalizer successFinalizer,
+      RetryPolicy retryPolicy,
+      ResilienceStrategy resilienceStrategy,
+      ErrorSanitizer errorSanitizer,
+      PollerScheduler pollerScheduler,
+      JobLoggerFactory jobLoggerFactory,
+      ResultPersistenceStrategy resultPersistenceStrategy,
+      JobAuthorizationPolicy authorizationPolicy,
+      PayloadSerializer payloadSerializer,
+      AfterCommitRegistrar afterCommitRegistrar,
+      JobStateFlusher jobStateFlusher,
+      Clock clock,
+      Instance<PreExecutionArgResolver> argResolver,
+      Instance<ConnectionPoolSize> connectionPoolSize,
+      RatchetOptions options) {
+    this(
+        argResolver != null && argResolver.isResolvable() ? argResolver.get() : null,
+        poolRegistry,
+        timeoutHandler,
+        executorProvider,
+        jobStore,
+        resourcePermitService,
+        postExecutionHandler,
+        nodeIdProvider,
+        executionObserver,
+        preExecutionValidator,
+        payloadInvoker,
+        jobTransaction,
+        successFinalizer,
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        pollerScheduler,
+        jobLoggerFactory,
+        resultPersistenceStrategy,
+        authorizationPolicy,
+        payloadSerializer,
+        afterCommitRegistrar,
+        jobStateFlusher,
+        clock,
+        options);
+    this.connectionPoolSize =
+        connectionPoolSize != null && connectionPoolSize.isResolvable()
+            ? connectionPoolSize.get()
+            : null;
+  }
+
+  public DefaultJobExecutorService(
+      PoolRegistry poolRegistry,
+      JobTimeoutHandler timeoutHandler,
+      ExecutorProvider executorProvider,
+      JobStore jobStore,
+      ResourcePermitService resourcePermitService,
+      PostExecutionHandler postExecutionHandler,
+      NodeIdentityProvider nodeIdProvider,
+      ExecutionObserver executionObserver,
+      PreExecutionValidator preExecutionValidator,
+      JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -152,7 +221,6 @@ public class DefaultJobExecutorService implements JobExecutorService {
       Instance<PreExecutionArgResolver> argResolver,
       RatchetOptions options) {
     this(
-        argResolver != null && argResolver.isResolvable() ? argResolver.get() : null,
         poolRegistry,
         timeoutHandler,
         executorProvider,
@@ -163,6 +231,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
         executionObserver,
         preExecutionValidator,
         payloadInvoker,
+        jobTransaction,
         successFinalizer,
         retryPolicy,
         resilienceStrategy,
@@ -175,6 +244,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         afterCommitRegistrar,
         jobStateFlusher,
         clock,
+        argResolver,
+        null,
         options);
   }
 
@@ -190,6 +261,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -213,6 +285,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.executionObserver = executionObserver;
     this.preExecutionValidator = preExecutionValidator;
     this.payloadInvoker = payloadInvoker;
+    this.jobTransaction = jobTransaction;
     this.successFinalizer = successFinalizer;
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
@@ -400,7 +473,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       acceptingExecutions.set(false);
       for (TrackingFutureTask task : activeFutures) {
         if (task.attempt != null) {
-          task.attempt.markSuperseded();
+          task.attempt.revoke();
         }
         task.cancel(true);
       }
@@ -448,28 +521,32 @@ public class DefaultJobExecutorService implements JobExecutorService {
   }
 
   private JobTask createTask() {
-    return new JobTask(
-        jobStore,
-        resourcePermitService,
-        postExecutionHandler,
-        nodeIdProvider,
-        executionObserver,
-        preExecutionValidator,
-        payloadInvoker,
-        successFinalizer,
-        retryPolicy,
-        resilienceStrategy,
-        errorSanitizer,
-        jobLoggerFactory,
-        resultPersistenceStrategy,
-        authorizationPolicy,
-        payloadSerializer,
-        afterCommitRegistrar,
-        jobStateFlusher,
-        timeoutHandler,
-        effective(),
-        argResolver,
-        options);
+    JobTask task =
+        new JobTask(
+            jobStore,
+            resourcePermitService,
+            postExecutionHandler,
+            nodeIdProvider,
+            executionObserver,
+            preExecutionValidator,
+            payloadInvoker,
+            jobTransaction,
+            successFinalizer,
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            jobLoggerFactory,
+            resultPersistenceStrategy,
+            authorizationPolicy,
+            payloadSerializer,
+            afterCommitRegistrar,
+            jobStateFlusher,
+            timeoutHandler,
+            effective(),
+            argResolver,
+            options);
+    task.configureConnectionPoolWarning(connectionPoolSize, poolRegistry);
+    return task;
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(

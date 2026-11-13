@@ -284,12 +284,16 @@ final class MongoAuxiliaryOperations {
 
             Instant now = Instant.now();
             Document waiter = ctx.resourceWaiters().find(session, eq(ID, jobId)).first();
+            Document currentWaiter =
+                waiter != null && resource.equals(waiter.getString(RESOURCE_NAME)) ? waiter : null;
             int free = limit.getInteger(MAX_CONCURRENT) - limit.getInteger(ACTIVE_COUNT, 0);
-            if (free <= 0 || waitersAhead(session, resource, job, waiter, now, free) >= free) {
+            if (free <= 0
+                || waitersAhead(session, resource, job, currentWaiter, now, free) >= free) {
               return parkWaiter(
                   session,
                   resource,
                   job,
+                  currentWaiter,
                   claimSeq,
                   limit.getInteger(RETRY_DELAY_MS, DEFAULT_PERMIT_RETRY_DELAY_MS),
                   now);
@@ -315,6 +319,7 @@ final class MongoAuxiliaryOperations {
                   session,
                   resource,
                   job,
+                  currentWaiter,
                   claimSeq,
                   limit.getInteger(RETRY_DELAY_MS, DEFAULT_PERMIT_RETRY_DELAY_MS),
                   now);
@@ -368,7 +373,8 @@ final class MongoAuxiliaryOperations {
     pipeline.add(
         new Document(
             "$match",
-            new Document("job." + STATUS, new Document("$in", List.of("PENDING", "RUNNING")))));
+            new Document("job." + STATUS, new Document("$in", List.of("PENDING", "RUNNING")))
+                .append("job." + RESOURCE_NAME, resource)));
     pipeline.add(new Document("$limit", limit));
     return ctx.resourceWaiters().aggregate(session, pipeline).into(new ArrayList<>());
   }
@@ -399,6 +405,7 @@ final class MongoAuxiliaryOperations {
       ClientSession session,
       String resource,
       Document job,
+      Document waiter,
       long claimSeq,
       int retryDelayMs,
       Instant now) {
@@ -434,6 +441,9 @@ final class MongoAuxiliaryOperations {
     if (matched == 0) {
       return AcquireResult.SUPERSEDED;
     }
+    if (!resource.equals(job.getString(RESOURCE_NAME))) {
+      return AcquireResult.AT_CAPACITY;
+    }
     ctx.resourceWaiters()
         .updateOne(
             session,
@@ -442,9 +452,11 @@ final class MongoAuxiliaryOperations {
                 set(
                     LEASE_UNTIL,
                     Date.from(now.plusMillis(ResourceWaiterLease.leaseMillis(retryDelayMs)))),
-                setOnInsert(RESOURCE_NAME, resource),
-                setOnInsert(PRIORITY, job.getInteger(PRIORITY)),
-                setOnInsert(WAIT_SINCE, job.getDate(SCHEDULED_TIME))),
+                set(RESOURCE_NAME, resource),
+                set(PRIORITY, (waiter == null ? job : waiter).getInteger(PRIORITY)),
+                set(
+                    WAIT_SINCE,
+                    waiter == null ? job.getDate(SCHEDULED_TIME) : waiter.getDate(WAIT_SINCE))),
             new UpdateOptions().upsert(true));
     return AcquireResult.AT_CAPACITY;
   }

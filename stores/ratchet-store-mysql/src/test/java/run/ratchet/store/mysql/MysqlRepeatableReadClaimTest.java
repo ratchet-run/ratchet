@@ -206,8 +206,12 @@ class MysqlRepeatableReadClaimTest {
   void oldSnapshotCannotExceedResourceCapacity() {
     var permits = fixture.store().capability(ResourcePermitStore.class).orElseThrow();
     permits.configureResource("capacity-one", 1, 100, "test");
-    var winner = fixture.store().create(fixture.newPendingJob()).getId();
-    var loser = fixture.store().create(fixture.newPendingJob()).getId();
+    var winnerJob = fixture.newPendingJob();
+    winnerJob.setResourceName("capacity-one");
+    var winner = fixture.store().create(winnerJob).getId();
+    var loserJob = fixture.newPendingJob();
+    loserJob.setResourceName("capacity-one");
+    var loser = fixture.store().create(loserJob).getId();
     fixture.store().claimNextBatch(2, "node-1");
     long winnerClaim = fixture.store().findById(winner).orElseThrow().getClaimSeq();
     long loserClaim = fixture.store().findById(loser).orElseThrow().getClaimSeq();

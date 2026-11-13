@@ -31,6 +31,7 @@ import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.TerminalOutcome;
 
 /** Applies a completion within the calling SQL store's REQUIRED transaction. */
 public final class SqlJobCompletion {
@@ -215,6 +216,35 @@ public final class SqlJobCompletion {
     }
     for (var event : plan.outboxEvents()) SqlEventOutbox.insert(em, event, sqlServer, uuid);
     return new JobCompletionResult(true, progress);
+  }
+
+  /** Resolves a lost commit acknowledgement using the same locks as completion. */
+  public static TerminalOutcome terminalOutcome(
+      EntityManager em, UUID jobId, long claimSeq, boolean sqlServer, Function<UUID, Object> uuid) {
+    List<?> hot =
+        em.createNativeQuery(
+                lockSql("scheduler_job_queue", "job_id", "status, claim_seq", sqlServer))
+            .setParameter(1, uuid.apply(jobId))
+            .getResultList();
+    List<?> cold =
+        em.createNativeQuery(
+                lockSql("scheduler_job", "job_id", "terminal_status, claim_seq", sqlServer))
+            .setParameter(1, uuid.apply(jobId))
+            .getResultList();
+    if (!hot.isEmpty()) {
+      Object[] row = (Object[]) hot.get(0);
+      return "RUNNING".equals(row[0]) && ((Number) row[1]).longValue() == claimSeq
+          ? TerminalOutcome.ROLLED_BACK
+          : TerminalOutcome.SUPERSEDED;
+    }
+    if (!cold.isEmpty()) {
+      Object[] row = (Object[]) cold.get(0);
+      if ("SUCCEEDED".equals(row[0]) && ((Number) row[1]).longValue() == claimSeq) {
+        return TerminalOutcome.COMMITTED;
+      }
+      if ("CANCELED".equals(row[0])) return TerminalOutcome.CANCELED;
+    }
+    return TerminalOutcome.SUPERSEDED;
   }
 
   private static String lockSql(String table, String id, String columns, boolean sqlServer) {

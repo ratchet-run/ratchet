@@ -653,7 +653,7 @@ jobStore.capability(SignalStore.class)
     .ifPresent(signals -> signals.deliverSignalByKey(key, payload));
 ```
 
-Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
+Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations. The SQL stores advertise every capability; MongoDB does not advertise `TransactionalCompletionStore`. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
 
 ### Core Store Interfaces (mandatory)
 
@@ -681,6 +681,7 @@ A store advertises each of these by implementing the interface; the engine probe
 | `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
 | `ResourcePermitStore` | Resource permits and their waiting line | `tryAcquirePermit()`, `releasePermit()`, `wakeWaiters()` |
 | `EventOutboxStore` | Durable terminal delivery | `findEventsCreatedBefore()`, `deleteEvents()` (at most 500 IDs); insert `JobCompletionPlan.outboxEvents()` atomically only when completion wins |
+| `TransactionalCompletionStore` | Completion in an existing SQL transaction | `terminalOutcome()`, `requireJoinedTransaction()`, and current planning reads (SQL stores only) |
 | `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
 | `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
@@ -713,8 +714,9 @@ that claim:
 - Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq`. This is
   a point-in-time check. Unlike the job-state fence above, it need not be atomic with the write:
   a claim change that commits after it does not fence the permit write, so the earlier claim can
-  still get `ACQUIRED`. That claim then holds the permit until it releases it, and the newer claim
-  waits for it.
+  still get `ACQUIRED`. That claim then holds the permit until it releases it. If that leaves the
+  resource at capacity, the newer claim waits. If a slot is still free, the newer claim gets its
+  own permit, and both attempts hold one at the same time.
 - A repeat call by the same claim returns `ACQUIRED` and uses no more capacity.
 - Otherwise insert a permit for the claim when the resource has capacity (`ACQUIRED`), or park
   the job and return `AT_CAPACITY` (see [Resource waiters](#resource-waiters)). Count every permit of the resource, including one that an older claim of the
@@ -735,7 +737,10 @@ store increments a counter on it.
 `ResourcePermitStore` also keeps the waiting line in `scheduler_resource_waiter` (a MongoDB
 collection of the same name). Each row holds the job id, resource, priority, `wait_since` and
 `lease_until`, with the index `(resource_name, priority DESC, wait_since ASC, job_id ASC)`. The
-table has no foreign key, so a park never locks `scheduler_job`.
+table has no foreign key. A waiter row belongs to the job's current `resource_name`: a park writes
+it and a wake-up acts on it only while the job row still names that resource. The SQL stores
+check this under a job-row lock taken without waiting, and a save that changes the resource takes
+the same lock. MongoDB relies on the write conflict on the job document.
 
 - `tryAcquirePermit` gives the permit only if a slot is still free after it counts the live
   waiters ahead of the caller. When it gives the permit, it deletes the caller's waiter row. A
@@ -745,16 +750,19 @@ table has no foreign key, so a park never locks `scheduler_job`.
 - On a miss, `tryAcquirePermit` parks the job in the same transaction and returns `AT_CAPACITY`.
   The park is fenced on RUNNING and the claim. It makes the job PENDING (or PAUSED in a paused
   batch), due at now plus `retry_delay_ms`, sets `last_error` and leaves attempts unchanged. It
-  inserts the waiter row, or renews the lease of an existing row and keeps its `wait_since`. Use
+  inserts the waiter row, or renews the lease of an existing row and keeps its `wait_since`. A
+  row left from another resource is replaced with the job's own priority and due time. Use
   `ResourceWaiterLease.leaseMillis` for the lease. If the fence fails, return `SUPERSEDED` and
-  write no waiter row. The engine makes no write of its own after `AT_CAPACITY`.
+  write no waiter row. If the job row is locked, or no longer names the resource, the job still
+  parks but gets no waiter row. The engine makes no write of its own after `AT_CAPACITY`.
 - `wakeWaiters` runs in its own transaction after the release or clean-up commits. It takes the
   resource lock first, reads up to `max_concurrent` live heads, counts the permits, and sets
   `scheduled_time = wait_since` on the PENDING heads within the free slots. It returns them so the
   engine can send wake-up hints. It never waits on a job row that another transaction holds. The
   SQL stores skip that head and do not wake a later waiter in its place. They also skip a head
   whose job's `scheduled_time` changed after they read the line, so a user reschedule that commits
-  in between is kept. MongoDB retries the wake-up on a write conflict.
+  in between is kept, and a head whose job no longer names the resource. MongoDB retries the
+  wake-up on a write conflict.
 - `findResourcesWithWaiters(after, limit)` and `deleteStaleWaiters(limit)` serve the periodic
   sweep. The first returns distinct resource names that have waiter rows, in ascending order and
   after `after` (from the first name when it is null); the engine passes the last name it saw, so
@@ -1010,6 +1018,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobBulkStoreContract` | Bulk recovery, stale job detection |
 | `AbstractBatchStoreContract` | Batch progress tracking |
 | `AbstractEventOutboxStoreContract` | Atomic completion rows, cutoff reads, bounded idempotent deletion |
+| `AbstractTransactionalCompletionStoreContract` | Claim-specific outcome resolution, success claim copy, and current planning reads (SQL stores) |
 | `AbstractLockStoreContract` | Lock acquire, release, expiry |
 | `AbstractNodeStoreContract` | Node registration, heartbeat, dead node detection |
 | `AbstractArchiveStoreContract` | Job archiving and retrieval |

@@ -296,7 +296,7 @@ class MicronautAfterCommitRegistrarTest {
   }
 
   @Test
-  void distinguishesMissingTransactionAndRegistrationFailureAndRejectsAmbiguousManager() {
+  void distinguishesMissingTransactionAndRegistrationFailureAndRejectsManagerLookupFailure() {
     assertEquals(Result.NO_ACTIVE_TRANSACTION, registrar.registerAfterCommit(() -> {}));
     TransactionOperations<?> invalidManager = mock(TransactionOperations.class);
     TransactionStatus<?> active = mock(TransactionStatus.class);
@@ -308,19 +308,20 @@ class MicronautAfterCommitRegistrarTest {
     assertEquals(
         Result.REGISTRATION_FAILED,
         new MicronautAfterCommitRegistrar(() -> invalidManager).registerAfterCommit(() -> {}));
-    var ambiguous =
+    IllegalStateException lookupFailure = new IllegalStateException("ambiguous");
+    var unavailable =
         new MicronautAfterCommitRegistrar(
             () -> {
-              throw new IllegalStateException("ambiguous");
+              throw lookupFailure;
             });
-    assertTrue(
+    IllegalStateException failure =
         assertThrows(
-                IllegalStateException.class,
-                () ->
-                    transaction(
-                        Propagation.REQUIRED, status -> ambiguous.registerAfterCommit(() -> {})))
-            .getMessage()
-            .contains("default or @Primary"));
+            IllegalStateException.class,
+            () ->
+                transaction(
+                    Propagation.REQUIRED, status -> unavailable.registerAfterCommit(() -> {})));
+    assertTrue(failure.getMessage().contains("ratchet.jpa.datasource"));
+    assertSame(lookupFailure, failure.getCause());
     assertThrows(NullPointerException.class, () -> registrar.registerAfterCommit(null));
   }
 

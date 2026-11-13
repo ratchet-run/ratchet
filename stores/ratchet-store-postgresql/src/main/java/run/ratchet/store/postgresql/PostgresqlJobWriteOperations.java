@@ -428,10 +428,6 @@ final class PostgresqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
-    // A job whose resource changes leaves the old resource's waiting line.
-    if (row != null && !Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())) {
-      deleteWaiter(job.getId());
-    }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
@@ -469,6 +465,10 @@ final class PostgresqlJobWriteOperations {
         .setParameter(6, job.getResourceName())
         .setParameter(7, job.getId())
         .executeUpdate();
+    // Delete after the cold update, which takes the job-row lock that a concurrent park checks.
+    if (row != null && !Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())) {
+      deleteWaiter(job.getId());
+    }
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {

@@ -268,7 +268,7 @@ final class OracleAuxiliaryOperations
               .createNativeQuery(
                   """
                   SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
-                         w.priority, w.wait_since
+                         w.priority, w.wait_since, w.resource_name
                   FROM scheduler_job_queue q
                   LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
                   WHERE q.job_id = ?
@@ -346,8 +346,9 @@ final class OracleAuxiliaryOperations
   }
 
   private int waitersAhead(String resource, UUID jobId, Object[] claim, int free) {
-    int priority = ((Number) (claim[4] != null ? claim[4] : claim[2])).intValue();
-    Object waitSince = claim[4] != null ? claim[5] : claim[3];
+    int priority =
+        ((Number) (claim[4] != null && resource.equals(claim[6]) ? claim[4] : claim[2])).intValue();
+    Object waitSince = claim[4] != null && resource.equals(claim[6]) ? claim[5] : claim[3];
     // language=Oracle
     String sql =
         """
@@ -399,6 +400,22 @@ final class OracleAuxiliaryOperations
     if (updated == 0) {
       return AcquireResult.SUPERSEDED;
     }
+    // Never wait for the job row here: a save can hold it while it waits for this queue row.
+    // Write the waiter row only while the job still names this resource.
+    // language=Oracle
+    String currentResource =
+        """
+        SELECT resource_name FROM scheduler_job WHERE job_id = ? FOR UPDATE SKIP LOCKED
+        """;
+    List<?> resources =
+        ctx.em()
+            .createNativeQuery(currentResource)
+            .setParameter(1, UuidRawConverter.toBytes(jobId))
+            .getResultList();
+    if (resources.isEmpty() || !resource.equals(resources.get(0))) {
+      return AcquireResult.AT_CAPACITY;
+    }
+
     long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
     int renewed = 0;
     if (claim[4] != null) {
@@ -406,13 +423,18 @@ final class OracleAuxiliaryOperations
       String renew =
           """
           UPDATE scheduler_resource_waiter
-          SET lease_until = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) + NUMTODSINTERVAL(? / 1000, 'SECOND') WHERE job_id = ?
+          SET lease_until = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) + NUMTODSINTERVAL(? / 1000, 'SECOND'),
+              resource_name = ?, priority = ?, wait_since = ?
+          WHERE job_id = ?
           """;
       renewed =
           ctx.em()
               .createNativeQuery(renew)
               .setParameter(1, leaseMillis)
-              .setParameter(2, UuidRawConverter.toBytes(jobId))
+              .setParameter(2, resource)
+              .setParameter(3, claim[4] != null && resource.equals(claim[6]) ? claim[4] : claim[2])
+              .setParameter(4, claim[4] != null && resource.equals(claim[6]) ? claim[5] : claim[3])
+              .setParameter(5, UuidRawConverter.toBytes(jobId))
               .executeUpdate();
     }
     // The stale sweep can delete the row after the claim read it. Write it back with the keys
@@ -429,8 +451,8 @@ final class OracleAuxiliaryOperations
           .createNativeQuery(insert)
           .setParameter(1, UuidRawConverter.toBytes(jobId))
           .setParameter(2, resource)
-          .setParameter(3, claim[4] != null ? claim[4] : claim[2])
-          .setParameter(4, claim[4] != null ? claim[5] : claim[3])
+          .setParameter(3, claim[4] != null && resource.equals(claim[6]) ? claim[4] : claim[2])
+          .setParameter(4, claim[4] != null && resource.equals(claim[6]) ? claim[5] : claim[3])
           .setParameter(5, leaseMillis)
           .executeUpdate();
     }
@@ -511,8 +533,9 @@ final class OracleAuxiliaryOperations
       // language=Oracle
       String available =
           """
-          SELECT job_id, scheduled_time FROM scheduler_job_queue
-          WHERE job_id IN (%s) AND status = 'PENDING' FOR UPDATE SKIP LOCKED
+          SELECT q.job_id, q.scheduled_time, c.resource_name FROM scheduler_job_queue q
+          JOIN scheduler_job c ON c.job_id = q.job_id
+          WHERE q.job_id IN (%s) AND q.status = 'PENDING' FOR UPDATE SKIP LOCKED
           """
               .formatted(placeholders);
       Query availableQuery = ctx.em().createNativeQuery(available);
@@ -523,6 +546,9 @@ final class OracleAuxiliaryOperations
       Map<UUID, Instant> locked = new HashMap<>();
       for (Object availableRow : availableRows) {
         Object[] lockedRow = (Object[]) availableRow;
+        if (!resource.equals(lockedRow[2])) {
+          continue;
+        }
         locked.put(
             OracleJobRowMapper.uuidOrNull(lockedRow[0]), RowValues.instantOrNull(lockedRow[1]));
       }

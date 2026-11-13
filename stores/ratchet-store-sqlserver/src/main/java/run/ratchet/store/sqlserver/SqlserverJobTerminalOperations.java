@@ -792,6 +792,7 @@ final class SqlserverJobTerminalOperations {
         """
         UPDATE c
         SET terminal_status = 'SUCCEEDED',
+            claim_seq = q.claim_seq,
             job_result = ?, result_type = ?,
             execution_start_time = ?, execution_end_time = ?,
             execution_duration_ms = ?, queue_wait_ms = ?,
@@ -825,6 +826,7 @@ final class SqlserverJobTerminalOperations {
         """
         UPDATE c
         SET terminal_status = 'SUCCEEDED',
+            claim_seq = q.claim_seq,
             execution_start_time = ?, execution_end_time = ?,
             execution_duration_ms = ?, queue_wait_ms = ?,
             total_attempts = q.attempts, terminated_at = SYSUTCDATETIME()

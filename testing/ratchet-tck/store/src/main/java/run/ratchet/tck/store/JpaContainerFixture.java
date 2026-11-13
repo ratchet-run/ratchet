@@ -64,6 +64,7 @@ import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
@@ -119,7 +120,8 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
           JobAuditStore.class,
           JobPropertyStore.class,
           JobStateStore.class,
-          EventOutboxStore.class);
+          EventOutboxStore.class,
+          TransactionalCompletionStore.class);
 
   private final EntityManagerFactory emf;
   private final ThreadLocal<EntityManager> threadEm;

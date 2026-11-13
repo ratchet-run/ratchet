@@ -54,6 +54,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.ExecutionResult;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
@@ -91,6 +92,7 @@ class JobExecutorServiceTest {
             null,
             null,
             null,
+            new JobTransaction(),
             null,
             null,
             null,
@@ -152,7 +154,7 @@ class JobExecutorServiceTest {
   }
 
   @Test
-  void shutdownSupersedesActiveAttemptBeforeCancellation() throws Exception {
+  void shutdownRevokesActiveAttemptBeforeCancellation() throws Exception {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
@@ -174,6 +176,7 @@ class JobExecutorServiceTest {
     verify(jobExecutor).execute(queued.capture());
     service.shutdownActiveExecutions();
     assertTrue(attempt.isSuperseded());
+    assertTrue(attempt.isRevoked());
     assertTrue(result.future().isCancelled());
     queued.getValue().run();
     verify(pool).releasePermit(JobExecutionType.SINGLE);

@@ -67,6 +67,7 @@ public final class JobAttemptControl {
   private final @Nullable String nodeId;
   private final AtomicBoolean superseded = new AtomicBoolean();
   private volatile boolean userCancelRequested;
+  private final AtomicBoolean revoked = new AtomicBoolean();
   private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
   private enum TimeoutOwner {
@@ -111,9 +112,8 @@ public final class JobAttemptControl {
   }
 
   /**
-   * Once set, this attempt is never current again. Called when an owner write is rejected, when the
-   * watchdog takes the attempt, at shutdown release, and by future callers that see a claim-fenced
-   * write return SUPERSEDED.
+   * Once set, this attempt is never current again. Called when an owner write is rejected or a
+   * claim-fenced write returns SUPERSEDED.
    */
   public void markSuperseded() {
     superseded.set(true);
@@ -121,6 +121,19 @@ public final class JobAttemptControl {
 
   public boolean isSuperseded() {
     return superseded.get();
+  }
+
+  /**
+   * Shutdown or the hard-timeout watchdog took this attempt from its worker; a bounced fenced write
+   * only supersedes it.
+   */
+  public void revoke() {
+    revoked.set(true);
+    superseded.set(true);
+  }
+
+  public boolean isRevoked() {
+    return revoked.get();
   }
 
   /** Reads whether this attempt still owns the live RUNNING claim. Store errors propagate. */
@@ -196,7 +209,7 @@ public final class JobAttemptControl {
       TimeoutOwner owner = timeoutOwner.get();
       if (owner == TimeoutOwner.UNCLAIMED || owner == TimeoutOwner.HANDED_BACK) {
         if (timeoutOwner.compareAndSet(owner, TimeoutOwner.WATCHDOG)) {
-          markSuperseded();
+          revoke();
           return true;
         }
       } else if (owner == TimeoutOwner.WORKER) {
