@@ -57,13 +57,20 @@ class OracleBusinessKeyReservationContractTest extends AbstractBusinessKeyReserv
   }
 
   @Override
-  public boolean awaitBlockedSession(Duration timeout) {
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'SID')) FROM dual");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
     // The ratchet user cannot read v$session. The container gives SYSTEM the same password.
     var container = fixture.container();
     return JdbcLockWait.awaitBlockedSession(
         () ->
             DriverManager.getConnection(container.getJdbcUrl(), "system", container.getPassword()),
-        "SELECT COUNT(*) FROM v$session WHERE blocking_session IS NOT NULL",
-        timeout);
+        "SELECT COUNT(*) FROM v$session WHERE sid = ? AND blocking_session = ?",
+        timeout,
+        ((Number) waiter).longValue(),
+        ((Number) holder).longValue());
   }
 }

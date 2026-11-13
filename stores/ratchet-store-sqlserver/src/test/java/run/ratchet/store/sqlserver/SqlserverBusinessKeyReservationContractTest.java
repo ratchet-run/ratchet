@@ -56,10 +56,17 @@ class SqlserverBusinessKeyReservationContractTest extends AbstractBusinessKeyRes
   }
 
   @Override
-  public boolean awaitBlockedSession(Duration timeout) {
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT CAST(@@SPID AS INT)");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
     return JdbcLockWait.awaitBlockedSession(
         fixture::openConnection,
-        "SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0",
-        timeout);
+        "SELECT COUNT(*) FROM sys.dm_exec_requests WHERE session_id = ? AND blocking_session_id = ?",
+        timeout,
+        ((Number) waiter).intValue(),
+        ((Number) holder).intValue());
   }
 }

@@ -190,11 +190,20 @@ public interface JobStoreContractFixture {
   }
 
   /**
-   * Waits until another session is blocked on a row lock; false if the fixture cannot tell.
-   * Implementations must fail if no blocked session is observed within the timeout. The
-   * business-key race tests skip when this returns false.
+   * Returns the database session id used by the current owner transaction. Call inside {@link
+   * #inOwnerTransaction(Runnable)}; returns null when the fixture cannot tell.
    */
-  default boolean awaitBlockedSession(Duration timeout) {
+  default Object ownerSessionId() {
+    return null;
+  }
+
+  /**
+   * Waits until session {@code waiter} is blocked on a lock held by session {@code holder}, using
+   * ids from {@link #ownerSessionId()}. Returns false if the fixture cannot tell. Implementations
+   * must fail with {@link AssertionError} if this is not observed within the timeout. Contract
+   * tests that need this hook skip when it returns false.
+   */
+  default boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
     return false;
   }
 

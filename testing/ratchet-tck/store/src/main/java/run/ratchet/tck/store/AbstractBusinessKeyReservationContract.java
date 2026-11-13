@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -181,6 +182,86 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
   }
 
   @Test
+  void reservationIsHeldWhileIdempotencyWriteWaits() throws Exception {
+    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    String idempotencyKey = UUID.randomUUID().toString();
+    String key = uniqueKey();
+    JobEntity holder = jobWithBusinessKey(null);
+    holder.setIdempotencyKey(idempotencyKey);
+    JobEntity duplicate = jobWithBusinessKey(key);
+    duplicate.setIdempotencyKey(idempotencyKey);
+    JobEntity probe = jobWithBusinessKey(key);
+    var holderSession = new AtomicReference<Object>();
+    var duplicateSession = new AtomicReference<Object>();
+    var probeSession = new AtomicReference<Object>();
+    var holderWritten = new CountDownLatch(1);
+    var commitHolder = new CountDownLatch(1);
+    var duplicateStarted = new CountDownLatch(1);
+    var probeStarted = new CountDownLatch(1);
+    var workers = Executors.newFixedThreadPool(3);
+    try {
+      var holding =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        create(holder);
+                        holderSession.set(ownerSessionId());
+                        holderWritten.countDown();
+                        await(commitHolder);
+                      }));
+      assertTrue(holderWritten.await(30, TimeUnit.SECONDS), "Holder did not write its key");
+      var duplicating =
+          workers.submit(
+              () -> {
+                try {
+                  inOwnerTransaction(
+                      () -> {
+                        duplicateSession.set(ownerSessionId());
+                        duplicateStarted.countDown();
+                        assertThrows(
+                            DuplicateIdempotencyKeyException.class, () -> create(duplicate));
+                      });
+                } catch (RuntimeException expectedCommitFailure) {
+                  // Providers may mark the owner transaction rollback-only after the
+                  // idempotency conflict.
+                }
+              });
+      assertTrue(duplicateStarted.await(30, TimeUnit.SECONDS), "Duplicate did not start");
+      assumeTrue(
+          awaitBlockedSession(duplicateSession.get(), holderSession.get(), Duration.ofSeconds(30)),
+          "Requires a fixture that can observe a blocked database session");
+      var probing =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        probeSession.set(ownerSessionId());
+                        probeStarted.countDown();
+                        create(probe);
+                      }));
+      assertTrue(probeStarted.await(30, TimeUnit.SECONDS), "Probe did not start");
+      // The duplicate is still waiting on the idempotency key, so it can block the probe only if
+      // it reserved the business key before it wrote the idempotency key.
+      assertTrue(
+          awaitBlockedSession(probeSession.get(), duplicateSession.get(), Duration.ofSeconds(30)),
+          "Probe must be blocked by the duplicate's business-key reservation");
+      commitHolder.countDown();
+      holding.get(30, TimeUnit.SECONDS);
+      duplicating.get(30, TimeUnit.SECONDS);
+      probing.get(30, TimeUnit.SECONDS);
+
+      assertTrue(store().findById(holder.getId()).isPresent());
+      assertTrue(store().findById(duplicate.getId()).isEmpty());
+      assertOwner(key, probe);
+    } finally {
+      commitHolder.countDown();
+      workers.shutdownNow();
+      assertTrue(workers.awaitTermination(30, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
   void race_winnerCommits_loserSeesConflict() throws Exception {
     race(false);
   }
@@ -200,6 +281,8 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
     var release = new CountDownLatch(1);
     var attempting = new CountDownLatch(1);
     var conflict = new AtomicBoolean();
+    var winnerSession = new AtomicReference<Object>();
+    var loserSession = new AtomicReference<Object>();
     var rollbackMarker = new RuntimeException("Roll back the winner");
     var workers = Executors.newFixedThreadPool(2);
     try {
@@ -210,6 +293,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
                   inOwnerTransaction(
                       () -> {
                         create(winner);
+                        winnerSession.set(ownerSessionId());
                         created.countDown();
                         await(release);
                         if (rollback) {
@@ -228,6 +312,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
               () ->
                   inOwnerTransaction(
                       () -> {
+                        loserSession.set(ownerSessionId());
                         attempting.countDown();
                         try {
                           create(loser);
@@ -237,10 +322,9 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
                         create(unrelated);
                       }));
       assertTrue(attempting.await(30, TimeUnit.SECONDS), "Loser did not start");
-      // Timing alone cannot show that the loser reached the reservation before the winner ended,
-      // so a fixture that cannot see a database lock wait does not prove the race.
+      // The hook confirms the loser is blocked by the winner before the winner ends.
       assumeTrue(
-          awaitBlockedSession(Duration.ofSeconds(30)),
+          awaitBlockedSession(loserSession.get(), winnerSession.get(), Duration.ofSeconds(30)),
           "Requires a fixture that can observe a blocked database session");
       assertThrows(
           TimeoutException.class,

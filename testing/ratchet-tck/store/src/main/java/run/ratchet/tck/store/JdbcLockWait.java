@@ -31,13 +31,16 @@ public final class JdbcLockWait {
 
   /** Returns true when the count query finds a blocked session, or fails after the timeout. */
   public static boolean awaitBlockedSession(
-      ConnectionFactory connections, String query, Duration timeout) {
+      ConnectionFactory connections, String query, Duration timeout, Object... parameters) {
     long deadline = System.nanoTime() + timeout.toNanos();
     try (var connection = connections.open()) {
       connection.setAutoCommit(true);
-      try (var statement = connection.createStatement()) {
+      try (var statement = connection.prepareStatement(query)) {
+        for (int i = 0; i < parameters.length; i++) {
+          statement.setObject(i + 1, parameters[i]);
+        }
         do {
-          try (var result = statement.executeQuery(query)) {
+          try (var result = statement.executeQuery()) {
             if (result.next() && result.getLong(1) > 0) {
               return true;
             }
