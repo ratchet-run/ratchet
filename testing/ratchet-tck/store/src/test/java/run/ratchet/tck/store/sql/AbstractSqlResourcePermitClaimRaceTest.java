@@ -882,17 +882,25 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                         && acquisitions.get() > 0
                         && parks.get() > 0
                         && woken.get() > 0) break;
+                    lastLockFailure.remove();
                     try {
                       role.run();
                     } catch (Throwable failure) {
                       if (isConnectionFailure(failure)) {
                         connectionFailures.add(failure);
                       } else if (isLockFailure(failure)) {
+                        // A save does not translate a deadlock, so it escapes on its first attempt
+                        // with no method name. Its statement text still shows a waiter-row failure.
                         String method = lastLockFailure.get();
-                        escapedLockFailures
-                            .computeIfAbsent(
-                                method == null ? "unknown" : method, ignored -> new AtomicInteger())
+                        String key = method == null ? "unknown" : method;
+                        var counts =
+                            isWaiterFailure(key, failure)
+                                ? waiterLockFailures
+                                : escapedLockFailures;
+                        counts
+                            .computeIfAbsent(key, ignored -> new AtomicInteger())
                             .incrementAndGet();
+                        lockFailureSamples.putIfAbsent("escaped " + key, chainMessage(failure));
                       } else if (!(failure instanceof RatchetOptimisticLockException)) {
                         failures.add(failure);
                       }
@@ -1046,6 +1054,15 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     Throwable root = failure;
     while (root.getCause() != null) root = root.getCause();
     return String.valueOf(root.getMessage()).replace('\n', ' ');
+  }
+
+  /** Every message in the cause chain, so an untranslated failure still names its statement. */
+  private static String chainMessage(Throwable failure) {
+    var messages = new ArrayList<String>();
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      messages.add(cause.getClass().getSimpleName() + ": " + cause.getMessage());
+    }
+    return String.join(" <- ", messages).replace('\n', ' ');
   }
 
   /** A failure in the wake-up or the sweep, or in any statement on the waiter table. */
