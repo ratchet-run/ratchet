@@ -39,6 +39,7 @@ import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.tck.util.ConcurrentTestRunner;
@@ -174,13 +175,15 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   void configureResource_concurrentFirstCreate_allSucceedAndLeaveOneLimit() {
     // Nodes that start together all set the same new limit. Each call is its own transaction, and
     // none may fail because another created the row first.
+    // Resolve the capability on the test thread. A worker's skip would surface as a failure.
+    ResourcePermitStore permits = resourcePermitStore();
     int threads = 8;
     for (int round = 0; round < 5; round++) {
       String name = "race-" + round;
       Runnable[] tasks = new Runnable[threads];
       for (int i = 0; i < threads; i++) {
         int max = i + 1;
-        tasks[i] = () -> resourcePermitStore().configureResource(name, max, 1000, "race");
+        tasks[i] = () -> permits.configureResource(name, max, 1000, "race");
       }
 
       List<Throwable> failures = ConcurrentTestRunner.runAll(Duration.ofSeconds(30), tasks);
@@ -190,11 +193,11 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
           throw new AssertionError("a concurrent first configure of " + name + " failed", failure);
         }
       }
-      ResourceLimit limit = resourcePermitStore().findResourceLimit(name).orElseThrow();
+      ResourceLimit limit = permits.findResourceLimit(name).orElseThrow();
       assertTrue(limit.maxConcurrent() >= 1 && limit.maxConcurrent() <= threads, limit::toString);
       assertEquals(
           1,
-          resourcePermitStore().listResourceLimits().stream()
+          permits.listResourceLimits().stream()
               .filter(stored -> stored.resourceName().equals(name))
               .count());
     }
