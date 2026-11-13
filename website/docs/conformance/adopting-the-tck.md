@@ -189,7 +189,9 @@ contract is not enough, because the report marks unexecuted required contracts a
 
 `AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners and holders committed after the caller's first read.
 
-If your store's `create()` joins the caller's transaction, override both `inOwnerTransaction` and `supportsOwnerTransaction` in the fixture. Otherwise the contract skips its owner-transaction tests. Override `awaitBlockedSession` too, so the race tests can confirm in the database that the losing session is waiting on a lock. Without it the race tests are skipped, because timing alone does not prove the loser reached the reservation before the winner finished.
+If your store's `create()` joins the caller's transaction, override four hooks on your `AbstractBusinessKeyReservationContract` subclass itself: `inOwnerTransaction`, `supportsOwnerTransaction`, `ownerSessionId` and `awaitBlockedSession`. The contract calls them on that subclass, so overriding them only on a separate fixture object leaves the defaults in place. Delegate from the subclass instead, as `PostgresqlBusinessKeyReservationContractTest` does. The first two run the owner-transaction tests. The other two let the race and reservation-order tests confirm in the database that one named session is waiting on a lock held by another.
+
+Only two guards skip tests. `supportsOwnerTransaction()` returning false skips the owner-transaction tests, and `awaitBlockedSession` returning false skips the race and reservation-order tests. Each skip message names the hooks involved, so your test report shows why a test did not run. A store that claims support must override the matching hooks, or the tests fail: `inOwnerTransaction` fails when `supportsOwnerTransaction()` is true and it was not overridden, and a lock wait reported while `ownerSessionId()` returns null fails too.
 
 ## API Compatible
 

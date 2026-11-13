@@ -172,9 +172,15 @@ public interface JobStoreContractFixture {
    *
    * <p>A store whose create joins the caller's transaction must override this and {@link
    * #supportsOwnerTransaction()}. Otherwise the business-key reservation contract skips its
-   * owner-transaction tests.
+   * owner-transaction tests. This default fails when {@link #supportsOwnerTransaction()} returns
+   * true, because running the work without a shared transaction would make those tests pass without
+   * testing anything.
    */
   default void inOwnerTransaction(Runnable work) {
+    if (supportsOwnerTransaction()) {
+      throw new IllegalStateException(
+          "supportsOwnerTransaction() is true, so override inOwnerTransaction(Runnable) too");
+    }
     work.run();
   }
 
@@ -190,11 +196,20 @@ public interface JobStoreContractFixture {
   }
 
   /**
-   * Waits until another session is blocked on a row lock; false if the fixture cannot tell.
-   * Implementations must fail if no blocked session is observed within the timeout. The
-   * business-key race tests skip when this returns false.
+   * Returns the database session id used by the current owner transaction. Call inside {@link
+   * #inOwnerTransaction(Runnable)}; returns null when the fixture cannot tell.
    */
-  default boolean awaitBlockedSession(Duration timeout) {
+  default Object ownerSessionId() {
+    return null;
+  }
+
+  /**
+   * Waits until session {@code waiter} is blocked on a lock held by session {@code holder}, using
+   * ids from {@link #ownerSessionId()}. Returns false if the fixture cannot tell. Implementations
+   * must fail with {@link AssertionError} if this is not observed within the timeout. Contract
+   * tests that need this hook skip when it returns false.
+   */
+  default boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
     return false;
   }
 

@@ -57,14 +57,21 @@ class MysqlBusinessKeyReservationContractTest extends AbstractBusinessKeyReserva
   }
 
   @Override
-  public boolean awaitBlockedSession(Duration timeout) {
-    // INNODB_TRX requires PROCESS, which the application user does not have.
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT CONNECTION_ID()");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
+    // Root is needed because the view reads INNODB_TRX.
     return JdbcLockWait.awaitBlockedSession(
         () ->
             DriverManager.getConnection(
                 MysqlTestFixture.jdbcUrl(), "root", MysqlTestFixture.password()),
-        "SELECT COUNT(*) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT'",
-        timeout);
+        "SELECT COUNT(*) FROM sys.innodb_lock_waits WHERE waiting_pid = ? AND blocking_pid = ?",
+        timeout,
+        waiter,
+        holder);
   }
 
   @Override

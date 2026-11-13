@@ -56,8 +56,17 @@ class PostgresqlBusinessKeyReservationContractTest extends AbstractBusinessKeyRe
   }
 
   @Override
-  public boolean awaitBlockedSession(Duration timeout) {
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT pg_backend_pid()");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
     return JdbcLockWait.awaitBlockedSession(
-        fixture::openConnection, "SELECT COUNT(*) FROM pg_locks WHERE NOT granted", timeout);
+        fixture::openConnection,
+        "SELECT COUNT(*) FROM pg_stat_activity WHERE pid = ? AND ? = ANY (pg_blocking_pids(pid))",
+        timeout,
+        ((Number) waiter).intValue(),
+        ((Number) holder).intValue());
   }
 }

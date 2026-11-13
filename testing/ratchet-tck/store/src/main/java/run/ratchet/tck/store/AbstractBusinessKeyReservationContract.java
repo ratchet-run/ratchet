@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,20 @@ import run.ratchet.store.spi.RecurringJobDefinition;
  * Verifies write-free reservation conflicts and the caller's ability to continue its transaction.
  */
 public abstract class AbstractBusinessKeyReservationContract implements JobStoreContractFixture {
+
+  private static final String NEEDS_OWNER_TRANSACTION =
+      """
+      supportsOwnerTransaction() is false on this contract class. A store whose create joins \
+      the caller's transaction overrides it and inOwnerTransaction(Runnable) here.""";
+
+  private static final String NEEDS_LOCK_WAIT_HOOKS =
+      """
+      awaitBlockedSession(Object, Object, Duration) returned false on this contract class. \
+      Override it and ownerSessionId() here to observe database lock waits.""";
+
+  // Each step the main thread runs before it releases a held session waits at most 30 s, and a
+  // test runs at most four of them, so a held session waits longer than their sum.
+  private static final long RELEASE_TIMEOUT_SECONDS = 150;
 
   @BeforeEach
   @AfterEach
@@ -72,7 +87,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   @Test
   void conflict_leavesOwnerTransactionUsable() {
-    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String key = uniqueKey();
     JobEntity holder = create(jobWithBusinessKey(key));
     JobEntity loser = jobWithBusinessKey(key);
@@ -131,7 +146,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   @Test
   void lateCommittedHolder_conflictLeavesOwnerTransactionUsable() throws Exception {
-    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String key = uniqueKey();
     JobEntity holder = jobWithBusinessKey(key);
     JobEntity loser = jobWithBusinessKey(key);
@@ -187,6 +202,85 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
   }
 
   @Test
+  void reservationIsHeldWhileIdempotencyWriteWaits() throws Exception {
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
+    String idempotencyKey = UUID.randomUUID().toString();
+    String key = uniqueKey();
+    JobEntity holder = jobWithBusinessKey(null);
+    holder.setIdempotencyKey(idempotencyKey);
+    JobEntity duplicate = jobWithBusinessKey(key);
+    duplicate.setIdempotencyKey(idempotencyKey);
+    JobEntity probe = jobWithBusinessKey(key);
+    var holderSession = new AtomicReference<Object>();
+    var duplicateSession = new AtomicReference<Object>();
+    var probeSession = new AtomicReference<Object>();
+    var holderWritten = new CountDownLatch(1);
+    var commitHolder = new CountDownLatch(1);
+    var duplicateStarted = new CountDownLatch(1);
+    var probeStarted = new CountDownLatch(1);
+    var workers = Executors.newFixedThreadPool(3);
+    try {
+      var holding =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        create(holder);
+                        holderSession.set(ownerSessionId());
+                        holderWritten.countDown();
+                        await(commitHolder);
+                      }));
+      assertTrue(holderWritten.await(30, TimeUnit.SECONDS), "Holder did not write its key");
+      var duplicating =
+          workers.submit(
+              () -> {
+                try {
+                  inOwnerTransaction(
+                      () -> {
+                        duplicateSession.set(ownerSessionId());
+                        duplicateStarted.countDown();
+                        assertThrows(
+                            DuplicateIdempotencyKeyException.class, () -> create(duplicate));
+                      });
+                } catch (RuntimeException expectedCommitFailure) {
+                  // Providers may mark the owner transaction rollback-only after the
+                  // idempotency conflict.
+                }
+              });
+      assertTrue(duplicateStarted.await(30, TimeUnit.SECONDS), "Duplicate did not start");
+      assumeTrue(
+          observeBlocked(duplicateSession.get(), holderSession.get()), NEEDS_LOCK_WAIT_HOOKS);
+      var probing =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        probeSession.set(ownerSessionId());
+                        probeStarted.countDown();
+                        create(probe);
+                      }));
+      assertTrue(probeStarted.await(30, TimeUnit.SECONDS), "Probe did not start");
+      // The duplicate is still waiting on the idempotency key, so it can block the probe only if
+      // it reserved the business key before it wrote the idempotency key.
+      assertTrue(
+          observeBlocked(probeSession.get(), duplicateSession.get()),
+          "Probe must be blocked by the duplicate's business-key reservation");
+      commitHolder.countDown();
+      holding.get(30, TimeUnit.SECONDS);
+      duplicating.get(30, TimeUnit.SECONDS);
+      probing.get(30, TimeUnit.SECONDS);
+
+      assertTrue(store().findById(holder.getId()).isPresent());
+      assertTrue(store().findById(duplicate.getId()).isEmpty());
+      assertOwner(key, probe);
+    } finally {
+      commitHolder.countDown();
+      workers.shutdownNow();
+      assertTrue(workers.awaitTermination(30, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
   void race_winnerCommits_loserSeesConflict() throws Exception {
     race(false);
   }
@@ -197,7 +291,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
   }
 
   private void race(boolean rollback) throws Exception {
-    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String key = uniqueKey();
     JobEntity winner = jobWithBusinessKey(key);
     JobEntity loser = jobWithBusinessKey(key);
@@ -206,6 +300,8 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
     var release = new CountDownLatch(1);
     var attempting = new CountDownLatch(1);
     var conflict = new AtomicBoolean();
+    var winnerSession = new AtomicReference<Object>();
+    var loserSession = new AtomicReference<Object>();
     var rollbackMarker = new RuntimeException("Roll back the winner");
     var workers = Executors.newFixedThreadPool(2);
     try {
@@ -216,6 +312,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
                   inOwnerTransaction(
                       () -> {
                         create(winner);
+                        winnerSession.set(ownerSessionId());
                         created.countDown();
                         await(release);
                         if (rollback) {
@@ -234,6 +331,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
               () ->
                   inOwnerTransaction(
                       () -> {
+                        loserSession.set(ownerSessionId());
                         attempting.countDown();
                         try {
                           create(loser);
@@ -243,11 +341,8 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
                         create(unrelated);
                       }));
       assertTrue(attempting.await(30, TimeUnit.SECONDS), "Loser did not start");
-      // Timing alone cannot show that the loser reached the reservation before the winner ended,
-      // so a fixture that cannot see a database lock wait does not prove the race.
-      assumeTrue(
-          awaitBlockedSession(Duration.ofSeconds(30)),
-          "Requires a fixture that can observe a blocked database session");
+      // The hook confirms the loser is blocked by the winner before the winner ends.
+      assumeTrue(observeBlocked(loserSession.get(), winnerSession.get()), NEEDS_LOCK_WAIT_HOOKS);
       assertThrows(
           TimeoutException.class,
           () -> second.get(500, TimeUnit.MILLISECONDS),
@@ -275,13 +370,25 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   private static void await(CountDownLatch latch) {
     try {
-      if (!latch.await(90, TimeUnit.SECONDS)) {
-        throw new IllegalStateException("Timed out waiting for winner release");
+      if (!latch.await(RELEASE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Timed out waiting for release");
       }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IllegalStateException("Interrupted waiting for winner release", e);
+      throw new IllegalStateException("Interrupted waiting for release", e);
     }
+  }
+
+  /** Returns false only when the fixture cannot observe lock waits; the caller then skips. */
+  private boolean observeBlocked(Object waiter, Object holder) {
+    boolean observed = awaitBlockedSession(waiter, holder, Duration.ofSeconds(30));
+    if (observed && (waiter == null || holder == null)) {
+      // A hook that reports a wait without both session ids has not checked who is waiting.
+      throw new IllegalStateException(
+          "awaitBlockedSession reported a lock wait, but ownerSessionId() returned null;"
+              + " override ownerSessionId() on this contract class");
+    }
+    return observed;
   }
 
   private JobEntity create(JobEntity job) {
