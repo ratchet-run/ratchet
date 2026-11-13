@@ -76,10 +76,12 @@ import run.ratchet.spi.JobAuthorizationPolicy;
  *
  * <p>The RI verifies these contracts through its Jakarta transaction TCK tests.
  *
+ * <p>The business-key lookup is inherited from the stable {@link BusinessKeyLookup}.
+ *
  * @since 0.1
  */
 @Incubating
-public interface JobSchedulerService {
+public interface JobSchedulerService extends BusinessKeyLookup {
   /**
    * Deletes a sealed partition set. Policies may receive an archived latest batch id.
    *

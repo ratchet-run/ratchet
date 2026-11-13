@@ -15,6 +15,7 @@
  */
 package run.ratchet.api;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.AnnotatedElement;
@@ -22,6 +23,13 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.event.JobPausedEvent;
 
 class ApiIncubatingContractTest {
+
+  @Test
+  void businessKeyLookupIsStable() {
+    assertFalse(BusinessKeyLookup.class.isAnnotationPresent(Incubating.class));
+    assertFalse(BusinessKeyHolder.class.isAnnotationPresent(Incubating.class));
+    assertTrue(BusinessKeyLookup.class.isAssignableFrom(JobSchedulerService.class));
+  }
 
   @Test
   void jobBuilderFamilyIsIncubating() {

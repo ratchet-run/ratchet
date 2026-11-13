@@ -45,9 +45,12 @@ import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.IS_PAUSED;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.MAX_RETRIES;
+import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_TABLE;
 import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
@@ -84,8 +87,10 @@ import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -96,6 +101,7 @@ import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
+import run.ratchet.store.util.BusinessKeyReservations;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
 
@@ -320,13 +326,43 @@ final class MongoJobCrudOperations {
     return results;
   }
 
-  Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    Document doc =
-        ctx.jobs()
-            .find(and(eq(BUSINESS_KEY, businessKey), in(STATUS, MongoStoreContext.ACTIVE_STATUSES)))
-            .limit(1)
-            .first();
-    return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
+  Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    Document reservation = ctx.businessKeyReservations().find(eq(ID, businessKey)).first();
+    if (reservation == null) {
+      return Optional.empty();
+    }
+    UUID id = reservation.get(OWNER_JOB_ID, UUID.class);
+    String owner = reservation.getString(OWNER_TABLE);
+    if (BusinessKeyReservations.OWNER_TABLE_RECURRING.equals(owner)) {
+      Document master =
+          ctx.recurringJobs().find(eq(ID, id)).projection(new Document(IS_PAUSED, 1)).first();
+      if (master == null) {
+        return Optional.empty();
+      }
+      return Optional.of(
+          new BusinessKeyHolder(
+              id,
+              JobType.RECURRING,
+              Boolean.TRUE.equals(master.getBoolean(IS_PAUSED))
+                  ? JobStatus.PAUSED
+                  : JobStatus.PENDING));
+    }
+    if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(owner)) {
+      Document job =
+          ctx.jobs()
+              .find(and(eq(ID, id), in(STATUS, MongoStoreContext.ACTIVE_STATUSES)))
+              .projection(new Document(STATUS, 1).append(JOB_TYPE, 1))
+              .first();
+      if (job == null) {
+        return Optional.empty();
+      }
+      return Optional.of(
+          new BusinessKeyHolder(
+              id,
+              JobExecutionType.valueOf(job.getString(JOB_TYPE)).toPublicType(),
+              JobStatus.valueOf(job.getString(STATUS))));
+    }
+    return Optional.empty();
   }
 
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {

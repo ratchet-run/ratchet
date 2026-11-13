@@ -33,6 +33,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
@@ -171,6 +172,7 @@ class RatchetEngineWiringTest {
             context -> {
               assertThat(context).hasNotFailed();
               assertThat(context).hasSingleBean(JobSchedulerService.class);
+              assertThat(context).hasSingleBean(BusinessKeyLookup.class);
               assertThat(context).hasSingleBean(JobStateFlusher.class);
               assertThat(context).hasSingleBean(SpringRecurringDiscovery.class);
               assertThat(context.getBean(PoolRegistry.class).hasPool(ExecutorTargets.VIRTUAL))

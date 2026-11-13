@@ -21,15 +21,18 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.jboss.logging.Logger;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.util.BusinessKeyReservations;
 import run.ratchet.store.util.SqlIdempotencyKeys;
+import run.ratchet.store.util.StatusClassifier;
 
 final class PostgresqlJobReadOperations {
 
-  private static final Logger log = Logger.getLogger(PostgresqlJobReadOperations.class);
   private static final int FIND_BY_IDS_CHUNK_SIZE = 500;
 
   // language=PostgreSQL
@@ -167,42 +170,45 @@ final class PostgresqlJobReadOperations {
   }
 
   @SuppressWarnings("unchecked")
-  Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
+  Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
     try {
       // language=PostgreSQL
       String sql =
-          "SELECT br.owner_table, "
-              + PostgresqlJobRowMapper.hydrationSelect()
-              + " FROM scheduler_business_key_reservation br "
-              + "JOIN scheduler_job c ON c.job_id = br.owner_job_id "
-              + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-              + "WHERE br.business_key = ? LIMIT 1";
+          """
+          SELECT br.owner_job_id, br.owner_table, q.status, q.job_type, r.is_paused
+          FROM scheduler_business_key_reservation br
+          LEFT JOIN scheduler_job_queue q
+            ON br.owner_table = 'QUEUE' AND q.job_id = br.owner_job_id
+          LEFT JOIN scheduler_recurring_job r
+            ON br.owner_table = 'RECURRING' AND r.id = br.owner_job_id
+          WHERE br.business_key = ?
+          """;
       List<Object[]> rows =
           ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();
       if (rows.isEmpty()) {
         return Optional.empty();
       }
-      Object[] full = rows.get(0);
-      String ownerTable = (String) full[0];
-      Object[] hydrationRow = new Object[PostgresqlJobRowMapper.HYDRATION_COL_COUNT];
-      System.arraycopy(full, 1, hydrationRow, 0, PostgresqlJobRowMapper.HYDRATION_COL_COUNT);
-      JobEntity job = PostgresqlJobRowMapper.hydrate(hydrationRow);
-      if (PostgresqlBusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable)
-          && hydrationRow[PostgresqlJobRowMapper.IDX_Q_STATUS] == null) {
-        log.errorf(
-            "bkres invariant violation: business_key=%s claims QUEUE owner job=%s but no hot row",
-            businessKey, job.getId());
-        throw new IllegalStateException(
-            "Business key reservation "
-                + businessKey
-                + " claims QUEUE owner job "
-                + job.getId()
-                + " but no hot row exists");
+      Object[] row = rows.get(0);
+      UUID id = PostgresqlJobRowMapper.uuidOrNull(row[0]);
+      if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(row[1]) && row[2] != null) {
+        JobStatus status = JobStatus.valueOf((String) row[2]);
+        if (!StatusClassifier.isLiveStatus(status)) {
+          return Optional.empty();
+        }
+        return Optional.of(
+            new BusinessKeyHolder(
+                id, JobExecutionType.valueOf((String) row[3]).toPublicType(), status));
       }
-      tags.hydrateTagsSingle(job);
-      return Optional.of(job);
+      if (BusinessKeyReservations.OWNER_TABLE_RECURRING.equals(row[1]) && row[4] != null) {
+        boolean paused =
+            row[4] instanceof Boolean value ? value : ((Number) row[4]).intValue() != 0;
+        return Optional.of(
+            new BusinessKeyHolder(
+                id, JobType.RECURRING, paused ? JobStatus.PAUSED : JobStatus.PENDING));
+      }
+      return Optional.empty();
     } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("find active job by business key", e);
+      throw ctx.translateTransientStoreException("find business key holder", e);
     }
   }
 

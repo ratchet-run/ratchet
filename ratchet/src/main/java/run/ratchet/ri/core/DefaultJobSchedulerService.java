@@ -30,6 +30,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
@@ -51,6 +52,7 @@ import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
+import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -350,6 +352,16 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       throw new IllegalArgumentException("decision must not be null");
     }
     return deliverSignalDecision(signalKey, decision);
+  }
+
+  @Override
+  @Transactional(
+      value = Transactional.TxType.SUPPORTS,
+      dontRollbackOn = IllegalArgumentException.class)
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    // Deliberately does not consult authorizationPolicy, matching submit().
+    String key = BusinessKeyNormalizer.normalize(businessKey);
+    return key == null ? Optional.empty() : jobCrudStore.findBusinessKeyHolder(key);
   }
 
   @Override

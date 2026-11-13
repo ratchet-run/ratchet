@@ -35,6 +35,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.BusinessKeyHolder;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
@@ -134,7 +137,10 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
     assertThrows(BusinessKeyReservationConflictException.class, () -> create(loser));
 
     assertAbsent(loser);
-    // Recurring definitions live outside the one-off job table; use their capability lookup.
+    assertEquals(
+        new BusinessKeyHolder(holderId, JobType.RECURRING, JobStatus.PENDING),
+        store().findBusinessKeyHolder(key).orElseThrow());
+    // Recurring definitions live outside the one-off job table.
     assertEquals(holderId, recurring.findRecurringByBusinessKey(key).orElseThrow().id());
   }
 
@@ -157,7 +163,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
               throw new IllegalStateException("Late holder did not commit", e);
             }
             if (plainReadsUseTransactionSnapshot()) {
-              assertTrue(store().findActiveByBusinessKey(key).isEmpty());
+              assertTrue(store().findBusinessKeyHolder(key).isEmpty());
             }
             assertThrows(BusinessKeyReservationConflictException.class, () -> create(loser));
             create(unrelated);
@@ -190,7 +196,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
       // Providers may mark the owner transaction rollback-only after the idempotency conflict.
     }
 
-    assertTrue(store().findActiveByBusinessKey(key).isEmpty());
+    assertTrue(store().findBusinessKeyHolder(key).isEmpty());
     JobEntity replacement = create(jobWithBusinessKey(key));
     assertOwner(key, replacement);
   }
@@ -404,7 +410,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
   }
 
   private void assertOwner(String key, JobEntity holder) {
-    assertEquals(holder.getId(), store().findActiveByBusinessKey(key).orElseThrow().getId());
+    assertEquals(holder.getId(), store().findBusinessKeyHolder(key).orElseThrow().id());
   }
 
   private static String uniqueKey() {

@@ -188,6 +188,8 @@ JobBuilder withBusinessKey(String key)
 
 Sets a business key for preventing concurrent execution against the same entity. An active job (PENDING, RUNNING, PAUSED, or WAITING) holding the key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until that job reaches a terminal state and frees the key for reuse.
 
+Use [`findBusinessKeyHolder`](./job-scheduler-service#business-key-lookup) to inspect the current holder before submitting.
+
 Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
 
 `DuplicateIdempotencyKeyException` and `RatchetTransientStoreException` still leave the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
