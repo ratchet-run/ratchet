@@ -316,6 +316,62 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
+  /** Pins preservation of a waiter renewed after the stale sweep reads its previous park. */
+  @Test
+  void staleSweepKeepsAWaiterThatParkedAgainAfterTheSweepReadIt() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-sweep", 1, 0, null);
+    var holder = claimNewJob("holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-sweep"));
+    var waiter = claimNewJob("node-a");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-sweep"));
+    var reclaimed = store.claimNextBatch(1, "node-a");
+    assertEquals(1, reclaimed.size());
+    var failed = reclaimed.get(0);
+    assertEquals(waiter.getId(), failed.getId());
+    assertTrue(
+        store.markJobFailedTerminal(
+            failed.getId(), "boom", failed.getAttempts(), failed.getClaimSeq()));
+    var fired = new AtomicBoolean();
+    var caller = Thread.currentThread();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.trim().startsWith("SELECT W.JOB_ID")
+                    && normalized.contains(
+                        "FROM SCHEDULER_RESOURCE_WAITER W LEFT JOIN SCHEDULER_JOB_QUEUE")
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            assertTrue(store.resetFailedToPending(waiter.getId()));
+                            var claims = store.claimNextBatch(1, "node-a");
+                            assertEquals(1, claims.size());
+                            assertEquals(waiter.getId(), claims.get(0).getId());
+                            assertEquals(
+                                AT_CAPACITY,
+                                acquire(permits, claims.get(0), "node-a", "res-sweep"));
+                          }));
+                }
+              });
+      int deleted = permits.deleteStaleWaiters(10);
+      assertTrue(fired.get(), "the waiter parked again after the sweep read it");
+      assertEquals(0, deleted);
+      assertEquals(List.of("res-sweep"), permits.findResourcesWithWaiters(null, 10));
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
   @Test
   void wakeSweepAndWaiterRowsDoNotDeadlockWithTerminalWritesResetsAndBatchSweeps()
       throws Exception {

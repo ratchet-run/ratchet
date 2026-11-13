@@ -593,20 +593,35 @@ final class OracleAuxiliaryOperations
     // language=Oracle
     String sql =
         """
-        SELECT w.job_id FROM scheduler_resource_waiter w
+        SELECT w.job_id, w.lease_until FROM scheduler_resource_waiter w
         LEFT JOIN scheduler_job_queue q ON q.job_id = w.job_id
         WHERE q.job_id IS NULL OR q.status NOT IN ('PENDING', 'RUNNING', 'PAUSED') FETCH FIRST ? ROWS ONLY
         """;
     try {
       List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
       int deleted = 0;
-      for (Object id : ids) {
-        deleted += deleteWaiter(OracleJobRowMapper.uuidOrNull(id));
+      // Fenced on the lease read above: a park that renewed the row after the read keeps it.
+      for (Object value : ids) {
+        Object[] row = (Object[]) value;
+        deleted += deleteStaleWaiter(row[0], row[1]);
       }
       return deleted;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete stale resource waiters", e);
     }
+  }
+
+  private int deleteStaleWaiter(Object jobId, Object leaseUntil) {
+    // language=Oracle
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND lease_until = ?
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, jobId)
+        .setParameter(2, leaseUntil)
+        .executeUpdate();
   }
 
   @Override

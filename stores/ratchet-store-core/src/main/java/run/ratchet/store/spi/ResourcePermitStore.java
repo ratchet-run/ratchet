@@ -56,7 +56,7 @@ public interface ResourcePermitStore {
   /**
    * Deletes up to {@code limit} waiter rows whose job has no queue row, or whose queue status is
    * not PENDING, RUNNING or PAUSED. Returns the number deleted. Transaction attribute: {@code
-   * REQUIRES_NEW}.
+   * REQUIRES_NEW}. A row that a park renewed after the store selected it is kept.
    */
   int deleteStaleWaiters(int limit);
 
