@@ -59,6 +59,24 @@ validates the schema, so create the `scheduler_resource_waiter` collection and i
 both. During a rolling upgrade, nodes still on the older version ignore the waiting line, so the
 order holds only once every node runs the new version.
 
+SQL stores also gain a migration that adds three nullable columns and the `idx_bk_held_until` index
+to `scheduler_business_key_reservation` (`V018__business_key_hold.sql` on MySQL,
+`V016__business_key_hold.sql` on PostgreSQL, Oracle and SQL Server). They let a cancelled running
+job keep its business key until its body ends. The table has one row per held business key and the
+new columns start empty, so the index builds quickly. On PostgreSQL, Oracle and SQL Server, writes
+to the table wait while the index is built, and on Oracle the DDL fails with ORA-00054 if another
+transaction is writing to the table at that moment. Running the script again is safe. MySQL adds
+the columns and builds the index online. MongoDB creates the `idx_bk_held_until` index when the
+store starts. With `ratchet.schema.auto-migrate=false` on Spring Boot or Micronaut, create it before
+you start the node; the store JAR's `ddl/mongodb-init.js` creates it. During a rolling upgrade, a
+node still on the older version releases the key at once when it cancels a running job, and a
+MongoDB node on the older version deletes every hold when it starts. When a new node cancels a job
+that runs on an older node, the body is not asked to stop and the older node does not release the
+hold when the body ends, so the key stays held until the hold's limit (the cancel time plus the
+job's timeout plus `ratchet.node.orphan-grace-seconds`). A cancelled job's key is held and released
+as described in [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job)
+only once every node runs the new version.
+
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.
 

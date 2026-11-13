@@ -21,18 +21,20 @@ import java.util.Optional;
 public interface BusinessKeyLookup {
 
   /**
-   * Returns the active holder of a business key: a job or a recurring master. Reads the same
-   * reservation that {@link JobBuilder#submit()} checks, so it sees jobs and recurring masters
-   * alike. {@link JobQueryService#findJobs} sees recurring masters only when the filter's types are
-   * exactly RECURRING.
+   * Returns the holder of a business key: a job or a recurring master. Reads the same reservation
+   * that {@link JobBuilder#submit()} checks, so it sees jobs and recurring masters alike. {@link
+   * JobQueryService#findJobs} sees recurring masters only when the filter's types are exactly
+   * RECURRING.
    *
    * <p>Key handling matches {@link JobBuilder#withBusinessKey}. Null or blank keys return empty.
    * The key is trimmed. More than 255 characters or a character outside printable ASCII (U+0020 to
    * U+007E) throws {@link IllegalArgumentException}.
    *
    * <p>Status follows {@link BusinessKeyHolder}: jobs have their live status, and recurring masters
-   * are PAUSED when paused and PENDING otherwise. If a reservation's owner row is not visible to
-   * the read, such as a store's own write in progress or MongoDB between its two reads, returns
+   * are PAUSED when paused and PENDING otherwise. A RUNNING job cancelled through {@link
+   * JobSchedulerService#cancelJob} or {@code replace} keeps its key until its body ends, and is
+   * returned with status CANCELED until the hold ends. If a reservation's owner row is not visible
+   * to the read, such as a store's own write in progress or MongoDB between its two reads, returns
    * empty rather than a holder without a status.
    *
    * <p>This is a point-in-time read. A later {@code submit()} can still lose a race. Treat the
@@ -56,7 +58,7 @@ public interface BusinessKeyLookup {
    * key to any caller.
    *
    * @param businessKey the business key to inspect
-   * @return the active holder, or empty when no live owner is visible
+   * @return the holder, or empty when no holder is visible
    * @throws IllegalArgumentException if the trimmed key is too long or contains a character outside
    *     printable ASCII
    */

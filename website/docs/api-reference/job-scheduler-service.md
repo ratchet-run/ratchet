@@ -179,7 +179,7 @@ JobHandle replace(UUID jobId, Duration delay,
                   SerializableCheckedRunnable newTask, JobOptions opts)
 ```
 
-Replaces an existing job with a new one. The original job is canceled and a new job is created with the specified delay and options.
+Replaces an existing job with a new one. The original job is canceled the same way as `cancelJob`, and a new job is created with the specified delay and options. If the original job is running, its body is asked to stop and keeps its business key held until it ends. The replacement has no business key, so the hold never blocks it.
 
 **Parameters:**
 - `jobId` -- the ID of the existing job to replace.
@@ -213,8 +213,9 @@ attempt after the cancel.
 Cancelling a batch child counts as a failure. The batch completes
 as soon as its last child ends.
 
-- **PENDING** jobs transition directly to CANCELED.
-- **RUNNING** jobs transition to CANCELED; the executor should check status before committing results.
+- **PENDING**, **PAUSED** and **WAITING** jobs transition directly to CANCELED.
+- **RUNNING** jobs transition to CANCELED, and the body is asked to stop through `JobContext.isCancellationRequested()`. The worker thread is not interrupted. A body that stops by throwing ends CANCELED, with no retry, DLQ entry or `onFailure` callback. A keyed job keeps its business key held until the body ends, bounded by its timeout. See [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job).
+- Chain and workflow steps that wait on the job are canceled with it.
 - Jobs in terminal states (SUCCEEDED, FAILED, CANCELED) cannot be canceled.
 
 **Parameters:**
@@ -453,11 +454,11 @@ scheduler.scheduleRecurring("0 0 10 * * ?", ZoneId.of("UTC"),
 Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey)
 ```
 
-Returns the active holder of a business key from the same reservation that `JobBuilder.submit()` checks. A holder can be a job or a recurring master. `BusinessKeyHolder` contains `id()`, `type()` and `status()`. The id is the job id or recurring master id. `cancelJob(id)` cancels either.
+Returns the holder of a business key from the same reservation that `JobBuilder.submit()` checks. A holder can be a job or a recurring master. `BusinessKeyHolder` contains `id()`, `type()` and `status()`. The id is the job id or recurring master id. `cancelJob(id)` cancels either.
 
-For a job, the type is its public type (`SINGLE` for a job from `JobBuilder`) and the status is its live `PENDING`, `RUNNING`, `PAUSED` or `WAITING` status. For a recurring master, the type is `RECURRING` and the status is `PAUSED` when paused, or `PENDING` otherwise. This matches `JobQueryService.getRecurringMasters()`. Status is never null or terminal.
+For a job, the type is its public type (`SINGLE` for a job from `JobBuilder`) and the status is its live `PENDING`, `RUNNING`, `PAUSED` or `WAITING` status. For a recurring master, the type is `RECURRING` and the status is `PAUSED` when paused, or `PENDING` otherwise. This matches `JobQueryService.getRecurringMasters()`. A RUNNING job canceled with `cancelJob` or `replace` keeps its key until its body ends, and is returned with status `CANCELED` until then (see [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job)). Status is never null, `SUCCEEDED` or `FAILED`.
 
-Returns empty when no reservation exists, including after the holder finishes, is canceled, or is deleted. It also returns empty if a reservation exists but its owner row is not visible to the read. This can happen during a store's own write or between MongoDB's reservation and owner reads.
+Returns empty when no reservation exists, including after the holder finishes, is canceled (once the hold of a canceled running job ends), or is deleted. It also returns empty if a reservation exists but its owner row is not visible to the read. This can happen during a store's own write or between MongoDB's reservation and owner reads.
 
 Key handling matches `JobBuilder.withBusinessKey`: null or blank returns empty, and the key is trimmed. More than 255 characters after trimming, or a character outside printable ASCII (U+0020 to U+007E), throws `IllegalArgumentException`.
 

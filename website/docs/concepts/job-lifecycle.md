@@ -129,7 +129,7 @@ The job is blocked until an external signal is delivered. WAITING jobs are not v
 
 ### CANCELED
 
-The job was explicitly canceled and will not execute. This is a terminal state. Canceling a RUNNING job sets the status; the executor checks status mid-flight and discards results.
+The job was explicitly canceled and will not execute. This is a terminal state. Canceling a RUNNING job sets the status and asks the body to stop at a safe point; its result is discarded, and a keyed job holds its business key until the body ends. See [Cancelling a running job](execution-model.md#cancelling-a-running-job).
 
 - **Terminal:** Yes
 - **Cascading:** Canceling a chain step cancels all downstream dependents

@@ -463,12 +463,15 @@ public final class JobContext {
   }
 
   /**
-   * Returns true once Ratchet asks this attempt to stop. Today the execution watchdog sets the flag
+   * Returns true once Ratchet asks this attempt to stop. The execution watchdog sets the flag
    * {@code ratchet.timeout.cancellation-grace-seconds} before the deadline, or immediately before
-   * interrupting when grace is zero or not shorter than the timeout. Safe from any thread and cheap
-   * (no I/O); every attempt, including retries, starts cleared. Check at safe points and stop via
-   * {@link #throwIfCancellationRequested()}: returning normally counts as success unless you
-   * request continuation.
+   * interrupting when grace is zero or not shorter than the timeout. {@link
+   * JobSchedulerService#cancelJob} and {@link JobSchedulerService#replace} set it for a running
+   * job: right after the cancel commits when it runs on this node, and within about ten seconds
+   * when it runs on another node. Safe from any thread and cheap (no I/O); every attempt, including
+   * retries, starts cleared. Check at safe points and stop via {@link
+   * #throwIfCancellationRequested()}: returning normally counts as success unless you request
+   * continuation.
    */
   public boolean isCancellationRequested() {
     return cancellationRequested.getAsBoolean();

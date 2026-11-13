@@ -309,7 +309,9 @@ public interface JobBuilder {
    * <p>Unlike {@link #withIdempotencyKey(String)}, multiple completed jobs may share the same key;
    * only active (PENDING/RUNNING/PAUSED/WAITING) jobs are blocked. {@link #submit()} throws {@link
    * DuplicateBusinessKeyException} while an active job holds the key, unless its idempotency key
-   * matches this builder's custom key, in which case the original handle is returned.
+   * matches this builder's custom key, in which case the original handle is returned. A RUNNING job
+   * that is cancelled keeps the key until its body ends, bounded by its timeout; see {@link
+   * JobSchedulerService#cancelJob}.
    *
    * <p>Ratchet checks and reserves the key before writing anything. A duplicate leaves the caller's
    * transaction usable, including a recurring holder or a holder committed after the caller's first
