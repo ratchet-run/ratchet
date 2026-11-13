@@ -37,8 +37,20 @@ window for this migration, and on Oracle stop the nodes that write to `scheduler
 and SQL Server only add the columns. MongoDB replaces the old single-field index of the same name
 when the store starts.
 
+Every SQL store also gains the partition set tables, in `V014__partition_sets.sql` on PostgreSQL,
+Oracle and SQL Server and in `V016__partition_sets.sql` on MySQL. The new tables start empty, so
+their indexes build at once. The script also adds two nullable columns to `scheduler_batch` and
+builds `idx_batch_partition_set` over its existing rows. The migrator runs the PostgreSQL script in
+one transaction, and adding the columns locks `scheduler_batch` until it commits, so reads and
+writes on that table wait while the index is built. On Oracle and SQL Server the index build blocks
+writes to `scheduler_batch` while it runs, and on Oracle the DDL fails with ORA-00054 if another
+transaction is writing to the table at that moment. Running the script again is safe. MySQL adds
+the columns and builds the index online, so writes continue. `scheduler_batch` has one row per
+batch, so this is usually quick, but on an installation that keeps many batches, run it in a quiet
+window. MongoDB creates the new collections and indexes when the store starts.
+
 SQL stores also gain a migration that adds the `scheduler_resource_waiter` table
-(`V016__resource_waiter.sql` on MySQL, `V014__resource_waiter.sql` on PostgreSQL, Oracle and SQL
+(`V017__resource_waiter.sql` on MySQL, `V015__resource_waiter.sql` on PostgreSQL, Oracle and SQL
 Server). The table holds the jobs waiting for a resource permit, so they are served in order and a
 released permit wakes them on any node. MongoDB creates the collection and its index when the store
 starts. With `ratchet.schema.auto-migrate=false` on Spring Boot or Micronaut, a MongoDB node only

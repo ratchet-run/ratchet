@@ -126,6 +126,41 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void partitionIndexesConform() {
+    var setIndexes =
+        database.getCollection("scheduler_partition_set").listIndexes().into(new ArrayList<>());
+    var key =
+        setIndexes.stream()
+            .filter(index -> "uq_partition_set_key".equals(index.getString("name")))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(new Document("set_key", 1), key.get("key"));
+    assertTrue(key.getBoolean("unique", false));
+    var partitions =
+        database.getCollection("scheduler_partition").listIndexes().into(new ArrayList<>());
+    var composite =
+        partitions.stream()
+            .filter(index -> "uq_partition_index".equals(index.getString("name")))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(new Document("set_id", 1).append("partition_index", 1), composite.get("key"));
+    assertTrue(composite.getBoolean("unique", false));
+    var child =
+        partitions.stream()
+            .filter(index -> "idx_partition_child".equals(index.getString("name")))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(new Document("child_job_id", 1), child.get("key"));
+    assertFalse(child.getBoolean("unique", false));
+    var batch =
+        database.getCollection("scheduler_batch").listIndexes().into(new ArrayList<>()).stream()
+            .filter(index -> "idx_batch_partition_set".equals(index.getString("name")))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(new Document("partition_set_id", 1), batch.get("key"));
+  }
+
+  @Test
   void eventOutboxHasOrderedRecoveryIndex() {
     Document index =
         database

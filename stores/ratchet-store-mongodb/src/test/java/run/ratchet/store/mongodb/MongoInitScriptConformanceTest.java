@@ -46,6 +46,9 @@ class MongoInitScriptConformanceTest {
     MongoIndexHints.RECURRING_JOB_CLAIM,
     "uk_rec_business_key",
     "idx_wfc_evaluation_order",
+    "uq_partition_set_key",
+    "uq_partition_index",
+    "idx_partition_child",
     "idx_resource_waiter_order",
   };
 

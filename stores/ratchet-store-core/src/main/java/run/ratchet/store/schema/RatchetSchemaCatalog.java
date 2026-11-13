@@ -71,6 +71,8 @@ public final class RatchetSchemaCatalog {
               schedulerIdempotencyKey(),
               schedulerJobTag(),
               schedulerBatch(),
+              schedulerPartitionSet(),
+              schedulerPartition(),
               schedulerBatchMetrics(),
               schedulerJobExecution(),
               schedulerJobLog(),
@@ -333,6 +335,9 @@ public final class RatchetSchemaCatalog {
         .column(required("version", INT32))
         .column(nullable("reducer", TEXT))
         .column(nullable("fold_claimed_at", TIMESTAMP_TZ))
+        .column(nullable("partition_set_id", UUID))
+        .column(nullable("generation", INT32))
+        .index(Index.of("idx_batch_partition_set", "partition_set_id"))
         // progress_hook intentionally omitted: MySQL JSON vs PG TEXT type asymmetry.
         .primaryKey("batch_id")
         .foreignKey(
@@ -606,5 +611,47 @@ public final class RatchetSchemaCatalog {
         new DroppedIndex("scheduler_job", "idx_job_updated_at", 5),
         new DroppedIndex("scheduler_job", "idx_job_type", 5),
         new DroppedIndex("scheduler_job", "uk_active_business_key", 5));
+  }
+
+  private static Table schedulerPartitionSet() {
+    return Table.builder("scheduler_partition_set")
+        .column(required("set_id", UUID))
+        .column(required("set_key", TEXT))
+        .column(required("name", TEXT))
+        .column(required("partition_count", INT32))
+        .column(required("latest_generation", INT32))
+        .column(required("latest_batch_id", UUID))
+        .column(required("sealed_generation", INT32))
+        .column(required("generation_started_at", TIMESTAMP_TZ))
+        .column(nullable("owner_principal", TEXT))
+        .column(required("version", INT32))
+        .column(required("created_at", TIMESTAMP_TZ))
+        .column(required("updated_at", TIMESTAMP_TZ))
+        .primaryKey("set_id")
+        .index(Index.unique("uq_partition_set_key", "set_key"))
+        .build();
+  }
+
+  private static Table schedulerPartition() {
+    return Table.builder("scheduler_partition")
+        .column(required("set_id", UUID))
+        .column(required("partition_index", INT32))
+        .column(required("range_from", INT64))
+        .column(required("range_to", INT64))
+        .column(required("generation", INT32))
+        .column(required("child_job_id", UUID))
+        .column(nullable("outcome", TEXT))
+        .column(nullable("last_error", TEXT))
+        .column(nullable("checkpoint_json", TEXT))
+        .primaryKey("set_id", "partition_index")
+        .foreignKey(
+            new ForeignKey(
+                "fk_partition_set",
+                "set_id",
+                "scheduler_partition_set",
+                "set_id",
+                OnDeleteAction.CASCADE))
+        .index(Index.of("idx_partition_child", "child_job_id"))
+        .build();
   }
 }

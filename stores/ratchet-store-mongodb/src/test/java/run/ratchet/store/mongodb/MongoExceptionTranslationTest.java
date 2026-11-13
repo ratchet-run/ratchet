@@ -91,6 +91,12 @@ import run.ratchet.store.entity.JobExecutionType;
 class MongoExceptionTranslationTest {
 
   @Test
+  void transactionOptionsRequirePrimaryReads() {
+    assertEquals(
+        ReadPreference.primary(), MongoStoreContext.TRANSACTION_OPTIONS.getReadPreference());
+  }
+
+  @Test
   void currentClaimTranslatesTransientReadFailure() {
     MongoSocketException failure = transientFailure();
     AtomicReference<Object> readPreference = new AtomicReference<>();
@@ -118,6 +124,179 @@ class MongoExceptionTranslationTest {
     assertSame(failure, thrown.getCause());
     assertEquals(ReadPreference.primary(), readPreference.get());
     assertEquals(ReadConcern.MAJORITY, readConcern.get());
+  }
+
+  @Test
+  void callbackAndDependantLookupsReadThePrimary() {
+    IllegalStateException primaryRead = new IllegalStateException("primary read");
+    List<Object> readPreferences = new ArrayList<>();
+    MongoCollection<Document> primary =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                throw primaryRead;
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                readPreferences.add(args[0]);
+                return primary;
+              }
+              if ("find".equals(method.getName())) {
+                throw new AssertionError("read used the client's read preference");
+              }
+              return defaultValue(method);
+            });
+    MongoStoreContext ctx = contextWithJobs(collection);
+    MongoJobCrudOperations crud = new MongoJobCrudOperations(ctx);
+    MongoAuxiliaryOperations auxiliary = new MongoAuxiliaryOperations(ctx);
+
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> crud.findByIds(List.of(UUID.randomUUID()))));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> crud.findDependants(UUID.randomUUID(), 10, 0)));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class,
+            () -> auxiliary.findConditionsByParentJobId(UUID.randomUUID())));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> MongoPartitionOperations.unprotectedJobs(ctx)));
+    assertEquals(
+        List.of(
+            ReadPreference.primary(),
+            ReadPreference.primary(),
+            ReadPreference.primary(),
+            ReadPreference.primary()),
+        readPreferences);
+  }
+
+  @Test
+  void partitionReadsUseThePrimary() {
+    IllegalStateException primaryRead = new IllegalStateException("primary read");
+    List<Object> readPreferences = new ArrayList<>();
+    MongoCollection<Document> primary =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName()) || "countDocuments".equals(method.getName())) {
+                throw primaryRead;
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                readPreferences.add(args[0]);
+                return primary;
+              }
+              if ("find".equals(method.getName()) || "countDocuments".equals(method.getName())) {
+                throw new AssertionError("read used the client's read preference");
+              }
+              return defaultValue(method);
+            });
+    MongoDatabase database =
+        mongoDatabase(
+            (proxy, method, args) -> {
+              if ("getCollection".equals(method.getName())) {
+                return collection;
+              }
+              return defaultValue(method);
+            });
+    MongoStoreContext ctx = new MongoStoreContext(mongoClient(null), database);
+    MongoPartitionOperations partitions = new MongoPartitionOperations(ctx, null, null);
+    UUID id = UUID.randomUUID();
+
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitionSet("set")));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitionSetById(id)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitions(id, -1, 10)));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> partitions.findGenerationPartitions(id, 1, -1, 10)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findUnsealedSets(null, 10)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.findPartitionByChild(id)));
+    assertSame(
+        primaryRead,
+        assertThrows(IllegalStateException.class, () -> partitions.countBatchChildren(id)));
+    assertSame(
+        primaryRead,
+        assertThrows(
+            IllegalStateException.class, () -> partitions.countUnfinishedBatchChildren(id)));
+    assertEquals(8, readPreferences.size());
+    assertTrue(readPreferences.stream().allMatch(ReadPreference.primary()::equals));
+  }
+
+  @Test
+  void partitionProtectionReadsSetsAndBatchesFromPrimary() {
+    List<Object> preferences = new ArrayList<>();
+    MongoCollection<Document> primarySets =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                return findIterable(
+                    cursor(
+                        List.of(
+                            new Document("_id", UUID.randomUUID()).append("sealed_generation", 0)),
+                        new AtomicBoolean()));
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> primaryBatches =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                return findIterable(cursor(List.of(), new AtomicBoolean()));
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> sets =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                preferences.add(args[0]);
+                return primarySets;
+              }
+              throw new AssertionError("Set protection read did not select primary");
+            });
+    MongoCollection<Document> batches =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                preferences.add(args[0]);
+                return primaryBatches;
+              }
+              throw new AssertionError("Batch protection read did not select primary");
+            });
+    MongoDatabase database =
+        mongoDatabase(
+            (proxy, method, args) -> {
+              if ("getCollection".equals(method.getName())) {
+                return "scheduler_partition_set".equals(args[0]) ? sets : batches;
+              }
+              return defaultValue(method);
+            });
+    MongoPartitionOperations.unprotectedJobs(new MongoStoreContext(mongoClient(null), database));
+    assertEquals(List.of(ReadPreference.primary(), ReadPreference.primary()), preferences);
   }
 
   @Test
@@ -624,7 +803,7 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
-  void compareAndSwapPauseUsesDefaultTransactionOptions() {
+  void compareAndSwapPauseUsesPrimaryTransactionOptions() {
     assertStatusMutationTransaction(JobStatus.PAUSED, false);
   }
 
@@ -647,16 +826,18 @@ class MongoExceptionTranslationTest {
             (proxy, method, args) -> {
               if ("withTransaction".equals(method.getName())) {
                 transactions.incrementAndGet();
+                assertEquals(2, args.length);
+                TransactionOptions options = (TransactionOptions) args[1];
+                assertEquals(ReadPreference.primary(), options.getReadPreference());
                 if (target == JobStatus.CANCELED) {
-                  assertEquals(2, args.length);
-                  WriteConcern concern = ((TransactionOptions) args[1]).getWriteConcern();
+                  WriteConcern concern = options.getWriteConcern();
                   assertEquals("majority", concern.getWString());
                   assertEquals(
                       configured.getWTimeout(TimeUnit.MILLISECONDS),
                       concern.getWTimeout(TimeUnit.MILLISECONDS));
                   assertEquals(configured.getJournal(), concern.getJournal());
                 } else {
-                  assertEquals(1, args.length);
+                  assertSame(MongoStoreContext.TRANSACTION_OPTIONS, options);
                 }
                 return ((TransactionBody<?>) args[0]).execute();
               }

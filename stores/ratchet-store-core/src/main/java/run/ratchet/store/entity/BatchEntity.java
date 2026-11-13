@@ -65,6 +65,28 @@ public class BatchEntity {
   @Column(name = "fold_claimed_at")
   private Instant foldClaimedAt;
 
+  @Column(name = "partition_set_id")
+  private UUID partitionSetId;
+
+  @Column(name = "generation")
+  private Integer generation;
+
+  public UUID getPartitionSetId() {
+    return partitionSetId;
+  }
+
+  public void setPartitionSetId(UUID partitionSetId) {
+    this.partitionSetId = partitionSetId;
+  }
+
+  public Integer getGeneration() {
+    return generation;
+  }
+
+  public void setGeneration(Integer generation) {
+    this.generation = generation;
+  }
+
   public String getReducer() {
     return reducer;
   }

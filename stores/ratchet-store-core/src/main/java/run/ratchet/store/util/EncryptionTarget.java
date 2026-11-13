@@ -41,6 +41,14 @@ import run.ratchet.spi.ProtectedSurface;
  */
 public record EncryptionTarget(ProtectedSurface surface, UUID jobId, byte[] binding) {
 
+  /** Binds a sealed checkpoint to its partition set and partition index. */
+  public static EncryptionTarget partitionCheckpoint(UUID setId, int partitionIndex) {
+    return new EncryptionTarget(
+        ProtectedSurface.PARTITION_CHECKPOINT,
+        setId,
+        EncryptionAad.binding(setId, Integer.toString(partitionIndex)));
+  }
+
   /** A job-bound surface (payload args, parameter values, result, callback payloads). */
   public static EncryptionTarget rowBound(ProtectedSurface surface, UUID jobId) {
     return new EncryptionTarget(surface, jobId, EncryptionAad.binding(jobId));

@@ -110,6 +110,10 @@ final class MysqlJobDeleteOperations {
           SELECT job_id FROM scheduler_job
           WHERE terminal_status = 'FAILED'
             AND terminated_at < ?
+            AND NOT EXISTS (SELECT 1 FROM scheduler_batch pb
+              JOIN scheduler_partition_set ps ON ps.set_id = pb.partition_set_id
+              WHERE pb.partition_set_id IS NOT NULL AND ps.sealed_generation < pb.generation
+                AND (scheduler_job.job_id = pb.batch_id OR (scheduler_job.job_type = 'BATCH_CHILD' AND scheduler_job.depends_on = pb.batch_id)))
           """;
       @SuppressWarnings("unchecked")
       List<?> idRows =
@@ -282,12 +286,12 @@ final class MysqlJobDeleteOperations {
         String ownerLive =
             liveSince != null
                 ? """
-                  EXISTS (
-                    SELECT 1 FROM scheduler_node n FORCE INDEX (PRIMARY)
-                    WHERE n.node_id = scheduler_job_queue.picked_by AND n.heartbeat_ts >= ?
-                    LOCK IN SHARE MODE
-                  ) AS owner_live
-                  """
+                EXISTS (
+                  SELECT 1 FROM scheduler_node n FORCE INDEX (PRIMARY)
+                  WHERE n.node_id = scheduler_job_queue.picked_by AND n.heartbeat_ts >= ?
+                  LOCK IN SHARE MODE
+                ) AS owner_live
+                """
                 : "0 AS owner_live";
         Query lock =
             ctx.em()
