@@ -17,6 +17,8 @@ package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -25,6 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.objectweb.asm.Type;
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.JobContext;
+import run.ratchet.api.TransactionalJob;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.payload.JobPayloadFactory;
@@ -102,6 +106,20 @@ public class JobPayloadInvoker {
    * when its target cannot be resolved.
    */
   public ResilienceTarget resilienceTarget(JobPayload payload) {
+    if (JobPayloadFactory.isRecurringDispatchShim(payload)) {
+      ResilienceTarget dispatcher = directResilienceTarget(payload);
+      try {
+        ResilienceTarget body = directResilienceTarget(recurringBody(payload));
+        return new ResilienceTarget(
+            dispatcher.serviceName(), dispatcher.exceptionFilter(), body.transactional());
+      } catch (RuntimeException ignored) {
+        return dispatcher;
+      }
+    }
+    return directResilienceTarget(payload);
+  }
+
+  private ResilienceTarget directResilienceTarget(JobPayload payload) {
     String fallback = simpleClassName(payload.target()) + "." + payload.method();
     try {
       Class<?> targetClass = loadAllowedClass(payload.target());
@@ -125,11 +143,16 @@ public class JobPayloadInvoker {
               ? CircuitBreakerExceptionFilter.RECORD_ALL
               : CircuitBreakerExceptionFilter.of(
                   annotation.recordExceptions(), annotation.ignoreExceptions());
-      ResilienceTarget resolved = new ResilienceTarget(serviceName, filter);
+      ResilienceTarget resolved =
+          new ResilienceTarget(
+              serviceName,
+              filter,
+              method.isAnnotationPresent(TransactionalJob.class)
+                  || targetClass.isAnnotationPresent(TransactionalJob.class));
       ResilienceTarget existing = resilienceTargetCache.get(targetClass).putIfAbsent(key, resolved);
       return existing != null ? existing : resolved;
     } catch (Exception e) {
-      return new ResilienceTarget(fallback, CircuitBreakerExceptionFilter.RECORD_ALL);
+      return new ResilienceTarget(fallback, CircuitBreakerExceptionFilter.RECORD_ALL, false);
     }
   }
 
@@ -138,9 +161,63 @@ public class JobPayloadInvoker {
    *
    * @param serviceName the protected service key
    * @param exceptionFilter exception accounting rules from the target annotation
+   * @param transactional whether the job body joins its success completion transaction
    */
   public record ResilienceTarget(
-      String serviceName, CircuitBreakerExceptionFilter exceptionFilter) {}
+      String serviceName, CircuitBreakerExceptionFilter exceptionFilter, boolean transactional) {}
+
+  /** Checks transactional capability and direct transaction escapes before persisting a job. */
+  public void validateTransactionalSubmission(JobPayload payload, boolean capabilityAvailable) {
+    if (!resilienceTarget(payload).transactional()) return;
+    if (!capabilityAvailable) {
+      throw new UnsupportedOperationException(
+          "@TransactionalJob requires a store advertising TransactionalCompletionStore");
+    }
+    try {
+      if (JobPayloadFactory.isRecurringDispatchShim(payload)) payload = recurringBody(payload);
+      Class<?> targetClass = loadAllowedClass(payload.target());
+      Method method = resolveMethod(targetClass, payload);
+      rejectTransactionEscape(method);
+      rejectTransactionEscape(targetClass);
+    } catch (ReflectiveOperationException ignored) {
+      // Best effort: execution retains the usual target-resolution diagnostics.
+    }
+  }
+
+  private static JobPayload recurringBody(JobPayload dispatcher) {
+    List<Object> args = dispatcher.args();
+    String descriptor =
+        Boolean.TRUE.equals(args.get(2))
+            ? Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(JobContext.class))
+            : "()V";
+    return new JobPayload(
+        (String) args.get(0), (String) args.get(1), descriptor, false, List.of(), null);
+  }
+
+  private static void rejectTransactionEscape(AnnotatedElement target) {
+    for (Annotation annotation : target.getAnnotations()) {
+      String name = annotation.annotationType().getName();
+      if (!List.of(
+              "jakarta.transaction.Transactional",
+              "org.springframework.transaction.annotation.Transactional",
+              "jakarta.ejb.TransactionAttribute",
+              "io.micronaut.transaction.annotation.Transactional")
+          .contains(name)) continue;
+      for (String attribute : List.of("propagation", "value")) {
+        Object propagation;
+        try {
+          propagation = annotation.annotationType().getMethod(attribute).invoke(annotation);
+        } catch (ReflectiveOperationException ignored) {
+          continue;
+        }
+        if (propagation instanceof Enum<?> value
+            && List.of("REQUIRES_NEW", "NOT_SUPPORTED", "NEVER").contains(value.name())) {
+          throw new IllegalArgumentException(
+              "@TransactionalJob cannot use " + name + " with " + value.name());
+        }
+      }
+    }
+  }
 
   private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
     if (className == null || className.isEmpty()) {

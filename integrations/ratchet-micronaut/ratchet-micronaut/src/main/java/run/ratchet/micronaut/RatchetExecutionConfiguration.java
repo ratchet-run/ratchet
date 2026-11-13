@@ -42,6 +42,7 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -352,6 +353,7 @@ class RatchetExecutionConfiguration {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -377,6 +379,7 @@ class RatchetExecutionConfiguration {
         executionObserver,
         preExecutionValidator,
         payloadInvoker,
+        jobTransaction,
         successFinalizer,
         retryPolicy,
         resilienceStrategy,

@@ -44,6 +44,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.StandaloneExecutorProvider;
 import run.ratchet.ri.core.*;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.internal.*;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.spi.*;
@@ -448,6 +449,7 @@ public class ExecutorClassLoaderTest {
               observer,
               mock(PreExecutionValidator.class),
               new JobPayloadInvoker(null, name -> true),
+              new JobTransaction(),
               mock(JobSuccessFinalizer.class),
               retry,
               resilience,

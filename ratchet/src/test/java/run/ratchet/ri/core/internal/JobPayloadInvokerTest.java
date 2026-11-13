@@ -16,8 +16,10 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,6 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.TransactionalJob;
+import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.CircuitBreakerExceptionFilter;
@@ -202,6 +206,70 @@ class JobPayloadInvokerTest {
     public static void methodCall() {}
   }
 
+  @Test
+  void transactionalMetadataReadsMethodClassAndAbsenceAndCachesIt() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> true);
+    JobPayload method =
+        payload(InvocationTarget.class, "transactionalCall", "()V", true, List.of());
+    ResilienceTarget resolved = invoker.resilienceTarget(method);
+    assertTrue(resolved.transactional());
+    assertSame(resolved, invoker.resilienceTarget(method));
+    assertTrue(
+        invoker
+            .resilienceTarget(payload(TransactionalTarget.class, "call", "()V", true, List.of()))
+            .transactional());
+    assertFalse(
+        invoker
+            .resilienceTarget(
+                payload(
+                    InvocationTarget.class, "staticValue", "()Ljava/lang/String;", true, List.of()))
+            .transactional());
+    assertFalse(
+        invoker
+            .resilienceTarget(payload(TransactionalTarget.class, "missing", "()V", true, List.of()))
+            .transactional());
+  }
+
+  @Test
+  void transactionalMetadataHonorsPolicyEvenAfterCaching() {
+    AtomicBoolean allowed = new AtomicBoolean(true);
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> allowed.get());
+    JobPayload method = payload(TransactionalTarget.class, "call", "()V", true, List.of());
+    assertTrue(invoker.resilienceTarget(method).transactional());
+    allowed.set(false);
+    assertFalse(invoker.resilienceTarget(method).transactional());
+  }
+
+  @Test
+  void recurringDispatcherResolvesTransactionalMetadataFromItsRealBody() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> true);
+    JobPayload transactional =
+        payload(
+            RecurringMethodInvoker.class,
+            "invoke",
+            "(Ljava/lang/String;Ljava/lang/String;Z)V",
+            false,
+            List.of(TransactionalTarget.class.getName(), "call", false));
+    JobPayload ordinary =
+        payload(
+            RecurringMethodInvoker.class,
+            "invoke",
+            "(Ljava/lang/String;Ljava/lang/String;Z)V",
+            false,
+            List.of(InvocationTarget.class.getName(), "protectedValue", false));
+    assertTrue(invoker.resilienceTarget(transactional).transactional());
+    assertFalse(invoker.resilienceTarget(ordinary).transactional());
+    assertTrue(invoker.resilienceTarget(transactional).transactional());
+    assertEquals(
+        invoker.resilienceTarget(ordinary).serviceName(),
+        invoker.resilienceTarget(transactional).serviceName());
+  }
+
+  @TransactionalJob
+  public static class TransactionalTarget {
+    public static void call() {}
+  }
+
   private static JobPayload payload(
       Class<?> target, String method, String descriptor, boolean isStatic, List<Object> args) {
     return new JobPayload(target.getName(), method, descriptor, isStatic, args, null);
@@ -228,6 +296,9 @@ class JobPayloadInvokerTest {
   }
 
   public static final class InvocationTarget {
+    @TransactionalJob
+    public static void transactionalCall() {}
+
     public static String staticValue() {
       return "static";
     }

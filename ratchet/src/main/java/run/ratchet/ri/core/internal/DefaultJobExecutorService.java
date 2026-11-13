@@ -43,6 +43,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -81,6 +82,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final ExecutionObserver executionObserver;
   private final PreExecutionValidator preExecutionValidator;
   private final JobPayloadInvoker payloadInvoker;
+  private final JobTransaction jobTransaction;
   private final JobSuccessFinalizer successFinalizer;
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
@@ -110,6 +112,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.executionObserver = null;
     this.preExecutionValidator = null;
     this.payloadInvoker = null;
+    this.jobTransaction = null;
     this.successFinalizer = null;
     this.retryPolicy = null;
     this.resilienceStrategy = null;
@@ -137,6 +140,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -163,6 +167,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
         executionObserver,
         preExecutionValidator,
         payloadInvoker,
+        jobTransaction,
         successFinalizer,
         retryPolicy,
         resilienceStrategy,
@@ -190,6 +195,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -213,6 +219,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.executionObserver = executionObserver;
     this.preExecutionValidator = preExecutionValidator;
     this.payloadInvoker = payloadInvoker;
+    this.jobTransaction = jobTransaction;
     this.successFinalizer = successFinalizer;
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
@@ -456,6 +463,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
         executionObserver,
         preExecutionValidator,
         payloadInvoker,
+        jobTransaction,
         successFinalizer,
         retryPolicy,
         resilienceStrategy,

@@ -96,6 +96,7 @@ import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
@@ -167,6 +168,7 @@ class JobTaskTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
@@ -1299,6 +1301,7 @@ class JobTaskTest {
                 observabilityFacade,
                 validationFacade,
                 new JobPayloadInvoker(beanResolver, classPolicy),
+                new JobTransaction(),
                 new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
                 retryPolicy,
                 resilienceStrategy,
@@ -1349,6 +1352,7 @@ class JobTaskTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
@@ -2334,7 +2338,7 @@ class JobTaskTest {
     when(payloadInvoker.resilienceTarget(any()))
         .thenReturn(
             new JobPayloadInvoker.ResilienceTarget(
-                "worker", CircuitBreakerExceptionFilter.RECORD_ALL));
+                "worker", CircuitBreakerExceptionFilter.RECORD_ALL, false));
     JobTask jobTask =
         new JobTask(
             jobStore,
@@ -2344,6 +2348,7 @@ class JobTaskTest {
             observabilityFacade,
             validationFacade,
             payloadInvoker,
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
@@ -2382,7 +2387,7 @@ class JobTaskTest {
         .when(invoker.resilienceTarget(any()))
         .thenReturn(
             new JobPayloadInvoker.ResilienceTarget(
-                "Target", CircuitBreakerExceptionFilter.RECORD_ALL));
+                "Target", CircuitBreakerExceptionFilter.RECORD_ALL, false));
     return new JobTask(
         jobStore,
         resourcePermitService,
@@ -2391,6 +2396,7 @@ class JobTaskTest {
         observabilityFacade,
         validationFacade,
         invoker,
+        new JobTransaction(),
         new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
         retryPolicy,
         resilienceStrategy,
@@ -3157,6 +3163,7 @@ class JobTaskTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
@@ -3248,6 +3255,7 @@ class JobTaskTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
@@ -3349,6 +3357,7 @@ class JobTaskTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobTransaction(),
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
@@ -3455,6 +3464,7 @@ class JobTaskTest {
         observabilityFacade,
         validationFacade,
         new JobPayloadInvoker(beanResolver, classPolicy),
+        new JobTransaction(),
         new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
         retryPolicy,
         resilienceStrategy,
@@ -3482,6 +3492,7 @@ class JobTaskTest {
         observabilityFacade,
         validationFacade,
         new JobPayloadInvoker(beanResolver, classPolicy),
+        new JobTransaction(),
         new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
         retryPolicy,
         resilienceStrategy,

@@ -56,6 +56,7 @@ import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.RecurringFireTime;
 import run.ratchet.ri.payload.JobPayloadFactory;
@@ -85,11 +86,13 @@ import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -118,6 +121,8 @@ public class DefaultJobCreationService
   private final TracingCollector tracingCollector;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final ClassPolicy classPolicy;
+  private final JobPayloadInvoker payloadInvoker;
+  private boolean transactionalCompletionAvailable;
   private final InternalEventPublisher eventPublisher;
   private final ErrorSanitizer errorSanitizer;
   private final MetricsCollector metricsCollector;
@@ -145,6 +150,7 @@ public class DefaultJobCreationService
     this.tracingCollector = null;
     this.authorizationPolicy = null;
     this.classPolicy = null;
+    this.payloadInvoker = null;
     this.eventPublisher = null;
     this.errorSanitizer = null;
     this.metricsCollector = null;
@@ -166,6 +172,7 @@ public class DefaultJobCreationService
       Instance<RecurringJobStore> recurringJobStore,
       Instance<SignalStore> signalStore,
       Instance<ResourcePermitStore> resourcePermitStore,
+      Instance<TransactionalCompletionStore> transactionalCompletionStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
@@ -206,6 +213,7 @@ public class DefaultJobCreationService
         afterCommitRegistrar,
         errorSanitizer,
         conflictResolutionTransaction);
+    this.transactionalCompletionAvailable = transactionalCompletionStore.isResolvable();
   }
 
   public DefaultJobCreationService(
@@ -301,6 +309,10 @@ public class DefaultJobCreationService
     this.tracingCollector = tracingCollector;
     this.authorizationPolicy = authorizationPolicy;
     this.classPolicy = classPolicy;
+    this.payloadInvoker = new JobPayloadInvoker(null, classPolicy);
+    this.transactionalCompletionAvailable =
+        jobCrudStore instanceof JobStore store
+            && store.capability(TransactionalCompletionStore.class).isPresent();
     this.eventPublisher = eventPublisher;
     this.errorSanitizer = errorSanitizer;
     this.metricsCollector = metricsCollector;
@@ -568,7 +580,8 @@ public class DefaultJobCreationService
       childJob.setStatus(JobStatus.PENDING);
       childJob.setPriority(JobPriority.NORMAL);
       childJob.setScheduledTime(effective().instant());
-      childJob.setPayload(validate(JobPayloadFactory.requireTaskArguments(child.payload())));
+      childJob.setPayload(
+          validateRunnable(JobPayloadFactory.requireTaskArguments(child.payload())));
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
       childJob.setExecutionTarget(builder.executionTarget());
@@ -1064,7 +1077,7 @@ public class DefaultJobCreationService
         items,
         callerPrincipal,
         item ->
-            validate(
+            validateRunnable(
                 JobPayloadFactory.requireTaskArguments(
                     JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item)))));
   }
@@ -1224,8 +1237,9 @@ public class DefaultJobCreationService
 
   private JobPayload payload(Serializable callback, boolean allowResultSlot) {
     JobPayload payload = resolvePayload(callback);
-    if (allowResultSlot && List.of(0).equals(payload.runtimeArgIndexes())) return validate(payload);
-    return validate(JobPayloadFactory.requireTaskArguments(payload));
+    if (allowResultSlot && List.of(0).equals(payload.runtimeArgIndexes()))
+      return validateRunnable(payload);
+    return validateRunnable(JobPayloadFactory.requireTaskArguments(payload));
   }
 
   @SuppressWarnings("unchecked")
@@ -1239,7 +1253,7 @@ public class DefaultJobCreationService
     List<JobInvocation> invocations = new ArrayList<>(items.size());
     for (T item : items) {
       JobPayload prepared =
-          validate(
+          validateRunnable(
               JobPayloadFactory.requireTaskArguments(
                   JobPayloadFactory.fromInvocation(state.invocationFactory().apply(item))));
       state.reducer().validateChild(prepared, classPolicy);
@@ -1282,10 +1296,21 @@ public class DefaultJobCreationService
   }
 
   private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
-    return validate(
+    return validateRunnable(
         JobPayloadFactory.requireTaskArguments(
             JobPayloadFactory.fromInvocation(
                 jobInvocationResolver.resolve(callback, runtimeArguments))));
+  }
+
+  private JobPayload validateRunnable(JobPayload payload) {
+    JobPayload validated = validate(payload);
+    try {
+      payloadInvoker.validateTransactionalSubmission(validated, transactionalCompletionAvailable);
+      return validated;
+    } catch (RuntimeException failure) {
+      JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(validated);
+      throw failure;
+    }
   }
 
   private JobPayload validate(JobPayload payload) {
