@@ -737,7 +737,7 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public List<String> findResourcesWithWaiters(int limit) {
+  public List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
     return fail("findResourcesWithWaiters");
   }
 

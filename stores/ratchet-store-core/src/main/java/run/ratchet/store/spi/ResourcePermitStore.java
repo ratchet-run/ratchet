@@ -45,10 +45,11 @@ public interface ResourcePermitStore {
   List<WokenWaiter> wakeWaiters(String resource);
 
   /**
-   * Up to {@code limit} distinct resource names that have waiter rows, in name order. One indexed
+   * Returns at most {@code limit} distinct resource names that have waiter rows, in ascending
+   * order, strictly greater than {@code after} (all names when {@code after} is null). One indexed
    * read. Transaction attribute: {@code SUPPORTS}.
    */
-  List<String> findResourcesWithWaiters(int limit);
+  List<String> findResourcesWithWaiters(@Nullable String after, int limit);
 
   /**
    * Deletes up to {@code limit} waiter rows whose job has no queue row, or whose queue status is

@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -32,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.ri.core.internal.DefaultResourcePermitService;
@@ -78,7 +80,7 @@ class ResourcePermitServiceTest {
       for (var mutation : mutations) {
         reset(store, wakeup);
         when(store.cleanupOrphanedPermits(List.of("stale"))).thenReturn(1);
-        when(store.findResourcesWithWaiters(64)).thenReturn(List.of("api"));
+        when(store.findResourcesWithWaiters(null, 64)).thenReturn(List.of("api"));
         when(store.wakeWaiters("api"))
             .thenReturn(
                 List.of(
@@ -120,7 +122,7 @@ class ResourcePermitServiceTest {
 
   @Test
   void nonemptySweepDeletesStaleWaitersAfterWaking() {
-    when(store.findResourcesWithWaiters(64)).thenReturn(List.of("api", "gpu"));
+    when(store.findResourcesWithWaiters(null, 64)).thenReturn(List.of("api", "gpu"));
     var service =
         new DefaultResourcePermitService(
             store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
@@ -144,12 +146,64 @@ class ResourcePermitServiceTest {
   }
 
   @Test
+  void fullSweepPageAdvancesCursorAndShortPageResetsIt() {
+    List<String> fullPage =
+        IntStream.range(0, 64).mapToObj(i -> "resource-%02d".formatted(i)).toList();
+    when(store.findResourcesWithWaiters(null, 64)).thenReturn(fullPage, List.of());
+    when(store.findResourcesWithWaiters("resource-63", 64)).thenReturn(List.of("resource-64"));
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+
+    service.sweepWaiters();
+    service.sweepWaiters();
+    service.sweepWaiters();
+
+    var order = inOrder(store);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    for (String resource : fullPage) {
+      order.verify(store).wakeWaiters(resource);
+    }
+    order.verify(store).deleteStaleWaiters(500);
+    order.verify(store).findResourcesWithWaiters("resource-63", 64);
+    order.verify(store).wakeWaiters("resource-64");
+    order.verify(store).deleteStaleWaiters(500);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    verifyNoMoreInteractions(store);
+  }
+
+  @Test
+  void emptyPageAfterFullPageResetsCursor() {
+    List<String> fullPage =
+        IntStream.range(0, 64).mapToObj(i -> "resource-%02d".formatted(i)).toList();
+    when(store.findResourcesWithWaiters(null, 64)).thenReturn(fullPage, List.of());
+    when(store.findResourcesWithWaiters("resource-63", 64)).thenReturn(List.of());
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+
+    service.sweepWaiters();
+    service.sweepWaiters();
+    service.sweepWaiters();
+
+    var order = inOrder(store);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    for (String resource : fullPage) {
+      order.verify(store).wakeWaiters(resource);
+    }
+    order.verify(store).deleteStaleWaiters(500);
+    order.verify(store).findResourcesWithWaiters("resource-63", 64);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    verifyNoMoreInteractions(store);
+  }
+
+  @Test
   void emptySweepMakesOnlyOneRead() {
     var service =
         new DefaultResourcePermitService(
             store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
     service.sweepWaiters();
-    verify(store).findResourcesWithWaiters(64);
+    verify(store).findResourcesWithWaiters(null, 64);
     verifyNoMoreInteractions(store);
     verifyNoInteractions(wakeup);
   }

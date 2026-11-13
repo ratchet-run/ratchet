@@ -192,7 +192,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var job = fixture().store().findById(old.getId()).orElseThrow();
     assertEquals(JobStatus.RUNNING, job.getStatus());
     assertEquals(current.get().getClaimSeq(), job.getClaimSeq());
-    assertTrue(permits.findResourcesWithWaiters(10).isEmpty());
+    assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
   }
 
   @Test
@@ -343,7 +343,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               }
             },
             () -> {
-              for (String resource : permits.findResourcesWithWaiters(10))
+              for (String resource : permits.findResourcesWithWaiters(null, 10))
                 woken.addAndGet(permits.wakeWaiters(resource).size());
               permits.deleteStaleWaiters(10);
             },

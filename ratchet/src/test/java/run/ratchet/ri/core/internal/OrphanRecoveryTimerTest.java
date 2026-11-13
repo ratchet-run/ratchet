@@ -128,7 +128,7 @@ class OrphanRecoveryTimerTest {
             return result;
           };
       when(store.cleanupOrphanedPermits(List.of("node-1"))).thenReturn(1);
-      when(store.findResourcesWithWaiters(64)).thenReturn(List.of("api"));
+      when(store.findResourcesWithWaiters(null, 64)).thenReturn(List.of("api"));
       when(store.wakeWaiters("api"))
           .thenReturn(List.of(new WokenWaiter(UUID.randomUUID(), 3, "workers")));
       var service = new DefaultResourcePermitService(store, wakeup, registrar);

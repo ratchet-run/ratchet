@@ -52,6 +52,8 @@ public class DefaultResourcePermitService implements ResourcePermitService {
 
   private final JobWakeupService jobWakeupService;
   private final AfterCommitRegistrar afterCommitRegistrar;
+  // Advance across sweeps so persistent waiters cannot starve later resource names.
+  private volatile String waiterSweepCursor;
 
   protected DefaultResourcePermitService() {
     this.resourcePermitStore = null;
@@ -165,7 +167,10 @@ public class DefaultResourcePermitService implements ResourcePermitService {
     if (resourcePermitStore == null) {
       return;
     }
-    List<String> resources = resourcePermitStore.findResourcesWithWaiters(SWEEP_RESOURCE_LIMIT);
+    List<String> resources =
+        resourcePermitStore.findResourcesWithWaiters(waiterSweepCursor, SWEEP_RESOURCE_LIMIT);
+    waiterSweepCursor =
+        resources.size() < SWEEP_RESOURCE_LIMIT ? null : resources.get(resources.size() - 1);
     if (resources.isEmpty()) {
       return;
     }

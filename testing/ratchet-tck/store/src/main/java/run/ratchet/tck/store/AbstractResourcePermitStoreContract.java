@@ -475,6 +475,24 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   }
 
   @Test
+  void findResourcesWithWaitersPagesInAscendingOrder() {
+    for (String resource : List.of("page-c", "page-a", "page-b")) {
+      resourcePermitStore().configureResource(resource, 1, 60_000, null);
+      var holder = claimNewJob("holder");
+      assertEquals(ACQUIRED, acquire(resource, holder, "holder"));
+      for (int i = 0; i < 2; i++) {
+        var waiter = claimNewJob("waiter");
+        assertEquals(AT_CAPACITY, acquire(resource, waiter, "waiter"));
+      }
+    }
+
+    assertEquals(
+        List.of("page-a", "page-b"), resourcePermitStore().findResourcesWithWaiters(null, 2));
+    assertEquals(List.of("page-c"), resourcePermitStore().findResourcesWithWaiters("page-b", 2));
+    assertTrue(resourcePermitStore().findResourcesWithWaiters("page-c", 2).isEmpty());
+  }
+
+  @Test
   void staleWaiterRowsAreSkippedAndRemoved() {
     resourcePermitStore().configureResource("stale", 1, 60_000, null);
     var holder = claimNewJob("holder");
@@ -485,9 +503,9 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     release("stale", holder);
     assertTrue(resourcePermitStore().wakeWaiters("stale").isEmpty());
     assertEquals(ACQUIRED, acquire("stale", claimNewJob("fresh"), "fresh"));
-    assertEquals(List.of("stale"), resourcePermitStore().findResourcesWithWaiters(10));
+    assertEquals(List.of("stale"), resourcePermitStore().findResourcesWithWaiters(null, 10));
     assertEquals(1, resourcePermitStore().deleteStaleWaiters(10));
-    assertTrue(resourcePermitStore().findResourcesWithWaiters(10).isEmpty());
+    assertTrue(resourcePermitStore().findResourcesWithWaiters(null, 10).isEmpty());
   }
 
   @Test
@@ -545,7 +563,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     var reloaded = store().findById(old.getId()).orElseThrow();
     assertEquals(JobStatus.RUNNING, reloaded.getStatus());
     assertEquals(current.getClaimSeq(), reloaded.getClaimSeq());
-    assertTrue(resourcePermitStore().findResourcesWithWaiters(10).isEmpty());
+    assertTrue(resourcePermitStore().findResourcesWithWaiters(null, 10).isEmpty());
   }
 
   @Test
@@ -580,7 +598,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
       parked.setScheduledTime(userTime);
       if (changeAnotherHotField) parked.setAttempts(parked.getAttempts() + 1);
       store().save(parked);
-      assertTrue(resourcePermitStore().findResourcesWithWaiters(10).isEmpty());
+      assertTrue(resourcePermitStore().findResourcesWithWaiters(null, 10).isEmpty());
       assertEquals(
           userTime, millis(store().findById(waiter.getId()).orElseThrow().getScheduledTime()));
     }

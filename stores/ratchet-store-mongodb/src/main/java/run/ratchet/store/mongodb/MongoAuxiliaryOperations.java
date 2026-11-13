@@ -18,6 +18,7 @@ package run.ratchet.store.mongodb;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.expr;
+import static com.mongodb.client.model.Filters.gt;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Sorts.ascending;
@@ -81,6 +82,7 @@ import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
@@ -480,14 +482,17 @@ final class MongoAuxiliaryOperations {
     }
   }
 
-  List<String> findResourcesWithWaiters(int limit) {
+  List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
     if (limit <= 0) {
       return List.of();
     }
     try {
       return ctx
           .resourceWaiters()
-          .distinct(RESOURCE_NAME, String.class)
+          .distinct(
+              RESOURCE_NAME,
+              after == null ? new Document() : gt(RESOURCE_NAME, after),
+              String.class)
           .into(new ArrayList<>())
           .stream()
           .sorted()

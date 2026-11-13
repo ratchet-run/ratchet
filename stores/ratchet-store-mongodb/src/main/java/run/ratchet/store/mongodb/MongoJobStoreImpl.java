@@ -840,8 +840,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<String> findResourcesWithWaiters(int limit) {
-    return auxiliary.findResourcesWithWaiters(limit);
+  public List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
+    return auxiliary.findResourcesWithWaiters(after, limit);
   }
 
   @Override

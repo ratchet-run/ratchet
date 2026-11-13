@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
@@ -517,14 +518,31 @@ final class MysqlAuxiliaryOperations
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<String> findResourcesWithWaiters(int limit) {
+  public List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
     // language=MySQL
     String sql =
         """
-        SELECT DISTINCT resource_name FROM scheduler_resource_waiter ORDER BY resource_name LIMIT ?
+        SELECT DISTINCT resource_name FROM scheduler_resource_waiter
+        ORDER BY resource_name LIMIT ?
         """;
+    if (after != null) {
+      // language=MySQL
+      sql =
+          """
+          SELECT DISTINCT resource_name FROM scheduler_resource_waiter
+          WHERE resource_name > ?
+          ORDER BY resource_name LIMIT ?
+          """;
+    }
     try {
-      return ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+      Query query = ctx.em().createNativeQuery(sql);
+      if (after != null) {
+        query.setParameter(1, after);
+        query.setParameter(2, limit);
+      } else {
+        query.setParameter(1, limit);
+      }
+      return query.getResultList();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find resources with waiters", e);
     }

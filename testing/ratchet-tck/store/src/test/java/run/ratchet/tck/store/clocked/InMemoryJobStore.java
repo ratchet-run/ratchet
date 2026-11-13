@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobClaimDto;
@@ -663,7 +664,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized List<String> findResourcesWithWaiters(int limit) {
+  public synchronized List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
     return List.of();
   }
 
