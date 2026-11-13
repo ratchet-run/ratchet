@@ -66,6 +66,11 @@
       <optional>true</optional>
     </dependency>
     <dependency>
+      <groupId>io.micronaut.security</groupId>
+      <artifactId>micronaut-security</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
       <groupId>jakarta.enterprise</groupId>
       <artifactId>jakarta.enterprise.cdi-api</artifactId>
       <scope>compile</scope>

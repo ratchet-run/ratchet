@@ -21,10 +21,16 @@ import io.micronaut.context.ApplicationContext;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.context.event.ApplicationEventListener;
 import io.micronaut.context.event.StartupEvent;
+import io.micronaut.http.HttpRequest;
+import io.micronaut.http.MutableHttpRequest;
+import io.micronaut.http.context.ServerRequestContext;
+import io.micronaut.security.authentication.Authentication;
+import io.micronaut.security.filters.SecurityFilter;
 import jakarta.inject.Singleton;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
@@ -130,7 +136,40 @@ public class NativeVerification implements ApplicationEventListener<StartupEvent
     marker("RECURRING");
     for (ApplicationChecks checks : context.getBeansOfType(ApplicationChecks.class))
       checks.verify();
+    checkCallerPrincipal();
     marker("ALL_CHECKS");
+  }
+
+  private void checkCallerPrincipal() throws Exception {
+    VerificationJobs jobs = this.jobs;
+    JobSchedulerService scheduler = this.scheduler;
+    JobHandle authenticated =
+        authenticated("consumer-alice", () -> scheduler.enqueue(jobs::reference).submit());
+    JobHandle anonymous = scheduler.enqueue(jobs::reference).submit();
+    waitFor(
+        () -> succeeded(authenticated.id()) && succeeded(anonymous.id()), "caller-principal jobs");
+    String authenticatedPrincipal =
+        queries.getJobDetail(authenticated.id()).orElseThrow().summary().callerPrincipal();
+    if (!"consumer-alice".equals(authenticatedPrincipal)) {
+      throw new IllegalStateException(
+          "Expected authenticated caller principal consumer-alice, got " + authenticatedPrincipal);
+    }
+    String anonymousPrincipal =
+        queries.getJobDetail(anonymous.id()).orElseThrow().summary().callerPrincipal();
+    if (anonymousPrincipal != null) {
+      throw new IllegalStateException(
+          "Expected null caller principal without a bound request, got " + anonymousPrincipal);
+    }
+    marker("CALLER_PRINCIPAL");
+  }
+
+  private static <T> T authenticated(String name, Supplier<T> action) {
+    // Micronaut Security 4 reads the request principal; 5 reads the SecurityFilter attribute.
+    MutableHttpRequest<?> request = HttpRequest.GET("/");
+    Authentication authentication = Authentication.build(name);
+    request.setUserPrincipal(authentication);
+    request.setAttribute(SecurityFilter.AUTHENTICATION, authentication);
+    return ServerRequestContext.with(request, action);
   }
 
   private boolean succeeded(UUID id) {

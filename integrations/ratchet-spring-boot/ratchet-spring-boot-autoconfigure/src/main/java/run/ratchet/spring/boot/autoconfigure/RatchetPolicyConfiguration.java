@@ -17,9 +17,11 @@ package run.ratchet.spring.boot.autoconfigure;
 
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.core.context.SecurityContextHolder;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.DefaultRetryPolicy;
 import run.ratchet.ri.core.DefaultExecutionTuningProvider;
@@ -146,5 +148,16 @@ class RatchetPolicyConfiguration {
   @ConditionalOnMissingBean(NodeTagAffinityProvider.class)
   DefaultNodeTagAffinityProvider nodeTagAffinityProvider(RatchetOptions options) {
     return new DefaultNodeTagAffinityProvider(options);
+  }
+
+  /** An application PrincipalSource bean replaces this bridge. */
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnClass(SecurityContextHolder.class)
+  static class SpringSecurityConfiguration {
+    @Bean
+    @ConditionalOnMissingBean(PrincipalSource.class)
+    PrincipalSource springSecurityPrincipalSource() {
+      return new SpringSecurityPrincipalSource();
+    }
   }
 }
