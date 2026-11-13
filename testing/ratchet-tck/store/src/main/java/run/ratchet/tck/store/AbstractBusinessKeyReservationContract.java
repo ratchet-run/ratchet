@@ -46,6 +46,20 @@ import run.ratchet.store.spi.RecurringJobDefinition;
  */
 public abstract class AbstractBusinessKeyReservationContract implements JobStoreContractFixture {
 
+  private static final String NEEDS_OWNER_TRANSACTION =
+      """
+      supportsOwnerTransaction() is false on this contract class. A store whose create joins \
+      the caller's transaction overrides it and inOwnerTransaction(Runnable) here.""";
+
+  private static final String NEEDS_LOCK_WAIT_HOOKS =
+      """
+      awaitBlockedSession(Object, Object, Duration) returned false on this contract class. \
+      Override it and ownerSessionId() here to observe database lock waits.""";
+
+  // Each step the main thread runs before it releases a held session waits at most 30 s, and a
+  // test runs at most four of them, so a held session waits longer than their sum.
+  private static final long RELEASE_TIMEOUT_SECONDS = 150;
+
   @BeforeEach
   @AfterEach
   void cleanupBusinessKeyReservationFixture() {
@@ -70,7 +84,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   @Test
   void conflict_leavesOwnerTransactionUsable() {
-    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String key = uniqueKey();
     JobEntity holder = create(jobWithBusinessKey(key));
     JobEntity loser = jobWithBusinessKey(key);
@@ -126,7 +140,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   @Test
   void lateCommittedHolder_conflictLeavesOwnerTransactionUsable() throws Exception {
-    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String key = uniqueKey();
     JobEntity holder = jobWithBusinessKey(key);
     JobEntity loser = jobWithBusinessKey(key);
@@ -183,7 +197,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   @Test
   void reservationIsHeldWhileIdempotencyWriteWaits() throws Exception {
-    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String idempotencyKey = UUID.randomUUID().toString();
     String key = uniqueKey();
     JobEntity holder = jobWithBusinessKey(null);
@@ -230,7 +244,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
       assertTrue(duplicateStarted.await(30, TimeUnit.SECONDS), "Duplicate did not start");
       assumeTrue(
           awaitBlockedSession(duplicateSession.get(), holderSession.get(), Duration.ofSeconds(30)),
-          "Requires a fixture that can observe a blocked database session");
+          NEEDS_LOCK_WAIT_HOOKS);
       var probing =
           workers.submit(
               () ->
@@ -272,7 +286,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
   }
 
   private void race(boolean rollback) throws Exception {
-    assumeTrue(supportsOwnerTransaction(), "Requires an owner database transaction");
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String key = uniqueKey();
     JobEntity winner = jobWithBusinessKey(key);
     JobEntity loser = jobWithBusinessKey(key);
@@ -325,7 +339,7 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
       // The hook confirms the loser is blocked by the winner before the winner ends.
       assumeTrue(
           awaitBlockedSession(loserSession.get(), winnerSession.get(), Duration.ofSeconds(30)),
-          "Requires a fixture that can observe a blocked database session");
+          NEEDS_LOCK_WAIT_HOOKS);
       assertThrows(
           TimeoutException.class,
           () -> second.get(500, TimeUnit.MILLISECONDS),
@@ -353,12 +367,12 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
 
   private static void await(CountDownLatch latch) {
     try {
-      if (!latch.await(90, TimeUnit.SECONDS)) {
-        throw new IllegalStateException("Timed out waiting for winner release");
+      if (!latch.await(RELEASE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Timed out waiting for release");
       }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IllegalStateException("Interrupted waiting for winner release", e);
+      throw new IllegalStateException("Interrupted waiting for release", e);
     }
   }
 
