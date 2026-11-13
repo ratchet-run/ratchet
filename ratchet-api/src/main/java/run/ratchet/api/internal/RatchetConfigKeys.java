@@ -17,6 +17,7 @@ package run.ratchet.api.internal;
 
 import java.time.Duration;
 import java.util.Locale;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.RatchetConfigKey;
 
@@ -209,6 +210,26 @@ public final class RatchetConfigKeys {
           "RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS",
           120L,
           1L);
+
+  /** Maximum partition count, at least one. */
+  @Incubating
+  public static final RatchetConfigKey<Integer> BATCH_MAX_PARTITIONS =
+      intKey("ratchet.batch.max-partitions", "RATCHET_BATCH_MAX_PARTITIONS", 10000, 1);
+
+  /** Positive grace for incomplete partition submissions. */
+  @Incubating
+  public static final RatchetConfigKey<Duration> BATCH_PARTITION_GRACE =
+      new RatchetConfigKey<>(
+          "ratchet.batch.partition-grace",
+          "RATCHET_BATCH_PARTITION_GRACE",
+          Duration.ofMinutes(30),
+          raw -> {
+            Duration value = Duration.parse(raw);
+            if (value.isNegative() || value.isZero())
+              throw new IllegalArgumentException("Partition grace must be positive");
+            return value;
+          });
+
   public static final RatchetConfigKey<Duration> BATCH_FOLD_TIMEOUT =
       new RatchetConfigKey<>(
           "ratchet.batch.fold-timeout",

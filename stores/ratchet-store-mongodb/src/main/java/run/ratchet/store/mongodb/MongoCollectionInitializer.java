@@ -20,6 +20,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.ClientSession;
@@ -187,6 +188,22 @@ class MongoCollectionInitializer {
     }
     createRecurringJobArchiveIndexes();
     createBatchIndexes();
+    createRequiredIndex(
+        database.getCollection("scheduler_partition_set"),
+        Indexes.ascending("set_key"),
+        new IndexOptions().name("uq_partition_set_key").unique(true));
+    createRequiredIndex(
+        database.getCollection("scheduler_partition"),
+        Indexes.ascending("set_id", "partition_index"),
+        new IndexOptions().name("uq_partition_index").unique(true));
+    createRequiredIndex(
+        database.getCollection("scheduler_partition"),
+        Indexes.ascending("child_job_id"),
+        new IndexOptions().name("idx_partition_child"));
+    createIndex(
+        database.getCollection("scheduler_batch"),
+        Indexes.ascending("partition_set_id"),
+        "idx_batch_partition_set");
     createBatchMetricsIndexes();
     createExecutionIndexes();
     createLogIndexes();
@@ -389,7 +406,8 @@ class MongoCollectionInitializer {
               if (key == null || owner == null || !ownerIsActive(session, key, owner, table))
                 reservations.deleteOne(session, eq(ID, reservation.get(ID)));
               return true;
-            });
+            },
+            TRANSACTION_OPTIONS);
       }
     }
   }
@@ -446,7 +464,8 @@ class MongoCollectionInitializer {
                   "Business key is active for multiple MongoDB owners: " + businessKey);
             }
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 

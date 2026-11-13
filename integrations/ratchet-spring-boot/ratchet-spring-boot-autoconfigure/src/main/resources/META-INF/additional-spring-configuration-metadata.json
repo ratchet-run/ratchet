@@ -5,6 +5,18 @@
       "type": "java.lang.Boolean",
       "defaultValue": true,
       "description": "Prepare Ratchet SQL schemas or MongoDB collections and indexes. False validates read-only."
+    },
+    {
+      "name": "ratchet.batch.max-partitions",
+      "type": "java.lang.Integer",
+      "defaultValue": 10000,
+      "description": "Maximum number of partitions per set; at least one."
+    },
+    {
+      "name": "ratchet.batch.partition-grace",
+      "type": "java.time.Duration",
+      "defaultValue": "PT30M",
+      "description": "Positive grace before canceling incomplete partition generations."
     }
   ]
 }

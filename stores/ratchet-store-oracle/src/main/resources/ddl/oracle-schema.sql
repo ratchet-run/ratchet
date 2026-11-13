@@ -278,6 +278,8 @@ CREATE TABLE IF NOT EXISTS scheduler_batch
     progress_hook        CLOB,
     reducer CLOB NULL,
     fold_claimed_at TIMESTAMP(6) NULL,
+    partition_set_id RAW(16) NULL,
+    generation NUMBER(10) NULL,
     CONSTRAINT pk_scheduler_batch PRIMARY KEY (batch_id),
     CONSTRAINT fk_batch_job FOREIGN KEY (batch_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
@@ -494,3 +496,38 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
 
 CREATE INDEX IF NOT EXISTS idx_event_outbox_created
     ON scheduler_event_outbox (created_at, event_id);
+
+CREATE TABLE IF NOT EXISTS scheduler_partition_set (
+    set_id RAW(16) NOT NULL,
+    set_key VARCHAR2(36) NOT NULL,
+    name VARCHAR2(255) NOT NULL,
+    partition_count NUMBER(10) NOT NULL,
+    latest_generation NUMBER(10) NOT NULL,
+    latest_batch_id RAW(16) NOT NULL,
+    sealed_generation NUMBER(10) DEFAULT 0 NOT NULL,
+    generation_started_at TIMESTAMP(3) NOT NULL,
+    owner_principal VARCHAR2(255) NULL,
+    version NUMBER(10) DEFAULT 0 NOT NULL,
+    created_at TIMESTAMP(3) NOT NULL,
+    updated_at TIMESTAMP(3) NOT NULL,
+    CONSTRAINT pk_scheduler_partition_set PRIMARY KEY (set_id),
+    CONSTRAINT uq_partition_set_key UNIQUE (set_key)
+);
+
+CREATE TABLE IF NOT EXISTS scheduler_partition (
+    set_id RAW(16) NOT NULL,
+    partition_index NUMBER(10) NOT NULL,
+    range_from NUMBER(19) NOT NULL,
+    range_to NUMBER(19) NOT NULL,
+    generation NUMBER(10) NOT NULL,
+    child_job_id RAW(16) NOT NULL,
+    outcome VARCHAR2(20) NULL,
+    last_error CLOB NULL,
+    checkpoint_json CLOB NULL,
+    CONSTRAINT pk_scheduler_partition PRIMARY KEY (set_id, partition_index),
+    CONSTRAINT fk_partition_set FOREIGN KEY (set_id) REFERENCES scheduler_partition_set (set_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_partition_child ON scheduler_partition (child_job_id);
+
+CREATE INDEX IF NOT EXISTS idx_batch_partition_set ON scheduler_batch (partition_set_id);

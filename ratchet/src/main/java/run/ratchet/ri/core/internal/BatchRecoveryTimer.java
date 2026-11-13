@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.BatchService;
+import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.SingletonLease;
 
 /**
@@ -37,6 +38,14 @@ import run.ratchet.ri.core.SingletonLease;
  */
 @ApplicationScoped
 public class BatchRecoveryTimer {
+
+  private PartitionService partitions;
+
+  /** Connects the partition sweep to the batch recovery lease. */
+  @Inject
+  public void configurePartitions(PartitionService service) {
+    partitions = service;
+  }
 
   private static final Logger log = Logger.getLogger(BatchRecoveryTimer.class);
   private static final String LEASE_NAME = "batchRecovery";
@@ -117,6 +126,7 @@ public class BatchRecoveryTimer {
 
   private void recoverBatchesWithLease() {
     int recovered = batchService.recoverStuckBatches();
+    if (partitions != null) partitions.sweep();
     if (recovered > 0) {
       log.infof("Batch recovery timer recovered %s stuck batch(es)", recovered);
     }

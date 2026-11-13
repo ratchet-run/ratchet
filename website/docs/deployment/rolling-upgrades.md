@@ -37,6 +37,18 @@ window for this migration, and on Oracle stop the nodes that write to `scheduler
 and SQL Server only add the columns. MongoDB replaces the old single-field index of the same name
 when the store starts.
 
+Every SQL store also gains the partition set tables, in `V014__partition_sets.sql` on PostgreSQL,
+Oracle and SQL Server and in `V016__partition_sets.sql` on MySQL. The new tables start empty, so
+their indexes build at once. The script also adds two nullable columns to `scheduler_batch` and
+builds `idx_batch_partition_set` over its existing rows. The migrator runs the PostgreSQL script in
+one transaction, and adding the columns locks `scheduler_batch` until it commits, so reads and
+writes on that table wait while the index is built. On Oracle and SQL Server the index build blocks
+writes to `scheduler_batch` while it runs, and on Oracle the DDL fails with ORA-00054 if another
+transaction is writing to the table at that moment. Running the script again is safe. MySQL adds
+the columns and builds the index online, so writes continue. `scheduler_batch` has one row per
+batch, so this is usually quick, but on an installation that keeps many batches, run it in a quiet
+window. MongoDB creates the new collections and indexes when the store starts.
+
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.
 

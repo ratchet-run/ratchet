@@ -250,8 +250,8 @@ final class OracleBatchOperations implements BatchStore {
         String insertSql =
             """
             INSERT INTO scheduler_batch
-              (total_items, completed_items, failed_items, completion_processed, progress_hook, reducer, fold_claimed_at, batch_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (total_items, completed_items, failed_items, completion_processed, progress_hook, reducer, fold_claimed_at, partition_set_id, generation, batch_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         bindBatch(insertSql, batch).executeUpdate();
       }
@@ -268,7 +268,7 @@ final class OracleBatchOperations implements BatchStore {
         """
         UPDATE scheduler_batch
         SET total_items = ?, completed_items = ?, failed_items = ?, completion_processed = ?,
-            progress_hook = ?, reducer = ?, fold_claimed_at = ?, version = version + 1
+            progress_hook = ?, reducer = ?, fold_claimed_at = ?, partition_set_id = ?, generation = ?, version = version + 1
         WHERE batch_id = ?
         """;
     return bindBatch(sql, batch).executeUpdate();
@@ -285,7 +285,13 @@ final class OracleBatchOperations implements BatchStore {
         .setParameter(6, batch.getReducer())
         .setParameter(
             7, batch.getFoldClaimedAt() == null ? null : Timestamp.from(batch.getFoldClaimedAt()))
-        .setParameter(8, UuidRawConverter.toBytes(batch.getId()));
+        .setParameter(
+            8,
+            batch.getPartitionSetId() == null
+                ? null
+                : UuidRawConverter.toBytes(batch.getPartitionSetId()))
+        .setParameter(9, batch.getGeneration())
+        .setParameter(10, UuidRawConverter.toBytes(batch.getId()));
   }
 
   @Override
@@ -305,7 +311,7 @@ final class OracleBatchOperations implements BatchStore {
     String sql =
         """
         SELECT batch_id, total_items, completed_items, failed_items,
-               completion_processed, version, progress_hook, reducer, fold_claimed_at
+               completion_processed, version, progress_hook, reducer, fold_claimed_at, partition_set_id, generation
         FROM scheduler_batch
         WHERE batch_id IN (%s)
         """
@@ -538,6 +544,8 @@ final class OracleBatchOperations implements BatchStore {
     batch.setProgressHook(parseProgressHook(row[6]));
     batch.setReducer(RowValues.stringOrNull(row[7]));
     batch.setFoldClaimedAt(RowValues.instantOrNull(row[8]));
+    batch.setPartitionSetId(RowValues.uuidOrNull(row[9]));
+    batch.setGeneration(row[10] == null ? null : ((Number) row[10]).intValue());
     return batch;
   }
 

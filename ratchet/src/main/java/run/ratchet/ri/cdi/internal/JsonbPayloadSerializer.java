@@ -20,11 +20,15 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
+import jakarta.json.bind.JsonbConfig;
 import jakarta.json.bind.JsonbException;
+import jakarta.json.bind.adapter.JsonbAdapter;
 import java.io.Serial;
 import java.io.Writer;
 import java.lang.reflect.Type;
+import java.util.Map;
 import org.jboss.logging.Logger;
+import run.ratchet.api.KeyRange;
 import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.spi.PayloadSerializer;
 
@@ -54,6 +58,19 @@ import run.ratchet.spi.PayloadSerializer;
  */
 @ApplicationScoped
 public class JsonbPayloadSerializer implements PayloadSerializer {
+
+  /** Portable JSON-B representation of the API record. */
+  public static final class KeyRangeAdapter implements JsonbAdapter<KeyRange, Map<String, Long>> {
+    @Override
+    public Map<String, Long> adaptToJson(KeyRange range) {
+      return Map.of("from", range.from(), "to", range.to());
+    }
+
+    @Override
+    public KeyRange adaptFromJson(Map<String, Long> value) {
+      return new KeyRange(value.get("from"), value.get("to"));
+    }
+  }
 
   private static final Logger log = Logger.getLogger(JsonbPayloadSerializer.class);
 
@@ -223,7 +240,7 @@ public class JsonbPayloadSerializer implements PayloadSerializer {
   void init() {
     // Reuse a single configured Jsonb for the lifetime of the bean. JSON-B implementations
     // maintain internal caches; recreating per call would be wasteful.
-    this.jsonb = JsonbBuilder.create();
+    this.jsonb = JsonbBuilder.create(new JsonbConfig().withAdapters(new KeyRangeAdapter()));
   }
 
   @PreDestroy
@@ -245,7 +262,7 @@ public class JsonbPayloadSerializer implements PayloadSerializer {
       // instances go through @PostConstruct above.
       synchronized (this) {
         if (this.jsonb == null) {
-          this.jsonb = JsonbBuilder.create();
+          this.jsonb = JsonbBuilder.create(new JsonbConfig().withAdapters(new KeyRangeAdapter()));
         }
         instance = this.jsonb;
       }
