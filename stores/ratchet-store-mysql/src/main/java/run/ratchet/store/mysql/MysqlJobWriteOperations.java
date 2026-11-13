@@ -210,9 +210,13 @@ final class MysqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
-    // A job whose resource changes leaves the old resource's waiting line.
-    if (row != null && !Objects.equals(row[9], job.getResourceName())) {
-      deleteWaiterIfPresent(job.getId());
+    // A resource change or a reschedule leaves the waiting line. Check before this save writes the
+    // queue row: after that, a plain read returns this transaction's own row version.
+    if (row != null
+        && (!Objects.equals(row[9], job.getResourceName())
+            || (row[0] != null
+                && !Objects.equals(RowValues.instantOrNull(row[1]), job.getScheduledTime())))) {
+      deleteWaiterIfPresent(job.getId(), row);
     }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
@@ -418,31 +422,39 @@ final class MysqlJobWriteOperations {
         SET scheduled_time = ?, updated_at = NOW(3)
         WHERE job_id = ? AND status = ?
         """;
-    int updated =
-        ctx.em()
-            .createNativeQuery(updateSql)
-            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-            .setParameter(2, UuidByteArrayConverter.toBytes(id))
-            .setParameter(3, storedStatus)
-            .executeUpdate();
-    if (updated > 0) {
-      deleteWaiterIfPresent(id);
-    }
+    ctx.em()
+        .createNativeQuery(updateSql)
+        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+        .setParameter(2, UuidByteArrayConverter.toBytes(id))
+        .setParameter(3, storedStatus)
+        .executeUpdate();
     return true;
   }
 
-  private void deleteWaiterIfPresent(UUID id) {
+  private void deleteWaiterIfPresent(UUID id, Object[] snapshot) {
     // A missing-row DELETE takes a gap lock at REPEATABLE READ; avoid it with a plain read.
     // language=MySQL
     String exists =
         """
-        SELECT job_id FROM scheduler_resource_waiter WHERE job_id = ?
+        SELECT q.status, q.claim_seq, w.job_id FROM scheduler_job c
+        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        LEFT JOIN scheduler_resource_waiter w ON w.job_id = c.job_id
+        WHERE c.job_id = ?
         """;
-    if (!ctx.em()
-        .createNativeQuery(exists)
-        .setParameter(1, UuidByteArrayConverter.toBytes(id))
-        .getResultList()
-        .isEmpty()) {
+    List<?> rows =
+        ctx.em()
+            .createNativeQuery(exists)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
+    Object[] visible = rows.isEmpty() ? null : (Object[]) rows.get(0);
+    Long visibleClaim =
+        visible == null || visible[1] == null ? null : ((Number) visible[1]).longValue();
+    Long lockedClaim = snapshot[10] == null ? null : ((Number) snapshot[10]).longValue();
+    // Every park changes status or claim_seq, so matching values make the waiter view current.
+    if (visible == null
+        || visible[2] != null
+        || !Objects.equals(visible[0], snapshot[0])
+        || !Objects.equals(visibleClaim, lockedClaim)) {
       // language=MySQL
       String delete =
           """
@@ -555,7 +567,7 @@ final class MysqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status, c.resource_name
+               c.terminal_status, c.resource_name, q.claim_seq
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
@@ -660,9 +672,6 @@ final class MysqlJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
-      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
-        deleteWaiterIfPresent(id);
-      }
     }
     return true;
   }

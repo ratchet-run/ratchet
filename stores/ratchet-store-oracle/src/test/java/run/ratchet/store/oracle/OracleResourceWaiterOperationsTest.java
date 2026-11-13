@@ -60,7 +60,8 @@ class OracleResourceWaiterOperationsTest {
                 new Object[] {id(second), "PENDING", 3, null, DUE, DUE},
                 new Object[] {id(third), "PENDING", 2, null, DUE, DUE}),
             0,
-            List.<Object[]>of(new Object[] {id(third), DUE}, new Object[] {id(second), DUE}),
+            List.<Object[]>of(
+                new Object[] {id(third), DUE, "res"}, new Object[] {id(second), DUE, "res"}),
             1,
             1);
     assertEquals(
@@ -69,7 +70,10 @@ class OracleResourceWaiterOperationsTest {
     assertEquals(6, sequence.sql.size());
     assertTrue(sequence.sql.get(0).contains("scheduler_resource_limit"));
     assertTrue(
-        sequence.sql.get(3).contains("IN (?, ?, ?) AND status = 'PENDING' FOR UPDATE SKIP LOCKED"));
+        sequence
+            .sql
+            .get(3)
+            .contains("IN (?, ?, ?) AND q.status = 'PENDING' FOR UPDATE SKIP LOCKED"));
     assertTrue(Objects.deepEquals(id(second), sequence.parameters.get(4).get(2)));
     assertTrue(Objects.deepEquals(id(third), sequence.parameters.get(5).get(2)));
     assertEquals(DUE, sequence.parameters.get(4).get(1));
@@ -95,7 +99,7 @@ class OracleResourceWaiterOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, "res"}),
             List.of(id(UUID.randomUUID())),
             List.of(),
             0);
@@ -114,22 +118,26 @@ class OracleResourceWaiterOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res"}),
             List.of(id(UUID.randomUUID())),
             List.of("PAUSED"),
             1,
+            List.of("res"),
             1);
     assertEquals(
         AcquireResult.AT_CAPACITY,
         sequence.operations().tryAcquirePermit("res", jobId, 7L, "node"));
-    assertEquals(6, sequence.sql.size());
+    assertEquals(7, sequence.sql.size());
     assertEquals("PAUSED", sequence.parameters.get(4).get(1));
     assertEquals("PENDING", sequence.parameters.get(4).get(2));
     assertEquals("Waiting for resource: res", sequence.parameters.get(4).get(3));
     assertEquals(1000, sequence.parameters.get(4).get(4));
-    assertEquals(ResourceWaiterLease.leaseMillis(1000), sequence.parameters.get(5).get(1));
+    assertEquals(ResourceWaiterLease.leaseMillis(1000), sequence.parameters.get(6).get(1));
     assertTrue(!sequence.sql.get(4).contains("attempts ="));
-    assertTrue(!sequence.sql.get(5).contains("wait_since ="));
+    assertTrue(sequence.sql.get(6).contains("wait_since ="));
+    assertEquals("res", sequence.parameters.get(6).get(2));
+    assertEquals(4, sequence.parameters.get(6).get(3));
+    assertEquals(DUE, sequence.parameters.get(6).get(4));
     sequence.assertConsumed();
   }
 
@@ -139,7 +147,7 @@ class OracleResourceWaiterOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, "res"}),
             List.of(),
             List.of(),
             1);
@@ -149,6 +157,30 @@ class OracleResourceWaiterOperationsTest {
     assertTrue(sequence.sql.get(0).contains("FOR UPDATE"));
     assertTrue(!sequence.sql.get(2).contains("FOR UPDATE"));
     sequence.assertConsumed();
+  }
+
+  @Test
+  void parkWithoutCurrentResourceWritesNoWaiter() {
+    for (List<String> resources : List.of(List.of("other"), List.<String>of())) {
+      var sequence =
+          new NativeSequence(
+              List.<Object[]>of(new Object[] {1, 1000}),
+              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null}),
+              List.of(id(UUID.randomUUID())),
+              List.of(),
+              1,
+              resources);
+      assertEquals(
+          AcquireResult.AT_CAPACITY,
+          sequence.operations().tryAcquirePermit("res", UUID.randomUUID(), 7L, "node"));
+      assertTrue(
+          sequence.sql.stream()
+              .noneMatch(
+                  sql ->
+                      sql.startsWith("INSERT INTO scheduler_resource_waiter")
+                          || sql.startsWith("UPDATE scheduler_resource_waiter")));
+      sequence.assertConsumed();
+    }
   }
 
   private static final Timestamp DUE = Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"));

@@ -729,7 +729,10 @@ store increments a counter on it.
 `ResourcePermitStore` also keeps the waiting line in `scheduler_resource_waiter` (a MongoDB
 collection of the same name). Each row holds the job id, resource, priority, `wait_since` and
 `lease_until`, with the index `(resource_name, priority DESC, wait_since ASC, job_id ASC)`. The
-table has no foreign key, so a park never locks `scheduler_job`.
+table has no foreign key. A waiter row belongs to the job's current `resource_name`: a park writes
+it and a wake-up acts on it only while the job row still names that resource. The SQL stores
+check this under a job-row lock taken without waiting, and a save that changes the resource takes
+the same lock. MongoDB relies on the write conflict on the job document.
 
 - `tryAcquirePermit` gives the permit only if a slot is still free after it counts the live
   waiters ahead of the caller. When it gives the permit, it deletes the caller's waiter row. A
@@ -739,16 +742,19 @@ table has no foreign key, so a park never locks `scheduler_job`.
 - On a miss, `tryAcquirePermit` parks the job in the same transaction and returns `AT_CAPACITY`.
   The park is fenced on RUNNING and the claim. It makes the job PENDING (or PAUSED in a paused
   batch), due at now plus `retry_delay_ms`, sets `last_error` and leaves attempts unchanged. It
-  inserts the waiter row, or renews the lease of an existing row and keeps its `wait_since`. Use
+  inserts the waiter row, or renews the lease of an existing row and keeps its `wait_since`. A
+  row left from another resource is replaced with the job's own priority and due time. Use
   `ResourceWaiterLease.leaseMillis` for the lease. If the fence fails, return `SUPERSEDED` and
-  write no waiter row. The engine makes no write of its own after `AT_CAPACITY`.
+  write no waiter row. If the job row is locked, or no longer names the resource, the job still
+  parks but gets no waiter row. The engine makes no write of its own after `AT_CAPACITY`.
 - `wakeWaiters` runs in its own transaction after the release or clean-up commits. It takes the
   resource lock first, reads up to `max_concurrent` live heads, counts the permits, and sets
   `scheduled_time = wait_since` on the PENDING heads within the free slots. It returns them so the
   engine can send wake-up hints. It never waits on a job row that another transaction holds. The
   SQL stores skip that head and do not wake a later waiter in its place. They also skip a head
   whose job's `scheduled_time` changed after they read the line, so a user reschedule that commits
-  in between is kept. MongoDB retries the wake-up on a write conflict.
+  in between is kept, and a head whose job no longer names the resource. MongoDB retries the
+  wake-up on a write conflict.
 - `findResourcesWithWaiters(after, limit)` and `deleteStaleWaiters(limit)` serve the periodic
   sweep. The first returns distinct resource names that have waiter rows, in ascending order and
   after `after` (from the first name when it is null); the engine passes the last name it saw, so
