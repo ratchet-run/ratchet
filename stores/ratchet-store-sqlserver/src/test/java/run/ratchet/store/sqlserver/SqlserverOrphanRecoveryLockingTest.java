@@ -137,11 +137,11 @@ class SqlserverOrphanRecoveryLockingTest {
   }
 
   @Test
-  void periodicScanRecoversOrphansAcrossPages() {
+  void periodicScanRecoversOrphansPageByPage() {
     fixture.cleanupStore();
     emf = newFactory();
     Instant cutoff = Instant.now().minusSeconds(60);
-    int count = SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE + 1;
+    int count = 501;
     var seed = emf.createEntityManager();
     var scan = emf.createEntityManager();
     try {
@@ -155,7 +155,8 @@ class SqlserverOrphanRecoveryLockingTest {
 
       var scanStore = store(scan);
       scan.getTransaction().begin();
-      assertEquals(count, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
+      assertEquals(500, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
+      assertEquals(count - 500, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
       assertEquals(
           0,
           ((Number)

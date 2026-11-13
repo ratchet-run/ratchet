@@ -133,7 +133,8 @@ class PostgresqlExceptionTranslationTest {
   void deleteOperationsTranslateDeadlock() {
     var deletes =
         new PostgresqlJobDeleteOperations(
-            new PostgresqlStoreContext(entityManager(queryThrowingOnExecute())),
+            new PostgresqlStoreContext(
+                entityManager(queryReturning(List.of(JOB_ID)), queryThrowingOnExecute())),
             new PostgresqlBusinessKeyReservations(
                 new PostgresqlStoreContext(entityManager(queryReturningUpdate(1)))));
 

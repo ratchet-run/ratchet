@@ -22,6 +22,7 @@ import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -31,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
@@ -100,13 +103,16 @@ class SqlserverJobDeleteOperationsTest {
                         if (!lock) {
                           // The page limit must be bound, or appear in the dialect's LIMIT/TOP
                           // clause.
+                          Matcher top = Pattern.compile("TOP \\((\\d+)\\)").matcher(sql);
                           int limit =
-                              parameters.values().stream()
-                                  .filter(Integer.class::isInstance)
-                                  .map(Integer.class::cast)
-                                  .filter(value -> value > 1)
-                                  .findFirst()
-                                  .orElse(500);
+                              top.find()
+                                  ? Integer.parseInt(top.group(1))
+                                  : parameters.values().stream()
+                                      .filter(Integer.class::isInstance)
+                                      .map(Integer.class::cast)
+                                      .filter(value -> value > 1)
+                                      .findFirst()
+                                      .orElse(500);
                           selected = selected.stream().limit(limit).toList();
                           return selected.stream().map(row -> row[0]).toList();
                         }
@@ -374,7 +380,7 @@ class SqlserverJobDeleteOperationsTest {
     assertFalse(defer.sql().contains("claim_seq ="));
     assertFalse(defer.sql().contains("crash_count ="));
     assertFalse(defer.sql().contains("status ="));
-    assertTrue(defer.parameters().values().stream().anyMatch(Instant.class::isInstance));
+    assertTrue(defer.parameters().values().stream().anyMatch(Timestamp.class::isInstance));
     for (ExhaustedOrphan row : exhausted) {
       assertTrue(
           defer.parameters().values().stream()

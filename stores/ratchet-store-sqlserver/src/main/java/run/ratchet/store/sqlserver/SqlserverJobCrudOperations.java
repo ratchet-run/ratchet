@@ -238,12 +238,12 @@ final class SqlserverJobCrudOperations implements JobCrudStore, JobBulkStore, Jo
 
   @Override
   public OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+    return deletes.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, limit);
   }
 
   @Override
   public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+    return deletes.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, limit);
   }
 
   @Override

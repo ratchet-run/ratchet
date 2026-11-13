@@ -24,12 +24,14 @@ import java.lang.reflect.Proxy;
 import java.sql.SQLTransientException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
 
 class OracleTransientExceptionTranslationTest {
 
@@ -190,6 +192,7 @@ class OracleTransientExceptionTranslationTest {
               }
               return switch (method.getName()) {
                 case "setParameter", "setFirstResult", "setMaxResults" -> proxy;
+                case "getResultList" -> List.of(UuidRawConverter.toBytes(JOB_ID));
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

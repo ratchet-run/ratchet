@@ -23,10 +23,13 @@ import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Filters.nin;
 import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
@@ -38,6 +41,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ENDED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
+import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
@@ -67,6 +71,7 @@ import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -88,6 +93,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
@@ -800,11 +806,143 @@ final class MongoJobCrudOperations {
   }
 
   OrphanRecovery resetOrphanJobsBefore(Instant cutoffInstant, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
+    Date cutoff = DocumentMapper.toDate(cutoffInstant);
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            List<String> activeNodeIds = new ArrayList<>();
+            for (Document doc : ctx.nodes().find(session, gte(HEARTBEAT_TS, cutoff))) {
+              activeNodeIds.add(doc.getString(ID));
+            }
+            Bson orphan =
+                and(
+                    eq(STATUS, STATUS_RUNNING),
+                    nin(PICKED_BY, activeNodeIds),
+                    lt(PICKED_AT, cutoff));
+            return recoverOrphans(session, orphan, maxCrashRedeliveries, limit, false);
+          },
+          TRANSACTION_OPTIONS);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("recover orphan jobs", e);
+    }
   }
 
   OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () ->
+              recoverOrphans(
+                  session,
+                  and(eq(STATUS, STATUS_RUNNING), eq(PICKED_BY, nodeId)),
+                  maxCrashRedeliveries,
+                  limit,
+                  true),
+          TRANSACTION_OPTIONS);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("recover orphan jobs for node", e);
+    }
+  }
+
+  private OrphanRecovery recoverOrphans(
+      ClientSession session,
+      Bson orphan,
+      int maxCrashRedeliveries,
+      int limit,
+      boolean releaseOwner) {
+    List<Document> candidates = new ArrayList<>();
+    for (Document doc :
+        ctx.jobs()
+            .find(session, orphan)
+            .projection(
+                new Document(ID, 1)
+                    .append(CLAIM_SEQ, 1)
+                    .append(CRASH_COUNT, 1)
+                    .append(PICKED_BY, 1)
+                    .append(PICKED_AT, 1))
+            .limit(limit)) {
+      candidates.add(doc);
+    }
+    if (candidates.isEmpty()) {
+      return OrphanRecovery.none();
+    }
+    List<UUID> ids = new ArrayList<>();
+    List<UUID> resettable = new ArrayList<>();
+    List<UUID> exhaustedIds = new ArrayList<>();
+    List<Document> exhaustedDocs = new ArrayList<>();
+    for (Document doc : candidates) {
+      UUID id = doc.get(ID, UUID.class);
+      ids.add(id);
+      // Missing crash counts mean zero, including with a zero maximum.
+      if (maxCrashRedeliveries > 0 && doc.getInteger(CRASH_COUNT, 0) < maxCrashRedeliveries) {
+        resettable.add(id);
+      } else {
+        exhaustedIds.add(id);
+        exhaustedDocs.add(doc);
+      }
+    }
+    Date now = DocumentMapper.toDate(Instant.now());
+    ctx.executions()
+        .updateMany(
+            session,
+            and(in(JOB_ID, ids), eq(STATUS, STATUS_RUNNING)),
+            combine(
+                set(STATUS, STATUS_FAILED),
+                set(ENDED_AT, now),
+                set(ERROR_MESSAGE, ORPHAN_RECOVERY_ERROR_MESSAGE)));
+    int reset = 0;
+    if (!resettable.isEmpty()) {
+      reset =
+          (int)
+              ctx.jobs()
+                  .updateMany(
+                      session,
+                      and(in(ID, resettable), orphan),
+                      combine(
+                          set(STATUS, STATUS_PENDING),
+                          set(PICKED_BY, null),
+                          set(PICKED_AT, null),
+                          inc(CRASH_COUNT, 1),
+                          set(UPDATED_AT, now),
+                          inc(VERSION, 1)))
+                  .getModifiedCount();
+    }
+    int released = 0;
+    List<ExhaustedOrphan> exhausted = new ArrayList<>();
+    if (!exhaustedIds.isEmpty()) {
+      if (releaseOwner) {
+        released =
+            (int)
+                ctx.jobs()
+                    .updateMany(session, and(in(ID, exhaustedIds), orphan), set(PICKED_BY, null))
+                    .getModifiedCount();
+      } else {
+        ctx.jobs()
+            .updateMany(
+                session,
+                and(in(ID, exhaustedIds), orphan),
+                combine(set(PICKED_AT, now), set(UPDATED_AT, now), inc(VERSION, 1)));
+        // The read stays unsorted: no index supports sorting this MongoDB predicate by age.
+        exhaustedDocs.sort(
+            Comparator.comparing(
+                doc -> doc.getDate(PICKED_AT), Comparator.nullsFirst(Comparator.naturalOrder())));
+        for (Document doc : exhaustedDocs) {
+          Number claim = doc.get(CLAIM_SEQ, Number.class);
+          exhausted.add(
+              new ExhaustedOrphan(
+                  doc.get(ID, UUID.class),
+                  claim == null ? 0L : claim.longValue(),
+                  doc.getInteger(CRASH_COUNT, 0),
+                  doc.getString(PICKED_BY)));
+        }
+      }
+    }
+    return new OrphanRecovery(candidates.size(), reset, released, List.copyOf(exhausted));
   }
 
   private static boolean holdsBusinessKey(JobEntity job) {

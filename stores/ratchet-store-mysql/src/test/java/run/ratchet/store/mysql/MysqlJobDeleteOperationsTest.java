@@ -22,6 +22,7 @@ import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -373,7 +374,7 @@ class MysqlJobDeleteOperationsTest {
     assertFalse(defer.sql().contains("claim_seq ="));
     assertFalse(defer.sql().contains("crash_count ="));
     assertFalse(defer.sql().contains("status ="));
-    assertTrue(defer.parameters().values().stream().anyMatch(Instant.class::isInstance));
+    assertTrue(defer.parameters().values().stream().anyMatch(Timestamp.class::isInstance));
     for (ExhaustedOrphan row : exhausted) {
       assertTrue(
           defer.parameters().values().stream()

@@ -257,16 +257,28 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     // Startup self-recovery: unconditionally reclaim RUNNING jobs owned by THIS nodeId. A node
     // that crashes and restarts inside the steady-state grace window would otherwise leave its
     // own prior RUNNING rows in place until the heartbeat aged out.
-    OrphanRecovery own =
-        recoverAtStartup(
-            resolvedNodeId,
-            () ->
-                jobBulkStore.resetOrphanJobsForNode(
-                    resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
+    int scanned = 0;
+    int reset = 0;
+    int released = 0;
+    while (true) {
+      OrphanRecovery own =
+          recoverAtStartup(
+              resolvedNodeId,
+              () ->
+                  jobBulkStore.resetOrphanJobsForNode(
+                      resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
+      scanned += own.scanned();
+      reset += own.reset();
+      released += own.released();
+      if (own.scanned() < OrphanRecoveryTimer.ORPHAN_PAGE_SIZE
+          || own.reset() + own.released() == 0) {
+        break;
+      }
+    }
     log.infof(
         "Startup recovery for node %s: scanned %s candidate(s), reset %s job(s), released %s"
             + " owner(s)",
-        resolvedNodeId, own.scanned(), own.reset(), own.released());
+        resolvedNodeId, scanned, reset, released);
 
     // The orphan recovery timer runs this scan again after one interval, so only the node's own
     // reset above must succeed for startup to continue.
@@ -280,7 +292,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
                       maxCrashRedeliveries,
                       OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
       log.infof(
-          "Startup orphan recovery: scanned %s candidate(s), reset %s job(s), released %s owner(s)",
+          "Startup orphan recovery: scanned %s candidate(s), reset %s job(s), released %s owner(s);"
+              + " exhausted claims deferred by this page are failed by the first periodic scan",
           others.scanned(), others.reset(), others.released());
     } catch (RatchetTransientStoreException e) {
       log.warnf(
@@ -295,8 +308,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   /**
    * Retries transient startup recovery failures, propagating failure when attempts are exhausted.
    *
-   * <p>Each attempt is a separate store call. A retry is clean only when no caller transaction is
-   * open around {@code init()}, so that the failed attempt has already rolled back.
+   * <p>Each attempt is a separate store call and transaction, so a failed page has rolled back
+   * before its retry, even when a caller transaction is open around {@code init()}.
    */
   private OrphanRecovery recoverAtStartup(String nodeId, Supplier<OrphanRecovery> recovery) {
     for (int attempt = 1; ; attempt++) {

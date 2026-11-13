@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.oracle;
 
+import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
 
 import jakarta.persistence.Query;
@@ -22,6 +23,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +31,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.util.RowValues;
 
@@ -207,11 +210,157 @@ final class OracleJobDeleteOperations {
   }
 
   OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
+    String predicate =
+        """
+        WHERE status = 'RUNNING'
+            AND (
+              picked_by IS NULL OR picked_by NOT IN (
+                SELECT node_id FROM scheduler_node
+                WHERE heartbeat_ts >= ?
+              )
+            )
+            AND picked_at < ?
+        """;
+    Timestamp cutoffTimestamp = OracleTimestamps.microTimestamp(cutoff);
+    return recoverOrphans(
+        predicate, List.of(cutoffTimestamp, cutoffTimestamp), maxCrashRedeliveries, limit, false);
   }
 
   OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
+    return recoverOrphans(
+        "WHERE status = 'RUNNING' AND picked_by = ?",
+        List.of(nodeId),
+        maxCrashRedeliveries,
+        limit,
+        true);
+  }
+
+  private OrphanRecovery recoverOrphans(
+      String predicate,
+      List<?> parameters,
+      int maxCrashRedeliveries,
+      int limit,
+      boolean releaseOwner) {
+    try {
+      // NO_OR_EXPAND avoids a quiet-statistics OR-expansion plan sorting all old RUNNING rows.
+      // An INDEX hint forces that plan, so only the startup read carries it.
+      String hint =
+          releaseOwner
+              ? "/*+ INDEX(scheduler_job_queue idx_queue_orphan) */"
+              : "/*+ NO_OR_EXPAND */";
+      Query candidates =
+          ctx.em()
+              .createNativeQuery(
+                  "SELECT "
+                      + hint
+                      + " job_id FROM scheduler_job_queue "
+                      + predicate
+                      + " ORDER BY picked_at FETCH FIRST "
+                      + limit
+                      + " ROWS ONLY");
+      bindPredicate(candidates, parameters, 1);
+      List<?> candidateRows = candidates.getResultList();
+      if (candidateRows.isEmpty()) {
+        return OrphanRecovery.none();
+      }
+      List<UUID> ids = new ArrayList<>(candidateRows.size());
+      for (Object row : candidateRows) {
+        ids.add(OracleJobRowMapper.uuidOrNull(row));
+      }
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      String restricted = predicate + " AND job_id IN (" + placeholders + ")";
+      List<Object> restrictedParameters = new ArrayList<>(parameters);
+      for (UUID id : ids) {
+        restrictedParameters.add(UuidRawConverter.toBytes(id));
+      }
+      // Close first: reset removes the predicate. Each statement rechecks the full orphan
+      // condition, so an intervening heartbeat keeps its job.
+      Query close =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  UPDATE scheduler_job_execution
+                  SET status = 'FAILED', ended_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), error_message = ?
+                  WHERE status = 'RUNNING' AND job_id IN (SELECT job_id FROM scheduler_job_queue
+                  """
+                      + restricted
+                      + ")");
+      close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
+      bindPredicate(close, restrictedParameters, 2);
+      close.executeUpdate();
+      Query reset =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  UPDATE scheduler_job_queue
+                  SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
+                      crash_count = crash_count + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+                  """
+                      + restricted
+                      + " AND crash_count < ?");
+      bindRecovery(reset, restrictedParameters, maxCrashRedeliveries);
+      int count = reset.executeUpdate();
+      int released = 0;
+      List<ExhaustedOrphan> exhausted = new ArrayList<>();
+      if (releaseOwner) {
+        Query release =
+            ctx.em()
+                .createNativeQuery(
+                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                        + restricted
+                        + " AND crash_count >= ?");
+        bindRecovery(release, restrictedParameters, maxCrashRedeliveries);
+        released = release.executeUpdate();
+      } else {
+        Query select =
+            ctx.em()
+                .createNativeQuery(
+                    "SELECT job_id, claim_seq, crash_count, picked_by FROM scheduler_job_queue "
+                        + restricted
+                        + " AND crash_count >= ? FOR UPDATE");
+        bindRecovery(select, restrictedParameters, maxCrashRedeliveries);
+        List<?> deferredRows = select.getResultList();
+        for (Object result : deferredRows) {
+          Object[] row = (Object[]) result;
+          exhausted.add(
+              new ExhaustedOrphan(
+                  OracleJobRowMapper.uuidOrNull(row[0]),
+                  ((Number) row[1]).longValue(),
+                  ((Number) row[2]).intValue(),
+                  row[3] == null ? null : row[3].toString()));
+        }
+        if (!exhausted.isEmpty()) {
+          Query defer =
+              ctx.em()
+                  .createNativeQuery(
+                      """
+                      UPDATE scheduler_job_queue SET picked_at = ?, updated_at = ?
+                      WHERE status = 'RUNNING' AND job_id IN (
+                      """
+                          + String.join(",", Collections.nCopies(exhausted.size(), "?"))
+                          + ")");
+          Timestamp now = OracleTimestamps.microTimestamp(Instant.now());
+          defer.setParameter(1, now);
+          defer.setParameter(2, now);
+          int index = 3;
+          for (ExhaustedOrphan row : exhausted) {
+            defer.setParameter(index++, UuidRawConverter.toBytes(row.jobId()));
+          }
+          defer.executeUpdate();
+        }
+      }
+      exhausted.sort(Comparator.comparingInt(row -> ids.indexOf(row.jobId())));
+      ctx.em().clear();
+      return new OrphanRecovery(candidateRows.size(), count, released, List.copyOf(exhausted));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("recover orphan jobs", e);
+    }
   }
 
   private static void bindRecovery(Query query, List<?> parameters, int maxCrashRedeliveries) {

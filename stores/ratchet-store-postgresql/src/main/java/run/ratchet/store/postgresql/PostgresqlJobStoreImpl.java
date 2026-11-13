@@ -360,11 +360,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
     return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, limit);
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
     return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, limit);
   }

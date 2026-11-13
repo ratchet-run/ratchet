@@ -75,6 +75,7 @@ public class OrphanRecoveryTimer {
   private final SingletonLeaseService singletonLeaseService;
   private final long orphanGraceSeconds;
   private final Clock clock;
+  private final Object scanMonitor = new Object();
 
   private volatile ScheduledFuture<?> handle;
   private final Duration leaseTtl;
@@ -177,36 +178,38 @@ public class OrphanRecoveryTimer {
    *     tests. Applications must not invoke this method.
    */
   public void recoverNow() {
-    try {
-      if (singletonLeaseService != null) {
-        Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
-        if (lease.isEmpty()) {
-          List<String> releasedNodeIds = releaseLeaseHeldByStaleNodes();
-          if (!releasedNodeIds.isEmpty()) {
-            lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
-            if (lease.isPresent()) {
-              log.infof(
-                  "Orphan recovery lease acquired after releasing holds by stale node(s) %s",
-                  releasedNodeIds);
+    synchronized (scanMonitor) {
+      try {
+        if (singletonLeaseService != null) {
+          Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
+          if (lease.isEmpty()) {
+            List<String> releasedNodeIds = releaseLeaseHeldByStaleNodes();
+            if (!releasedNodeIds.isEmpty()) {
+              lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
+              if (lease.isPresent()) {
+                log.infof(
+                    "Orphan recovery lease acquired after releasing holds by stale node(s) %s",
+                    releasedNodeIds);
+              }
             }
           }
-        }
-        if (lease.isEmpty()) {
-          log.debug("Orphan recovery skipped - singleton lease held by another node");
+          if (lease.isEmpty()) {
+            log.debug("Orphan recovery skipped - singleton lease held by another node");
+            return;
+          }
+
+          try (SingletonLease ignored = lease.get()) {
+            recoverOrphansWithLease();
+          }
           return;
         }
 
-        try (SingletonLease ignored = lease.get()) {
-          recoverOrphansWithLease();
-        }
-        return;
+        recoverOrphansWithLease();
+      } catch (RatchetTransientStoreException e) {
+        log.warn("Orphan recovery scan hit a transient store failure; the next scan will retry", e);
+      } catch (Exception e) {
+        log.error("Orphan recovery scan failed", e);
       }
-
-      recoverOrphansWithLease();
-    } catch (RatchetTransientStoreException e) {
-      log.warn("Orphan recovery scan hit a transient store failure; the next scan will retry", e);
-    } catch (Exception e) {
-      log.error("Orphan recovery scan failed", e);
     }
   }
 
@@ -232,9 +235,11 @@ public class OrphanRecoveryTimer {
       throw new IllegalStateException("OrphanRecoveryTimer dependencies are not initialized");
     }
 
-    Instant cutoff = effective().instant().minusSeconds(orphanGraceSeconds);
+    Instant now = effective().instant();
+    Instant cutoff = now.minusSeconds(orphanGraceSeconds);
+    Instant deadline = now.plus(ORPHAN_SCAN_BUDGET);
     try {
-      recoverOrphans(cutoff);
+      recoverOrphans(cutoff, deadline);
     } finally {
       try {
         resourcePermitService.sweepWaiters();
@@ -246,12 +251,46 @@ public class OrphanRecoveryTimer {
     }
   }
 
-  private void recoverOrphans(Instant cutoff) {
-    OrphanRecovery recovery =
-        jobBulkStore.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, ORPHAN_PAGE_SIZE);
-    int resetJobs = recovery.reset();
-    for (ExhaustedOrphan orphan : recovery.exhausted()) {
-      failExhausted(orphan);
+  private void recoverOrphans(Instant cutoff, Instant deadline) {
+    int resetJobs = 0;
+    int failedJobs = 0;
+    int attemptedFailures = 0;
+    int pages = 0;
+    String stopReason = null;
+    scan:
+    for (int page = 0; page < MAX_ORPHAN_PAGES_PER_SCAN; page++) {
+      if (page > 0 && effective().instant().isAfter(deadline)) {
+        stopReason = "budget";
+        break;
+      }
+      OrphanRecovery recovery =
+          jobBulkStore.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, ORPHAN_PAGE_SIZE);
+      pages++;
+      resetJobs += recovery.reset();
+      for (ExhaustedOrphan orphan : recovery.exhausted()) {
+        if (attemptedFailures > 0 && effective().instant().isAfter(deadline)) {
+          stopReason = "budget";
+          break scan;
+        }
+        if (failExhausted(orphan)) {
+          failedJobs++;
+        }
+        attemptedFailures++;
+      }
+      if (recovery.scanned() < ORPHAN_PAGE_SIZE
+          || recovery.reset() + recovery.exhausted().size() == 0) {
+        break;
+      }
+      if (pages == MAX_ORPHAN_PAGES_PER_SCAN) {
+        stopReason = "page cap";
+      }
+    }
+    if (stopReason != null) {
+      log.infof(
+          "Orphan recovery stopped at %s: read %s page(s), reset %s row(s), failed %s exhausted"
+              + " row(s); more orphans may remain. Deferred rows return after one grace period;"
+              + " the next scan continues",
+          stopReason, pages, resetJobs, failedJobs);
     }
     List<NodeEntity> staleNodes = nodeStore.findInactiveNodesSince(cutoff);
 
@@ -264,10 +303,11 @@ public class OrphanRecoveryTimer {
       deletedNodes = nodeStore.deleteInactiveNodesByIds(staleNodeIds);
     }
 
-    if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
+    if (resetJobs > 0 || failedJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
       log.infof(
-          "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
-          resetJobs, cleanedPermits, deletedNodes);
+          "Orphan recovery: reset %s job(s), failed %s exhausted job(s), cleaned %s permit(s),"
+              + " removed %s stale node(s)",
+          resetJobs, failedJobs, cleanedPermits, deletedNodes);
     }
   }
 
@@ -282,14 +322,15 @@ public class OrphanRecoveryTimer {
     }
   }
 
-  private void failExhausted(ExhaustedOrphan orphan) {
+  private boolean failExhausted(ExhaustedOrphan orphan) {
+    boolean completed = false;
     try {
       JobEntity job;
       boolean hydrated = true;
       try {
         Optional<JobEntity> loaded = jobCrudStore.findById(orphan.jobId());
         if (loaded.isEmpty()) {
-          return;
+          return false;
         }
         job = loaded.get();
       } catch (Exception hydrationError) {
@@ -299,7 +340,7 @@ public class OrphanRecoveryTimer {
             orphan.jobId());
         Optional<JobEntity> snapshot = jobBulkStore.findOrphanCompletionSnapshot(orphan.jobId());
         if (snapshot.isEmpty()) {
-          return;
+          return false;
         }
         job = snapshot.get();
         hydrated = false;
@@ -324,8 +365,9 @@ public class OrphanRecoveryTimer {
         log.warnf(
             "Rejected orphan failure for job %s, stale claimSeq %s, node %s",
             orphan.jobId(), orphan.claimSeq(), orphan.pickedBy());
-        return;
+        return false;
       }
+      completed = true;
       job.setStatus(JobStatus.FAILED);
       if (hydrated) {
         failureCallback.accept(job, failure);
@@ -333,6 +375,7 @@ public class OrphanRecoveryTimer {
     } catch (Exception failure) {
       log.errorf(failure, "Cannot fail exhausted orphan %s; next scan will retry", orphan.jobId());
     }
+    return completed;
   }
 
   private Clock effective() {

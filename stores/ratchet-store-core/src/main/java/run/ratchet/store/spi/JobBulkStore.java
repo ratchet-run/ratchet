@@ -45,17 +45,18 @@ public interface JobBulkStore {
 
   /**
    * Reads up to {@code limit} RUNNING rows whose picked_at is before {@code cutoff} and whose owner
-   * has no heartbeat at or after cutoff (including rows without an owner), oldest picked_at first,
-   * with no crash-count filter. Rechecks candidates before changing them and closes every confirmed
-   * row's RUNNING executions as FAILED with {@code
-   * JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}.
+   * has no heartbeat at or after cutoff (including rows without an owner), with no crash-count
+   * filter. A store reads oldest picked_at first when an index supports that order; progress does
+   * not depend on it. Rechecks candidates before changing them and closes every confirmed row's
+   * RUNNING executions as FAILED with {@code JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}.
    *
    * <p>Rows below {@code maxCrashRedeliveries} (missing count means zero) become PENDING, with
    * owner and picked_at cleared, crash count incremented and updated_at set to now. Exhausted rows
    * stay RUNNING with the same owner, crash count and claim_seq; picked_at and updated_at are both
    * set to the current JVM time ({@link Instant#now()}). This defers them for one grace period.
    * Every confirmed row leaves the candidate window for this cutoff. Returns (scanned, reset, 0,
-   * exhausted), with exhausted claims in original picked_at order for the engine to fail.
+   * exhausted), with the page's exhausted claims in original picked_at order for the engine to
+   * fail.
    *
    * <p>One transaction per call, never joined to a caller's transaction. A nonpositive limit
    * touches nothing and returns {@link OrphanRecovery#none()}.
@@ -63,12 +64,12 @@ public interface JobBulkStore {
   OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit);
 
   /**
-   * Reads up to {@code limit} RUNNING rows owned by {@code nodeId}, oldest picked_at first, with no
-   * time cutoff. Rechecks candidates and closes their RUNNING execution rows as FAILED with {@code
-   * JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}. Resets rows below the maximum to PENDING,
-   * clears owner and picked_at, increments crash count (missing means zero), and sets updated_at to
-   * now. For rows at or above the maximum, clears only the owner, preserving status, picked_at and
-   * claim_seq so a later periodic page can fail them.
+   * Reads up to {@code limit} RUNNING rows owned by {@code nodeId}, with no time cutoff and in no
+   * guaranteed order. Rechecks candidates and closes their RUNNING execution rows as FAILED with
+   * {@code JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}. Resets rows below the maximum to
+   * PENDING, clears owner and picked_at, increments crash count (missing means zero), and sets
+   * updated_at to now. For rows at or above the maximum, clears only the owner, preserving status,
+   * picked_at and claim_seq so a later periodic page can fail them.
    *
    * <p>Returns (scanned, reset, released, empty exhausted list). One transaction per call, never
    * joined to a caller's transaction. A nonpositive limit touches nothing and returns {@link

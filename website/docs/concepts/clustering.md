@@ -217,9 +217,15 @@ Recovery closes the lost attempt's RUNNING execution row as FAILED with the mess
 
 Each scan also closes up to 500 execution rows still RUNNING whose job is no longer running and has not changed for the orphan grace period. These can follow a failed save or come from older versions. Rows of a job that is running again stay open. The row closes as FAILED with the message "This attempt never recorded its outcome before its job moved on, so a cleanup scan closed it; the outcome is unknown." If the worker saves its own row later, its result replaces the message.
 
-Each recovery returns a job to PENDING and adds one to its crash count. The limit is `ratchet.node.max-crash-redeliveries`, which defaults to 3. Once the count reaches the limit, the next crash fails the job through the normal completion path. The job enters the DLQ and runs `onFailure` if its payload can be loaded. Application retry counts are unchanged.
+A scan works in pages of up to 500 claims. Each page runs in its own transaction. The limits are fixed.
 
-On restart, a node recovers its own claims immediately. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.
+Each page returns claims below the crash limit to PENDING and adds one to their crash count. The limit is `ratchet.node.max-crash-redeliveries`, which defaults to 3. For claims at the limit, the store first moves them out of the scan window for one grace period. It then hands them to the engine to fail through the normal completion path. A claim that cannot be failed does not block the others. The job enters the DLQ and runs `onFailure` if its payload can be loaded. Application retry counts are unchanged.
+
+A scan stops after 20 pages or 10 seconds. It logs when either limit stops it early, and the next scan carries on.
+
+The orphan recovery lease is not a fence. A scan can outlive its lease. Without a `LockStore`, every node scans at once. Each store re-checks the orphan condition under lock, and every completion is fenced on the claim sequence. Overlapping scans are safe.
+
+On restart, a node pages through its own claims before it claims anything. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.
 
 Before it claims any job, a starting node also deletes the resource permits left under its node id. This runs for every `NodeIdentityProvider`. A custom provider writes no `scheduler_node` row, so orphan recovery never cleans its permits, and this start-up step is the only clean-up. It needs a node id that stays the same across restarts.
 

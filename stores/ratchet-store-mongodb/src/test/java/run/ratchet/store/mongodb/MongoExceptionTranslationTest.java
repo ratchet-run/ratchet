@@ -1217,14 +1217,14 @@ class MongoExceptionTranslationTest {
         new MongoJobCrudOperations(contextWithCollections(jobs, jobs, executions, session));
 
     assertEquals(1, crud.resetOrphanJobsForNode("dead", 3, 500).reset());
-    assertEquals(List.of("find", "close", "reset", "reset"), calls);
+    assertEquals(List.of("find", "close", "reset"), calls);
   }
 
   @Test
-  void startupRecoveryClosesExecutionsInBatches() {
+  void startupRecoveryClosesAFullPageOfExecutionsInOneUpdate() {
     List<UUID> jobIds = new ArrayList<>();
     List<Document> documents = new ArrayList<>();
-    for (int i = 0; i < ORPHAN_EXECUTION_CLOSE_BATCH + 1; i++) {
+    for (int i = 0; i < ORPHAN_EXECUTION_CLOSE_BATCH; i++) {
       UUID jobId = UUID.randomUUID();
       jobIds.add(jobId);
       documents.add(new Document(ID, jobId));
@@ -1294,11 +1294,13 @@ class MongoExceptionTranslationTest {
     MongoJobCrudOperations crud =
         new MongoJobCrudOperations(contextWithCollections(jobs, jobs, executions, session));
 
-    assertEquals(jobIds.size(), crud.resetOrphanJobsForNode("dead", 3, 500).reset());
-    assertEquals(List.of(ORPHAN_EXECUTION_CLOSE_BATCH, 1), batchSizes);
+    assertEquals(
+        jobIds.size(),
+        crud.resetOrphanJobsForNode("dead", 3, ORPHAN_EXECUTION_CLOSE_BATCH).reset());
+    assertEquals(List.of(ORPHAN_EXECUTION_CLOSE_BATCH), batchSizes);
     assertEquals(jobIds.size(), closedIds.size());
     assertEquals(new HashSet<>(jobIds), new HashSet<>(closedIds));
-    assertEquals(List.of("find", "close", "close", "reset", "reset"), calls);
+    assertEquals(List.of("find", "close", "reset"), calls);
   }
 
   @Test
