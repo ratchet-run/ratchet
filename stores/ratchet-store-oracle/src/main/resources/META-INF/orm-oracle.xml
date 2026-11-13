@@ -28,6 +28,7 @@
 
     <entity class="run.ratchet.store.entity.BatchEntity">
         <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="partitionSetId"/>
     </entity>
 
     <entity class="run.ratchet.store.entity.BatchMetricsEntity">

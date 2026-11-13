@@ -51,6 +51,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TIMEOUT_SEC;
 import static run.ratchet.store.mongodb.MongoFieldNames.ZONE_ID;
+import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.Filters;
@@ -217,7 +218,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
             crud.bulkInsert(
                 session, plans.stream().flatMap(plan -> plan.children().stream()).toList());
             return true;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 
@@ -320,7 +322,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
             reservations.releaseByOwner(session, id);
             ctx.recurringJobs().deleteOne(session, eq(ID, id));
             return Boolean.TRUE;
-          });
+          },
+          TRANSACTION_OPTIONS);
     }
   }
 
@@ -374,7 +377,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                 reservations.reserveRecurring(session, d.businessKey(), d.id());
                 ctx.recurringJobs().insertOne(session, doc);
                 return true;
-              });
+              },
+              TRANSACTION_OPTIONS);
         }
       }
     } catch (RuntimeException e) {
@@ -601,7 +605,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                   ctx.recurringJobs().deleteMany(session, in(ID, ids));
                 }
                 return docs.size();
-              });
+              },
+              TRANSACTION_OPTIONS);
       return result;
     }
   }

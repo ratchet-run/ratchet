@@ -48,6 +48,8 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
   private @Nullable String cache;
   private @Nullable Integer knownVersion;
   private boolean loaded;
+  private final CheckpointSeedSource seedSource;
+  private String seedValue;
   private boolean closed;
 
   public JobCheckpointWriter(
@@ -57,6 +59,18 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
       AfterCommitRegistrar registrar,
       PayloadSerializer serializer,
       JobStateFlusher flusher) {
+    this(jobId, attempt, stateStore, registrar, serializer, flusher, null);
+  }
+
+  public JobCheckpointWriter(
+      UUID jobId,
+      JobAttemptControl attempt,
+      @Nullable JobStateStore stateStore,
+      AfterCommitRegistrar registrar,
+      PayloadSerializer serializer,
+      JobStateFlusher flusher,
+      @Nullable CheckpointSeedSource seedSource) {
+    this.seedSource = seedSource;
     this.jobId = jobId;
     this.attempt = attempt;
     this.stateStore = stateStore;
@@ -148,9 +162,20 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
         }
         storedValue = text;
       }
+      String seeded = null;
+      if (state.isEmpty() && seedSource != null) {
+        var document = seedSource.seed(jobId);
+        if (document.isPresent()) {
+          Map<?, ?> decoded = serializer.deserialize(document.get(), Map.class);
+          if (decoded == null || !(decoded.get("value") instanceof String))
+            throw new IllegalStateException("Invalid checkpoint seed for job " + jobId);
+          seeded = (String) decoded.get("value");
+        }
+      }
       synchronized (this) {
+        seedValue = seeded;
         durableValue = storedValue;
-        if (cache == null) cache = storedValue;
+        if (cache == null) cache = storedValue != null ? storedValue : seedValue;
         loaded = true;
         return Optional.ofNullable(cache);
       }

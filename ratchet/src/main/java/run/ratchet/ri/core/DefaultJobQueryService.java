@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
+import run.ratchet.api.BatchPartition;
 import run.ratchet.api.ExecutionHistorySummary;
 import run.ratchet.api.JobDetail;
 import run.ratchet.api.JobFilter;
@@ -40,6 +41,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.PartitionSetSummary;
 import run.ratchet.api.QueueHealthSnapshot;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
@@ -77,6 +79,14 @@ public class DefaultJobQueryService implements JobQueryService {
 
   // Each property key costs the store one correlated subquery (SQL EXISTS, MongoDB $lookup).
   private static final int MAX_PROPERTY_KEYS = 32;
+
+  private PartitionService partitionService;
+
+  /** Connects partition generation support. */
+  @Inject
+  public void configurePartitions(PartitionService service) {
+    this.partitionService = service;
+  }
 
   private static final Logger log = Logger.getLogger(DefaultJobQueryService.class);
   private final JobStateStore stateStore;
@@ -487,6 +497,19 @@ public class DefaultJobQueryService implements JobQueryService {
   @Override
   public JobPage<JobSummary> getDependants(UUID jobId, int limit, int offset) {
     return findJobs(JobFilter.builder().parentJobId(jobId).build(), limit, offset);
+  }
+
+  @Override
+  public Optional<PartitionSetSummary> getPartitionSet(String key) {
+    return partitionService == null ? Optional.empty() : partitionService.getPartitionSet(key);
+  }
+
+  @Override
+  public JobPage<BatchPartition> getBatchPartitions(String key, int limit, int offset) {
+    validatePageRequest(limit, offset);
+    return partitionService == null
+        ? new JobPage<>(List.of(), 0, limit, offset, false, null)
+        : partitionService.getBatchPartitions(key, limit, offset);
   }
 
   @Override

@@ -41,6 +41,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.JobType;
+import run.ratchet.api.KeyRange;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
@@ -76,16 +77,21 @@ import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
+import run.ratchet.store.dto.PartitionGenerationWrite;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.entity.PartitionEntity;
+import run.ratchet.store.entity.PartitionOutcome;
+import run.ratchet.store.entity.PartitionSetEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.PartitionStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
@@ -100,6 +106,14 @@ import run.ratchet.store.util.PayloadEncryptor;
 @ApplicationScoped
 public class DefaultJobCreationService
     implements JobSubmitter, BatchSubmitter, StreamingBatchSubmitter, RecurringJobSubmitter {
+
+  private PartitionService partitionService;
+
+  /** Connects partition generation support. */
+  @Inject
+  public void configurePartitions(PartitionService service) {
+    this.partitionService = service;
+  }
 
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
@@ -360,7 +374,7 @@ public class DefaultJobCreationService
 
     JobPayload payload = payload(builder.task());
     List<JobPayload> chainPayloads = state.chainTasks().stream().map(this::payload).toList();
-    List<PreparedBranch> branches = prepareWorkflowBranches(builder.workflowBranches(), null);
+    List<BranchPayloads> branches = prepareWorkflowBranches(builder.workflowBranches(), null);
 
     String signalKey = state.awaitSignalKey();
     boolean isSignalWaiting = signalKey != null;
@@ -531,8 +545,6 @@ public class DefaultJobCreationService
   }
 
   private JobHandle submitPrepared(DefaultBatchBuilder builder) {
-    requireBatchCapability();
-    requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
     String idempotencyKey = builder.idempotencyKey();
     if (idempotencyKey != null) {
       Optional<UUID> existingByKey = jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
@@ -544,6 +556,9 @@ public class DefaultJobCreationService
         return () -> existingId;
       }
     }
+    requireBatchCapability();
+    requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
+    if (builder.partitionKey() != null) return submitPartitions(builder);
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
       validateReducingChildren(builder);
@@ -554,7 +569,7 @@ public class DefaultJobCreationService
             .toList();
     JobPayload progressPayload =
         builder.progressHook() == null ? null : runtimePayload(builder.progressHook());
-    List<PreparedBranch> branches =
+    List<BranchPayloads> branches =
         prepareWorkflowBranches(
             builder.workflowBranches(),
             builder.reducer() == null ? null : builder.reducer().successBranch());
@@ -599,10 +614,6 @@ public class DefaultJobCreationService
       checkCreateAuthorization(childJob);
       childJobs.add(childJob);
     }
-    if (!childJobs.isEmpty()) {
-      bulkInsertJobs(childJobs);
-    }
-
     createWorkflowBranches(
         parentId,
         branches,
@@ -610,6 +621,10 @@ public class DefaultJobCreationService
         builder.executionTarget(),
         savedParent.isEncryptedPayload(),
         callerPrincipal);
+
+    if (!childJobs.isEmpty()) {
+      bulkInsertJobs(childJobs);
+    }
 
     if (childJobs.isEmpty()) {
       if (batchService.completeEmptyBatch(parentId, batch)) {
@@ -630,6 +645,200 @@ public class DefaultJobCreationService
     log.infof(
         "Batch '%s' submitted with %s children (id=%s)",
         builder.name(), builder.children().size(), parentId);
+    return () -> parentId;
+  }
+
+  @Override
+  public int maxPartitions() {
+    return partitionService == null ? Integer.MAX_VALUE : partitionService.maxPartitions();
+  }
+
+  private JobHandle submitPartitions(DefaultBatchBuilder builder) {
+    PartitionStore partitions = partitionService == null ? null : partitionService.store();
+    if (partitions == null)
+      throw new UnsupportedOperationException(
+          "Partitioned batches require a store advertising the PartitionStore capability");
+    if (builder.reducer() != null)
+      throw new IllegalStateException("Partitions cannot reduce results");
+    if (!builder.reopened().isEmpty() && builder.idempotencyKey() == null)
+      throw new IllegalStateException("Reopening partitions requires an idempotency key");
+    if (builder.partitions().size() > partitionService.maxPartitions())
+      throw new IllegalArgumentException("Too many partitions");
+    if (builder.name() == null || builder.name().isBlank() || builder.name().length() > 255)
+      throw new IllegalArgumentException("Partition set name must contain 1 to 255 characters");
+    requireWorkflowConditionCapability(builder.workflowBranches());
+    String caller = resolveCallerPrincipal();
+    Instant now = effective().instant();
+    UUID parentId = UuidV7Factory.create();
+    PartitionSetEntity set = partitions.findPartitionSet(builder.partitionKey()).orElse(null);
+    Integer expectedVersion = null;
+    List<PartitionEntity> rows = new ArrayList<>();
+    if (set == null) {
+      if (!builder.reopened().isEmpty())
+        throw new IllegalArgumentException("Cannot reopen a new partition set");
+      set = new PartitionSetEntity();
+      set.setSetId(UuidV7Factory.create());
+      set.setSetKey(builder.partitionKey());
+      set.setName(builder.name());
+      set.setPartitionCount(builder.partitions().size());
+      set.setLatestGeneration(1);
+      set.setSealedGeneration(0);
+      set.setCreatedAt(now);
+      set.setOwnerPrincipal(caller);
+      for (int index = 0; index < builder.partitions().size(); index++) {
+        KeyRange range = builder.partitions().get(index);
+        PartitionEntity row = new PartitionEntity();
+        row.setSetId(set.getSetId());
+        row.setPartitionIndex(index);
+        row.setRangeFrom(range.from());
+        row.setRangeTo(range.to());
+        rows.add(row);
+      }
+    } else {
+      if (authorizationPolicy != null)
+        authorizationPolicy.checkRetry(set.getLatestBatchId(), set.getOwnerPrincipal(), caller);
+      List<PartitionEntity> stored = new ArrayList<>();
+      int after = -1;
+      while (true) {
+        List<PartitionEntity> page = partitions.findPartitions(set.getSetId(), after, 500);
+        if (page.isEmpty()) break;
+        stored.addAll(page);
+        after = page.get(page.size() - 1).getPartitionIndex();
+      }
+      if (stored.size() != builder.partitions().size())
+        throw new IllegalArgumentException("Partition ranges changed");
+      for (int index = 0; index < stored.size(); index++) {
+        var row = stored.get(index);
+        var range = builder.partitions().get(index);
+        if (row.getPartitionIndex() != index
+            || row.getRangeFrom() != range.from()
+            || row.getRangeTo() != range.to())
+          throw new IllegalArgumentException("Partition ranges changed");
+      }
+      if (set.getSealedGeneration() < set.getLatestGeneration()) {
+        partitionService.trySeal(set);
+        set = partitions.findPartitionSet(builder.partitionKey()).orElseThrow();
+        if (set.getSealedGeneration() < set.getLatestGeneration()) {
+          if (!builder.reopened().isEmpty())
+            throw new IllegalStateException(
+                "the previous generation of partition set '"
+                    + builder.partitionKey()
+                    + "' is still running");
+          UUID latest = set.getLatestBatchId();
+          return () -> latest;
+        }
+        // Lazy sealing updated outcomes and checkpoints; reload before choosing targets.
+        stored.clear();
+        after = -1;
+        while (true) {
+          var page = partitions.findPartitions(set.getSetId(), after, 500);
+          if (page.isEmpty()) break;
+          stored.addAll(page);
+          after = page.get(page.size() - 1).getPartitionIndex();
+        }
+      }
+      for (var row : stored) {
+        boolean reopen = builder.reopened().contains(row.getPartitionIndex());
+        if (row.getOutcome() != PartitionOutcome.SUCCEEDED || reopen) {
+          if (reopen) row.setCheckpoint(null);
+          rows.add(row);
+        }
+      }
+      if (rows.isEmpty()) {
+        UUID latest = set.getLatestBatchId();
+        return () -> latest;
+      }
+      expectedVersion = set.getVersion();
+      set.setLatestGeneration(set.getLatestGeneration() + 1);
+    }
+    set.setLatestBatchId(parentId);
+    set.setGenerationStartedAt(now);
+    set.setUpdatedAt(now);
+    for (var row : rows) {
+      row.setGeneration(set.getLatestGeneration());
+      row.setChildJobId(UuidV7Factory.create());
+      row.setOutcome(null);
+      row.setLastError(null);
+    }
+    JobEntity parent = newBatchParent(caller, builder.idempotencyKey());
+    parent.setId(parentId);
+    parent.setExecutionTarget(builder.executionTarget());
+    checkCreateAuthorization(parent);
+    BatchEntity batch = new BatchEntity();
+    batch.setId(parentId);
+    batch.setPartitionSetId(set.getSetId());
+    batch.setGeneration(set.getLatestGeneration());
+    batch.setTotalItems(rows.size());
+    batch.setCompletedItems(0);
+    batch.setFailedItems(0);
+    if (builder.progressHook() != null)
+      batch.setProgressHook(runtimePayload(builder.progressHook()));
+    requireBulkStore();
+    List<JobEntity> children = new ArrayList<>();
+    for (var row : rows) {
+      JobEntity child = new JobEntity();
+      child.setId(row.getChildJobId());
+      child.setJobType(JobExecutionType.BATCH_CHILD);
+      child.setStatus(JobStatus.PENDING);
+      child.setPriority(JobPriority.NORMAL);
+      child.setScheduledTime(now);
+      child.setPayload(
+          validateRunnable(
+              builder.partitionPayload(new KeyRange(row.getRangeFrom(), row.getRangeTo()))));
+      child.setIdempotencyKey(UUID.randomUUID().toString());
+      child.setDependsOn(parentId);
+      child.setExecutionTarget(builder.executionTarget());
+      child.setResourceName(builder.childResourceName());
+      applyOptions(child, builder.childOptions());
+      stampCallerPrincipal(child, caller);
+      checkCreateAuthorization(child);
+      children.add(child);
+    }
+    List<BranchPayloads> branchPayloads = prepareWorkflowBranches(builder.workflowBranches(), null);
+    List<PreparedWorkflowBranch> branches = new ArrayList<>();
+    for (int order = 0; order < branchPayloads.size(); order++) {
+      branches.add(
+          prepareWorkflowBranch(
+              parentId,
+              branchPayloads.get(order),
+              order,
+              builder.callbackOptions(),
+              builder.executionTarget(),
+              parent.isEncryptedPayload(),
+              caller));
+    }
+    if (!partitions.createOrAdvance(
+        new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
+      throw new IllegalStateException(
+          "Partition set '" + builder.partitionKey() + "' was submitted concurrently; retry");
+    try {
+      for (PreparedWorkflowBranch branch : branches) {
+        persistWorkflowBranch(branch);
+      }
+      bulkInsertJobs(children);
+    } catch (RuntimeException | Error failure) {
+      try {
+        partitionService.cancelGeneration(parentId);
+      } catch (RuntimeException | Error cancellationFailure) {
+        if (cancellationFailure != failure) {
+          failure.addSuppressed(cancellationFailure);
+        }
+      }
+      throw failure;
+    }
+    // Once all children exist, the sweep's count < totalItems check cannot fire.
+    // Every callback was written before the children, so cancellation finds them all.
+    // A failure from here on leaves the complete generation running. If the parent was
+    // canceled, the sweep runs the same cleanup before it seals the generation.
+    if (jobCrudStore.getJobStatus(parentId) == JobStatus.CANCELED) {
+      batchService.cancelBatch(parent);
+      log.warnf("Canceled late partition writes for parent %s in set %s", parentId, set.getSetId());
+    }
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.BATCH_PARENT,
+        JobPriority.NORMAL,
+        Duration.ZERO,
+        builder.executionTarget());
     return () -> parentId;
   }
 
@@ -688,7 +897,7 @@ public class DefaultJobCreationService
         stagedIterator == null
             ? item -> streamingPayload(builder, item)
             : item -> stagedIterator.next();
-    List<PreparedBranch> branches =
+    List<BranchPayloads> branches =
         prepareWorkflowBranches(
             builder.workflowBranches(),
             builder.reducer() == null ? null : builder.reducer().successBranch());
@@ -729,6 +938,14 @@ public class DefaultJobCreationService
     }
     saveBatch(batch);
 
+    createWorkflowBranches(
+        parentId,
+        branches,
+        builder.callbackOptions(),
+        builder.executionTarget(),
+        savedParent.isEncryptedPayload(),
+        callerPrincipal);
+
     while (!chunk.isEmpty() || iterator.hasNext()) {
       while (chunk.size() < builder.chunkSize() && iterator.hasNext()) {
         chunk.add(iterator.next());
@@ -751,14 +968,6 @@ public class DefaultJobCreationService
     }
 
     batchStore.updateBatchTotalItems(parentId, totalItems);
-
-    createWorkflowBranches(
-        parentId,
-        branches,
-        builder.callbackOptions(),
-        builder.executionTarget(),
-        savedParent.isEncryptedPayload(),
-        callerPrincipal);
 
     if (totalItems == 0) {
       if (batchService.completeEmptyBatch(parentId, batch)) {
@@ -1143,24 +1352,24 @@ public class DefaultJobCreationService
   }
 
   private JobBulkStore bulkStore() {
+    requireBulkStore();
+    return jobBulkStore;
+  }
+
+  private void requireBulkStore() {
     if (jobBulkStore == null) {
       throw new IllegalStateException(
           "Batch submission requires a JobBulkStore; use the CDI constructor or pass a store that"
               + " implements JobBulkStore.");
     }
-    return jobBulkStore;
   }
 
-  private record PreparedBranch(WorkflowBranch branch, JobPayload payload, JobPayload expression) {}
+  private record BranchPayloads(WorkflowBranch branch, JobPayload payload, JobPayload expression) {}
 
-  private List<PreparedBranch> prepareWorkflowBranches(
+  private List<BranchPayloads> prepareWorkflowBranches(
       List<WorkflowBranch> branches, WorkflowBranch resultSlotBranch) {
-    if (workflowConditionStore == null && !branches.isEmpty()) {
-      throw new UnsupportedOperationException(
-          "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
-              + " capability");
-    }
-    List<PreparedBranch> prepared = new ArrayList<>(branches.size());
+    requireWorkflowConditionCapability(branches);
+    List<BranchPayloads> prepared = new ArrayList<>(branches.size());
     for (WorkflowBranch branch : branches) {
       JobPayload task =
           payload(
@@ -1175,33 +1384,34 @@ public class DefaultJobCreationService
                       || expression instanceof SerializableFunction<?, ?>
                   ? validate(JobPayloadFactory.deferredConditionPayload(expression))
                   : null;
-      prepared.add(new PreparedBranch(branch, task, condition));
+      prepared.add(new BranchPayloads(branch, task, condition));
     }
     return prepared;
   }
 
   private void createWorkflowBranches(
       UUID parentId,
-      List<PreparedBranch> branches,
+      List<BranchPayloads> branches,
       JobOptions options,
       String executionTarget,
       boolean parentEncrypted,
       String callerPrincipal) {
     for (int definitionOrder = 0; definitionOrder < branches.size(); definitionOrder++) {
-      createWorkflowBranch(
-          parentId,
-          branches.get(definitionOrder),
-          definitionOrder,
-          options,
-          executionTarget,
-          parentEncrypted,
-          callerPrincipal);
+      persistWorkflowBranch(
+          prepareWorkflowBranch(
+              parentId,
+              branches.get(definitionOrder),
+              definitionOrder,
+              options,
+              executionTarget,
+              parentEncrypted,
+              callerPrincipal));
     }
   }
 
-  private void createWorkflowBranch(
+  private PreparedWorkflowBranch prepareWorkflowBranch(
       UUID parentId,
-      PreparedBranch prepared,
+      BranchPayloads prepared,
       int definitionOrder,
       JobOptions options,
       String executionTarget,
@@ -1209,6 +1419,7 @@ public class DefaultJobCreationService
       String callerPrincipal) {
     WorkflowBranch branch = prepared.branch();
     JobEntity branchJob = new JobEntity();
+    branchJob.setId(UuidV7Factory.create());
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(options.priority());
@@ -1221,11 +1432,10 @@ public class DefaultJobCreationService
     branchJob.setExecutionTarget(executionTarget);
     stampCallerPrincipal(branchJob, callerPrincipal);
     checkCreateAuthorization(branchJob);
-    JobEntity savedBranch = createJob(branchJob);
 
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
     condition.setParentJobId(parentId);
-    condition.setChildJobId(savedBranch.getId());
+    condition.setChildJobId(branchJob.getId());
     condition.setConditionType(branch.condition().type());
     condition.setConditionPriority(branch.condition().priority());
     condition.setDefinitionOrder(definitionOrder);
@@ -1251,7 +1461,22 @@ public class DefaultJobCreationService
         condition.setConditionExpression(expr.toString());
       }
     }
-    workflowConditionStore.saveCondition(condition);
+    return new PreparedWorkflowBranch(branchJob, condition);
+  }
+
+  private record PreparedWorkflowBranch(JobEntity job, WorkflowConditionEntity condition) {}
+
+  private void persistWorkflowBranch(PreparedWorkflowBranch branch) {
+    createJob(branch.job());
+    workflowConditionStore.saveCondition(branch.condition());
+  }
+
+  private void requireWorkflowConditionCapability(List<WorkflowBranch> branches) {
+    if (workflowConditionStore == null && !branches.isEmpty()) {
+      throw new UnsupportedOperationException(
+          "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
+              + " capability");
+    }
   }
 
   private JobPayload payload(Serializable callback) {

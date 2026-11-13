@@ -62,6 +62,7 @@ public enum ConformanceLevel {
           "AbstractJobAuditStoreContract",
           "AbstractRecurringJobStoreContract",
           "AbstractBatchStoreContract",
+          "AbstractPartitionStoreContract",
           "AbstractWorkflowConditionStoreContract",
           "AbstractJobQueryStoreContract",
           "AbstractJobAnalyticsStoreContract",

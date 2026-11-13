@@ -321,6 +321,9 @@ CREATE TABLE IF NOT EXISTS scheduler_batch
     progress_hook        JSON            NULL,
     reducer JSON NULL,
     fold_claimed_at DATETIME(3) NULL,
+    partition_set_id BINARY(16) NULL,
+    generation INT NULL,
+    INDEX idx_batch_partition_set (partition_set_id),
     PRIMARY KEY (batch_id),
     CONSTRAINT fk_batch_job FOREIGN KEY (batch_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
@@ -537,3 +540,35 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
     PRIMARY KEY (event_id),
     INDEX idx_event_outbox_created (created_at, event_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS scheduler_partition_set (
+    set_id BINARY(16) NOT NULL,
+    set_key VARCHAR(36) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    partition_count INT NOT NULL,
+    latest_generation INT NOT NULL,
+    latest_batch_id BINARY(16) NOT NULL,
+    sealed_generation INT DEFAULT 0 NOT NULL,
+    generation_started_at DATETIME(3) NOT NULL,
+    owner_principal VARCHAR(255) NULL,
+    version INT DEFAULT 0 NOT NULL,
+    created_at DATETIME(3) NOT NULL,
+    updated_at DATETIME(3) NOT NULL,
+    CONSTRAINT pk_scheduler_partition_set PRIMARY KEY (set_id),
+    CONSTRAINT uq_partition_set_key UNIQUE (set_key)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS scheduler_partition (
+    set_id BINARY(16) NOT NULL,
+    partition_index INT NOT NULL,
+    range_from BIGINT NOT NULL,
+    range_to BIGINT NOT NULL,
+    generation INT NOT NULL,
+    child_job_id BINARY(16) NOT NULL,
+    outcome VARCHAR(20) NULL,
+    last_error LONGTEXT NULL,
+    checkpoint_json LONGTEXT NULL,
+    INDEX idx_partition_child (child_job_id),
+    CONSTRAINT pk_scheduler_partition PRIMARY KEY (set_id, partition_index),
+    CONSTRAINT fk_partition_set FOREIGN KEY (set_id) REFERENCES scheduler_partition_set (set_id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;

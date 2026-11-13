@@ -234,6 +234,8 @@ public class RatchetOptions {
     builder.maintenance.batchRecoveryLeaseTtlSeconds = maintenance.batchRecoveryLeaseTtlSeconds();
     builder.maintenance.batchRecoveryIntervalSeconds = maintenance.batchRecoveryIntervalSeconds();
     builder.maintenance.batchFoldTimeout = maintenance.batchFoldTimeout();
+    builder.maintenance.batchMaxPartitions = maintenance.batchMaxPartitions();
+    builder.maintenance.batchPartitionGrace = maintenance.batchPartitionGrace();
 
     builder.schema.autoMigrate = schema.autoMigrate();
     builder.schema.migrationDialect = schema.migrationDialect();
@@ -765,6 +767,8 @@ public class RatchetOptions {
    * @param logRetentionDays age in days at which execution-log rows become eligible for purge
    * @param batchRecoveryIntervalSeconds interval in seconds between batch recovery scans
    * @param batchRecoveryLeaseTtlSeconds batch recovery lease lifetime in seconds
+   * @param batchMaxPartitions maximum partition count
+   * @param batchPartitionGrace grace for incomplete child insertion
    * @param batchFoldTimeout stale batch-fold claim lifetime
    */
   public record MaintenanceOptions(
@@ -780,11 +784,31 @@ public class RatchetOptions {
       long logRetentionDays,
       long batchRecoveryIntervalSeconds,
       long batchRecoveryLeaseTtlSeconds,
-      Duration batchFoldTimeout) {
+      Duration batchFoldTimeout,
+      int batchMaxPartitions,
+      Duration batchPartitionGrace) {
     public MaintenanceOptions {
       Objects.requireNonNull(batchFoldTimeout, "batchFoldTimeout");
       if (batchFoldTimeout.isZero() || batchFoldTimeout.isNegative())
         throw new IllegalArgumentException("Fold timeout must be positive");
+      if (batchMaxPartitions < 1)
+        throw new IllegalArgumentException("Maximum partitions must be positive");
+      if (batchPartitionGrace == null
+          || batchPartitionGrace.isNegative()
+          || batchPartitionGrace.isZero())
+        throw new IllegalArgumentException("Partition grace must be positive");
+    }
+
+    /** Returns the maximum number of partitions in a set. */
+    @Incubating
+    public int batchMaxPartitions() {
+      return batchMaxPartitions;
+    }
+
+    /** Returns the grace for incomplete child insertion. */
+    @Incubating
+    public Duration batchPartitionGrace() {
+      return batchPartitionGrace;
     }
 
     /**
@@ -1499,6 +1523,25 @@ public class RatchetOptions {
 
     private long batchRecoveryLeaseTtlSeconds = 900L;
     private Duration batchFoldTimeout = Duration.ofMinutes(5);
+    private int batchMaxPartitions = 10000;
+    private Duration batchPartitionGrace = Duration.ofMinutes(30);
+
+    /** Sets the maximum partition count; must be at least one. */
+    @Incubating
+    public MaintenanceBuilder batchMaxPartitions(int count) {
+      if (count < 1) throw new IllegalArgumentException("Maximum partitions must be positive");
+      batchMaxPartitions = count;
+      return this;
+    }
+
+    /** Sets the positive grace before canceling incomplete partition generations. */
+    @Incubating
+    public MaintenanceBuilder batchPartitionGrace(Duration grace) {
+      if (grace == null || grace.isNegative() || grace.isZero())
+        throw new IllegalArgumentException("Partition grace must be positive");
+      batchPartitionGrace = grace;
+      return this;
+    }
 
     /** Sets the stale fold-claim timeout. */
     @Incubating
@@ -1588,7 +1631,9 @@ public class RatchetOptions {
           logRetentionDays,
           batchRecoveryIntervalSeconds,
           batchRecoveryLeaseTtlSeconds,
-          batchFoldTimeout);
+          batchFoldTimeout,
+          batchMaxPartitions,
+          batchPartitionGrace);
     }
   }
 
