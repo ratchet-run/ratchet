@@ -49,7 +49,8 @@ public final class MicronautAfterCommitRegistrar implements AfterCommitRegistrar
       manager = operations.get();
     } catch (RuntimeException failure) {
       throw new IllegalStateException(
-          "Ratchet after-commit callbacks require one default or @Primary TransactionOperations",
+          "Ratchet after-commit callbacks require the transaction manager selected by"
+              + " ratchet.jpa.datasource",
           failure);
     }
     if (manager == null) return Result.NO_ACTIVE_TRANSACTION;

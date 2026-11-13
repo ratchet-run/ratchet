@@ -21,6 +21,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.transaction.PlatformTransactionManager;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.BatchCompletionTransaction;
@@ -31,12 +32,14 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.ri.core.internal.ConnectionPoolSize;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DefaultPollerScheduler;
@@ -312,6 +315,7 @@ class RatchetExecutionConfiguration {
   DefaultJobExecutorService defaultJobExecutorService(
       JobStore store,
       ObjectProvider<PreExecutionArgResolver> argResolver,
+      ObjectProvider<RatchetConnectionPoolSizeProvider> connectionPoolSize,
       PoolRegistry poolRegistry,
       JobTimeoutHandler timeoutHandler,
       ExecutorProvider executorProvider,
@@ -321,6 +325,7 @@ class RatchetExecutionConfiguration {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       JobPayloadInvoker payloadInvoker,
+      JobTransaction jobTransaction,
       JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
@@ -334,31 +339,37 @@ class RatchetExecutionConfiguration {
       JobStateFlusher jobStateFlusher,
       Clock clock,
       RatchetOptions options) {
-    return new DefaultJobExecutorService(
-        argResolver.getIfAvailable(),
-        poolRegistry,
-        timeoutHandler,
-        executorProvider,
-        store,
-        resourcePermitService,
-        postExecutionHandler,
-        nodeIdProvider,
-        executionObserver,
-        preExecutionValidator,
-        payloadInvoker,
-        successFinalizer,
-        retryPolicy,
-        resilienceStrategy,
-        errorSanitizer,
-        pollerScheduler,
-        jobLoggerFactory,
-        resultPersistenceStrategy,
-        authorizationPolicy,
-        payloadSerializer,
-        afterCommitRegistrar,
-        jobStateFlusher,
-        clock,
-        options);
+    DefaultJobExecutorService service =
+        new DefaultJobExecutorService(
+            argResolver.getIfAvailable(),
+            poolRegistry,
+            timeoutHandler,
+            executorProvider,
+            store,
+            resourcePermitService,
+            postExecutionHandler,
+            nodeIdProvider,
+            executionObserver,
+            preExecutionValidator,
+            payloadInvoker,
+            jobTransaction,
+            successFinalizer,
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            pollerScheduler,
+            jobLoggerFactory,
+            resultPersistenceStrategy,
+            authorizationPolicy,
+            payloadSerializer,
+            afterCommitRegistrar,
+            jobStateFlusher,
+            clock,
+            options);
+    RatchetConnectionPoolSizeProvider poolSize = connectionPoolSize.getIfAvailable();
+    service.configureConnectionPoolWarning(
+        poolSize == null ? null : (ConnectionPoolSize) poolSize::maximumPoolSize);
+    return service;
   }
 
   @Bean
@@ -420,6 +431,16 @@ class RatchetExecutionConfiguration {
       NodeIdentityProvider node,
       AfterCommitRegistrar registrar) {
     return new JobWakeupService(cluster, poller::getObject, metrics, node, registrar);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(JobTransaction.class)
+  SpringJobTransaction jobTransaction(
+      ObjectProvider<RatchetTransactionManagerProvider> selected,
+      ObjectProvider<PlatformTransactionManager> managers) {
+    RatchetTransactionManagerProvider provider = selected.getIfAvailable();
+    return new SpringJobTransaction(
+        () -> provider == null ? managers.getObject() : provider.transactionManager());
   }
 
   @Bean

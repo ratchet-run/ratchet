@@ -16,25 +16,173 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.TransactionalJob;
+import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.store.entity.JobPayload;
 
 class JobPayloadInvokerTest {
+
+  @Test
+  void rejectsComposedTransactionEscapesAndAcceptsRequired() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(null, name -> true);
+    for (String method : List.of("requiresNew", "nested", "aliased")) {
+      IllegalArgumentException failure =
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  invoker.validateTransactionalSubmission(
+                      payload(ComposedJobs.class, method, "()V", true, List.of()), true));
+      String annotationName =
+          switch (method) {
+            case "requiresNew" -> RequiresNew.class.getName();
+            case "nested" -> Nested.class.getName();
+            default -> Aliased.class.getName();
+          };
+      assertTrue(
+          failure
+              .getMessage()
+              .startsWith("@TransactionalJob cannot use " + annotationName + " with "));
+    }
+    invoker.validateTransactionalSubmission(
+        payload(ComposedJobs.class, "required", "()V", true, List.of()), true);
+  }
+
+  @Test
+  void rejectsTransactionEscapesOnSupertypes() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(null, name -> true);
+    for (Class<?> target :
+        List.of(InterfaceJob.class, InterfaceTypeJob.class, SubclassJob.class, GenericJob.class)) {
+      String descriptor = target == GenericJob.class ? "(Ljava/lang/String;)V" : "()V";
+      IllegalArgumentException failure =
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  invoker.validateTransactionalSubmission(
+                      payload(target, "handle", descriptor, false, List.of()), true));
+      assertTrue(failure.getMessage().contains(Transactional.class.getName()));
+    }
+    invoker.validateTransactionalSubmission(
+        payload(RequiredJob.class, "handle", "()V", false, List.of()), true);
+  }
+
+  interface EscapingHandler {
+    @Transactional(TxType.REQUIRES_NEW)
+    void handle();
+  }
+
+  public static class InterfaceJob implements EscapingHandler {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
+  @Transactional(TxType.NOT_SUPPORTED)
+  interface UnsupportedHandler {
+    void handle();
+  }
+
+  public static class InterfaceTypeJob implements UnsupportedHandler {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
+  public static class SuperclassJob {
+    @Transactional(TxType.NEVER)
+    public void handle() {}
+  }
+
+  public static class SubclassJob extends SuperclassJob {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
+  interface Handler<T> {
+    @Transactional(TxType.REQUIRES_NEW)
+    void handle(T item);
+  }
+
+  public static class GenericJob implements Handler<String> {
+    @Override
+    @TransactionalJob
+    public void handle(String item) {}
+  }
+
+  interface RequiredHandler {
+    @Transactional(TxType.REQUIRED)
+    void handle();
+  }
+
+  public static class RequiredJob implements RequiredHandler {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target({ElementType.METHOD, ElementType.ANNOTATION_TYPE})
+  @Documented
+  @Transactional(TxType.REQUIRES_NEW)
+  public @interface RequiresNew {}
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Transactional(TxType.NOT_SUPPORTED)
+  public @interface Unsupported {}
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Unsupported
+  public @interface Nested {}
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Transactional
+  public @interface Aliased {
+    TxType propagation() default TxType.REQUIRED;
+  }
+
+  @Retention(RetentionPolicy.RUNTIME)
+  @Transactional(TxType.REQUIRED)
+  public @interface Required {}
+
+  @TransactionalJob
+  public static class ComposedJobs {
+    @RequiresNew
+    public static void requiresNew() {}
+
+    @Nested
+    public static void nested() {}
+
+    @Aliased(propagation = TxType.REQUIRES_NEW)
+    public static void aliased() {}
+
+    @Required
+    public static void required() {}
+  }
 
   @Test
   void sameBinaryNameLoadedByTwoClassLoadersUsesTheCurrentContextLoader() throws Exception {
@@ -202,6 +350,70 @@ class JobPayloadInvokerTest {
     public static void methodCall() {}
   }
 
+  @Test
+  void transactionalMetadataReadsMethodClassAndAbsenceAndCachesIt() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> true);
+    JobPayload method =
+        payload(InvocationTarget.class, "transactionalCall", "()V", true, List.of());
+    ResilienceTarget resolved = invoker.resilienceTarget(method);
+    assertTrue(resolved.transactional());
+    assertSame(resolved, invoker.resilienceTarget(method));
+    assertTrue(
+        invoker
+            .resilienceTarget(payload(TransactionalTarget.class, "call", "()V", true, List.of()))
+            .transactional());
+    assertFalse(
+        invoker
+            .resilienceTarget(
+                payload(
+                    InvocationTarget.class, "staticValue", "()Ljava/lang/String;", true, List.of()))
+            .transactional());
+    assertFalse(
+        invoker
+            .resilienceTarget(payload(TransactionalTarget.class, "missing", "()V", true, List.of()))
+            .transactional());
+  }
+
+  @Test
+  void transactionalMetadataHonorsPolicyEvenAfterCaching() {
+    AtomicBoolean allowed = new AtomicBoolean(true);
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> allowed.get());
+    JobPayload method = payload(TransactionalTarget.class, "call", "()V", true, List.of());
+    assertTrue(invoker.resilienceTarget(method).transactional());
+    allowed.set(false);
+    assertFalse(invoker.resilienceTarget(method).transactional());
+  }
+
+  @Test
+  void recurringDispatcherResolvesTransactionalMetadataFromItsRealBody() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> true);
+    JobPayload transactional =
+        payload(
+            RecurringMethodInvoker.class,
+            "invoke",
+            "(Ljava/lang/String;Ljava/lang/String;Z)V",
+            false,
+            List.of(TransactionalTarget.class.getName(), "call", false));
+    JobPayload ordinary =
+        payload(
+            RecurringMethodInvoker.class,
+            "invoke",
+            "(Ljava/lang/String;Ljava/lang/String;Z)V",
+            false,
+            List.of(InvocationTarget.class.getName(), "protectedValue", false));
+    assertTrue(invoker.resilienceTarget(transactional).transactional());
+    assertFalse(invoker.resilienceTarget(ordinary).transactional());
+    assertTrue(invoker.resilienceTarget(transactional).transactional());
+    assertEquals(
+        invoker.resilienceTarget(ordinary).serviceName(),
+        invoker.resilienceTarget(transactional).serviceName());
+  }
+
+  @TransactionalJob
+  public static class TransactionalTarget {
+    public static void call() {}
+  }
+
   private static JobPayload payload(
       Class<?> target, String method, String descriptor, boolean isStatic, List<Object> args) {
     return new JobPayload(target.getName(), method, descriptor, isStatic, args, null);
@@ -228,6 +440,9 @@ class JobPayloadInvokerTest {
   }
 
   public static final class InvocationTarget {
+    @TransactionalJob
+    public static void transactionalCall() {}
+
     public static String staticValue() {
       return "static";
     }
