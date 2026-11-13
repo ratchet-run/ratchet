@@ -206,8 +206,10 @@ public interface JobSchedulerService extends BusinessKeyLookup {
    * can stay held until that limit. A job that fails by a hard timeout does not hold its key.
    *
    * <p>Cancelling a job also cancels the chain and workflow steps that wait on it, and cancelling a
-   * batch parent cancels the rest of its batch. Jobs in terminal states (SUCCEEDED, FAILED,
-   * CANCELED) cannot be canceled.
+   * batch parent cancels the rest of its batch. A step that has just started is cancelled as a
+   * RUNNING job and keeps its business key held until its body ends. Its body is asked to stop
+   * within about ten seconds, and no {@code JobCancelledEvent} is published for the step. Jobs in
+   * terminal states (SUCCEEDED, FAILED, CANCELED) cannot be canceled.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
