@@ -279,7 +279,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
       ids.add(store.create(job).getId());
     }
     var failures = new ConcurrentLinkedQueue<Throwable>();
-    var escapedLockFailures = new AtomicInteger();
+    var escapedLockFailures = new ConcurrentHashMap<String, AtomicInteger>();
+    var lastLockFailure = new ThreadLocal<String>();
+    var lockFailureSamples = new ConcurrentHashMap<String, String>();
     var waiterLockFailures = new ConcurrentHashMap<String, AtomicInteger>();
     var acquisitions = new AtomicInteger();
     var parks = new AtomicInteger();
@@ -377,6 +379,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               if (isLockFailure(failure)) {
                 var counts = isWaiterFailure(method, failure) ? waiterLockFailures : lockFailures;
                 counts.computeIfAbsent(method, ignored -> new AtomicInteger()).incrementAndGet();
+                lastLockFailure.set(method);
+                lockFailureSamples.putIfAbsent(method, rootMessage(failure));
               }
             });
     try {
@@ -390,7 +394,11 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                       role.run();
                     } catch (Throwable failure) {
                       if (isLockFailure(failure)) {
-                        escapedLockFailures.incrementAndGet();
+                        String method = lastLockFailure.get();
+                        escapedLockFailures
+                            .computeIfAbsent(
+                                method == null ? "unknown" : method, ignored -> new AtomicInteger())
+                            .incrementAndGet();
                       } else if (!(failure instanceof RatchetOptimisticLockException)) {
                         failures.add(failure);
                       }
@@ -419,7 +427,10 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
             + ", other lock failures="
             + lockFailures
             + ", escaped after retries="
-            + escapedLockFailures.get());
+            + escapedLockFailures);
+    lockFailureSamples.forEach(
+        (method, message) ->
+            System.out.println("Resource race lock failure in " + method + ": " + message));
     // Deadlocks between existing statements (the batch sweeps against the claim, completion and
     // park; permit clean-up against an acquire's permit insert) are reported, not asserted.
     assertTrue(
@@ -502,6 +513,13 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               || message.toLowerCase(Locale.ROOT).contains("lock wait timeout"))) return true;
     }
     return false;
+  }
+
+  /** The innermost message, which for a deadlock carries the database's own detail. */
+  private static String rootMessage(Throwable failure) {
+    Throwable root = failure;
+    while (root.getCause() != null) root = root.getCause();
+    return String.valueOf(root.getMessage()).replace('\n', ' ');
   }
 
   /** A failure in the wake-up or the sweep, or in any statement on the waiter table. */
