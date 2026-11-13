@@ -205,6 +205,10 @@ final class MongoStoreContext extends AbstractStoreContext {
     return database.getCollection("scheduler_resource_limit");
   }
 
+  MongoCollection<Document> resourceWaiters() {
+    return database.getCollection("scheduler_resource_waiter");
+  }
+
   MongoCollection<Document> resourcePermits() {
     return database.getCollection("scheduler_resource_permit");
   }

@@ -52,6 +52,7 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
         store().tryAcquirePermit("gpu", j3.getId(), j3.getClaimSeq(), "node-1"));
 
     store().releasePermit("gpu", j1.getId(), j1.getClaimSeq());
+    j3 = wakeAndClaim("gpu", j3);
     assertEquals(
         AcquireResult.ACQUIRED,
         store().tryAcquirePermit("gpu", j3.getId(), j3.getClaimSeq(), "node-1"));
@@ -99,10 +100,11 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
         AcquireResult.AT_CAPACITY,
         store().tryAcquirePermit("api", second.getId(), second.getClaimSeq(), "node-2"));
     assertEquals(
-        AcquireResult.AT_CAPACITY,
+        AcquireResult.SUPERSEDED,
         store().tryAcquirePermit("disk", second.getId(), second.getClaimSeq(), "node-2"));
 
     store().releaseAllPermits(first.getId());
+    second = wakeAndClaim("api", second);
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -136,6 +138,7 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     assertEquals(1, activeCount("cpu"));
 
     store().releasePermit("cpu", first.getId(), first.getClaimSeq());
+    second = wakeAndClaim("cpu", second);
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -202,6 +205,15 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
             store()
                 .tryAcquirePermit(
                     "nonexistent-resource", job.getId(), job.getClaimSeq(), "node-1"));
+  }
+
+  private JobEntity wakeAndClaim(String resource, JobEntity waiter) {
+    assertEquals(
+        List.of(waiter.getId()),
+        store().wakeWaiters(resource).stream().map(w -> w.jobId()).toList());
+    JobEntity claimed = store().claimNextBatch(1, "retry").get(0);
+    assertEquals(waiter.getId(), claimed.getId());
+    return claimed;
   }
 
   private JobEntity claimNewJob() {

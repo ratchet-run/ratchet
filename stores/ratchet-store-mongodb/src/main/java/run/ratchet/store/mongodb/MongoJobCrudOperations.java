@@ -201,7 +201,10 @@ final class MongoJobCrudOperations {
               Document current =
                   ctx.jobs()
                       .find(session, eq(ID, job.getId()))
-                      .projection(new Document(CRASH_COUNT, 1).append(CLAIM_SEQ, 1))
+                      .projection(
+                          new Document(CRASH_COUNT, 1)
+                              .append(CLAIM_SEQ, 1)
+                              .append(SCHEDULED_TIME, 1))
                       .first();
               doc.put(CRASH_COUNT, current == null ? 0 : current.getInteger(CRASH_COUNT, 0));
               // Whole-document saves must preserve the store-owned claim sequence.
@@ -224,6 +227,11 @@ final class MongoJobCrudOperations {
                         + " (expectedVersion="
                         + expectedVersion
                         + ")");
+              }
+              if (current != null
+                  && !Objects.equals(
+                      current.getDate(SCHEDULED_TIME), doc.getDate(SCHEDULED_TIME))) {
+                ctx.resourceWaiters().deleteOne(session, eq(ID, job.getId()));
               }
               return true;
             });

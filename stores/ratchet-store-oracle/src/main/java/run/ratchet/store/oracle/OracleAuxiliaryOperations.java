@@ -19,8 +19,13 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.WorkflowCondition;
@@ -34,6 +39,7 @@ import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.WorkflowConditionOrdering;
@@ -244,28 +250,27 @@ final class OracleAuxiliaryOperations
   @Override
   public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
     try {
-      // Lock the resource-limit row in its own statement so concurrent acquirers for the same
-      // resource serialize on it, then let the capacity check ride inside the INSERT rather than a
-      // preceding SELECT COUNT. A separate count read can still observe the pre-lock statement
-      // snapshot after waiting on FOR UPDATE — EclipseLink on Oracle keeps over-admitting that way
-      // —
-      // whereas the guarded INSERT ... SELECT re-evaluates the count in the same statement that
-      // performs the write. PostgreSQL solves the identical EclipseLink behaviour the same way.
       // language=Oracle
-      String lockSql =
-          "SELECT resource_name FROM scheduler_resource_limit WHERE resource_name = ? FOR UPDATE";
-      @SuppressWarnings("unchecked")
-      List<Object> lockedLimits =
-          ctx.em().createNativeQuery(lockSql).setParameter(1, resource).getResultList();
-      if (lockedLimits.isEmpty()) {
+      String sql =
+          """
+          SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit
+          WHERE resource_name = ? FOR UPDATE
+          """;
+      List<?> limits = ctx.em().createNativeQuery(sql).setParameter(1, resource).getResultList();
+      if (limits.isEmpty()) {
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
-
+      // READ COMMITTED reads the latest committed claim after the resource lock.
+      // language=Oracle
       List<?> claims =
           ctx.em()
               .createNativeQuery(
                   """
-                  SELECT status, claim_seq FROM scheduler_job_queue WHERE job_id = ?
+                  SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
+                         w.priority, w.wait_since
+                  FROM scheduler_job_queue q
+                  LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
+                  WHERE q.job_id = ?
                   """)
               .setParameter(1, UuidRawConverter.toBytes(jobId))
               .getResultList();
@@ -277,23 +282,33 @@ final class OracleAuxiliaryOperations
         return AcquireResult.SUPERSEDED;
       }
 
-      int updated =
+      Object[] limit = (Object[]) limits.get(0);
+      int maxConcurrent = ((Number) limit[0]).intValue();
+      int retryDelayMs = ((Number) limit[1]).intValue();
+      // The resource row serializes acquisitions; this plain read has a fresh snapshot.
+      // language=Oracle
+      List<?> permits =
           ctx.em()
               .createNativeQuery(
                   """
-                  UPDATE scheduler_resource_permit SET node_id = ?, acquired_at = ?
-                  WHERE id = ?
+                  SELECT id FROM scheduler_resource_permit
+                  WHERE resource_name = ?
                   """)
-              .setParameter(1, nodeId)
-              .setParameter(2, Timestamp.from(Instant.now()))
-              .setParameter(
-                  3,
-                  UuidRawConverter.toBytes(ResourcePermitEntity.idFor(resource, jobId, claimSeq)))
-              .executeUpdate();
-      if (updated > 0) {
-        return AcquireResult.ACQUIRED;
+              .setParameter(1, resource)
+              .getResultList();
+      int active = permits.size();
+      UUID permitId = ResourcePermitEntity.idFor(resource, jobId, claimSeq);
+      for (Object row : permits) {
+        if (permitId.equals(OracleJobRowMapper.uuidOrNull(row))) {
+          return AcquireResult.ACQUIRED;
+        }
+      }
+      int free = maxConcurrent - active;
+      if (free <= 0 || waitersAhead(resource, jobId, claim, free) >= free) {
+        return parkWaiter(resource, jobId, claimSeq, claim, retryDelayMs);
       }
 
+      // Retain the capacity guard on the write as a final safety check.
       // language=Oracle
       String insertSql =
           """
@@ -301,8 +316,8 @@ final class OracleAuxiliaryOperations
           SELECT ?, resource_name, ?, ?, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
           FROM scheduler_resource_limit
           WHERE resource_name = ?
-            AND (SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?)
-                < max_concurrent
+            AND (SELECT COUNT(*) FROM scheduler_resource_permit
+                 WHERE resource_name = ?) < max_concurrent
           """;
       int inserted =
           ctx.em()
@@ -315,11 +330,259 @@ final class OracleAuxiliaryOperations
               .setParameter(4, resource)
               .setParameter(5, resource)
               .executeUpdate();
-      return inserted > 0 ? AcquireResult.ACQUIRED : AcquireResult.AT_CAPACITY;
+      if (inserted == 0) {
+        return parkWaiter(resource, jobId, claimSeq, claim, retryDelayMs);
+      }
+      if (claim[4] != null) {
+        deleteWaiter(jobId);
+      }
+      return AcquireResult.ACQUIRED;
     } catch (IllegalArgumentException e) {
       throw e;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("try acquire permit", e);
+    }
+  }
+
+  private int waitersAhead(String resource, UUID jobId, Object[] claim, int free) {
+    int priority = ((Number) (claim[4] != null ? claim[4] : claim[2])).intValue();
+    Object waitSince = claim[4] != null ? claim[5] : claim[3];
+    // language=Oracle
+    String sql =
+        """
+        SELECT w.job_id FROM scheduler_resource_waiter w
+        JOIN scheduler_job_queue q ON q.job_id = w.job_id
+        WHERE w.resource_name = ? AND w.lease_until > CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+          AND q.status IN ('PENDING', 'RUNNING') AND w.job_id <> ?
+          AND (w.priority > ? OR (w.priority = ? AND w.wait_since < ?)
+            OR (w.priority = ? AND w.wait_since = ? AND w.job_id < ?))
+        ORDER BY w.priority DESC, w.wait_since ASC, w.job_id ASC FETCH FIRST ? ROWS ONLY
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, resource)
+        .setParameter(2, UuidRawConverter.toBytes(jobId))
+        .setParameter(3, priority)
+        .setParameter(4, priority)
+        .setParameter(5, waitSince)
+        .setParameter(6, priority)
+        .setParameter(7, waitSince)
+        .setParameter(8, UuidRawConverter.toBytes(jobId))
+        .setParameter(9, free)
+        .getResultList()
+        .size();
+  }
+
+  private AcquireResult parkWaiter(
+      String resource, UUID jobId, long claimSeq, Object[] claim, int retryDelayMs) {
+    boolean paused = OracleJobTerminalOperations.retryIntoPausedBatch(ctx, jobId);
+    // language=Oracle
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, paused_from_status = ?, last_error = ?,
+            scheduled_time = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) + NUMTODSINTERVAL(? / 1000, 'SECOND'),
+            picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
+        """;
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, paused ? "PAUSED" : "PENDING")
+            .setParameter(2, paused ? "PENDING" : null)
+            .setParameter(3, "Waiting for resource: " + resource)
+            .setParameter(4, retryDelayMs)
+            .setParameter(5, UuidRawConverter.toBytes(jobId))
+            .setParameter(6, claimSeq)
+            .executeUpdate();
+    if (updated == 0) {
+      return AcquireResult.SUPERSEDED;
+    }
+    long leaseMillis = ResourceWaiterLease.leaseMillis(retryDelayMs);
+    if (claim[4] != null) {
+      // language=Oracle
+      String renew =
+          """
+          UPDATE scheduler_resource_waiter
+          SET lease_until = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) + NUMTODSINTERVAL(? / 1000, 'SECOND') WHERE job_id = ?
+          """;
+      ctx.em()
+          .createNativeQuery(renew)
+          .setParameter(1, leaseMillis)
+          .setParameter(2, UuidRawConverter.toBytes(jobId))
+          .executeUpdate();
+    } else {
+      // language=Oracle
+      String insert =
+          """
+          INSERT INTO scheduler_resource_waiter
+            (job_id, resource_name, priority, wait_since, lease_until)
+          VALUES (?, ?, ?, ?, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) + NUMTODSINTERVAL(? / 1000, 'SECOND'))
+          """;
+      ctx.em()
+          .createNativeQuery(insert)
+          .setParameter(1, UuidRawConverter.toBytes(jobId))
+          .setParameter(2, resource)
+          .setParameter(3, claim[2])
+          .setParameter(4, claim[3])
+          .setParameter(5, leaseMillis)
+          .executeUpdate();
+    }
+    return AcquireResult.AT_CAPACITY;
+  }
+
+  private int deleteWaiter(UUID jobId) {
+    // language=Oracle
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidRawConverter.toBytes(jobId))
+        .executeUpdate();
+  }
+
+  @Override
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    try {
+      // language=Oracle
+      String lock =
+          """
+          SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit
+          WHERE resource_name = ? FOR UPDATE
+          """;
+      List<?> limits = ctx.em().createNativeQuery(lock).setParameter(1, resource).getResultList();
+      if (limits.isEmpty()) {
+        return List.of();
+      }
+      int max = ((Number) ((Object[]) limits.get(0))[0]).intValue();
+      // language=Oracle
+      String heads =
+          """
+          SELECT w.job_id, q.status, w.priority, q.execution_target, w.wait_since, q.scheduled_time
+          FROM scheduler_resource_waiter w JOIN scheduler_job_queue q ON q.job_id = w.job_id
+          WHERE w.resource_name = ? AND w.lease_until > CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            AND q.status IN ('PENDING', 'RUNNING')
+          ORDER BY w.priority DESC, w.wait_since ASC, w.job_id ASC FETCH FIRST ? ROWS ONLY
+          """;
+      List<?> rows =
+          ctx.em()
+              .createNativeQuery(heads)
+              .setParameter(1, resource)
+              .setParameter(2, max)
+              .getResultList();
+      if (rows.isEmpty()) {
+        return List.of();
+      }
+      // READ COMMITTED sees committed permits after locking the resource.
+      // language=Oracle
+      String held =
+          """
+          SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?
+          """;
+      int free =
+          max
+              - ((Number)
+                      ctx.em().createNativeQuery(held).setParameter(1, resource).getSingleResult())
+                  .intValue();
+      if (free <= 0) {
+        return List.of();
+      }
+      List<Object[]> pending = new ArrayList<>();
+      Map<UUID, Integer> order = new HashMap<>();
+      for (Object row : rows.subList(0, Math.min(free, rows.size()))) {
+        Object[] head = (Object[]) row;
+        order.put(OracleJobRowMapper.uuidOrNull(head[0]), order.size());
+        if ("PENDING".equals(head[1].toString())) {
+          pending.add(head);
+        }
+      }
+      if (pending.isEmpty()) {
+        return List.of();
+      }
+      String placeholders = String.join(", ", Collections.nCopies(pending.size(), "?"));
+      // language=Oracle
+      String available =
+          """
+          SELECT job_id FROM scheduler_job_queue
+          WHERE job_id IN (%s) AND status = 'PENDING' FOR UPDATE SKIP LOCKED
+          """
+              .formatted(placeholders);
+      Query availableQuery = ctx.em().createNativeQuery(available);
+      for (int i = 0; i < pending.size(); i++) {
+        availableQuery.setParameter(i + 1, pending.get(i)[0]);
+      }
+      List<?> availableIds = availableQuery.getResultList();
+      var locked = new HashSet<UUID>();
+      for (Object id : availableIds) {
+        locked.add(OracleJobRowMapper.uuidOrNull(id));
+      }
+      List<WokenWaiter> result = new ArrayList<>();
+      for (Object[] row : pending) {
+        if (!locked.contains(OracleJobRowMapper.uuidOrNull(row[0]))) {
+          continue;
+        }
+        // language=Oracle
+        String wake =
+            """
+            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            WHERE job_id = ? AND status = 'PENDING'
+            """;
+        if (ctx.em()
+                .createNativeQuery(wake)
+                .setParameter(1, row[4])
+                .setParameter(2, row[0])
+                .executeUpdate()
+            == 1) {
+          result.add(
+              new WokenWaiter(
+                  OracleJobRowMapper.uuidOrNull(row[0]),
+                  ((Number) row[2]).intValue(),
+                  (String) row[3]));
+        }
+      }
+      // Preserve waiter order among the heads whose queue rows were available.
+      result.sort(Comparator.comparingInt(w -> order.get(w.jobId())));
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("wake resource waiters", e);
+    }
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public List<String> findResourcesWithWaiters(int limit) {
+    // language=Oracle
+    String sql =
+        """
+        SELECT DISTINCT resource_name FROM scheduler_resource_waiter ORDER BY resource_name FETCH FIRST ? ROWS ONLY
+        """;
+    try {
+      return ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find resources with waiters", e);
+    }
+  }
+
+  @Override
+  public int deleteStaleWaiters(int limit) {
+    // language=Oracle
+    String sql =
+        """
+        SELECT w.job_id FROM scheduler_resource_waiter w
+        LEFT JOIN scheduler_job_queue q ON q.job_id = w.job_id
+        WHERE q.job_id IS NULL OR q.status NOT IN ('PENDING', 'RUNNING', 'PAUSED') FETCH FIRST ? ROWS ONLY
+        """;
+    try {
+      List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+      int deleted = 0;
+      for (Object id : ids) {
+        deleted += deleteWaiter(OracleJobRowMapper.uuidOrNull(id));
+      }
+      return deleted;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete stale resource waiters", e);
     }
   }
 

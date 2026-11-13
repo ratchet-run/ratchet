@@ -171,3 +171,9 @@ print("Ratchet MongoDB initialization complete.");
 // Durable terminal event recovery, ordered by creation time and event id.
 db.scheduler_event_outbox.createIndex(
     {created_at: 1, _id: 1}, {name: "idx_event_outbox_created"});
+
+// scheduler_resource_waiter: original wait order, with leases checked by the store.
+db.scheduler_resource_waiter.createIndex(
+  { resource_name: 1, priority: -1, wait_since: 1, _id: 1 },
+  { name: "idx_resource_waiter_order" }
+);

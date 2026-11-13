@@ -109,6 +109,23 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void resourceWaiters_haveRequiredOrderIndex() {
+    assertIndex(
+        "scheduler_resource_waiter",
+        "idx_resource_waiter_order",
+        new Document("resource_name", 1)
+            .append("priority", -1)
+            .append("wait_since", 1)
+            .append("_id", 1),
+        false,
+        null);
+    database.getCollection("scheduler_resource_waiter").dropIndex("idx_resource_waiter_order");
+    assertThrows(
+        IllegalStateException.class,
+        () -> new MongoCollectionInitializer(database, client).validate());
+  }
+
+  @Test
   void eventOutboxHasOrderedRecoveryIndex() {
     Document index =
         database

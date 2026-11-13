@@ -197,7 +197,7 @@ final class PostgresqlJobTerminalOperations {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
-    boolean paused = retryIntoPausedBatch(id);
+    boolean paused = retryIntoPausedBatch(ctx, id);
     // language=PostgreSQL
     String sql =
         """
@@ -224,8 +224,9 @@ final class PostgresqlJobTerminalOperations {
         > 0;
   }
 
-  private boolean retryIntoPausedBatch(UUID id) {
+  static boolean retryIntoPausedBatch(PostgresqlStoreContext ctx, UUID id) {
     // Lock the parent before releasing the child, serializing with batch pause/resume sweeps.
+    // language=PostgreSQL
     String sql =
         """
         SELECT status FROM scheduler_job_queue

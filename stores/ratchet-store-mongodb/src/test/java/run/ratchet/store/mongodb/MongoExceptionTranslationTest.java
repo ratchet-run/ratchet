@@ -774,6 +774,26 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
+  void wakeWaitersTranslatesTransientTransactionFailure() {
+    MongoSocketException failure = transientFailure();
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                throw failure;
+              }
+              return defaultValue(method);
+            });
+    MongoAuxiliaryOperations auxiliary =
+        new MongoAuxiliaryOperations(contextWithJobsAndSession(null, session));
+
+    RatchetTransientStoreException thrown =
+        assertThrows(RatchetTransientStoreException.class, () -> auxiliary.wakeWaiters("api"));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
   void tagOperationsTranslateTransientMongoFailure() {
     MongoSocketException failure = transientFailure();
     MongoCollection<Document> jobs =

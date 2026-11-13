@@ -33,9 +33,11 @@ public interface ResourcePermitStore {
    * to when it started waiting. Live waiters that are already running use up capacity but are not
    * returned. Lease times are never renewed here.
    *
-   * <p>The wake never waits on a job row that another transaction holds. It skips that head and
-   * does not return it. A skipped head that is still waiting becomes due at its own retry time, at
-   * a later wake-up or at the sweep, so its share of capacity can stay unused until then.
+   * <p>The wake never waits on a job row that another transaction holds. A store with row locks
+   * skips that head and does not return it. A skipped head that is still waiting becomes due at its
+   * own retry time, at a later wake-up or at the sweep, so its share of capacity can stay unused
+   * until then. A store whose transactions abort on a write conflict retries the whole wake
+   * instead.
    *
    * <p>Transaction attribute: {@code REQUIRES_NEW}. The resource lock must be the first lock of the
    * transaction, and the release or clean-up that freed the capacity must already be committed.
@@ -77,8 +79,9 @@ public interface ResourcePermitStore {
    * ascending. A waiter is live only while its lease is current and its queue status is PENDING or
    * RUNNING. Available capacity is granted only when fewer live waiters are ahead than slots free.
    * Success removes the caller's waiter row. Otherwise the store parks the job atomically at the
-   * database clock plus retry delay (PAUSED in a paused batch), preserving attempts and its first
-   * wait key, and renews the lease. A fenced park miss returns SUPERSEDED and parks nothing.
+   * clock its claim compares against plus retry delay (PAUSED in a paused batch), preserving
+   * attempts and its first wait key, and renews the lease. A fenced park miss returns SUPERSEDED
+   * and parks nothing.
    *
    * @param resource configured resource name to acquire against; never {@code null}
    * @param jobId job id the permit is being acquired for; never {@code null}
