@@ -315,7 +315,7 @@ class RatchetExecutionConfiguration {
   DefaultJobExecutorService defaultJobExecutorService(
       JobStore store,
       ObjectProvider<PreExecutionArgResolver> argResolver,
-      ObjectProvider<ConnectionPoolSize> connectionPoolSize,
+      ObjectProvider<RatchetConnectionPoolSizeProvider> connectionPoolSize,
       PoolRegistry poolRegistry,
       JobTimeoutHandler timeoutHandler,
       ExecutorProvider executorProvider,
@@ -366,7 +366,9 @@ class RatchetExecutionConfiguration {
             jobStateFlusher,
             clock,
             options);
-    service.configureConnectionPoolWarning(connectionPoolSize.getIfAvailable());
+    RatchetConnectionPoolSizeProvider poolSize = connectionPoolSize.getIfAvailable();
+    service.configureConnectionPoolWarning(
+        poolSize == null ? null : (ConnectionPoolSize) poolSize::maximumPoolSize);
     return service;
   }
 

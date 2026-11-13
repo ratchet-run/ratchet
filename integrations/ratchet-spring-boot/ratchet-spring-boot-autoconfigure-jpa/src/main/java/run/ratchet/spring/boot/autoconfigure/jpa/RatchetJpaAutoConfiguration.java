@@ -36,8 +36,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.core.internal.ConnectionPoolSize;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spring.boot.autoconfigure.RatchetConnectionPoolSizeProvider;
 import run.ratchet.spring.boot.autoconfigure.RatchetTransactionManagerProvider;
 import run.ratchet.store.spi.JobStore;
 
@@ -64,8 +64,9 @@ public class RatchetJpaAutoConfiguration {
   @ConditionalOnClass(HikariConfigMXBean.class)
   static class HikariPoolConfiguration {
     @Bean
-    @ConditionalOnMissingBean(ConnectionPoolSize.class)
-    ConnectionPoolSize ratchetConnectionPoolSize(ConfigurableListableBeanFactory beanFactory) {
+    @ConditionalOnMissingBean(RatchetConnectionPoolSizeProvider.class)
+    RatchetConnectionPoolSizeProvider ratchetConnectionPoolSize(
+        ConfigurableListableBeanFactory beanFactory) {
       return () -> {
         HikariConfigMXBean config = hikari(RatchetJpaInfrastructure.selectDataSource(beanFactory));
         return config == null ? OptionalInt.empty() : OptionalInt.of(config.getMaximumPoolSize());
