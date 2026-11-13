@@ -193,7 +193,7 @@ public class JobAlerts {
 }
 ```
 
-To record who submitted a job, define one `PrincipalSource` bean for your security framework. The integration does not install a Micronaut Security adapter. Ratchet records the principal name the bean returns at submission. It does not restore a request or security context on the worker. If there is no `PrincipalSource` bean, or more than one, jobs record no submitter.
+When Micronaut Security is on the classpath, the integration records the submitter from `SecurityService`: the name of the user authenticated on the current request. Submissions made outside a request, such as from a scheduled method or a startup listener, record no submitter. With another security framework, define your own `PrincipalSource` bean; the integration then skips the Micronaut Security one. Ratchet records the principal name at submission. It does not restore a request or security context on the worker. Jobs record no submitter when the application defines more than one `PrincipalSource` bean, or when it defines none and Micronaut Security is absent.
 
 ## Circuit breakers on application beans
 

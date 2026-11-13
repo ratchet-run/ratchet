@@ -49,6 +49,7 @@ public final class ProcessScenarios {
             "METHOD_REFERENCE",
             "CAPTURING_LAMBDA",
             "STATIC_METHOD",
+            "CALLER_PRINCIPAL",
             "NESTED_SUBMITTER",
             "ANONYMOUS_SUBMITTER",
             "LOCAL_SUBMITTER",
