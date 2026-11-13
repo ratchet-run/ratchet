@@ -17,8 +17,6 @@ package run.ratchet.micronaut.jpa;
 
 import io.micronaut.context.BeanContext;
 import io.micronaut.context.annotation.Requires;
-import io.micronaut.context.env.Environment;
-import io.micronaut.inject.qualifiers.Qualifiers;
 import io.micronaut.jdbc.DataSourceResolver;
 import io.micronaut.transaction.hibernate.HibernateTransactionManager;
 import jakarta.inject.Singleton;
@@ -27,21 +25,21 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
+import run.ratchet.micronaut.internal.RatchetTransactionManagerProvider;
+import run.ratchet.micronaut.internal.RatchetTransactionOperations;
 
 /** Selects a coherent named datasource, Hibernate session factory, and transaction manager. */
 @Singleton
 @Requires(property = "ratchet.enabled", notEquals = "false")
-final class RatchetJpaInfrastructure {
+final class RatchetJpaInfrastructure implements RatchetTransactionManagerProvider {
   private final BeanContext context;
   private final String datasourceName;
+  private final RatchetTransactionOperations selection;
 
-  RatchetJpaInfrastructure(BeanContext context, Environment environment) {
+  RatchetJpaInfrastructure(BeanContext context, RatchetTransactionOperations selection) {
     this.context = context;
-    datasourceName =
-        environment.getProperty("ratchet.jpa.datasource", String.class).orElse("default");
-    if (datasourceName.isBlank()) {
-      throw new IllegalArgumentException("ratchet.jpa.datasource must name a datasource");
-    }
+    this.selection = selection;
+    this.datasourceName = selection.datasourceName();
   }
 
   String datasourceName() {
@@ -63,23 +61,14 @@ final class RatchetJpaInfrastructure {
     return selected(SessionFactory.class);
   }
 
-  HibernateTransactionManager transactions() {
+  @Override
+  public HibernateTransactionManager transactions() {
     // A JDBC TransactionOperations bean may have the same name; select Hibernate explicitly.
     return selected(HibernateTransactionManager.class);
   }
 
   private <T> T selected(Class<T> type) {
-    return context
-        .findBean(type, Qualifiers.byName(datasourceName))
-        .orElseThrow(
-            () ->
-                new IllegalStateException(
-                    "Ratchet requires "
-                        + type.getSimpleName()
-                        + " for datasource '"
-                        + datasourceName
-                        + "'; configure ratchet.jpa.datasource"
-                        + " to select a coherent Micronaut Hibernate datasource"));
+    return selection.selected(type);
   }
 
   EntityManager entityManager() {

@@ -28,6 +28,7 @@ import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautBatchService;
 import run.ratchet.micronaut.internal.tx.MicronautDeadLetterService;
 import run.ratchet.micronaut.internal.tx.MicronautJobStateManager;
+import run.ratchet.micronaut.internal.tx.MicronautJobTransaction;
 import run.ratchet.micronaut.internal.tx.MicronautPollerCycleExecutor;
 import run.ratchet.micronaut.internal.tx.MicronautPostExecutionHandler;
 import run.ratchet.micronaut.internal.tx.MicronautRecurringJobExecutor;
@@ -457,6 +458,13 @@ class RatchetExecutionConfiguration {
   @RatchetTransactionBoundary
   BatchCompletionTransaction batchCompletionTransaction() {
     return new BatchCompletionTransaction();
+  }
+
+  @Singleton
+  @Secondary
+  @RatchetTransactionBoundary
+  MicronautJobTransaction jobTransaction() {
+    return new MicronautJobTransaction();
   }
 
   @Singleton

@@ -21,6 +21,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.transaction.PlatformTransactionManager;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.BatchCompletionTransaction;
@@ -31,6 +32,7 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.JobSubmissionService;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -420,6 +422,16 @@ class RatchetExecutionConfiguration {
       NodeIdentityProvider node,
       AfterCommitRegistrar registrar) {
     return new JobWakeupService(cluster, poller::getObject, metrics, node, registrar);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(JobTransaction.class)
+  SpringJobTransaction jobTransaction(
+      ObjectProvider<RatchetTransactionManagerProvider> selected,
+      ObjectProvider<PlatformTransactionManager> managers) {
+    RatchetTransactionManagerProvider provider = selected.getIfAvailable();
+    return new SpringJobTransaction(
+        () -> provider == null ? managers.getObject() : provider.transactionManager());
   }
 
   @Bean

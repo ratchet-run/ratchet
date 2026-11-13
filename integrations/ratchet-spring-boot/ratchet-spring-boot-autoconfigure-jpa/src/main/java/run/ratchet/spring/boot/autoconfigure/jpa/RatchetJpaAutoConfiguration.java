@@ -33,6 +33,7 @@ import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spring.boot.autoconfigure.RatchetTransactionManagerProvider;
 import run.ratchet.store.spi.JobStore;
 
 /** Spring Boot JPA store wiring for Ratchet's SQL stores. */
@@ -78,6 +79,17 @@ public class RatchetJpaAutoConfiguration {
   static BeanPostProcessor ratchetJpaPersistenceUnitPostProcessor(
       ConfigurableListableBeanFactory beanFactory) {
     return new RatchetJpaPersistenceUnitPostProcessor(beanFactory);
+  }
+
+  @Bean
+  RatchetTransactionManagerProvider ratchetTransactionManagerProvider(
+      ConfigurableListableBeanFactory beanFactory) {
+    return () -> {
+      DataSource dataSource = RatchetJpaInfrastructure.selectDataSource(beanFactory);
+      EntityManagerFactory factory =
+          RatchetJpaInfrastructure.selectEntityManagerFactory(beanFactory, dataSource);
+      return RatchetJpaInfrastructure.selectTransactionManager(beanFactory, factory);
+    };
   }
 
   @Bean
