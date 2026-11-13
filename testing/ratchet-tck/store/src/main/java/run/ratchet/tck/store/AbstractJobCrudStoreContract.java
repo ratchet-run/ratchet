@@ -316,19 +316,19 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void findActiveByBusinessKey_returnsMatchingJob() {
+  void findBusinessKeyHolder_returnsMatchingJob() {
     var job = newPendingJob();
     job.setBusinessKey("bk-test-" + job.getIdempotencyKey());
     var saved = persist(job);
 
-    var result = store().findActiveByBusinessKey(saved.getBusinessKey());
+    var result = store().findBusinessKeyHolder(saved.getBusinessKey());
 
-    assertTrue(result.isPresent(), "findActiveByBusinessKey should return the matching job");
-    assertEquals(saved.getId(), result.get().getId());
+    assertTrue(result.isPresent(), "findBusinessKeyHolder should return the matching job");
+    assertEquals(saved.getId(), result.get().id());
   }
 
   @Test
-  void findActiveByBusinessKey_ignoresTerminalJobs() {
+  void findBusinessKeyHolder_ignoresTerminalJobs() {
     var job = newPendingJob();
     job.setBusinessKey("bk-terminal-" + job.getIdempotencyKey());
     var saved = persist(job);
@@ -339,10 +339,10 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     var reloaded = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.SUCCEEDED, reloaded.getStatus(), "Job should be SUCCEEDED");
 
-    var result = store().findActiveByBusinessKey(saved.getBusinessKey());
+    var result = store().findBusinessKeyHolder(saved.getBusinessKey());
 
     assertFalse(
-        result.isPresent(), "findActiveByBusinessKey should not return terminal (SUCCEEDED) jobs");
+        result.isPresent(), "findBusinessKeyHolder should not return terminal (SUCCEEDED) jobs");
   }
 
   @Test

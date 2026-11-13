@@ -258,6 +258,12 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     return storeProxy;
   }
 
+  /** Runs a single-value query on the current thread's transaction and returns it as a long. */
+  public final long currentSessionId(String sql) {
+    Object result = threadEm.get().createNativeQuery(sql).getSingleResult();
+    return ((Number) result).longValue();
+  }
+
   /** Open a raw JDBC connection to the same container used by this fixture. */
   public final Connection openConnection() throws SQLException {
     Object container = container();

@@ -22,16 +22,23 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 class SqlserverConstraintDetectorTest {
 
@@ -49,48 +56,28 @@ class SqlserverConstraintDetectorTest {
   }
 
   @Test
-  void translatesReservationConflictToPreciseSignal() {
-    RuntimeException failure =
-        new RuntimeException(
-            "hibernate",
-            new SQLException(
-                "Violation of PRIMARY KEY constraint 'pk_scheduler_business_key_reservation'.",
-                "23000",
-                2627));
+  void reservationConflictWritesNothingForTheJob() {
     EntityManager em = mock(EntityManager.class);
-    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    Query cold = mock(Query.class, RETURNS_SELF);
+    Query hot = mock(Query.class, RETURNS_SELF);
+    Query reserve = mock(Query.class, RETURNS_SELF);
+    when(em.createNativeQuery(anyString())).thenReturn(cold, hot, reserve);
+    when(reserve.getSingleResult()).thenReturn(0);
+    SqlserverStoreContext ctx = new SqlserverStoreContext(em);
     SqlserverJobWriteOperations writes =
-        new SqlserverJobWriteOperations(new SqlserverStoreContext(em), null, null);
+        new SqlserverJobWriteOperations(ctx, new SqlserverBusinessKeyReservations(ctx), null);
     JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
     job.setBusinessKey("order-1");
+    job.setIdempotencyKey(UUID.randomUUID().toString());
 
     BusinessKeyReservationConflictException thrown =
         assertThrows(BusinessKeyReservationConflictException.class, () -> writes.saveInsert(job));
 
-    assertSame(failure, thrown.getCause());
-  }
-
-  @Test
-  void translatesReservationUniqueIndexConflictToPreciseSignal() {
-    RuntimeException failure =
-        new RuntimeException(
-            "hibernate",
-            new SQLException(
-                "Cannot insert duplicate key row in object 'dbo.scheduler_business_key_reservation'"
-                    + " with unique index 'pk_scheduler_business_key_reservation'.",
-                "23000",
-                2601));
-    EntityManager em = mock(EntityManager.class);
-    when(em.createNativeQuery(anyString())).thenThrow(failure);
-    SqlserverJobWriteOperations writes =
-        new SqlserverJobWriteOperations(new SqlserverStoreContext(em), null, null);
-    JobEntity job = new JobEntity();
-    job.setBusinessKey("order-1");
-
-    BusinessKeyReservationConflictException thrown =
-        assertThrows(BusinessKeyReservationConflictException.class, () -> writes.saveInsert(job));
-
-    assertSame(failure, thrown.getCause());
+    assertNull(thrown.getCause());
+    verify(cold, never()).executeUpdate();
+    verify(hot, never()).executeUpdate();
+    verify(em, times(3)).createNativeQuery(anyString());
   }
 
   @Test

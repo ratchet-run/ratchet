@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -136,8 +137,8 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return fail("findActiveByBusinessKey");
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return fail("findBusinessKeyHolder");
   }
 
   @Override

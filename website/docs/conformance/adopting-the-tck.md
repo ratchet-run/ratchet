@@ -183,6 +183,16 @@ When at least one recognized store contract runs, the listener writes
 `target/tck-conformance-report.md`. Check the final claim in that file; running one passing
 contract is not enough, because the report marks unexecuted required contracts as `MISSING`.
 
+### Business-key reservation contract
+
+`JobCrudStore.create()` must reserve the business key before writing the idempotency key or job rows. A held key must raise `BusinessKeyReservationConflictException` without writing anything for the losing job. The caller's transaction must remain usable. Never raise this exception after writing job data.
+
+`AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners and holders committed after the caller's first read.
+
+If your store's `create()` joins the caller's transaction, override four hooks on your `AbstractBusinessKeyReservationContract` subclass itself: `inOwnerTransaction`, `supportsOwnerTransaction`, `ownerSessionId` and `awaitBlockedSession`. The contract calls them on that subclass, so overriding them only on a separate fixture object leaves the defaults in place. Delegate from the subclass instead, as `PostgresqlBusinessKeyReservationContractTest` does. The first two run the owner-transaction tests. The other two let the race and reservation-order tests confirm in the database that one named session is waiting on a lock held by another.
+
+Two hook checks skip tests. `supportsOwnerTransaction()` returning false skips every test that needs an owner transaction, which includes the race and reservation-order tests. `awaitBlockedSession` returning false at a test's first lock-wait check skips that race or reservation-order test. The reservation-order test checks for a lock wait a second time, and a false result there fails the test, because the store has already shown that it can report lock waits. Each of these skip messages names the hooks involved, so your test report shows why a test did not run. Apart from the hooks, the recurring-holder test skips when the store does not offer `RecurringJobStore`. A store that claims support must override the matching hooks, or the tests fail: `inOwnerTransaction` fails when `supportsOwnerTransaction()` is true and it was not overridden, and a lock wait reported while `ownerSessionId()` returns null fails too.
+
 ## API Compatible
 
 The API contracts are container-neutral JUnit classes. They can run in a plain JVM when the

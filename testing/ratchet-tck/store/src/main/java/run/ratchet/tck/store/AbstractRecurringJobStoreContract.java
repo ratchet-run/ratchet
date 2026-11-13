@@ -39,6 +39,7 @@ import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.entity.JobEntity;
@@ -616,7 +617,12 @@ public abstract class AbstractRecurringJobStoreContract {
         1L,
         results.stream().filter(Objects::nonNull).count(),
         "the losing cross-type create must report one duplicate-key failure");
-    boolean queueOwns = jobFixture().store().findActiveByBusinessKey(key).isPresent();
+    boolean queueOwns =
+        jobFixture()
+            .store()
+            .findBusinessKeyHolder(key)
+            .filter(holder -> holder.type() != JobType.RECURRING)
+            .isPresent();
     boolean recurringOwns = recurringStore().findRecurringByBusinessKey(key).isPresent();
     assertTrue(queueOwns ^ recurringOwns, "exactly one active owner must remain durable");
   }

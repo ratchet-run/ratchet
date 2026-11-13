@@ -47,6 +47,42 @@ final class SqlserverBusinessKeyReservations {
     return BusinessKeyReservations.ownerTableFor(jobType);
   }
 
+  boolean tryReserve(String businessKey, UUID ownerJobId, String ownerTable) {
+    try {
+      // Guarded INSERT with UPDLOCK/HOLDLOCK or MERGE WITH (HOLDLOCK) takes key-range locks
+      // that block unrelated new keys in the same index gap until commit (measured). This batch
+      // touches only one key. NOCOUNT and XACT_ABORT are scoped to sp_executesql/sp_prepexec:
+      // a session with XACT_ABORT ON retains it, and a caught duplicate leaves the transaction
+      // usable (measured).
+      String sql =
+          """
+          SET NOCOUNT ON;
+          SET XACT_ABORT OFF;
+          BEGIN TRY
+            INSERT INTO scheduler_business_key_reservation
+              (business_key, owner_job_id, owner_table, reserved_at)
+            VALUES (?, ?, ?, SYSUTCDATETIME());
+            SELECT 1;
+          END TRY
+          BEGIN CATCH
+            IF ERROR_NUMBER() IN (2601, 2627) AND XACT_STATE() <> -1 SELECT 0;
+            ELSE THROW;
+          END CATCH
+          """;
+      Number inserted =
+          (Number)
+              ctx.em()
+                  .createNativeQuery(sql)
+                  .setParameter(1, businessKey)
+                  .setParameter(2, UuidByteArrayConverter.toBytes(ownerJobId))
+                  .setParameter(3, ownerTable)
+                  .getSingleResult();
+      return inserted.intValue() == 1;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("try reserve business key", e);
+    }
+  }
+
   void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {
     try {
       // Keep DML local: SQL Server owns its timestamp expression. UUID columns are BINARY(16), so

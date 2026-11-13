@@ -15,13 +15,39 @@
  */
 package run.ratchet.store.oracle;
 
+import java.sql.SQLException;
+import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractActiveBusinessKeyContract;
 
 class OracleActiveBusinessKeyContractTest extends AbstractActiveBusinessKeyContract {
 
   private final OracleTestFixture fixture = new OracleTestFixture();
+
+  @Override
+  protected void insertReservationWithoutOwner(
+      String businessKey, UUID ownerId, String ownerTable) {
+    try (var connection = fixture.openConnection()) {
+      connection.setAutoCommit(false);
+      // language=Oracle
+      try (var insert =
+          connection.prepareStatement(
+              """
+          INSERT INTO scheduler_business_key_reservation (business_key, owner_job_id, owner_table, reserved_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+          """)) {
+        insert.setString(1, businessKey);
+        insert.setBytes(2, UuidRawConverter.toBytes(ownerId));
+        insert.setString(3, ownerTable);
+        insert.executeUpdate();
+      }
+      connection.commit();
+    } catch (SQLException e) {
+      throw new IllegalStateException("Cannot insert reservation without owner", e);
+    }
+  }
 
   @Override
   public JobStore store() {

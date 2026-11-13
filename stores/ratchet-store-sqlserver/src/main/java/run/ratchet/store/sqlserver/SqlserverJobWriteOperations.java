@@ -181,33 +181,42 @@ final class SqlserverJobWriteOperations {
         job.getStatus() != null && SqlserverJobRowMapper.isTerminalStatus(job.getStatus());
 
     try {
+      Query coldInsert = ctx.em().createNativeQuery(COLD_INSERT_SQL);
+      bindColdInsert(coldInsert, job, nowTs);
+      Query hotInsert = null;
+      if (!bornTerminal && !recurring) {
+        hotInsert = ctx.em().createNativeQuery(HOT_INSERT_SQL);
+        bindHotInsert(hotInsert, job, nowTs);
+      }
+      if (hasBkey && !bornTerminal) {
+        String ownerTable =
+            recurring
+                ? SqlserverBusinessKeyReservations.OWNER_TABLE_RECURRING
+                : SqlserverBusinessKeyReservations.OWNER_TABLE_QUEUE;
+        if (!reservations.tryReserve(job.getBusinessKey(), job.getId(), ownerTable)) {
+          throw new BusinessKeyReservationConflictException(job.getBusinessKey());
+        }
+      }
       SqlIdempotencyKeys.reserve(
           ctx, List.of(job), nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
-      executeColdInsert(job, nowTs);
+      coldInsert.executeUpdate();
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
         job.setTerminalStatus(job.getStatus());
       } else {
         if (!recurring) {
-          executeHotInsert(job, nowTs);
-        }
-        if (hasBkey) {
-          String ownerTable =
-              recurring
-                  ? SqlserverBusinessKeyReservations.OWNER_TABLE_RECURRING
-                  : SqlserverBusinessKeyReservations.OWNER_TABLE_QUEUE;
-          reservations.insertReservation(job.getBusinessKey(), job.getId(), ownerTable);
+          hotInsert.executeUpdate();
         }
       }
       if (job.getTags() != null && !job.getTags().isEmpty()) {
         tags.insertTags(job.getId(), job.getTags());
       }
     } catch (RuntimeException e) {
+      if (e instanceof BusinessKeyReservationConflictException) {
+        throw e;
+      }
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
-      }
-      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        throw new BusinessKeyReservationConflictException(job.getBusinessKey(), e);
       }
       throw e;
     }
@@ -229,18 +238,6 @@ final class SqlserverJobWriteOperations {
         .setParameter(4, nowTs)
         .setParameter(5, UuidByteArrayConverter.toBytes(job.getId()))
         .executeUpdate();
-  }
-
-  private void executeColdInsert(JobEntity job, Timestamp nowTs) {
-    Query q = ctx.em().createNativeQuery(COLD_INSERT_SQL);
-    bindColdInsert(q, job, nowTs);
-    q.executeUpdate();
-  }
-
-  private void executeHotInsert(JobEntity job, Timestamp nowTs) {
-    Query q = ctx.em().createNativeQuery(HOT_INSERT_SQL);
-    bindHotInsert(q, job, nowTs);
-    q.executeUpdate();
   }
 
   private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
