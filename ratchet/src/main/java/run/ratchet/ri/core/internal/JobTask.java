@@ -145,7 +145,7 @@ public class JobTask implements Callable<Void> {
   // at zero behavioral cost.
   private volatile boolean permitAcquired;
   // Set when this worker recorded a cancel, so the finally block releases the business-key hold.
-  private boolean cancelHandled;
+  private volatile boolean cancelHandled;
   private Instant executionStart;
 
   protected JobTask() {

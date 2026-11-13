@@ -38,7 +38,9 @@ public class CancellableJob {
       for (int i = 0; i < 600; i++) {
         if (JobContext.current().isCancellationRequested()) {
           SAW_REQUEST.set(true);
-          if (HOLD_AFTER_REQUEST) release.await(60, TimeUnit.SECONDS);
+          if (HOLD_AFTER_REQUEST && !release.await(60, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("The test did not release the job within 60 s");
+          }
           JobContext.current().throwIfCancellationRequested();
         }
         Thread.sleep(100);
