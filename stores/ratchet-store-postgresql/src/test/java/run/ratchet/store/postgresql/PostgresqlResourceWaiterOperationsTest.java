@@ -59,7 +59,7 @@ class PostgresqlResourceWaiterOperationsTest {
                 new Object[] {id(second), "PENDING", 3, null, DUE, DUE},
                 new Object[] {id(third), "PENDING", 2, null, DUE, DUE}),
             0,
-            List.of(id(third), id(second)),
+            List.<Object[]>of(new Object[] {id(third), DUE}, new Object[] {id(second), DUE}),
             1,
             1);
     assertEquals(

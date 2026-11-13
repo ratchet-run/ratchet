@@ -104,7 +104,7 @@ class MysqlAuxiliaryOperationsTest {
                 new Object[] {firstBytes, "PENDING", 4, "target", DUE, DUE},
                 new Object[] {secondBytes, "PENDING", 3, null, DUE, DUE}),
             0,
-            Collections.singletonList(secondBytes),
+            List.<Object[]>of(new Object[] {secondBytes, DUE}),
             1);
     var result = sequence.operations().wakeWaiters("res");
     assertEquals(List.of(second), result.stream().map(w -> w.jobId()).toList());
@@ -128,7 +128,7 @@ class MysqlAuxiliaryOperationsTest {
                 new Object[] {first, "PENDING", 4, "target", DUE, DUE},
                 new Object[] {second, "PENDING", 3, null, DUE, DUE}),
             0,
-            List.of(second, first),
+            List.<Object[]>of(new Object[] {second, DUE}, new Object[] {first, DUE}),
             1,
             1);
     assertEquals(
