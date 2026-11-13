@@ -605,9 +605,15 @@ final class MongoAuxiliaryOperations {
     return doc.getInteger(RETRY_DELAY_MS, DEFAULT_PERMIT_RETRY_DELAY_MS);
   }
 
+  // Read the primary even when the client prefers secondaries: submit() checks the limit right
+  // after setResourceLimit wrote it, so a lagging secondary must not hide it.
   Optional<ResourceLimit> findResourceLimit(String name) {
     try {
-      Document doc = ctx.resourceLimits().find(eq(ID, name)).first();
+      Document doc =
+          ctx.resourceLimits()
+              .withReadPreference(ReadPreference.primary())
+              .find(eq(ID, name))
+              .first();
       return doc == null ? Optional.empty() : Optional.of(mapResourceLimit(doc));
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find resource limit", e);
@@ -617,6 +623,7 @@ final class MongoAuxiliaryOperations {
   List<ResourceLimit> listResourceLimits() {
     try {
       return ctx.resourceLimits()
+          .withReadPreference(ReadPreference.primary())
           .find()
           .map(MongoAuxiliaryOperations::mapResourceLimit)
           .into(new ArrayList<>());
