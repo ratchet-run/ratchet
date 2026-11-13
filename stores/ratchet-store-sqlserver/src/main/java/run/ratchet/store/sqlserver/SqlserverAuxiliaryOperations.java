@@ -398,12 +398,15 @@ final class SqlserverAuxiliaryOperations
   private AcquireResult parkWaiter(
       String resource, UUID jobId, long claimSeq, Object[] claim, int retryDelayMs) {
     boolean paused = SqlserverJobTerminalOperations.retryIntoPausedBatch(ctx, jobId);
+    // SYSUTCDATETIME() has seven fractional digits and scheduled_time six. Storing it can round up
+    // past a claim that reads the same clock tick, which lasts milliseconds. Starting one
+    // microsecond earlier keeps the job due to that claim.
     // language=SQL Server
     String sql =
         """
         UPDATE scheduler_job_queue
         SET status = ?, paused_from_status = ?, last_error = ?,
-            scheduled_time = DATEADD(MILLISECOND, ?, SYSUTCDATETIME()),
+            scheduled_time = DATEADD(MILLISECOND, ?, DATEADD(MICROSECOND, -1, SYSUTCDATETIME())),
             picked_by = NULL, picked_at = NULL, updated_at = SYSUTCDATETIME()
         WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
         """;
