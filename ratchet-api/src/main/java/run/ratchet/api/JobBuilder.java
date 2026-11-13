@@ -23,6 +23,7 @@ import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.api.exception.SignalTimeoutException;
 
 /**
@@ -325,8 +326,16 @@ public interface JobBuilder {
   /**
    * Acquires a permit from the named resource pool before execution; reschedules if at capacity.
    *
-   * @param resourceName if null or blank, no resource limiting is applied
+   * <p>The resource needs a limit, set with {@link ResourceLimits#setResourceLimit(ResourceLimit)},
+   * before the job is submitted. {@code submit()} throws {@link ResourceNotConfiguredException},
+   * and writes nothing, for a resource with no limit. It throws {@link
+   * UnsupportedOperationException} if the store does not advertise the {@code ResourcePermitStore}
+   * capability.
+   *
+   * @param resourceName if null or blank, no resource limiting is applied; otherwise trimmed
    * @return this builder
+   * @throws IllegalArgumentException if the trimmed name is longer than 100 characters or has a
+   *     character outside printable ASCII (U+0020-U+007E)
    */
   JobBuilder withResource(String resourceName);
 

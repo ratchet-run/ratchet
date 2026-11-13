@@ -52,6 +52,7 @@ import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.ChainScheduler;
@@ -123,7 +124,7 @@ public class DefaultJobCreationService
   private final MetricsCollector metricsCollector;
   private final Clock clock;
   private final boolean signalCapabilityAvailable;
-  private final boolean resourcePermitCapabilityAvailable;
+  private final ResourcePermitStore resourcePermitStore;
 
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final BatchCompletionTransaction conflictResolutionTransaction;
@@ -152,7 +153,7 @@ public class DefaultJobCreationService
     this.afterCommitRegistrar = null;
     this.conflictResolutionTransaction = null;
     this.signalCapabilityAvailable = false;
-    this.resourcePermitCapabilityAvailable = false;
+    this.resourcePermitStore = null;
   }
 
   @Inject
@@ -201,7 +202,7 @@ public class DefaultJobCreationService
         metricsCollector,
         clock,
         signalStore.isResolvable(),
-        resourcePermitStore.isResolvable(),
+        resourcePermitStore.isResolvable() ? resourcePermitStore.get() : null,
         options != null ? options.callerPrincipalResolver() : null,
         afterCommitRegistrar,
         errorSanitizer,
@@ -228,7 +229,7 @@ public class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable,
+      ResourcePermitStore resourcePermitStore,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
@@ -252,7 +253,7 @@ public class DefaultJobCreationService
         metricsCollector,
         clock,
         signalCapabilityAvailable,
-        resourcePermitCapabilityAvailable,
+        resourcePermitStore,
         callerPrincipalResolver,
         afterCommitRegistrar,
         errorSanitizer,
@@ -280,7 +281,7 @@ public class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable,
+      ResourcePermitStore resourcePermitStore,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer,
@@ -308,15 +309,16 @@ public class DefaultJobCreationService
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.conflictResolutionTransaction = conflictResolutionTransaction;
     this.signalCapabilityAvailable = signalCapabilityAvailable;
-    this.resourcePermitCapabilityAvailable = resourcePermitCapabilityAvailable;
+    this.resourcePermitStore = resourcePermitStore;
   }
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the submission.
+   *     container starts one for the submission. A missing resource limit is thrown before any
+   *     write and leaves the caller's transaction usable.
    */
   @Override
-  @Transactional
+  @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
   public JobHandle submit(JobBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -359,6 +361,7 @@ public class DefaultJobCreationService
     }
     String resourceName = builder.resourceName();
     requireResourcePermitCapability(resourceName, "Job declares resource");
+    requireResourceLimit(resourceName);
     Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
@@ -506,10 +509,11 @@ public class DefaultJobCreationService
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the batch submission.
+   *     container starts one for the batch submission. A missing resource limit is thrown before
+   *     any write and leaves the caller's transaction usable.
    */
   @Override
-  @Transactional
+  @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
   public JobHandle submit(DefaultBatchBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -533,6 +537,7 @@ public class DefaultJobCreationService
         return () -> existingId;
       }
     }
+    requireResourceLimit(builder.childResourceName());
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
       validateReducingChildren(builder);
@@ -615,10 +620,11 @@ public class DefaultJobCreationService
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the streaming batch submission.
+   *     container starts one for the streaming batch submission. A missing resource limit is thrown
+   *     before any write and leaves the caller's transaction usable.
    */
   @Override
-  @Transactional
+  @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
   // The internal builder crosses a public interface method that must retain transaction advice.
   @SuppressWarnings("ClassEscapesDefinedScope")
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
@@ -657,6 +663,7 @@ public class DefaultJobCreationService
       }
     }
 
+    requireResourceLimit(builder.childResourceName());
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
       validateReducingChildren(builder);
@@ -928,8 +935,14 @@ public class DefaultJobCreationService
         && Objects.equals(existing.misfirePolicy(), replacement.misfirePolicy());
   }
 
+  private void requireResourceLimit(String resourceName) {
+    if (resourceName != null && resourcePermitStore.findResourceLimit(resourceName).isEmpty()) {
+      throw new ResourceNotConfiguredException(resourceName);
+    }
+  }
+
   private void requireResourcePermitCapability(String resourceName, String subject) {
-    if (resourceName != null && !resourceName.isBlank() && !resourcePermitCapabilityAvailable) {
+    if (resourceName != null && !resourceName.isBlank() && resourcePermitStore == null) {
       // The caller asked for concurrency gating on a named resource, but the store cannot enforce
       // it. Reject the submission rather than silently running the job with unbounded concurrency.
       throw new UnsupportedOperationException(

@@ -138,7 +138,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             Clock.systemUTC(),
             null,
             new JakartaAfterCommitRegistrar(),
-            mock(BatchService.class));
+            mock(BatchService.class),
+            null);
   }
 
   @Test
@@ -178,7 +179,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         Clock.systemUTC(),
         RatchetOptions.builder().callerPrincipalResolver(callerPrincipalResolver).build(),
         new JakartaAfterCommitRegistrar(),
-        mock(BatchService.class));
+        mock(BatchService.class),
+        null);
   }
 
   @Test
@@ -444,7 +446,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             Clock.systemUTC(),
             null,
             new JakartaAfterCommitRegistrar(),
-            mock(BatchService.class));
+            mock(BatchService.class),
+            null);
 
     when(jobBatchStatusStore.compareAndSwapStatus(
             eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any()))

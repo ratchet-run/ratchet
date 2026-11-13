@@ -71,6 +71,7 @@ import com.mongodb.client.model.UpdateOneModel;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.WriteModel;
 import com.mongodb.client.result.DeleteResult;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -83,7 +84,9 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
@@ -247,7 +250,7 @@ final class MongoAuxiliaryOperations {
             // The first operation must write: even a full-pool miss serializes with wake-ups.
             Document limit = incrementGeneration(session, resource);
             if (limit == null) {
-              throw new IllegalArgumentException("Resource is not configured: " + resource);
+              throw new ResourceNotConfiguredException(resource);
             }
             Document job =
                 ctx.jobs()
@@ -588,19 +591,51 @@ final class MongoAuxiliaryOperations {
     return doc.getInteger(RETRY_DELAY_MS, DEFAULT_PERMIT_RETRY_DELAY_MS);
   }
 
+  Optional<ResourceLimit> findResourceLimit(String name) {
+    try {
+      Document doc = ctx.resourceLimits().find(eq(ID, name)).first();
+      return doc == null ? Optional.empty() : Optional.of(mapResourceLimit(doc));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find resource limit", e);
+    }
+  }
+
+  List<ResourceLimit> listResourceLimits() {
+    try {
+      return ctx.resourceLimits()
+          .find()
+          .map(MongoAuxiliaryOperations::mapResourceLimit)
+          .into(new ArrayList<>());
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("list resource limits", e);
+    }
+  }
+
+  private static ResourceLimit mapResourceLimit(Document doc) {
+    return new ResourceLimit(
+        doc.getString(ID),
+        ((Number) doc.get(MAX_CONCURRENT)).intValue(),
+        Duration.ofMillis(((Number) doc.get(RETRY_DELAY_MS)).intValue()),
+        doc.getString(DESCRIPTION));
+  }
+
   void configureResource(String name, int maxConcurrent, int retryDelayMs, String description) {
-    Instant now = Instant.now();
-    ctx.resourceLimits()
-        .updateOne(
-            eq(ID, name),
-            combine(
-                set(MAX_CONCURRENT, maxConcurrent),
-                set(RETRY_DELAY_MS, retryDelayMs),
-                set(DESCRIPTION, description),
-                set(UPDATED_AT, DocumentMapper.toDate(now)),
-                setOnInsert(CREATED_AT, DocumentMapper.toDate(now)),
-                setOnInsert(ACTIVE_COUNT, 0)),
-            new UpdateOptions().upsert(true));
+    try {
+      Instant now = Instant.now();
+      ctx.resourceLimits()
+          .updateOne(
+              eq(ID, name),
+              combine(
+                  set(MAX_CONCURRENT, maxConcurrent),
+                  set(RETRY_DELAY_MS, retryDelayMs),
+                  set(DESCRIPTION, description),
+                  set(UPDATED_AT, DocumentMapper.toDate(now)),
+                  setOnInsert(CREATED_AT, DocumentMapper.toDate(now)),
+                  setOnInsert(ACTIVE_COUNT, 0)),
+              new UpdateOptions().upsert(true));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("configure resource", e);
+    }
   }
 
   int cleanupOrphanedPermits(List<String> staleNodeIds) {

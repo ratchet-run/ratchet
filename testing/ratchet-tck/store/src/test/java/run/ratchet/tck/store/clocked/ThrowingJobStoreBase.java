@@ -28,6 +28,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.ChildResult;
@@ -759,6 +760,16 @@ public abstract class ThrowingJobStoreBase
   @Override
   public int getPermitRetryDelay(String resource) {
     return fail("getPermitRetryDelay");
+  }
+
+  @Override
+  public Optional<ResourceLimit> findResourceLimit(String name) {
+    return fail("findResourceLimit");
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    return fail("listResourceLimits");
   }
 
   @Override

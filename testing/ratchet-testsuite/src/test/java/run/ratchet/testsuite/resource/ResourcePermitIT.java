@@ -17,15 +17,19 @@ package run.ratchet.testsuite.resource;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
+import jakarta.transaction.Status;
+import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -34,9 +38,11 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.event.JobStartedEvent;
-import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -57,7 +63,9 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   @Inject private JobCrudStore jobCrudStore;
 
-  @Inject private ResourcePermitService resourcePermitService;
+  @Inject private JobSchedulerService scheduler;
+
+  @Inject private UserTransaction utx;
 
   @Inject private JobStore jobStore;
 
@@ -84,7 +92,7 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   @Test
   void jobsWithinPermitLimit_shouldAllComplete() {
-    resourcePermitService.configureResource("test-res", 3, 1000, "test");
+    setLimit("test-res", 3, 1000);
 
     List<JobHandle> handles = new ArrayList<>();
     for (int i = 0; i < 3; i++) {
@@ -112,7 +120,7 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   @Test
   void jobsExceedingPermitLimit_shouldBeConcurrencyLimited() {
-    resourcePermitService.configureResource("limited-res", 2, 500, "test");
+    setLimit("limited-res", 2, 500);
 
     List<JobHandle> handles = new ArrayList<>();
     for (int i = 0; i < 5; i++) {
@@ -144,7 +152,7 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   @Test
   void jobWaitingForPermit_recordsNoAttemptWhileItWaits() {
-    resourcePermitService.configureResource("queue-res", 1, 200, "test");
+    setLimit("queue-res", 1, 200);
     ResourceTestJob.closeGate();
     try {
       JobHandle holder =
@@ -186,7 +194,7 @@ class ResourcePermitIT extends BaseRatchetIT {
   void freedPermit_shouldGoToTheWaiterThatWaitedFirst() {
     // The first waiter parks with a long retry delay. The delay is then shortened, so the second
     // waiter re-checks often. Both wait behind the holder, and the first waited longer.
-    resourcePermitService.configureResource("order-res", 1, 30_000, "test");
+    setLimit("order-res", 1, 30_000);
     ResourceTestJob.closeGate();
     try {
       JobHandle holder =
@@ -197,7 +205,7 @@ class ResourcePermitIT extends BaseRatchetIT {
           jobService.enqueue(ResourceTestJob::execute).withResource("order-res").submit();
       awaitWaiting(first, "order-res");
 
-      resourcePermitService.configureResource("order-res", 1, 200, "test");
+      setLimit("order-res", 1, 200);
       JobHandle second =
           jobService.enqueue(ResourceTestJob::execute).withResource("order-res").submit();
       awaitWaiting(second, "order-res");
@@ -224,7 +232,7 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   @Test
   void freedPermit_shouldStartTheWaiterWithoutWaitingOutItsRetryDelay() {
-    resourcePermitService.configureResource("wake-res", 1, 30_000, "test");
+    setLimit("wake-res", 1, 30_000);
     ResourceTestJob.closeGate();
     try {
       JobHandle holder =
@@ -252,12 +260,69 @@ class ResourcePermitIT extends BaseRatchetIT {
   }
 
   @Test
-  void jobWithUnconfiguredResource_shouldFailHard() {
-    JobHandle handle =
-        jobService.enqueue(ResourceTestJob::execute).withResource("missing-resource").submit();
+  void submitWithUnconfiguredResource_shouldThrowAndWriteNoJob() {
+    // Idempotency keys are at most 36 characters.
+    String key = UUID.randomUUID().toString();
 
-    JobAssertions.assertJobFailed(jobCrudStore, handle);
+    ResourceNotConfiguredException exception =
+        assertThrows(
+            ResourceNotConfiguredException.class,
+            () ->
+                jobService
+                    .enqueue(ResourceTestJob::execute)
+                    .withResource("missing-resource")
+                    .withIdempotencyKey(key)
+                    .submit());
+
+    assertEquals("missing-resource", exception.resourceName());
+    assertTrue(jobCrudStore.findOriginalJobIdByIdempotencyKey(key).isEmpty(), "no job written");
     assertEquals(0, ResourceTestJob.getCompletedCount(), "Job body should not execute");
+  }
+
+  @Test
+  void unknownResourceSubmit_shouldLeaveTheCallerTransactionCommittable() throws Exception {
+    JobHandle handle;
+    utx.begin();
+    try {
+      // A limit set earlier in the same transaction is visible to the submit check.
+      setLimit("tx-res", 1, 200);
+      handle = jobService.enqueue(ResourceTestJob::execute).withResource("tx-res").submit();
+      assertThrows(
+          ResourceNotConfiguredException.class,
+          () -> jobService.enqueue(ResourceTestJob::execute).withResource("tx-missing").submit());
+      assertEquals(
+          Status.STATUS_ACTIVE,
+          utx.getStatus(),
+          "a missing limit must not mark the caller's transaction rollback-only");
+    } catch (Throwable failure) {
+      utx.rollback();
+      throw failure;
+    }
+    utx.commit();
+
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+    assertEquals(
+        Optional.of(new ResourceLimit("tx-res", 1, Duration.ofMillis(200), "test")),
+        scheduler.findResourceLimit("tx-res"));
+  }
+
+  @Test
+  void setResourceLimit_shouldBeReadBackByFindAndList() {
+    scheduler.setResourceLimit(
+        ResourceLimit.of(" read-back ", 2)
+            .withRetryDelay(Duration.ofMillis(750))
+            .withDescription("Read back"));
+
+    ResourceLimit expected = new ResourceLimit("read-back", 2, Duration.ofMillis(750), "Read back");
+    assertEquals(Optional.of(expected), scheduler.findResourceLimit("read-back"));
+    assertTrue(scheduler.listResourceLimits().contains(expected), "list contains " + expected);
+  }
+
+  private void setLimit(String resource, int maxConcurrent, long retryDelayMs) {
+    scheduler.setResourceLimit(
+        ResourceLimit.of(resource, maxConcurrent)
+            .withRetryDelay(Duration.ofMillis(retryDelayMs))
+            .withDescription("test"));
   }
 
   private void assertOneSucceededAttempt(JobHandle handle) {

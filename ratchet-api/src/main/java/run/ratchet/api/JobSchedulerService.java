@@ -79,7 +79,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
  * @since 0.1
  */
 @Incubating
-public interface JobSchedulerService {
+public interface JobSchedulerService extends ResourceLimits {
 
   /**
    * Starts a fluent builder for a job to execute immediately (zero delay). The returned builder is

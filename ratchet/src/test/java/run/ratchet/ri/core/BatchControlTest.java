@@ -105,7 +105,8 @@ class BatchControlTest {
         Clock.systemUTC(),
         null,
         registrar,
-        batchService);
+        batchService,
+        null);
   }
 
   @Test

@@ -75,7 +75,10 @@ public interface InvocationJobBuilder {
    */
   InvocationJobBuilder withBusinessKey(String key);
 
-  /** Gates execution on a named resource permit. */
+  /**
+   * Gates execution on a named resource permit, with the rules of {@link
+   * JobBuilder#withResource(String)}.
+   */
   InvocationJobBuilder withResource(String resourceName);
 
   /** Requests execution on the virtual-thread executor target. */

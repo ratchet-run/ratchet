@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 class DefaultJobBuilderTest {
@@ -100,6 +102,48 @@ class DefaultJobBuilderTest {
     builder.whenResult(value -> true, () -> {}, 7);
 
     assertEquals(7, builder.workflowBranches().get(0).condition().priority());
+  }
+
+  @Test
+  void withResourceAcceptsOneHundredPrintableAsciiCharactersAndTrims() {
+    DefaultJobBuilder builder = newBuilder();
+    String name = "r".repeat(100);
+
+    builder.withResource("  " + name + " ");
+
+    assertEquals(name, builder.resourceName());
+  }
+
+  @Test
+  void withResourceStillTreatsNullOrBlankAsNoResource() {
+    DefaultJobBuilder builder = newBuilder();
+    builder.withResource("gpu");
+
+    builder.withResource(" \t");
+    assertNull(builder.resourceName());
+    builder.withResource("gpu");
+    builder.withResource(null);
+    assertNull(builder.resourceName());
+  }
+
+  @Test
+  void withResourceRejectsNamesNoStoreCanHoldTheSameWay() {
+    // The limit table's key is VARCHAR(100), and Oracle and SQL Server count it in bytes or in a
+    // code page, so the job and batch builders apply the business-key style rule at the call.
+    DefaultBatchBuilder batch = new DefaultBatchBuilder("batch", null);
+    DefaultStreamingBatchBuilder<String> streaming = new DefaultStreamingBatchBuilder<>("s", null);
+    for (var withResource :
+        List.<Consumer<String>>of(
+            newBuilder()::withResource, batch::withResource, streaming::withResource)) {
+      assertEquals(
+          "Resource name must be at most 100 characters, got 101",
+          assertThrows(IllegalArgumentException.class, () -> withResource.accept("r".repeat(101)))
+              .getMessage());
+      assertEquals(
+          "Resource name must contain only printable ASCII characters (U+0020-U+007E)",
+          assertThrows(IllegalArgumentException.class, () -> withResource.accept("gp\u00fc"))
+              .getMessage());
+    }
   }
 
   private static DefaultJobBuilder newBuilder() {

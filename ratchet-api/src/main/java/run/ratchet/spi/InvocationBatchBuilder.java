@@ -142,7 +142,10 @@ public interface InvocationBatchBuilder {
     throw new UnsupportedOperationException("Batch callback options are not supported");
   }
 
-  /** Sets the named resource pool acquired by every child job. */
+  /**
+   * Sets the named resource pool acquired by every child job, with the rules of {@link
+   * BatchBuilder#withResource(String)}.
+   */
   InvocationBatchBuilder withResource(String resourceName);
 
   /**

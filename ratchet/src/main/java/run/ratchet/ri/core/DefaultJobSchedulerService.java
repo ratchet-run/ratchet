@@ -24,6 +24,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,6 +41,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringJobBuilder;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.StreamingBatchBuilder;
@@ -51,6 +53,7 @@ import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
+import run.ratchet.api.internal.ResourceLimitRules;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -100,6 +103,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   private final JobCrudStore jobCrudStore;
   private final BatchStore batchStore;
   private final BatchService batchService;
+  private final ResourcePermitService resourcePermitService;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final RecurringJobStore recurringJobStore;
@@ -127,6 +131,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.jobCrudStore = null;
     this.batchStore = null;
     this.batchService = null;
+    this.resourcePermitService = null;
     this.tagStore = null;
     this.workflowConditionStore = null;
     this.recurringJobStore = null;
@@ -169,7 +174,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      ResourcePermitService resourcePermitService) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -193,7 +199,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         clock,
         options,
         afterCommitRegistrar,
-        batchService);
+        batchService,
+        resourcePermitService);
   }
 
   /**
@@ -224,7 +231,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      ResourcePermitService resourcePermitService) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -233,6 +241,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
     this.batchService = batchService;
+    this.resourcePermitService = resourcePermitService;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
     this.recurringJobStore = recurringJobStore;
@@ -251,6 +260,44 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.metricsCollector = metricsCollector;
     this.clock = clock;
     this.afterCommitRegistrar = afterCommitRegistrar;
+  }
+
+  /**
+   * @implSpec Transaction attribute: REQUIRED. Argument and capability errors leave the caller's
+   *     transaction usable.
+   */
+  @Override
+  @Transactional(
+      value = Transactional.TxType.REQUIRED,
+      dontRollbackOn = {IllegalArgumentException.class, UnsupportedOperationException.class})
+  public void setResourceLimit(ResourceLimit limit) {
+    ResourceLimit normalized = ResourceLimitRules.normalize(limit);
+    resourcePermitService.configureResource(
+        normalized.resourceName(),
+        normalized.maxConcurrent(),
+        (int) normalized.retryDelay().toMillis(),
+        normalized.description());
+  }
+
+  /**
+   * @implSpec Transaction attribute: SUPPORTS. Invalid names leave the caller's transaction usable.
+   */
+  @Override
+  @Transactional(
+      value = Transactional.TxType.SUPPORTS,
+      dontRollbackOn = IllegalArgumentException.class)
+  public Optional<ResourceLimit> findResourceLimit(String resourceName) {
+    String name = ResourceLimitRules.normalizeName(resourceName);
+    return name == null ? Optional.empty() : resourcePermitService.findResourceLimit(name);
+  }
+
+  /**
+   * @implSpec Transaction attribute: SUPPORTS.
+   */
+  @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
+  public List<ResourceLimit> listResourceLimits() {
+    return resourcePermitService.listResourceLimits();
   }
 
   @Override

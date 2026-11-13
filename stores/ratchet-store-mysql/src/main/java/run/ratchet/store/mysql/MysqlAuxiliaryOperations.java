@@ -18,6 +18,7 @@ package run.ratchet.store.mysql;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,7 +30,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
@@ -244,7 +247,7 @@ final class MysqlAuxiliaryOperations
           """;
       List<?> limits = ctx.em().createNativeQuery(sql).setParameter(1, resource).getResultList();
       if (limits.isEmpty()) {
-        throw new IllegalArgumentException("Resource is not configured: " + resource);
+        throw new ResourceNotConfiguredException(resource);
       }
       // This must be the first consistent read after locking the resource (REPEATABLE READ).
       // language=MySQL
@@ -616,6 +619,53 @@ final class MysqlAuxiliaryOperations
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("get permit retry delay", e);
     }
+  }
+
+  @Override
+  public Optional<ResourceLimit> findResourceLimit(String name) {
+    try {
+      // language=MySQL
+      String sql =
+          """
+          SELECT resource_name, max_concurrent, retry_delay_ms, description
+          FROM scheduler_resource_limit WHERE resource_name = ?
+          """;
+      Object[] row =
+          (Object[]) ctx.em().createNativeQuery(sql).setParameter(1, name).getSingleResult();
+      return Optional.of(mapResourceLimit(row));
+    } catch (NoResultException e) {
+      return Optional.empty();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find resource limit", e);
+    }
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    try {
+      // language=MySQL
+      String sql =
+          """
+          SELECT resource_name, max_concurrent, retry_delay_ms, description
+          FROM scheduler_resource_limit
+          """;
+      List<?> rows = ctx.em().createNativeQuery(sql).getResultList();
+      List<ResourceLimit> limits = new ArrayList<>(rows.size());
+      for (Object row : rows) {
+        limits.add(mapResourceLimit((Object[]) row));
+      }
+      return limits;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("list resource limits", e);
+    }
+  }
+
+  private static ResourceLimit mapResourceLimit(Object[] row) {
+    return new ResourceLimit(
+        (String) row[0],
+        ((Number) row[1]).intValue(),
+        Duration.ofMillis(((Number) row[2]).intValue()),
+        (String) row[3]);
   }
 
   @Override

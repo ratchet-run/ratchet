@@ -622,6 +622,7 @@ class DefaultJobSchedulerServiceSignalTest {
         FIXED_CLOCK,
         RatchetOptions.builder().payload(payload -> payload.maxPayloadKb(1)).build(),
         registrar,
-        mock(BatchService.class));
+        mock(BatchService.class),
+        null);
   }
 }

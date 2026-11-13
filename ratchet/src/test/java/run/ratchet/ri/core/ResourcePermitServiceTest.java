@@ -29,13 +29,16 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.ri.core.internal.DefaultResourcePermitService;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -225,9 +228,56 @@ class ResourcePermitServiceTest {
     assertEquals(5000, service.getRetryDelay("api"));
     service.release("api", jobId, 7L);
     service.releaseAll(jobId);
-    service.configureResource("api", 10, 100, null);
     assertEquals(0, service.cleanupOrphanedPermits(List.of("node")));
     service.sweepWaiters();
+    assertEquals(Optional.empty(), service.findResourceLimit("api"));
+    assertEquals(List.of(), service.listResourceLimits());
     verifyNoInteractions(store, wakeup, registrar);
+  }
+
+  @Test
+  void absentStoreRejectsConfigureResource() {
+    // A limit that cannot be stored must not look as if it was set.
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    var service = new DefaultResourcePermitService((ResourcePermitStore) null, wakeup, registrar);
+
+    UnsupportedOperationException exception =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> service.configureResource("api", 10, 100, null));
+
+    assertEquals(
+        "Resource limits require a store that advertises the ResourcePermitStore capability",
+        exception.getMessage());
+    verifyNoInteractions(wakeup, registrar);
+  }
+
+  @Test
+  void findResourceLimitReadsTheStore() {
+    ResourceLimit limit = new ResourceLimit("api", 2, Duration.ofMillis(100), "API slots");
+    when(store.findResourceLimit("api")).thenReturn(Optional.of(limit));
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+
+    assertEquals(Optional.of(limit), service.findResourceLimit("api"));
+    assertEquals(Optional.empty(), service.findResourceLimit("gpu"));
+    verifyNoInteractions(wakeup);
+  }
+
+  @Test
+  void listResourceLimitsSortsByNameAndCannotBeChanged() {
+    ResourceLimit gpu = ResourceLimit.of("gpu", 1);
+    ResourceLimit api = ResourceLimit.of("api", 2);
+    ResourceLimit upper = ResourceLimit.of("Zeta", 3);
+    when(store.listResourceLimits()).thenReturn(new ArrayList<>(List.of(gpu, upper, api)));
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+
+    List<ResourceLimit> limits = service.listResourceLimits();
+
+    assertEquals(List.of(upper, api, gpu), limits);
+    assertThrows(UnsupportedOperationException.class, () -> limits.add(gpu));
   }
 }

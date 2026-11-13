@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Objects;
 import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 /**
  * Fluent builder for batch job execution with progress monitoring, conditional branching, and
@@ -195,20 +196,21 @@ public interface BatchBuilder {
    * Makes every child job acquire a permit from the named resource pool before it runs.
    *
    * <p>When the pool is at capacity, the child is rescheduled without counting as a retry. The
-   * configured permit count caps how many children of this batch run at once and is shared with any
-   * other job, inside or outside this batch, using the same resource name. Permit counts are
-   * configured per resource name in the store's resource-limit table {@code
-   * scheduler_resource_limit} with columns {@code max_concurrent} and {@code retry_delay_ms}; see
-   * the performance-tuning deployment guide.
+   * resource's limit caps how many children of this batch run at once and is shared with any other
+   * job, inside or outside this batch, using the same resource name. Set the limit with {@link
+   * ResourceLimits#setResourceLimit(ResourceLimit)} before submitting.
    *
    * <p>This setting applies to the whole builder regardless of call order, including children
    * already added. It does not apply to the no-op batch parent, progress hooks, or workflow branch
    * jobs. {@code submit()} throws {@link UnsupportedOperationException} if a resource is set and
-   * the store does not advertise the {@code ResourcePermitStore} capability.
+   * the store does not advertise the {@code ResourcePermitStore} capability, and {@link
+   * ResourceNotConfiguredException}, before it writes anything, if the resource has no limit.
    *
    * @param resourceName if null or blank, no resource limiting is applied (the name is trimmed
    *     otherwise)
    * @return this builder
+   * @throws IllegalArgumentException if the trimmed name is longer than 100 characters or has a
+   *     character outside printable ASCII (U+0020-U+007E)
    */
   BatchBuilder withResource(String resourceName);
 

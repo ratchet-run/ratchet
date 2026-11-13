@@ -16,10 +16,13 @@
 package run.ratchet.store.spi;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 /** Resource permit management operations for concurrency limiting. */
 @Incubating
@@ -89,7 +92,7 @@ public interface ResourcePermitStore {
    * @param claimSeq claim that must own the running job when the store checks it
    * @param nodeId stable identity of the acquiring node; never {@code null} or blank
    * @return whether the claim acquired capacity, must wait, or did not own the job at the check
-   * @throws IllegalArgumentException when {@code resource} has not been configured
+   * @throws ResourceNotConfiguredException when {@code resource} has no limit
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
   AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId);
@@ -131,10 +134,24 @@ public interface ResourcePermitStore {
   int getPermitRetryDelay(String resource);
 
   /**
+   * Reads one stored limit by name; empty when there is none. Does not apply validation rules. Name
+   * matching follows the store's key comparison, which may ignore case. Transaction attribute:
+   * {@code SUPPORTS}.
+   */
+  Optional<ResourceLimit> findResourceLimit(String name);
+
+  /**
+   * Reads every stored limit, in no particular order. Does not apply validation rules. Transaction
+   * attribute: {@code SUPPORTS}.
+   */
+  List<ResourceLimit> listResourceLimits();
+
+  /**
    * Creates or updates a resource limit. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>Does not wake waiters. The engine calls {@link #wakeWaiters} after commit in a separate
-   * transaction, keeping the resource lock first.
+   * <p>The engine validates and normalizes the arguments first, so the store may trust them. Does
+   * not wake waiters. The engine calls {@link #wakeWaiters} after commit in a separate transaction,
+   * keeping the resource lock first.
    *
    * @param name resource name (primary key); never {@code null} or blank
    * @param maxConcurrent maximum concurrent permits allowed for the resource; must be positive

@@ -147,7 +147,10 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
   /** Chains a next step executed when at least one child fails. */
   InvocationStreamingBatchBuilder<T> thenOnBatchFailure(JobInvocation next);
 
-  /** Sets the named resource pool acquired by every child job. */
+  /**
+   * Sets the named resource pool acquired by every child job, with the rules of {@link
+   * StreamingBatchBuilder#withResource(String)}.
+   */
   InvocationStreamingBatchBuilder<T> withResource(String resourceName);
 
   /**

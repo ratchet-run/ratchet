@@ -29,6 +29,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobOptions;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.ri.core.internal.DefaultRecurringAnnotationMaintenanceService;
@@ -72,6 +73,31 @@ class DefaultJobSchedulerServiceTransactionContractTest {
             .value());
     assertRequired(
         "replace", UUID.class, Duration.class, SerializableCheckedRunnable.class, JobOptions.class);
+  }
+
+  @Test
+  void resourceLimitMethods_declareTheirTransactionAttributes() throws NoSuchMethodException {
+    // An argument or capability error is thrown before any write, so it must not mark the
+    // caller's transaction rollback-only.
+    Transactional set = transactional("setResourceLimit", ResourceLimit.class);
+    assertEquals(Transactional.TxType.REQUIRED, set.value());
+    assertEquals(
+        Set.of(IllegalArgumentException.class, UnsupportedOperationException.class),
+        Set.of(set.dontRollbackOn()));
+
+    Transactional find = transactional("findResourceLimit", String.class);
+    assertEquals(Transactional.TxType.SUPPORTS, find.value());
+    assertEquals(Set.of(IllegalArgumentException.class), Set.of(find.dontRollbackOn()));
+
+    assertSupports("listResourceLimits");
+  }
+
+  private static Transactional transactional(String methodName, Class<?>... parameterTypes)
+      throws NoSuchMethodException {
+    Method method = DefaultJobSchedulerService.class.getMethod(methodName, parameterTypes);
+    Transactional transactional = method.getAnnotation(Transactional.class);
+    assertNotNull(transactional, methodName + " must declare the public API TX attribute");
+    return transactional;
   }
 
   private static void assertNotSupported(String methodName) throws NoSuchMethodException {

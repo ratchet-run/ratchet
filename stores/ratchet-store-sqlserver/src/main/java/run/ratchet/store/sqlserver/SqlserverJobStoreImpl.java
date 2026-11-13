@@ -37,6 +37,7 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RatchetOptions.IsolationCheckMode;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
@@ -836,6 +837,16 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Override
   public int getPermitRetryDelay(String resource) {
     return auxiliary.getPermitRetryDelay(resource);
+  }
+
+  @Override
+  public Optional<ResourceLimit> findResourceLimit(String name) {
+    return auxiliary.findResourceLimit(name);
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    return auxiliary.listResourceLimits();
   }
 
   @Override

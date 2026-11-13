@@ -88,7 +88,7 @@ class DefaultJobCreationServiceEmptyBatchTest {
             null,
             Clock.systemUTC(),
             true,
-            true,
+            null,
             null,
             null,
             null);

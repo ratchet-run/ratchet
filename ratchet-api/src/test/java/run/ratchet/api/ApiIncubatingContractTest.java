@@ -15,11 +15,14 @@
  */
 package run.ratchet.api;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.event.JobPausedEvent;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 class ApiIncubatingContractTest {
 
@@ -52,6 +55,24 @@ class ApiIncubatingContractTest {
   @Test
   void jobPausedEventIsReservedIncubatingApi() {
     assertIncubating(JobPausedEvent.class);
+  }
+
+  @Test
+  void resourceLimitApiIsStable() {
+    // Setting a limit is the only supported way to make withResource(...) usable, so the types an
+    // application calls at start-up make a stable promise even though JobSchedulerService does not.
+    assertStable(ResourceLimits.class);
+    assertStable(ResourceLimit.class);
+    assertStable(ResourceNotConfiguredException.class);
+    for (Method method : ResourceLimits.class.getDeclaredMethods()) {
+      assertStable(method);
+    }
+    assertTrue(ResourceLimits.class.isAssignableFrom(JobSchedulerService.class));
+  }
+
+  private static void assertStable(AnnotatedElement element) {
+    assertFalse(
+        element.isAnnotationPresent(Incubating.class), () -> element + " must not be @Incubating");
   }
 
   private static void assertIncubating(AnnotatedElement element) {

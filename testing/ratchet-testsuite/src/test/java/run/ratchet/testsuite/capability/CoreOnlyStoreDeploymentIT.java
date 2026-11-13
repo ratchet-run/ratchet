@@ -24,12 +24,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Extension;
 import jakarta.inject.Inject;
+import java.util.List;
+import java.util.Optional;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
@@ -148,5 +151,16 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
         UnsupportedOperationException.class,
         () -> jobService.enqueue(SimpleJob::execute).withResource("db-pool").immediate().submit(),
         "a resource-gated submission must fail fast when ResourcePermitStore is absent");
+  }
+
+  @Test
+  void resourceLimitsNeedThePermitCapability() {
+    // A limit that cannot be stored must not look as if it was set; reads find nothing.
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> scheduler.setResourceLimit(ResourceLimit.of("db-pool", 2)),
+        "setResourceLimit must fail when ResourcePermitStore is absent");
+    assertEquals(Optional.empty(), scheduler.findResourceLimit("db-pool"));
+    assertEquals(List.of(), scheduler.listResourceLimits());
   }
 }
