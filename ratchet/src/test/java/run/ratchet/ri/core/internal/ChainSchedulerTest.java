@@ -49,6 +49,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.api.event.ChainStartedEvent;
@@ -507,6 +508,53 @@ class ChainSchedulerTest {
     assertEquals(failed.getId(), event.getJobId());
     assertEquals(failed.getId(), event.getParentJobId());
     assertEquals("boom", event.getErrorMessage());
+  }
+
+  @Test
+  void cancelChain_ofACanceledJobWithoutAnErrorStillPublishesChainFailed() {
+    // A user cancel leaves no error on the job, so the chain failure event uses a fixed message.
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
+    JobEntity canceled = job(JobStatus.RUNNING);
+    canceled.setJobType(JobExecutionType.SINGLE);
+    JobEntity child = pendingJob();
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+    when(jobCrudStore.findDependants(eq(canceled.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());
+
+    scheduler.cancelChain(canceled);
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    ChainFailedEvent event = (ChainFailedEvent) eventCaptor.getValue();
+    assertEquals(canceled.getId(), event.getJobId());
+    assertEquals("Job was canceled", event.getErrorMessage());
+  }
+
+  @Test
+  void cancelChain_childThatStartedSinceItWasLoadedKeepsItsKeyUntilItsBodyEnds() {
+    // A dependant claimed after it was loaded is cancelled as a running job and keeps its key.
+    JobEntity failed = pendingJob();
+    JobEntity child = pendingJob();
+    child.setBusinessKey("chain-child-key");
+    child.setTimeoutSec(30);
+    Instant heldUntil =
+        FIXED_NOW.plusSeconds(30 + RatchetOptions.defaults().node().orphanGraceSeconds());
+    when(jobCrudStore.findDependants(eq(failed.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());
+    when(jobTerminalStore.cancelRunningJob(child.getId(), heldUntil)).thenReturn(true);
+
+    scheduler.cancelChain(failed);
+
+    verify(jobTerminalStore).cancelRunningJob(child.getId(), heldUntil);
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
   }
 
   @Test

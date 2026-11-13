@@ -54,6 +54,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
@@ -730,6 +731,27 @@ class WorkflowSchedulerTest {
     scheduler.cancelChain(parent);
 
     verify(jobTerminalStore).cancelJob(child.getId());
+  }
+
+  @Test
+  void cancelChain_branchThatStartedSinceItWasLoadedKeepsItsKeyUntilItsBodyEnds() {
+    // A branch claimed after it was loaded is cancelled as a running job and keeps its key.
+    JobEntity parent = job(new UUID(0L, 22L), JobStatus.FAILED);
+    JobEntity child = job(new UUID(0L, 23L), JobStatus.PENDING);
+    child.setBusinessKey("branch-key");
+    child.setTimeoutSec(30);
+    Instant heldUntil =
+        FIXED_NOW.plusSeconds(30 + RatchetOptions.defaults().node().orphanGraceSeconds());
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt())).thenReturn(List.of());
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+    when(jobTerminalStore.cancelRunningJob(child.getId(), heldUntil)).thenReturn(true);
+
+    scheduler.cancelChain(parent);
+
+    verify(jobTerminalStore).cancelRunningJob(child.getId(), heldUntil);
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
   }
 
   private WorkflowScheduler eventPublishingScheduler() {

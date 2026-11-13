@@ -4202,6 +4202,7 @@ class JobTaskTest {
     verify(observabilityFacade, atLeastOnce()).saveExecution(execution.capture());
     Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getValue().getStatus());
     verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
     Assertions.assertNull(CallbackRecorder.context);
   }
 
