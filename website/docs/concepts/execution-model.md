@@ -195,9 +195,13 @@ The `ResilienceStrategy` SPI is consulted to check if the target service is avai
 
 **6. Resource Permit**
 
-If the job specifies a `resourceName`, the `ResourcePermitService` attempts to acquire a permit. If the resource is at capacity, the job is rescheduled with a configurable delay. This is not a failure; no retry is consumed.
+If the job specifies a `resourceName`, the `ResourcePermitService` attempts to acquire a permit. If the resource is at capacity, the job is rescheduled with a configurable delay. This is not a failure; no retry is consumed. While the job waits, its `last_error` reads `Waiting for resource: <name>`.
 
 A permit belongs to the attempt's claim. An attempt whose job is no longer RUNNING under its claim takes no permit and stops; this happens when orphan recovery or a timeout has rescheduled the job, or when the job has ended. The store checks the claim once, just before it writes the permit, so an attempt whose job is rescheduled after that check still gets its permit and keeps it until it releases it. A retry never reuses the permit of an earlier attempt of the same job. That permit counts against capacity like any other until the earlier attempt releases it or clean-up removes it. With a limit of 1, the retry waits for it and is rescheduled each time it finds the resource full. An earlier attempt releases its permit when its body ends, so if the body ignores its timeout interrupt, the retry waits as long as the body runs. Orphan recovery removes the permits of a node whose heartbeat has stopped. A starting node deletes the permits left under its own node id before it claims work. With a higher limit, the retry starts as soon as a slot is free.
+
+**Recording the attempt**
+
+Steps 4 to 6 run before the attempt is recorded. When all three pass, the task records the job-start metric, writes the attempt's row in `scheduler_job_execution`, publishes `JobStartedEvent` and opens the tracing span. A job that stops at one of these steps records none of them. A job that waits a long time for a permit, or for an open circuit breaker, adds no rows to its execution history and publishes no start events. An attempt that fails at these steps, for example because its resource is not configured, has no execution row either; the job's `last_error` holds the error.
 
 **7. Security Validation**
 

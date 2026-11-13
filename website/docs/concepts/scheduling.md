@@ -293,7 +293,7 @@ scheduler.enqueue(() -> paymentService.charge(paymentId))
     .submit();
 ```
 
-When a job with a resource runs, it attempts to acquire a permit from the `ResourcePermitService`. If no permits are available (resource at capacity), the job is rescheduled with a delay -- without counting as a retry attempt. This is distinct from retry logic: the job isn't failing, it's waiting for capacity.
+When a job with a resource runs, it attempts to acquire a permit from the `ResourcePermitService`. If no permits are available (resource at capacity), the job is rescheduled with a delay -- without counting as a retry attempt. This is distinct from retry logic: the job isn't failing, it's waiting for capacity. A wait is not recorded as an attempt, so it writes no execution row and publishes no `JobStartedEvent`.
 
 Batch builders can apply a resource to every child with `withResource`. The resource permit count caps how many children run at once without lowering pool-wide concurrency. All jobs using that resource share the same permits. The parent, progress hooks, and workflow branches do not acquire them.
 
