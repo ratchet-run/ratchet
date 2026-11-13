@@ -208,6 +208,33 @@ public abstract class AbstractSchemaMigratorContract {
         repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
   }
 
+  @Test
+  void resourceWaiterMigrationIsIdempotentOnRepeat() throws Exception {
+    resetDatabase();
+    String version = appliedVersion(newMigrator().migrate(), "resource_waiter");
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      boolean upper = metadata.storesUpperCaseIdentifiers();
+      try (ResultSet tables =
+          metadata.getTables(
+              connection.getCatalog(),
+              connection.getSchema(),
+              upper ? "SCHEDULER_RESOURCE_WAITER" : "scheduler_resource_waiter",
+              new String[] {"TABLE"})) {
+        assertTrue(tables.next(), "scheduler_resource_waiter must exist");
+      }
+      try (var statement =
+          connection.prepareStatement("DELETE FROM ratchet_schema_version WHERE version = ?")) {
+        statement.setString(1, version);
+        statement.executeUpdate();
+      }
+    }
+    var repeated = newMigrator().migrate();
+    assertEquals(
+        List.of(version),
+        repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+  }
+
   /** Stores number their migrations independently, so tests find a script by its name. */
   private static String appliedVersion(SchemaMigrator.MigrationResult result, String name) {
     return result.applied().stream()

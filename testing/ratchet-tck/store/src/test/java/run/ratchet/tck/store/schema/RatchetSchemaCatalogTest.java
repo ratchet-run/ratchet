@@ -31,6 +31,16 @@ import run.ratchet.store.schema.Table;
 class RatchetSchemaCatalogTest {
 
   @Test
+  void resourceWaiterDeclaresOrderWithoutForeignKeys() {
+    Table waiter = table("scheduler_resource_waiter");
+    assertEquals(List.of("job_id"), waiter.primaryKey());
+    assertTrue(waiter.foreignKeys().isEmpty());
+    assertEquals(
+        List.of("resource_name", "priority", "wait_since", "job_id"),
+        index(waiter, "idx_resource_waiter_order").columns());
+  }
+
+  @Test
   void eventOutboxDeclaresOrderedRecoveryIndex() {
     Table outbox = table("scheduler_event_outbox");
     assertEquals(List.of("event_id"), outbox.primaryKey());
@@ -126,7 +136,7 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        18,
+        20,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "catalog version should track the combined workflow, recurring, DLQ, and node schema"
             + " revision");

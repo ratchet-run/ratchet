@@ -537,3 +537,17 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
     PRIMARY KEY (event_id),
     INDEX idx_event_outbox_created (created_at, event_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Resource waiters deliberately have no foreign key: preserve park/terminal lock order.
+CREATE TABLE IF NOT EXISTS scheduler_resource_waiter
+(
+    job_id        BINARY(16) NOT NULL,
+    resource_name VARCHAR(100) NOT NULL,
+    priority      INT NOT NULL,
+    wait_since    DATETIME(6) NOT NULL,
+    lease_until   DATETIME(6) NOT NULL,
+    PRIMARY KEY (job_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+CREATE INDEX idx_resource_waiter_order ON scheduler_resource_waiter
+    (resource_name, priority DESC, wait_since ASC, job_id ASC);

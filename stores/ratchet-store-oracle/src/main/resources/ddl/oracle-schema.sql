@@ -494,3 +494,17 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
 
 CREATE INDEX IF NOT EXISTS idx_event_outbox_created
     ON scheduler_event_outbox (created_at, event_id);
+
+-- Resource waiters deliberately have no foreign key: preserve park/terminal lock order.
+CREATE TABLE IF NOT EXISTS scheduler_resource_waiter
+(
+    job_id        RAW(16) NOT NULL,
+    resource_name VARCHAR2(100) NOT NULL,
+    priority      NUMBER(3) NOT NULL,
+    wait_since    TIMESTAMP(6) NOT NULL,
+    lease_until   TIMESTAMP(6) NOT NULL,
+    CONSTRAINT pk_scheduler_resource_waiter PRIMARY KEY (job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_resource_waiter_order ON scheduler_resource_waiter
+    (resource_name, priority DESC, wait_since ASC, job_id ASC);
