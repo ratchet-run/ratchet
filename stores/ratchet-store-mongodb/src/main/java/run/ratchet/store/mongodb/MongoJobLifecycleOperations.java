@@ -979,4 +979,14 @@ final class MongoJobLifecycleOperations
         ? DocumentMapper.toDate(now)
         : null;
   }
+
+  @Override
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
+
+  @Override
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
 }

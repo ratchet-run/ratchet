@@ -75,4 +75,21 @@ public interface JobBulkStore {
   default int closeStaleExecutions(Instant cutoff, int limit) {
     return 0;
   }
+
+  /**
+   * Deletes the business-key holds whose cancelled claim ran on one of these nodes. Orphan recovery
+   * calls it for nodes it has judged dead, and a node calls it for its own id at start-up. Normal
+   * reservations are never touched.
+   *
+   * @return number of holds deleted
+   */
+  int releaseBusinessKeyHolds(List<String> nodeIds);
+
+  /**
+   * Deletes up to {@code limit} business-key holds whose expiry is before {@code now}. Normal
+   * reservations are never touched.
+   *
+   * @return number of holds deleted
+   */
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit);
 }

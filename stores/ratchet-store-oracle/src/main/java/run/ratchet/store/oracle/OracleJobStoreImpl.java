@@ -1155,4 +1155,29 @@ class OracleJobStoreImpl implements OracleJobStore {
   public boolean deletePartitionSet(UUID setId) {
     return partitions.deletePartitionSet(setId);
   }
+
+  @Override
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
+
+  @Override
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    throw new UnsupportedOperationException("status read not implemented yet");
+  }
 }

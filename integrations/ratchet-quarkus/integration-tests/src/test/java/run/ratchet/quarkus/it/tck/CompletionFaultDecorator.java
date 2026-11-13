@@ -21,9 +21,11 @@ import jakarta.decorator.Decorator;
 import jakarta.decorator.Delegate;
 import jakarta.enterprise.inject.Any;
 import jakarta.inject.Inject;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -85,5 +87,15 @@ public abstract class CompletionFaultDecorator implements JobTerminalStore {
       }
     }
     return delegate.commitCompletion(plan);
+  }
+
+  @Override
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return delegate.cancelRunningJob(id, keyHeldUntil);
+  }
+
+  @Override
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return delegate.releaseBusinessKeyHold(jobId, claimSeq);
   }
 }

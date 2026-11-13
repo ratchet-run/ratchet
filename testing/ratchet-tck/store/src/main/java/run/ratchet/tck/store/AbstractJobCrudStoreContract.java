@@ -23,8 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +37,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.EventOutboxStore;
@@ -435,5 +438,82 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
         originalCreatedAt,
         updated.getCreatedAt(),
         "save() must not overwrite the createdAt set by create()");
+  }
+
+  @Test
+  void findStatusesByIds_returnsMixedStatuses() {
+    // Status reads include live and terminal jobs, including both cancel paths.
+    var succeeded = persist(newPendingJob());
+    assertEquals(succeeded.getId(), store().claimNextBatch(1, "status-node").get(0).getId());
+    assertTrue(
+        store().markJobSucceededMinimal(succeeded.getId(), Instant.now(), Instant.now(), 0L, 0L));
+    var failed = persist(newPendingJob());
+    var failedClaim = store().claimNextBatch(1, "status-node").get(0);
+    assertEquals(failed.getId(), failedClaim.getId());
+    assertTrue(
+        store().markJobFailedTerminal(failed.getId(), "failed", 1, failedClaim.getClaimSeq()));
+    var canceledRunning = persist(newPendingJob());
+    assertEquals(canceledRunning.getId(), store().claimNextBatch(1, "status-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(canceledRunning.getId(), null));
+    var running = persist(newPendingJob());
+    assertEquals(running.getId(), store().claimNextBatch(1, "status-node").get(0).getId());
+    var paused = persist(newPendingJob());
+    assertTrue(store().transitionToPaused(paused.getId(), JobStatus.PENDING));
+    var canceledPending = persist(newPendingJob());
+    assertTrue(store().cancelJob(canceledPending.getId()));
+    var pending = persist(newPendingJob());
+    Map<UUID, JobStatus> expected =
+        Map.of(
+            pending.getId(), JobStatus.PENDING,
+            running.getId(), JobStatus.RUNNING,
+            paused.getId(), JobStatus.PAUSED,
+            succeeded.getId(), JobStatus.SUCCEEDED,
+            failed.getId(), JobStatus.FAILED,
+            canceledPending.getId(), JobStatus.CANCELED,
+            canceledRunning.getId(), JobStatus.CANCELED);
+    assertEquals(expected, store().findStatusesByIds(expected.keySet()));
+  }
+
+  @Test
+  void findStatusesByIds_missingIdsAreAbsent() {
+    // Unknown ids are absent rather than assigned a synthetic status.
+    var job = persist(newPendingJob());
+    assertEquals(
+        Map.of(job.getId(), JobStatus.PENDING),
+        store().findStatusesByIds(List.of(job.getId(), UUID.randomUUID(), UUID.randomUUID())));
+  }
+
+  @Test
+  void findStatusesByIds_emptyInput_returnsEmptyWithoutStoreCall() {
+    // Empty status reads issue no store statements.
+    assertEquals(
+        0, countStoreStatements(() -> assertTrue(store().findStatusesByIds(List.of()).isEmpty())));
+  }
+
+  @Test
+  void findStatusesByIds_acceptsLimitSizedChunk() {
+    // The documented maximum chunk returns every requested pending job.
+    List<JobEntity> jobs = new ArrayList<>(JobCrudStore.STATUS_READ_LIMIT);
+    for (int i = 0; i < JobCrudStore.STATUS_READ_LIMIT; i++) {
+      var job = newPendingJob();
+      job.setId(UuidV7Factory.create());
+      jobs.add(job);
+    }
+    store().bulkInsert(jobs);
+    var statuses = store().findStatusesByIds(jobs.stream().map(JobEntity::getId).toList());
+    assertEquals(JobCrudStore.STATUS_READ_LIMIT, statuses.size());
+    for (var job : jobs) {
+      assertEquals(JobStatus.PENDING, statuses.get(job.getId()));
+    }
+  }
+
+  @Test
+  void findStatusesByIds_overLimit_throws() {
+    // Oversized chunks fail instead of silently truncating the read.
+    List<UUID> ids = new ArrayList<>();
+    for (int i = 0; i <= JobCrudStore.STATUS_READ_LIMIT; i++) {
+      ids.add(UUID.randomUUID());
+    }
+    assertThrows(IllegalArgumentException.class, () -> store().findStatusesByIds(ids));
   }
 }

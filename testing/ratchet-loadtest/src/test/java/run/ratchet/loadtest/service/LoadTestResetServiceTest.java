@@ -104,5 +104,15 @@ class LoadTestResetServiceTest {
         String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
       return new OrphanRecovery(0, List.of());
     }
+
+    @Override
+    public int releaseBusinessKeyHolds(List<String> nodeIds) {
+      throw new UnsupportedOperationException("business-key hold not implemented yet");
+    }
+
+    @Override
+    public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+      throw new UnsupportedOperationException("business-key hold not implemented yet");
+    }
   }
 }

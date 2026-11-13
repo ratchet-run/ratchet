@@ -921,4 +921,29 @@ public abstract class ThrowingJobStoreBase
   public List<RecurringJobDefinition> listAll() {
     return fail("listAll");
   }
+
+  @Override
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return fail("cancelRunningJob");
+  }
+
+  @Override
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return fail("releaseBusinessKeyHold");
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return fail("releaseBusinessKeyHolds");
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return fail("deleteExpiredBusinessKeyHolds");
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    return fail("findStatusesByIds");
+  }
 }

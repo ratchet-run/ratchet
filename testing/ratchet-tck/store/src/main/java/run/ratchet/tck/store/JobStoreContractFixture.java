@@ -242,4 +242,9 @@ public interface JobStoreContractFixture {
   default boolean isStaleWriteException(Throwable t) {
     return false;
   }
+
+  /** Counts store statements executed by the supplied work when the fixture supports it. */
+  default int countStoreStatements(Runnable work) {
+    throw new TestAbortedException("fixture cannot count store statements");
+  }
 }

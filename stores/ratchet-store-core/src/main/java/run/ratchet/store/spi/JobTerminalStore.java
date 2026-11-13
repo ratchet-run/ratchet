@@ -20,6 +20,7 @@ import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 
@@ -166,4 +167,33 @@ public interface JobTerminalStore {
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
   boolean cancelJob(UUID id);
+
+  /**
+   * Cancels a RUNNING job, as {@code compareAndSwapStatus(id, RUNNING, CANCELED, null)} does, and
+   * keeps the job's business-key reservation as a hold when {@code keyHeldUntil} is not null.
+   *
+   * <p>The hold is the job's existing reservation row, updated in the same transaction with the
+   * expiry, the {@code picked_by} and the {@code claim_seq} of the cancelled claim, read before the
+   * live row is removed. A job with no reservation is cancelled with no hold. With a null {@code
+   * keyHeldUntil} the reservation is deleted, as every other cancel does. A held key makes a new
+   * reservation for it fail with {@link BusinessKeyReservationConflictException} until {@link
+   * #releaseBusinessKeyHold}, {@link JobBulkStore#releaseBusinessKeyHolds} or {@link
+   * JobBulkStore#deleteExpiredBusinessKeyHolds} removes it.
+   *
+   * @param id job to cancel
+   * @param keyHeldUntil when the hold expires, or null for no hold
+   * @return {@code true} when the job was RUNNING and is now CANCELED
+   * @throws RatchetTransientStoreException if the backing store cannot complete the transition
+   *     <p>Transaction attribute: {@code REQUIRED}.
+   */
+  boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil);
+
+  /**
+   * Deletes the business-key hold that {@link #cancelRunningJob} left for this job and claim. A
+   * normal (unheld) reservation, a hold of another claim, or no row at all is left alone.
+   *
+   * @return {@code true} when a hold was deleted
+   *     <p>Transaction attribute: {@code REQUIRED}; with no transaction the store commits itself.
+   */
+  boolean releaseBusinessKeyHold(UUID jobId, long claimSeq);
 }

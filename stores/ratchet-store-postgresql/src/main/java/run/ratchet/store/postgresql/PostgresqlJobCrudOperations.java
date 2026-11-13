@@ -17,6 +17,7 @@ package run.ratchet.store.postgresql;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -269,5 +270,20 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore, J
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     return tags.countJobsByExecutionNodeForTag(tag);
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    throw new UnsupportedOperationException("status read not implemented yet");
   }
 }
