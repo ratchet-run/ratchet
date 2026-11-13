@@ -310,7 +310,9 @@ Ratchet checks and reserves the business key before writing anything. `Duplicate
 
 On MySQL and SQL Server, after the store reports the conflict, the caller keeps a lock on the holder's key until its transaction ends. The holder's completion waits for that lock. Keep the caller's transaction short.
 
-If this is unexpected, find the holder in the reservation table. It covers both kinds of holder:
+If this is unexpected, call [`findBusinessKeyHolder`](../api-reference/job-scheduler-service#business-key-lookup) first. It returns the current job or recurring master with its type and status. The answer is a point-in-time pre-check; a later submit can still lose a race.
+
+For a database-level fallback, query the reservation table. It covers both kinds of holder:
 
 ```sql
 -- owner_table is QUEUE for a one-off job (owner_job_id = scheduler_job.job_id)
