@@ -15,6 +15,10 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Aggregates.group;
+import static com.mongodb.client.model.Aggregates.limit;
+import static com.mongodb.client.model.Aggregates.match;
+import static com.mongodb.client.model.Aggregates.sort;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.expr;
@@ -487,16 +491,16 @@ final class MongoAuxiliaryOperations {
       return List.of();
     }
     try {
-      return ctx
-          .resourceWaiters()
-          .distinct(
-              RESOURCE_NAME,
-              after == null ? new Document() : gt(RESOURCE_NAME, after),
-              String.class)
-          .into(new ArrayList<>())
-          .stream()
-          .sorted()
-          .limit(limit)
+      List<Bson> pipeline = new ArrayList<>();
+      if (after != null) {
+        pipeline.add(match(gt(RESOURCE_NAME, after)));
+      }
+      pipeline.add(sort(ascending(RESOURCE_NAME)));
+      pipeline.add(group("$" + RESOURCE_NAME));
+      pipeline.add(sort(ascending(ID)));
+      pipeline.add(limit(limit));
+      return ctx.resourceWaiters().aggregate(pipeline).into(new ArrayList<>()).stream()
+          .map(row -> row.getString(ID))
           .toList();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find resources with waiters", e);
