@@ -107,12 +107,12 @@ class LoadTestResetServiceTest {
 
     @Override
     public int releaseBusinessKeyHolds(List<String> nodeIds) {
-      throw new UnsupportedOperationException("business-key hold not implemented yet");
+      return 0;
     }
 
     @Override
     public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
-      throw new UnsupportedOperationException("business-key hold not implemented yet");
+      return 0;
     }
   }
 }

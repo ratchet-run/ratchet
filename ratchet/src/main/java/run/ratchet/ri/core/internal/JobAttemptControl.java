@@ -29,10 +29,10 @@ import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.JobClaimStore;
 
 /**
- * State shared by the worker and watchdog for one execution attempt. Retries get a fresh flag.
- * {@link #requestCancellation()} is the entry point for future sources such as a user-cancel poll.
- * Its cancellation identity identifies the attempt in memory; its claim sequence fences persisted
- * owner writes.
+ * State shared by the worker and watchdog for one execution attempt. Retries get a fresh flag. A
+ * user cancel or replacement can also request a stop. Requests never interrupt the worker. Its
+ * cancellation identity identifies the attempt in memory; its claim sequence fences persisted owner
+ * writes.
  */
 public final class JobAttemptControl {
   private static final Logger log = Logger.getLogger(JobAttemptControl.class);
@@ -66,6 +66,7 @@ public final class JobAttemptControl {
 
   private final @Nullable String nodeId;
   private final AtomicBoolean superseded = new AtomicBoolean();
+  private volatile boolean userCancelRequested;
   private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
   private enum TimeoutOwner {
@@ -168,11 +169,12 @@ public final class JobAttemptControl {
   }
 
   public void requestUserCancel() {
-    throw new UnsupportedOperationException("not implemented yet");
+    userCancelRequested = true;
+    requestCancellation();
   }
 
   public boolean isUserCancelRequested() {
-    throw new UnsupportedOperationException("not implemented yet");
+    return userCancelRequested;
   }
 
   public void requestCancellation() {

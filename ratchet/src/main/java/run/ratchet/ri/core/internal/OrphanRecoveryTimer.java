@@ -62,10 +62,6 @@ public class OrphanRecoveryTimer {
 
   static final int EXPIRED_HOLD_LIMIT = 500;
 
-  public int releaseOwnBusinessKeyHoldsAtStartup(String nodeId) {
-    throw new UnsupportedOperationException("not implemented yet");
-  }
-
   static final int EXHAUSTED_LIMIT = 100;
   static final int STALE_EXECUTION_LIMIT = 500;
   private final JobBulkStore jobBulkStore;
@@ -144,6 +140,33 @@ public class OrphanRecoveryTimer {
         log.warnf(
             e,
             "Transient startup permit cleanup failure for node %s on attempt %s/%s",
+            nodeId,
+            attempt,
+            MAX_STARTUP_CLEANUP_ATTEMPTS);
+        if (attempt == MAX_STARTUP_CLEANUP_ATTEMPTS) {
+          throw e;
+        }
+      }
+    }
+  }
+
+  public int releaseOwnBusinessKeyHoldsAtStartup(String nodeId) {
+    if (jobBulkStore == null) {
+      throw new IllegalStateException("OrphanRecoveryTimer dependencies are not initialized");
+    }
+    for (int attempt = 1; ; attempt++) {
+      try {
+        int deleted = jobBulkStore.releaseBusinessKeyHolds(List.of(nodeId));
+        if (deleted > 0) {
+          log.infof(
+              "Released %s business-key hold(s) left under node %s by an earlier run",
+              deleted, nodeId);
+        }
+        return deleted;
+      } catch (RatchetTransientStoreException e) {
+        log.warnf(
+            e,
+            "Transient startup business-key hold cleanup failure for node %s on attempt %s/%s",
             nodeId,
             attempt,
             MAX_STARTUP_CLEANUP_ATTEMPTS);
@@ -245,6 +268,11 @@ public class OrphanRecoveryTimer {
       } catch (RuntimeException e) {
         log.warn("Resource waiter sweep failed; the next scan will retry", e);
       }
+      try {
+        jobBulkStore.deleteExpiredBusinessKeyHolds(effective().instant(), EXPIRED_HOLD_LIMIT);
+      } catch (RuntimeException e) {
+        log.warn("Expired business-key hold cleanup failed; the next scan will retry", e);
+      }
       // Runs after a failed recovery step too; it only touches execution rows.
       closeStaleExecutions(cutoff);
     }
@@ -265,6 +293,7 @@ public class OrphanRecoveryTimer {
     if (!staleNodes.isEmpty()) {
       List<String> staleNodeIds = staleNodes.stream().map(NodeEntity::getId).toList();
       cleanedPermits = resourcePermitService.cleanupOrphanedPermits(staleNodeIds);
+      jobBulkStore.releaseBusinessKeyHolds(staleNodeIds);
       deletedNodes = nodeStore.deleteInactiveNodesByIds(staleNodeIds);
     }
 

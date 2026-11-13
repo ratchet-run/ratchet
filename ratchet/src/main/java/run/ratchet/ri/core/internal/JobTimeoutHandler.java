@@ -95,6 +95,10 @@ public class JobTimeoutHandler {
    */
   private final Set<UUID> watchdogCancelledJobIds = ConcurrentHashMap.newKeySet();
 
+  /** Attempts running on this node, by job id, so a user cancel can reach them. */
+  private final ConcurrentHashMap<UUID, Set<JobAttemptControl>> localAttempts =
+      new ConcurrentHashMap<>();
+
   protected JobTimeoutHandler() {
     this.durableEventsEnabled = false;
     this.jobCrudStore = null;
@@ -259,11 +263,43 @@ public class JobTimeoutHandler {
   }
 
   public boolean requestUserCancel(UUID jobId) {
-    throw new UnsupportedOperationException("not implemented yet");
+    Set<JobAttemptControl> attempts = localAttempts.get(jobId);
+    if (attempts == null || attempts.isEmpty()) return false;
+    attempts.forEach(JobAttemptControl::requestUserCancel);
+    return true;
   }
 
+  /** Returns local attempts that started before the cutoff and have no user cancel yet. */
   public List<JobAttemptControl> localAttemptsStartedBefore(Instant cutoff) {
-    throw new UnsupportedOperationException("not implemented yet");
+    List<JobAttemptControl> result = new ArrayList<>();
+    for (Set<JobAttemptControl> attempts : localAttempts.values()) {
+      for (JobAttemptControl attempt : attempts) {
+        if (attempt.executionStartTime().isBefore(cutoff) && !attempt.isUserCancelRequested()) {
+          result.add(attempt);
+        }
+      }
+    }
+    return result;
+  }
+
+  private void trackAttempt(JobAttemptControl attempt) {
+    localAttempts.compute(
+        attempt.jobId(),
+        (id, attempts) -> {
+          Set<JobAttemptControl> tracked =
+              attempts != null ? attempts : ConcurrentHashMap.newKeySet();
+          tracked.add(attempt);
+          return tracked;
+        });
+  }
+
+  private void untrackAttempt(JobAttemptControl attempt) {
+    localAttempts.computeIfPresent(
+        attempt.jobId(),
+        (id, attempts) -> {
+          attempts.remove(attempt);
+          return attempts.isEmpty() ? null : attempts;
+        });
   }
 
   private long effectiveTimeoutSeconds(int jobTimeoutSec) {
@@ -304,24 +340,32 @@ public class JobTimeoutHandler {
             (timeoutSec * softTimeoutPercent) / 100,
             TimeUnit.SECONDS);
     ScheduledFuture<?> cancellationRequest = null;
-    if (cancellationGraceSeconds > 0 && cancellationGraceSeconds < timeoutSec) {
-      cancellationRequest =
+    try {
+      if (cancellationGraceSeconds > 0 && cancellationGraceSeconds < timeoutSec) {
+        cancellationRequest =
+            scheduler.schedule(
+                () -> {
+                  if (!future.isDone()) {
+                    attempt.requestCancellation();
+                    log.infof(
+                        "Job %s requested to stop: %ds before its %ds timeout",
+                        jobId, cancellationGraceSeconds, timeoutSec);
+                  }
+                },
+                timeoutSec - cancellationGraceSeconds,
+                TimeUnit.SECONDS);
+      }
+      ScheduledFuture<?> hard =
           scheduler.schedule(
-              () -> {
-                if (!future.isDone()) {
-                  attempt.requestCancellation();
-                  log.infof(
-                      "Job %s requested to stop: %ds before its %ds timeout",
-                      jobId, cancellationGraceSeconds, timeoutSec);
-                }
-              },
-              timeoutSec - cancellationGraceSeconds,
-              TimeUnit.SECONDS);
+              () -> handleHardTimeoutById(attempt, future), timeoutSec, TimeUnit.SECONDS);
+      trackAttempt(attempt);
+      return new TimeoutHandles(
+          soft, cancellationRequest, hard, attempt, () -> untrackAttempt(attempt));
+    } catch (RuntimeException | Error failure) {
+      soft.cancel(false);
+      if (cancellationRequest != null) cancellationRequest.cancel(false);
+      throw failure;
     }
-    ScheduledFuture<?> hard =
-        scheduler.schedule(
-            () -> handleHardTimeoutById(attempt, future), timeoutSec, TimeUnit.SECONDS);
-    return new TimeoutHandles(soft, cancellationRequest, hard, attempt);
   }
 
   void processCooperativeTimeout(JobAttemptControl attempt) {
@@ -943,14 +987,25 @@ public class JobTimeoutHandler {
    * Cancellable handle bundle for the soft, cancellation-request, and hard timeout tasks scheduled
    * against a job execution. Callers must invoke {@link #cancel()} on job completion so the tasks
    * do not linger in the scheduler queue until their original fire time. A handed-back timeout
-   * keeps its hard task so the watchdog can finish the failed cooperative transition.
+   * keeps its hard task so the watchdog can finish the failed cooperative transition. {@code
+   * untrack} stops user-cancel tracking for the attempt.
    */
   public record TimeoutHandles(
       @Nullable ScheduledFuture<?> soft,
       @Nullable ScheduledFuture<?> cancellationRequest,
       ScheduledFuture<?> hard,
-      @Nullable JobAttemptControl attempt) {
+      @Nullable JobAttemptControl attempt,
+      Runnable untrack) {
+    public TimeoutHandles(
+        @Nullable ScheduledFuture<?> soft,
+        @Nullable ScheduledFuture<?> cancellationRequest,
+        ScheduledFuture<?> hard,
+        @Nullable JobAttemptControl attempt) {
+      this(soft, cancellationRequest, hard, attempt, () -> {});
+    }
+
     public void cancel() {
+      untrack.run();
       if (soft != null) {
         soft.cancel(false);
       }

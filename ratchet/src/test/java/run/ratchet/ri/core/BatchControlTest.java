@@ -56,12 +56,14 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
+import run.ratchet.store.spi.JobTerminalStore;
 
 class BatchControlTest {
   private final JobCrudStore jobs = mock(JobCrudStore.class);
   private final JobBatchStatusStore statuses = mock(JobBatchStatusStore.class);
   private final JobPauseStore pauses = mock(JobPauseStore.class);
   private final JobRetryStore retries = mock(JobRetryStore.class);
+  private final JobTerminalStore terminals = mock(JobTerminalStore.class);
   private final BatchStore batches = mock(BatchStore.class);
   private final BatchService batchService = mock(BatchService.class);
   private final InternalEventPublisher events = mock(InternalEventPublisher.class);
@@ -91,7 +93,7 @@ class BatchControlTest {
         statuses,
         pauses,
         retries,
-        null,
+        terminals,
         jobs,
         batchStore,
         null,
@@ -296,7 +298,7 @@ class BatchControlTest {
             statuses,
             pauses,
             retries,
-            null,
+            terminals,
             jobs,
             batches,
             null,
@@ -327,7 +329,7 @@ class BatchControlTest {
             null,
             clock,
             registrar,
-            null,
+            terminals,
             null,
             null);
     JobCancelledEvent previous = null;

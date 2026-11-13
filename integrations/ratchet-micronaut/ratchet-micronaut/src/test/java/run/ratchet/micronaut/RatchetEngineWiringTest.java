@@ -132,8 +132,7 @@ class RatchetEngineWiringTest {
     JobSchedulerService custom = mock(JobSchedulerService.class);
     JobStore store = mock(JobStore.class);
     UUID parentId = incompletePartitionGeneration(store);
-    when(store.compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null))
-        .thenReturn(true);
+    when(store.cancelRunningJob(parentId, null)).thenReturn(true);
     try (var context = TestContexts.core(Map.of())) {
       context.registerSingleton(JobStore.class, store);
       context.registerSingleton(RatchetRuntime.class, mock(RatchetRuntime.class));
@@ -141,7 +140,7 @@ class RatchetEngineWiringTest {
       context.start();
       context.getBean(PartitionService.class).sweep();
       verify(custom, never()).cancelJob(parentId);
-      verify(store).compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null);
+      verify(store).cancelRunningJob(parentId, null);
     }
   }
 

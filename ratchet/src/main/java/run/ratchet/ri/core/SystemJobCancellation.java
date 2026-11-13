@@ -19,6 +19,7 @@ import jakarta.enterprise.inject.Vetoed;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
@@ -92,41 +93,10 @@ public class SystemJobCancellation {
   }
 
   boolean cancelLoadedJob(UUID jobId, JobEntity job, boolean holdKey) {
-    // Try PENDING → CANCELED first (most common case)
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled pending job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PENDING, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try RUNNING → CANCELED. The scheduler publishes the durable state-transition event here so
-    // observers do not lose cancellation if the worker dies before it notices the status flip.
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled running job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.RUNNING, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try PAUSED → CANCELED
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled paused job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PAUSED, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try WAITING → CANCELED (signal-waiting jobs can be canceled)
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled waiting job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.WAITING, job);
-      cascadeCancel(job);
-      if (metricsCollector != null && job != null) {
+    JobStatus previous = cancelLive(jobId, job, holdKey);
+    if (previous != null) {
+      publishCancelledEvent(jobId, previous, job);
+      if (previous == JobStatus.WAITING && metricsCollector != null && job != null) {
         metricsCollector.signalCancelled(jobId, job.getPublicJobType(), job.getSignalKey());
       }
       return true;
@@ -148,6 +118,47 @@ public class SystemJobCancellation {
 
     log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
     return false;
+  }
+
+  JobStatus cancelLive(UUID jobId, JobEntity job, boolean holdKey) {
+    Instant keyHeldUntil = null;
+    if (holdKey && job != null && job.getBusinessKey() != null) {
+      long timeout =
+          job.getTimeoutSec() > 0 ? job.getTimeoutSec() : options.timeout().defaultSlaSeconds();
+      keyHeldUntil =
+          effective()
+              .instant()
+              .plusSeconds(timeout)
+              .plusSeconds(options.node().orphanGraceSeconds());
+    }
+    for (int pass = 0; pass < 2; pass++) {
+      for (JobStatus status :
+          List.of(JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.WAITING)) {
+        boolean won =
+            status == JobStatus.RUNNING
+                ? jobTerminalStore.cancelRunningJob(jobId, keyHeldUntil)
+                : jobBatchStatusStore.compareAndSwapStatus(jobId, status, JobStatus.CANCELED, null);
+        if (won) {
+          log.debugf("Canceled job %s from %s", jobId, status);
+          cascadeCancel(job);
+          if (job != null
+              && job.getJobType() != JobExecutionType.BATCH_CHILD
+              && job.getJobType() != JobExecutionType.BATCH_PARENT
+              && workflowScheduler != null) {
+            workflowScheduler.cancelChain(job);
+          }
+          return status;
+        }
+      }
+      if (pass == 0) {
+        JobStatus current = jobCrudStore.getJobStatus(jobId);
+        if (current != JobStatus.PENDING
+            && current != JobStatus.RUNNING
+            && current != JobStatus.PAUSED
+            && current != JobStatus.WAITING) break;
+      }
+    }
+    return null;
   }
 
   /**

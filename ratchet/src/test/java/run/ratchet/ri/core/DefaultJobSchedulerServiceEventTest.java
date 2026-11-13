@@ -832,8 +832,9 @@ class DefaultJobSchedulerServiceEventTest {
               JOB_ID, hold && job.getBusinessKey() != null ? holdUntil(job) : null))
           .thenReturn(true);
     } else {
-      when(jobBatchStatusStore.compareAndSwapStatus(JOB_ID, previous, JobStatus.CANCELED, null))
-          .thenReturn(true);
+      when(jobBatchStatusStore.compareAndSwapStatus(
+              eq(JOB_ID), any(), eq(JobStatus.CANCELED), isNull()))
+          .thenAnswer(inv -> inv.getArgument(1) == previous);
     }
   }
 

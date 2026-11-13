@@ -78,6 +78,9 @@ import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 @Priority(Interceptor.Priority.APPLICATION + 100)
 public class InMemoryJobStore extends ThrowingJobStoreBase {
 
+  private record BusinessKeyHold(Long claimSeq, String nodeId, Instant expiresAt) {}
+
+  private final Map<UUID, BusinessKeyHold> holds = new HashMap<>();
   private final Map<UUID, JobEntity> jobs = new HashMap<>();
   private final Map<String, UUID> idempotencyKeys = new HashMap<>();
   private final Map<UUID, List<JobExecutionEntity>> executions = new HashMap<>();
@@ -95,6 +98,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   /** Resets all stored state. Called from clocked TCK runtimes. */
   public synchronized void reset() {
     jobs.clear();
+    holds.clear();
     idempotencyKeys.clear();
     executions.clear();
   }
@@ -172,7 +176,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
                 j.getStatus() == JobStatus.PENDING
                     || j.getStatus() == JobStatus.RUNNING
                     || j.getStatus() == JobStatus.WAITING
-                    || j.getStatus() == JobStatus.PAUSED)
+                    || j.getStatus() == JobStatus.PAUSED
+                    || holds.containsKey(j.getId()))
         .map(j -> new BusinessKeyHolder(j.getId(), j.getJobType().toPublicType(), j.getStatus()))
         .findFirst();
   }
@@ -693,23 +698,40 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  public synchronized boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    JobEntity job = jobs.get(id);
+    if (job == null || job.getStatus() != JobStatus.RUNNING) return false;
+    if (keyHeldUntil != null && job.getBusinessKey() != null) {
+      holds.put(id, new BusinessKeyHold(job.getClaimSeq(), job.getPickedBy(), keyHeldUntil));
+    }
+    job.setStatus(JobStatus.CANCELED);
+    return true;
   }
 
   @Override
-  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  public synchronized boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    BusinessKeyHold hold = holds.get(jobId);
+    return hold != null && Objects.equals(hold.claimSeq(), claimSeq) && holds.remove(jobId, hold);
   }
 
   @Override
-  public int releaseBusinessKeyHolds(List<String> nodeIds) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  public synchronized int releaseBusinessKeyHolds(List<String> nodeIds) {
+    int before = holds.size();
+    holds.values().removeIf(hold -> nodeIds.contains(hold.nodeId()));
+    return before - holds.size();
   }
 
   @Override
-  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
-    throw new UnsupportedOperationException("business-key hold not implemented yet");
+  public synchronized int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    if (limit <= 0) return 0;
+    List<UUID> expired =
+        holds.entrySet().stream()
+            .filter(entry -> entry.getValue().expiresAt().isBefore(now))
+            .limit(limit)
+            .map(Map.Entry::getKey)
+            .toList();
+    expired.forEach(holds::remove);
+    return expired.size();
   }
 
   @Override

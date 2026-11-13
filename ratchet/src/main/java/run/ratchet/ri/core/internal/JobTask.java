@@ -144,6 +144,9 @@ public class JobTask implements Callable<Void> {
   // any future task reuse and clears SpotBugs AT_STALE_THREAD_WRITE_OF_PRIMITIVE
   // at zero behavioral cost.
   private volatile boolean permitAcquired;
+  // Set when this worker recorded a cancel, so the finally block releases the business-key hold.
+  private boolean cancelHandled;
+  private Instant executionStart;
 
   protected JobTask() {
     this.maxContinuations = 1000;
@@ -266,6 +269,7 @@ public class JobTask implements Callable<Void> {
       log.infof(
           "Job %s claim no longer owned by this node (status=%s, pickedBy=%s) - skipping execution",
           jobId, jobEntity.getStatus(), jobEntity.getPickedBy());
+      releaseHeldBusinessKey(jobEntity, claim.claimSeq());
       JobMdcContext.clear();
       return null;
     }
@@ -460,6 +464,7 @@ public class JobTask implements Callable<Void> {
         }
 
         Instant start = effective().instant();
+        executionStart = start;
         observabilityFacade.publishEvent(
             new JobStartedEvent(
                 jobEntity.getId(),
@@ -540,6 +545,9 @@ public class JobTask implements Callable<Void> {
       } finally {
         if (permitAcquired) {
           releaseResourcePermit();
+        }
+        if (cancelHandled || (attempt != null && attempt.isSuperseded())) {
+          releaseHeldBusinessKey(job, expectedClaimSeq());
         }
         log.debugf("Job %s execution complete - cleaning up context", jobId);
         currentScope.close();
@@ -994,9 +1002,11 @@ public class JobTask implements Callable<Void> {
 
   /**
    * Cancellation ends the job CANCELED, not FAILED, so onFailure does not run. A canceled batch
-   * child still counts toward the batch's failed items, but the child itself is CANCELED.
+   * child still counts toward the batch's failed items. The cancel path already handled the chain
+   * and the batch.
    */
   private void handleCanceledDuringExecution(Instant start) {
+    cancelHandled = true;
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = effective().instant();
@@ -1012,17 +1022,42 @@ public class JobTask implements Callable<Void> {
     }
 
     observabilityFacade.recordJobCancellation(job);
-
-    handleBatchOrWorkflowCancellation();
   }
 
-  private void handleBatchOrWorkflowCancellation() {
-    if (job.getJobType() != JobExecutionType.BATCH_CHILD) {
-      lifecycleFacade.cancelChain(job);
+  private Instant cancelStart() {
+    return executionStart != null
+        ? executionStart
+        : attempt != null ? attempt.executionStartTime() : effective().instant();
+  }
+
+  private boolean jobWasCanceled() {
+    if (Thread.currentThread().isInterrupted()) return false;
+    try {
+      return jobStore.getJobStatus(job.getId()) == JobStatus.CANCELED;
+    } catch (RuntimeException e) {
+      log.debugf(e, "Could not read cancellation status for job %s", job.getId());
+      return false;
+    }
+  }
+
+  private void releaseHeldBusinessKey(JobEntity entity, Long claimSeq) {
+    if (entity.getBusinessKey() == null
+        || claimSeq == null
+        || Thread.currentThread().isInterrupted()) return;
+    try {
+      jobStore.releaseBusinessKeyHold(entity.getId(), claimSeq);
+    } catch (RuntimeException e) {
+      log.warnf(e, "Could not release business-key hold for job %s", entity.getId());
     }
   }
 
   private void handleFailure(Throwable ex) {
+    if (attempt != null
+        && (attempt.isUserCancelRequested() || attempt.isSuperseded())
+        && jobWasCanceled()) {
+      handleCanceledDuringExecution(cancelStart());
+      return;
+    }
     // Watchdog ownership is claimed before the interrupt marker is published. A superseded
     // worker must defer every failure, including checkpoint exceptions, throughout that window
     // and after the marker is removed. The owner flushes checkpoints before changing the outcome.
@@ -1066,6 +1101,10 @@ public class JobTask implements Callable<Void> {
     if (cooperativeStop) {
       if (attempt.claimTimeoutForWorker()) {
         flushStateQuietly();
+        if (jobWasCanceled()) {
+          handleCanceledDuringExecution(cancelStart());
+          return;
+        }
         log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());
         boolean executionSaved = false;
         try {
@@ -1124,6 +1163,10 @@ public class JobTask implements Callable<Void> {
 
     int attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq());
     if (attempt == -1) {
+      if (jobWasCanceled()) {
+        handleCanceledDuringExecution(cancelStart());
+        return;
+      }
       warnRejectedOwnerWrite();
       saveDeferredExecutionFailure(ex);
       return;
@@ -1313,6 +1356,10 @@ public class JobTask implements Callable<Void> {
         successFinalizer.finalizeSuccess(
             job, resultJson, resultType, start, endTime, executionMs, queueMs);
     if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
+      if (jobWasCanceled()) {
+        handleCanceledDuringExecution(cancelStart());
+        return;
+      }
       markAttemptSuperseded();
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());
       saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
@@ -1396,6 +1443,7 @@ public class JobTask implements Callable<Void> {
       return true;
     }
     markAttemptSuperseded();
+    if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
     return false;
   }
 

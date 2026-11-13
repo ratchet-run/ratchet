@@ -397,7 +397,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), eq(null));
     verify(jobBatchStatusStore)
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.CANCELED), eq(null));
-    verify(jobBatchStatusStore, times(4))
+    verify(jobBatchStatusStore, times(3))
         .compareAndSwapStatus(eq(JOB_ID), any(), eq(JobStatus.CANCELED), eq(null));
   }
 

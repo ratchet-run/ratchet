@@ -175,6 +175,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       // Runs for every NodeIdentityProvider after the default reset and before the poller claims.
       // A custom provider writes no node row, so orphan recovery never cleans its permits.
       orphanRecoveryTimer.cleanupOwnPermitsAtStartup(nodeIdentityProvider.getNodeId());
+      orphanRecoveryTimer.releaseOwnBusinessKeyHoldsAtStartup(nodeIdentityProvider.getNodeId());
 
       ScheduledExecutorService scheduledExecutor =
           options.events().durable() ? durableExecutor : resolveScheduledExecutorForStartup();
@@ -189,6 +190,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
 
         orphanRecoveryTimer.start(scheduledExecutor, options.node().orphanScanIntervalSeconds());
         batchRecoveryTimer.start(scheduledExecutor);
+        if (cancelRequestRelay != null) cancelRequestRelay.start(scheduledExecutor);
         jobStateFlusher.start(scheduledExecutor);
 
         if (options.maintenance().dlqPurgeEnabled()) {
@@ -276,6 +278,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     stopService("recurring scheduler", recurringScheduler::stop);
     stopService("orphan recovery timer", orphanRecoveryTimer::stop);
     stopService("batch recovery timer", batchRecoveryTimer::stop);
+    if (cancelRequestRelay != null) stopService("cancel request relay", cancelRequestRelay::stop);
     stopService("dead letter service", deadLetterService::stop);
     stopService("job archiving service", jobArchivingService::stop);
     stopService("log purge timer", logPurgeTimer::stop);

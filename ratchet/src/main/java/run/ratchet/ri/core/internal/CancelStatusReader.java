@@ -27,13 +27,17 @@ import run.ratchet.store.spi.JobCrudStore;
 /** Reads cancellation state outside the caller's transaction. */
 @ApplicationScoped
 public class CancelStatusReader {
+  private JobCrudStore jobCrudStore;
+
   protected CancelStatusReader() {}
 
   @Inject
-  public CancelStatusReader(JobCrudStore jobCrudStore) {}
+  public CancelStatusReader(JobCrudStore jobCrudStore) {
+    this.jobCrudStore = jobCrudStore;
+  }
 
   @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public Map<UUID, JobStatus> findStatuses(Collection<UUID> ids) {
-    throw new UnsupportedOperationException("not implemented yet");
+    return ids == null || ids.isEmpty() ? Map.of() : jobCrudStore.findStatusesByIds(ids);
   }
 }

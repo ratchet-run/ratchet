@@ -401,8 +401,8 @@ class RatchetRuntimeConfiguration {
   }
 
   @Singleton
+  @Secondary
   @RatchetTransactionBoundary
-  @Requires(missingBeans = CancelStatusReader.class)
   @Transactional(TxType.NOT_SUPPORTED)
   MicronautCancelStatusReader cancelStatusReader(JobStore store) {
     return new MicronautCancelStatusReader(store);

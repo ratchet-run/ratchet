@@ -356,7 +356,7 @@ public class DefaultJobCreationService
     if (businessKey != null) {
       Optional<BusinessKeyHolder> holder = jobCrudStore.findBusinessKeyHolder(businessKey);
       if (holder.isPresent()) {
-        return resolveBusinessKeyHolder(holder.get().id(), businessKey, idempotencyKey);
+        return resolveBusinessKeyHolder(holder.get(), businessKey, idempotencyKey);
       }
     }
 
@@ -482,7 +482,8 @@ public class DefaultJobCreationService
   }
 
   private JobHandle resolveBusinessKeyHolder(
-      UUID holderId, String businessKey, String idempotencyKey) {
+      BusinessKeyHolder holder, String businessKey, String idempotencyKey) {
+    UUID holderId = holder.id();
     // A racer can commit after the first lookup. A permanent unique idempotency key maps to
     // the holder exactly when both submissions use the same key.
     if (jobCrudStore
@@ -494,12 +495,22 @@ public class DefaultJobCreationService
       return () -> holderId;
     }
     throw new DuplicateBusinessKeyException(
-        businessKey,
-        "Active job already exists with business key '"
-            + businessKey
-            + "' (jobId="
-            + holderId
-            + ")");
+        businessKey, businessKeyConflictMessage(businessKey, holder));
+  }
+
+  private static String businessKeyConflictMessage(String businessKey, BusinessKeyHolder holder) {
+    if (holder.status() == JobStatus.CANCELED) {
+      return "Business key '"
+          + businessKey
+          + "' is held by canceled job "
+          + holder.id()
+          + " until its running body ends";
+    }
+    return "Active job already exists with business key '"
+        + businessKey
+        + "' (jobId="
+        + holder.id()
+        + ")";
   }
 
   /**

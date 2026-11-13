@@ -650,6 +650,7 @@ class OrphanRecoveryTimerTest {
 
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 100);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+    verify(jobBulkStore).deleteExpiredBusinessKeyHolds(FIXED_NOW, 500);
     verifyNoMoreInteractions(jobBulkStore, jobCrudStore, lifecycleFacade, callbackInvoker);
   }
 

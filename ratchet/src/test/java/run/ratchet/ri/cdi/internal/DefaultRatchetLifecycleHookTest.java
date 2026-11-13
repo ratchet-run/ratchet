@@ -310,8 +310,9 @@ class DefaultRatchetLifecycleHookTest {
     assertEquals(List.of("successful.beforeStart", "successful.afterStart"), events);
     verify(provider).getScheduledExecutor();
     verify(pollerWakeupListener).init();
-    // The start-up permit clean-up is not a scheduled service, so it still runs.
+    // The start-up permit and hold clean-ups are not scheduled services, so they still run.
     verify(orphanRecoveryTimer).cleanupOwnPermitsAtStartup(isNull());
+    verify(orphanRecoveryTimer).releaseOwnBusinessKeyHoldsAtStartup(isNull());
     verifyNoMoreInteractions(orphanRecoveryTimer);
     verifyNoInteractions(
         poller,

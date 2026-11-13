@@ -820,23 +820,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       JobStatus previousStatus = existing.getStatus();
       return jobTerminalStore.cancelJob(jobId) ? previousStatus : null;
     }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
-      return JobStatus.PENDING;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      return JobStatus.RUNNING;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
-      return JobStatus.PAUSED;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
-      return JobStatus.WAITING;
-    }
-    return null;
+    return systemCancellation.cancelLive(jobId, existing, true);
   }
 
   private void publishPausedEvent(UUID jobId, JobEntity job) {
