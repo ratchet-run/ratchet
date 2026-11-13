@@ -530,7 +530,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
     // Each role thread uses at most one pooled store connection at a time, and the checker
     // reuses one raw connection for the whole run instead of opening one per round, so the run
-    // uses at most roles.size() sessions at once, the same for every store.
+    // itself uses at most roles.size() sessions at once, the same for every store. Idle pooled
+    // connections and the database's own processes still count against the server's limit.
     List<Runnable> roles =
         List.of(
             worker,
@@ -669,9 +670,11 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
           new AssertionError(
               "Test set-up failed: "
                   + connectionFailures.size()
-                  + " database connection failures during the stress run, which uses at most "
+                  + " database connection failures during the stress run. Its "
                   + sessionBound
-                  + " sessions at once. These are not store failures. Waiter lock failures seen: "
+                  + " threads hold at most one session each, but idle pooled connections and the"
+                  + " database's own processes count against the same server limit. These are not"
+                  + " store failures. Waiter lock failures seen: "
                   + waiterLockFailures);
       connectionFailures.stream().limit(5).forEach(failure::addSuppressed);
       throw failure;
