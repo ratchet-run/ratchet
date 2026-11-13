@@ -748,12 +748,16 @@ table has no foreign key, so a park never locks `scheduler_job`.
   engine can send wake-up hints. It never waits on a job row that another transaction holds. The
   SQL stores skip that head and do not wake a later waiter in its place. MongoDB retries the
   wake-up on a write conflict.
-- `findResourcesWithWaiters` and `deleteStaleWaiters` serve the periodic sweep. With no waiters,
-  the sweep costs one indexed read.
+- `findResourcesWithWaiters(after, limit)` and `deleteStaleWaiters(limit)` serve the periodic
+  sweep. The first returns distinct resource names that have waiter rows, in ascending order and
+  after `after` (from the first name when it is null); the engine passes the last name it saw, so
+  successive sweeps page through every resource. The second deletes waiter rows whose job is gone
+  or no longer PENDING, RUNNING or PAUSED. With no waiters, the sweep costs one indexed read.
 - A user reschedule that changes `scheduled_time` deletes the waiter row. Engine reschedules keep
   it.
 - `releasePermit`, `releaseAllPermits`, `configureResource` and `cleanupOrphanedPermits` do not
-  wake anyone. The engine calls `wakeWaiters` after they commit.
+  wake anyone. After they commit, the engine calls `wakeWaiters` for the released or configured
+  resource, or runs the sweep when it does not know the resource.
 
 The SQL stores lock the resource-limit row first. The MongoDB store increments a generation
 counter on the resource document before it reads anything, so two acquires or wake-ups on one
