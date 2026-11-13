@@ -48,6 +48,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -533,13 +535,107 @@ class JobTaskTransactionalTest {
     verify(lifecycle).runFollowups(completion);
   }
 
+  @ParameterizedTest
+  @EnumSource(TerminalOutcome.class)
+  void unknownCommitKeepsResolvingAfterFiveTransientFailures(TerminalOutcome terminal)
+      throws Exception {
+    loseCommitAcknowledgement();
+    task.setCommitOutcomeRetryDelays(1, 2);
+    AtomicInteger bodies = new AtomicInteger();
+    BODY.set(() -> bodies.incrementAndGet());
+    AtomicInteger reads = new AtomicInteger();
+    when(transactions.terminalOutcome(job.getId(), 7L))
+        .thenAnswer(
+            inv -> {
+              if (reads.incrementAndGet() <= 5) {
+                throw new IllegalStateException(new SQLTransientException("read unavailable"));
+              }
+              return terminal;
+            });
+    task.call();
+    assertEquals(1, bodies.get());
+    verify(transactions, times(6)).terminalOutcome(job.getId(), 7L);
+    verify(carrier).run(any());
+    switch (terminal) {
+      case COMMITTED -> {
+        verify(lifecycle).runFollowups(completion);
+        assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+      }
+      case ROLLED_BACK -> verify(store).incrementRetryAttempt(job.getId(), 7L);
+      case CANCELED -> assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+      case SUPERSEDED -> assertTrue(attempt.isSuperseded());
+    }
+    verifyNoInteractions(finalizer);
+  }
+
   @Test
-  void unresolvedCommitLeavesRecoveryInCharge() throws Exception {
+  void supersededSlowResolutionExitsAndRestoresInterrupt() throws Exception {
+    loseCommitAcknowledgement();
+    task.setCommitOutcomeRetryDelays(1, 2);
+    AtomicInteger bodies = new AtomicInteger();
+    AtomicInteger reads = new AtomicInteger();
+    CountDownLatch slowRead = new CountDownLatch(1);
+    CountDownLatch shutdown = new CountDownLatch(1);
+    AtomicBoolean interruptedAfterReturn = new AtomicBoolean();
+    AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+    when(transactions.terminalOutcome(job.getId(), 7L))
+        .thenAnswer(
+            inv -> {
+              if (reads.incrementAndGet() == 6) {
+                slowRead.countDown();
+                try {
+                  assertTrue(shutdown.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                  Thread.currentThread().interrupt();
+                }
+              }
+              throw new IllegalStateException(new SQLTransientException("read unavailable"));
+            });
+    Thread worker =
+        new Thread(
+            () -> {
+              BODY.set(() -> bodies.incrementAndGet());
+              try {
+                task.call();
+                interruptedAfterReturn.set(Thread.currentThread().isInterrupted());
+              } catch (Throwable failure) {
+                workerFailure.set(failure);
+              } finally {
+                BODY.remove();
+                JobContext.clear();
+              }
+            });
+    worker.start();
+    try {
+      assertTrue(slowRead.await(5, TimeUnit.SECONDS));
+      attempt.markSuperseded();
+      worker.interrupt();
+    } finally {
+      shutdown.countDown();
+      worker.join(5_000);
+      if (worker.isAlive()) {
+        attempt.markSuperseded();
+        worker.interrupt();
+        worker.join(5_000);
+      }
+    }
+    assertFalse(worker.isAlive());
+    assertEquals(null, workerFailure.get());
+    assertTrue(interruptedAfterReturn.get());
+    assertEquals(1, bodies.get());
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycle, never()).runFollowups(any());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    assertEquals(ExecutionStatus.RUNNING, execution.getStatus());
+  }
+
+  @Test
+  void nonTransientCommitReadFailureLeavesRecoveryInCharge() throws Exception {
     loseCommitAcknowledgement();
     when(transactions.terminalOutcome(job.getId(), 7L))
-        .thenThrow(new IllegalStateException(new SQLTransientException("read unavailable")));
+        .thenThrow(new IllegalArgumentException("invalid outcome read"));
     task.call();
-    verify(transactions, times(5)).terminalOutcome(job.getId(), 7L);
+    verify(transactions).terminalOutcome(job.getId(), 7L);
     verify(store, never()).incrementRetryAttempt(any(), any());
     verify(lifecycle, never()).runFollowups(any());
     verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());

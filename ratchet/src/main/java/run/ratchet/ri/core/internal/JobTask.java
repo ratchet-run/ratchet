@@ -149,6 +149,8 @@ public class JobTask implements Callable<Void> {
   private boolean stateFlushed;
   private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
+  private volatile long commitOutcomeBaseDelayMs = 1_000;
+  private volatile long commitOutcomeMaxDelayMs = 30_000;
   private JobClaimDto claim;
   private Long loadedClaimSeq;
   private JobExecutionEntity currentExecution;
@@ -1469,6 +1471,14 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  void setCommitOutcomeRetryDelays(long baseDelayMs, long maxDelayMs) {
+    if (baseDelayMs <= 0 || maxDelayMs < baseDelayMs) {
+      throw new IllegalArgumentException("Invalid commit outcome retry delays");
+    }
+    commitOutcomeBaseDelayMs = baseDelayMs;
+    commitOutcomeMaxDelayMs = maxDelayMs;
+  }
+
   private void resolveCommitOutcome(Instant start, TransactionOutcome outcome) {
     TransactionalCompletionStore store =
         jobStore.capability(TransactionalCompletionStore.class).orElseThrow();
@@ -1481,31 +1491,73 @@ public class JobTask implements Callable<Void> {
           terminal = store.terminalOutcome(job.getId(), expectedClaimSeq());
           break;
         } catch (RuntimeException readFailure) {
-          if (!JobSuccessFinalizer.isTransientStoreFailure(readFailure) || readAttempt == 5) {
+          if (!JobSuccessFinalizer.isTransientStoreFailure(readFailure)
+              || (readAttempt == 5 && attempt == null)) {
             log.errorf(
                 readFailure,
                 "Job %s commit outcome could not be resolved; leaving it for orphan recovery"
                     + " or restart",
                 job.getId());
-            break;
+            return;
           }
+          if (commitOutcomeAttemptSuperseded()) return;
+          if (readAttempt == 5) break;
           interrupted |= Thread.interrupted();
           if (!sleepTransactionBackoff(readAttempt)) {
             interrupted = true;
             Thread.interrupted();
+            if (commitOutcomeAttemptSuperseded()) return;
           }
+        }
+      }
+      if (terminal == null) {
+        log.warnf(
+            "Job %s commit outcome remains unknown; continuing outcome reads; body will not rerun",
+            job.getId());
+        long delayMs = commitOutcomeBaseDelayMs;
+        while (terminal == null) {
+          if (commitOutcomeAttemptSuperseded()) return;
+          interrupted |= Thread.interrupted();
+          try {
+            Thread.sleep(delayMs);
+          } catch (InterruptedException sleepInterrupted) {
+            interrupted = true;
+            if (commitOutcomeAttemptSuperseded()) return;
+          }
+          try {
+            terminal = store.terminalOutcome(job.getId(), expectedClaimSeq());
+          } catch (RuntimeException readFailure) {
+            interrupted |= Thread.interrupted();
+            if (commitOutcomeAttemptSuperseded()) return;
+            if (!JobSuccessFinalizer.isTransientStoreFailure(readFailure)) {
+              log.errorf(
+                  readFailure,
+                  "Job %s commit outcome could not be resolved; leaving it for orphan recovery"
+                      + " or restart",
+                  job.getId());
+              return;
+            }
+          }
+          delayMs = delayMs >= commitOutcomeMaxDelayMs / 2 ? commitOutcomeMaxDelayMs : delayMs * 2;
         }
       }
     } finally {
       if (interrupted) Thread.currentThread().interrupt();
     }
-    if (terminal == null) return; // Unresolved and logged above.
     switch (terminal) {
       case COMMITTED -> handleTransactionalSuccess(start, outcome);
       case ROLLED_BACK -> handleFailureSafely(outcome.failure);
       case CANCELED -> handleCanceledDuringExecution(start);
       case SUPERSEDED -> handleSupersededSuccess();
     }
+  }
+
+  private boolean commitOutcomeAttemptSuperseded() {
+    if (attempt == null || !attempt.isSuperseded()) return false;
+    log.warnf(
+        "Job %s commit outcome resolution superseded; leaving it for orphan recovery or restart",
+        job.getId());
+    return true;
   }
 
   private long queueWaitMs(Instant start) {

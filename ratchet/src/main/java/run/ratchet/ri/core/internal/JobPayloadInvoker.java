@@ -168,7 +168,7 @@ public class JobPayloadInvoker {
   public record ResilienceTarget(
       String serviceName, CircuitBreakerExceptionFilter exceptionFilter, boolean transactional) {}
 
-  /** Checks transactional capability and direct transaction escapes before persisting a job. */
+  /** Checks transactional capability and transaction escapes before persisting a job. */
   public void validateTransactionalSubmission(JobPayload payload, boolean capabilityAvailable) {
     if (!resilienceTarget(payload).transactional()) return;
     if (!capabilityAvailable) {
@@ -181,9 +181,47 @@ public class JobPayloadInvoker {
       Method method = resolveMethod(targetClass, payload);
       rejectTransactionEscape(method);
       rejectTransactionEscape(targetClass);
+      rejectSupertypeTransactionEscapes(targetClass, method, new HashSet<>());
     } catch (ReflectiveOperationException ignored) {
       // Best effort: execution retains the usual target-resolution diagnostics.
     }
+  }
+
+  /** Assignability may conservatively reject an unrelated overload with the same name and arity. */
+  private static void rejectSupertypeTransactionEscapes(
+      Class<?> targetClass, Method jobMethod, Set<Class<?>> visited) {
+    Class<?> superclass = targetClass.getSuperclass();
+    if (superclass != null && superclass != Object.class) {
+      rejectSupertypeTransactionEscape(superclass, jobMethod, visited);
+    }
+    for (Class<?> supertype : targetClass.getInterfaces()) {
+      rejectSupertypeTransactionEscape(supertype, jobMethod, visited);
+    }
+  }
+
+  private static void rejectSupertypeTransactionEscape(
+      Class<?> supertype, Method jobMethod, Set<Class<?>> visited) {
+    if (!visited.add(supertype)) return;
+    rejectTransactionEscape(supertype);
+    if (!Modifier.isStatic(jobMethod.getModifiers())) {
+      for (Method candidate : supertype.getDeclaredMethods()) {
+        if (Modifier.isPrivate(candidate.getModifiers())
+            || Modifier.isStatic(candidate.getModifiers())
+            || !candidate.getName().equals(jobMethod.getName())
+            || candidate.getParameterCount() != jobMethod.getParameterCount()) continue;
+        Class<?>[] parameters = candidate.getParameterTypes();
+        Class<?>[] jobParameters = jobMethod.getParameterTypes();
+        boolean matches = true;
+        for (int i = 0; i < parameters.length; i++) {
+          if (!parameters[i].isAssignableFrom(jobParameters[i])) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) rejectTransactionEscape(candidate);
+      }
+    }
+    rejectSupertypeTransactionEscapes(supertype, jobMethod, visited);
   }
 
   private static JobPayload recurringBody(JobPayload dispatcher) {

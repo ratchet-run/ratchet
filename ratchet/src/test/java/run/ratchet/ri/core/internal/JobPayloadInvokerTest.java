@@ -72,6 +72,79 @@ class JobPayloadInvokerTest {
         payload(ComposedJobs.class, "required", "()V", true, List.of()), true);
   }
 
+  @Test
+  void rejectsTransactionEscapesOnSupertypes() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(null, name -> true);
+    for (Class<?> target :
+        List.of(InterfaceJob.class, InterfaceTypeJob.class, SubclassJob.class, GenericJob.class)) {
+      String descriptor = target == GenericJob.class ? "(Ljava/lang/String;)V" : "()V";
+      IllegalArgumentException failure =
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  invoker.validateTransactionalSubmission(
+                      payload(target, "handle", descriptor, false, List.of()), true));
+      assertTrue(failure.getMessage().contains(Transactional.class.getName()));
+    }
+    invoker.validateTransactionalSubmission(
+        payload(RequiredJob.class, "handle", "()V", false, List.of()), true);
+  }
+
+  interface EscapingHandler {
+    @Transactional(TxType.REQUIRES_NEW)
+    void handle();
+  }
+
+  public static class InterfaceJob implements EscapingHandler {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
+  @Transactional(TxType.NOT_SUPPORTED)
+  interface UnsupportedHandler {
+    void handle();
+  }
+
+  public static class InterfaceTypeJob implements UnsupportedHandler {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
+  public static class SuperclassJob {
+    @Transactional(TxType.NEVER)
+    public void handle() {}
+  }
+
+  public static class SubclassJob extends SuperclassJob {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
+  interface Handler<T> {
+    @Transactional(TxType.REQUIRES_NEW)
+    void handle(T item);
+  }
+
+  public static class GenericJob implements Handler<String> {
+    @Override
+    @TransactionalJob
+    public void handle(String item) {}
+  }
+
+  interface RequiredHandler {
+    @Transactional(TxType.REQUIRED)
+    void handle();
+  }
+
+  public static class RequiredJob implements RequiredHandler {
+    @Override
+    @TransactionalJob
+    public void handle() {}
+  }
+
   @Retention(RetentionPolicy.RUNTIME)
   @Target({ElementType.METHOD, ElementType.ANNOTATION_TYPE})
   @Documented
