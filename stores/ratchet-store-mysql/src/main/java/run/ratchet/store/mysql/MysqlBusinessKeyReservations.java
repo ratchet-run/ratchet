@@ -29,6 +29,10 @@ final class MysqlBusinessKeyReservations {
 
   private static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
 
+  // The scheduler_business_key_reservation.business_key column width, which is also the API's
+  // business-key limit. INSERT IGNORE would truncate a longer key instead of failing.
+  private static final int MAX_BUSINESS_KEY_LENGTH = 255;
+
   static final String OWNER_TABLE_QUEUE = BusinessKeyReservations.OWNER_TABLE_QUEUE;
   static final String OWNER_TABLE_RECURRING = BusinessKeyReservations.OWNER_TABLE_RECURRING;
 
@@ -44,6 +48,29 @@ final class MysqlBusinessKeyReservations {
 
   MysqlBusinessKeyReservations(MysqlStoreContext ctx) {
     this.ctx = ctx;
+  }
+
+  boolean tryReserve(String businessKey, UUID ownerJobId, String ownerTable) {
+    Objects.requireNonNull(businessKey, "businessKey");
+    if (businessKey.length() > MAX_BUSINESS_KEY_LENGTH) {
+      throw new IllegalArgumentException(
+          "Business key must be at most " + MAX_BUSINESS_KEY_LENGTH + " characters");
+    }
+    // IGNORE is safe: truncation is prevented by the length check, the owner is a generated
+    // UUID, and ownerTable is a constant; NULL and bad enum values cannot occur here.
+    String sql =
+        """
+        INSERT IGNORE INTO scheduler_business_key_reservation
+          (business_key, owner_job_id, owner_table, reserved_at)
+        VALUES (?, ?, ?, NOW(3))
+        """;
+    return ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, businessKey)
+            .setParameter(2, UuidByteArrayConverter.toBytes(ownerJobId))
+            .setParameter(3, ownerTable)
+            .executeUpdate()
+        == 1;
   }
 
   void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {

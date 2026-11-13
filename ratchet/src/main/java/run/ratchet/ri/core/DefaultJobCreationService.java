@@ -50,7 +50,6 @@ import run.ratchet.api.WorkflowCondition.ConditionType;
 import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
-import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.AfterCommitActions;
@@ -338,10 +337,11 @@ public class DefaultJobCreationService
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the submission.
+   *     container starts one for the submission. A duplicate business key does not mark the
+   *     caller's transaction rollback-only.
    */
   @Override
-  @Transactional
+  @Transactional(dontRollbackOn = DuplicateBusinessKeyException.class)
   public JobHandle submit(JobBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -368,7 +368,7 @@ public class DefaultJobCreationService
       if (activeByBk.isPresent()) {
         // A racer with the same idempotency key can commit between the two lookups. Its job is
         // the one the idempotency lookup would have returned, so resolve to it the same way.
-        return resolveActiveBusinessKey(activeByBk.get(), businessKey, idempotencyKey, null);
+        return resolveActiveBusinessKey(activeByBk.get(), businessKey, idempotencyKey);
       }
     }
 
@@ -422,40 +422,30 @@ public class DefaultJobCreationService
     }
     checkCreateAuthorization(job);
 
-    // A concurrent insert can abort the current database transaction. Let its duplicate-key
-    // exception roll back; a fresh submission resolves the permanent reservation above.
     JobEntity saved;
     try {
       saved = createJob(job);
     } catch (BusinessKeyReservationConflictException e) {
-      if (businessKey == null) {
-        throw e;
+      if (state.hasExplicitIdempotencyKey()) {
+        Optional<UUID> original;
+        try {
+          // A fresh transaction can see the winner outside a MySQL REPEATABLE READ snapshot.
+          original =
+              conflictResolutionTransaction != null
+                  ? conflictResolutionTransaction.complete(
+                      () -> jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey))
+                  : jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+        } catch (RuntimeException lookupFailure) {
+          e.addSuppressed(lookupFailure);
+          throw e;
+        }
+        if (original.isPresent()) {
+          UUID originalId = original.get();
+          return () -> originalId;
+        }
       }
-      if (!state.hasExplicitIdempotencyKey()) {
-        // The reservation duplicate proves the conflict; no read in the failed transaction is
-        // needed for a submission using its generated idempotency key.
-        throw new DuplicateBusinessKeyException(
-            businessKey, "Active job already exists with business key '" + businessKey + "'", e);
-      }
-      Optional<JobEntity> raced;
-      try {
-        // Hibernate can mark JTA rollback-only even on MySQL. Suspend that transaction for the
-        // read, using the existing REQUIRES_NEW helper shared by all runtime adapters.
-        raced =
-            conflictResolutionTransaction != null
-                ? conflictResolutionTransaction.complete(
-                    () -> jobCrudStore.findActiveByBusinessKey(businessKey))
-                : jobCrudStore.findActiveByBusinessKey(businessKey);
-      } catch (RuntimeException lookupFailure) {
-        // If the winner cannot be read, its idempotency key is unknown. A fresh submission can
-        // resolve it; never guess which duplicate exception applies or return a handle here.
-        e.addSuppressed(lookupFailure);
-        throw e;
-      }
-      if (raced.isPresent()) {
-        return resolveActiveBusinessKey(raced.get(), businessKey, idempotencyKey, e);
-      }
-      throw e;
+      throw new DuplicateBusinessKeyException(
+          businessKey, "Active job already exists with business key '" + businessKey + "'", e);
     }
     UUID jobId = saved.getId();
 
@@ -504,17 +494,9 @@ public class DefaultJobCreationService
   }
 
   private JobHandle resolveActiveBusinessKey(
-      JobEntity active,
-      String businessKey,
-      String idempotencyKey,
-      RatchetTransientStoreException cause) {
+      JobEntity active, String businessKey, String idempotencyKey) {
     UUID activeId = active.getId();
     if (idempotencyKey.equals(active.getIdempotencyKey())) {
-      if (cause != null) {
-        // The failed insert left this transaction rollback-only, so a handle cannot be returned
-        // from it. A retry in a fresh transaction resolves the permanent reservation.
-        throw new DuplicateIdempotencyKeyException(idempotencyKey, cause);
-      }
       log.debugf(
           "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, activeId);
       return () -> activeId;
@@ -525,8 +507,7 @@ public class DefaultJobCreationService
             + businessKey
             + "' (jobId="
             + activeId
-            + ")",
-        cause);
+            + ")");
   }
 
   /**

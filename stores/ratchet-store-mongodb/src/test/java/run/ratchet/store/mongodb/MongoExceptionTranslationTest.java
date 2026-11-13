@@ -85,10 +85,61 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
 class MongoExceptionTranslationTest {
+
+  @Test
+  void createReservesBusinessKeyBeforeIdempotencyAndJobWrites() {
+    List<String> calls = new ArrayList<>();
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              switch (method.getName()) {
+                case "deleteOne" -> calls.add("release");
+                case "insertOne" ->
+                    calls.add(((Document) args[1]).containsKey("owner_table") ? "reserve" : "job");
+                case "bulkWrite" -> calls.add("idempotency");
+                default -> {}
+              }
+              return defaultValue(method);
+            });
+    JobEntity job = testJob();
+    job.setBusinessKey("order-1");
+
+    new MongoJobCrudOperations(contextWithJobs(collection)).create(job);
+
+    assertEquals(List.of("release", "reserve", "idempotency", "job"), calls);
+  }
+
+  @Test
+  void createPreservesReservationConflictBeforeOtherWrites() {
+    BusinessKeyReservationConflictException conflict =
+        new BusinessKeyReservationConflictException("order-1");
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("insertOne".equals(method.getName())) {
+                if (((Document) args[1]).containsKey("owner_table")) {
+                  throw conflict;
+                }
+                throw new AssertionError("The job must not be written before reservation");
+              }
+              if ("bulkWrite".equals(method.getName())) {
+                throw new AssertionError("Idempotency must not be written before reservation");
+              }
+              return defaultValue(method);
+            });
+    JobEntity job = testJob();
+    job.setBusinessKey("order-1");
+    MongoJobCrudOperations crud = new MongoJobCrudOperations(contextWithJobs(collection));
+
+    assertSame(
+        conflict,
+        assertThrows(BusinessKeyReservationConflictException.class, () -> crud.create(job)));
+  }
 
   @Test
   void transactionOptionsRequirePrimaryReads() {
