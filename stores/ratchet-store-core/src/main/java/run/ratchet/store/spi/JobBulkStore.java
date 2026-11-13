@@ -44,53 +44,37 @@ public interface JobBulkStore {
   Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId);
 
   /**
-   * Reads up to {@code limit} RUNNING candidates with picked_at before {@code cutoff}, no owner
-   * heartbeat at or after cutoff (including no owner), and crash count below {@code
-   * maxCrashRedeliveries}; a missing count is zero. No ordering is promised.
+   * Reads up to {@code limit} RUNNING rows whose picked_at is before {@code cutoff} and whose owner
+   * has no heartbeat at or after cutoff (including rows without an owner), oldest picked_at first,
+   * with no crash-count filter. Rechecks candidates before changing them and closes every confirmed
+   * row's RUNNING executions as FAILED with {@code
+   * JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}.
    *
-   * <p>Rechecks each candidate before changing it. Closes its RUNNING execution rows as FAILED with
-   * {@code JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}, resets it to PENDING, clears owner
-   * and picked_at, increments crash count, and sets updated_at to now. Rows at or above the maximum
-   * are never read or changed. Returns (scanned, reset, 0). One REQUIRED transaction per call. A
-   * nonpositive limit touches nothing and returns (0, 0, 0).
+   * <p>Rows below {@code maxCrashRedeliveries} (missing count means zero) become PENDING, with
+   * owner and picked_at cleared, crash count incremented and updated_at set to now. Exhausted rows
+   * stay RUNNING with the same owner, crash count and claim_seq; picked_at and updated_at are both
+   * set to the current JVM time ({@link Instant#now()}). This defers them for one grace period.
+   * Every confirmed row leaves the candidate window for this cutoff. Returns (scanned, reset, 0,
+   * exhausted), with exhausted claims in original picked_at order for the engine to fail.
+   *
+   * <p>One transaction per call, never joined to a caller's transaction. A nonpositive limit
+   * touches nothing and returns {@link OrphanRecovery#none()}.
    */
   OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit);
 
   /**
-   * Reads up to {@code limit} RUNNING rows owned by {@code nodeId}, with no time cutoff. Rechecks
-   * candidates and closes their RUNNING execution rows as FAILED with {@code
+   * Reads up to {@code limit} RUNNING rows owned by {@code nodeId}, oldest picked_at first, with no
+   * time cutoff. Rechecks candidates and closes their RUNNING execution rows as FAILED with {@code
    * JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}. Resets rows below the maximum to PENDING,
    * clears owner and picked_at, increments crash count (missing means zero), and sets updated_at to
-   * now. For rows at or above the maximum, clears only the owner, preserving RUNNING, picked_at and
-   * claim_seq so a later periodic scan can fail them.
+   * now. For rows at or above the maximum, clears only the owner, preserving status, picked_at and
+   * claim_seq so a later periodic page can fail them.
    *
-   * <p>Returns (scanned, reset, released). One REQUIRED transaction per call. A nonpositive limit
-   * touches nothing and returns (0, 0, 0).
+   * <p>Returns (scanned, reset, released, empty exhausted list). One transaction per call, never
+   * joined to a caller's transaction. A nonpositive limit touches nothing and returns {@link
+   * OrphanRecovery#none()}.
    */
   OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit);
-
-  /**
-   * Reads up to {@code limit} RUNNING rows with picked_at before {@code cutoff}, no owner heartbeat
-   * at or after cutoff (including no owner), and crash count at or above {@code
-   * maxCrashRedeliveries}; a missing count is zero. Reads oldest picked_at first.
-   *
-   * <p>Rechecks each candidate, closes its RUNNING execution rows as FAILED with {@code
-   * JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}, and leaves the job RUNNING. Returns one
-   * {@link ExhaustedOrphan} with jobId, claimSeq, crashCount and pickedBy per confirmed row, oldest
-   * picked_at first. One REQUIRED transaction per call. A nonpositive limit touches nothing and
-   * returns an empty list.
-   */
-  List<ExhaustedOrphan> recoverExhaustedOrphans(
-      Instant cutoff, int maxCrashRedeliveries, int limit);
-
-  /**
-   * If the row is RUNNING with {@code claimSeq}, sets picked_at and updated_at to the current JVM
-   * time ({@link Instant#now()}, bound as a parameter) and returns true. Uses the same time source
-   * as batch claims and engine cutoff computation. Otherwise changes nothing and returns false.
-   * Moves an exhausted orphan the engine could not fail behind the others. One REQUIRED transaction
-   * per call.
-   */
-  boolean deferExhaustedOrphan(UUID jobId, long claimSeq);
 
   /**
    * Closes up to {@code limit} RUNNING execution rows started before {@code cutoff} whose job is

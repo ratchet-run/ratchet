@@ -47,7 +47,6 @@ import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.ClaimState;
-import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobQueryStore;
@@ -914,15 +913,5 @@ public abstract class ThrowingJobStoreBase
   @Override
   public List<RecurringJobDefinition> listAll() {
     return fail("listAll");
-  }
-
-  @Override
-  public List<ExhaustedOrphan> recoverExhaustedOrphans(Instant cutoff, int max, int limit) {
-    return fail("recoverExhaustedOrphans");
-  }
-
-  @Override
-  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
-    return fail("deferExhaustedOrphan");
   }
 }

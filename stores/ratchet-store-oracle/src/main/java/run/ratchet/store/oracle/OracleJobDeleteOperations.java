@@ -29,7 +29,6 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
-import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.util.RowValues;
 
@@ -224,14 +223,5 @@ final class OracleJobDeleteOperations {
     for (Object parameter : parameters) {
       query.setParameter(index++, parameter);
     }
-  }
-
-  public List<ExhaustedOrphan> recoverExhaustedOrphans(
-      Instant cutoff, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
-  }
-
-  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 }

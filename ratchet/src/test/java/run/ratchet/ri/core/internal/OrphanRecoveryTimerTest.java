@@ -20,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -102,10 +101,7 @@ class OrphanRecoveryTimerTest {
         .when(
             jobBulkStore.resetOrphanJobsBefore(
                 any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
-        .thenReturn(new OrphanRecovery(0, 0, 0));
-    lenient()
-        .when(jobBulkStore.recoverExhaustedOrphans(any(Instant.class), eq(3), eq(100)))
-        .thenReturn(List.of());
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
     lenient()
         .when(errorSanitizer.sanitize(any(Throwable.class)))
         .thenAnswer(invocation -> ((Throwable) invocation.getArgument(0)).getMessage());
@@ -673,7 +669,6 @@ class OrphanRecoveryTimerTest {
     verify(jobBulkStore)
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
-    verify(jobBulkStore).recoverExhaustedOrphans(FIXED_NOW.minusSeconds(60), 3, 100);
     verifyNoMoreInteractions(jobBulkStore, jobCrudStore, lifecycleFacade, callbackInvoker);
   }
 
@@ -714,8 +709,9 @@ class OrphanRecoveryTimerTest {
     JobEntity job = new JobEntity();
     job.setId(id);
     job.setClaimSeq(99L);
-    when(jobBulkStore.recoverExhaustedOrphans(any(Instant.class), eq(3), eq(100)))
-        .thenReturn(List.of(new ExhaustedOrphan(id, 7, 3, "dead")));
+    when(jobBulkStore.resetOrphanJobsBefore(
+            any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(new OrphanRecovery(1, 0, 0, List.of(new ExhaustedOrphan(id, 7, 3, "dead"))));
     when(jobCrudStore.findById(id)).thenReturn(Optional.of(job));
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
 
@@ -735,8 +731,9 @@ class OrphanRecoveryTimerTest {
     UUID id = UUID.randomUUID();
     JobEntity job = new JobEntity();
     job.setId(id);
-    when(jobBulkStore.recoverExhaustedOrphans(any(Instant.class), eq(3), eq(100)))
-        .thenReturn(List.of(new ExhaustedOrphan(id, 7, 3, null)));
+    when(jobBulkStore.resetOrphanJobsBefore(
+            any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(new OrphanRecovery(1, 0, 0, List.of(new ExhaustedOrphan(id, 7, 3, null))));
     when(jobCrudStore.findById(id)).thenReturn(Optional.of(job));
 
     timer.recoverNow();
@@ -755,8 +752,9 @@ class OrphanRecoveryTimerTest {
     snapshot.setId(id);
     snapshot.setJobType(JobExecutionType.BATCH_CHILD);
     snapshot.setDependsOn(UUID.randomUUID());
-    when(jobBulkStore.recoverExhaustedOrphans(any(Instant.class), eq(3), eq(100)))
-        .thenReturn(List.of(new ExhaustedOrphan(id, 7, 3, null)));
+    when(jobBulkStore.resetOrphanJobsBefore(
+            any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(new OrphanRecovery(1, 0, 0, List.of(new ExhaustedOrphan(id, 7, 3, null))));
     when(jobCrudStore.findById(id)).thenThrow(new IllegalStateException("decrypt failed"));
     when(jobBulkStore.findOrphanCompletionSnapshot(id)).thenReturn(Optional.of(snapshot));
     when(lifecycleFacade.completeFailure(snapshot, JobStatus.RUNNING, false)).thenReturn(true);
@@ -776,11 +774,16 @@ class OrphanRecoveryTimerTest {
     bad.setId(badId);
     JobEntity good = new JobEntity();
     good.setId(goodId);
-    when(jobBulkStore.recoverExhaustedOrphans(any(Instant.class), eq(3), eq(100)))
+    when(jobBulkStore.resetOrphanJobsBefore(
+            any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenReturn(
-            List.of(
-                new ExhaustedOrphan(badId, 1, 3, "dead"),
-                new ExhaustedOrphan(goodId, 2, 3, "dead")));
+            new OrphanRecovery(
+                2,
+                0,
+                0,
+                List.of(
+                    new ExhaustedOrphan(badId, 1, 3, "dead"),
+                    new ExhaustedOrphan(goodId, 2, 3, "dead"))));
     when(jobCrudStore.findById(badId)).thenReturn(Optional.of(bad));
     when(jobCrudStore.findById(goodId)).thenReturn(Optional.of(good));
     when(lifecycleFacade.completeFailure(bad, JobStatus.RUNNING, false))
@@ -798,9 +801,9 @@ class OrphanRecoveryTimerTest {
     Instant cutoff = FIXED_NOW.minusSeconds(60);
     when(jobBulkStore.resetOrphanJobsBefore(cutoff, 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenReturn(
-            new OrphanRecovery(500, 500, 0),
-            new OrphanRecovery(500, 500, 0),
-            new OrphanRecovery(3, 3, 0));
+            new OrphanRecovery(500, 500, 0, List.of()),
+            new OrphanRecovery(500, 500, 0, List.of()),
+            new OrphanRecovery(3, 3, 0, List.of()));
     timer.recoverNow();
     verify(jobBulkStore, times(3))
         .resetOrphanJobsBefore(cutoff, 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
@@ -810,7 +813,7 @@ class OrphanRecoveryTimerTest {
   void stopsAtPageCap() {
     when(jobBulkStore.resetOrphanJobsBefore(
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
-        .thenReturn(new OrphanRecovery(500, 500, 0));
+        .thenReturn(new OrphanRecovery(500, 500, 0, List.of()));
     try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
       timer.recoverNow();
       assertTrue(logs.hasInfoContaining("page cap"));
@@ -820,7 +823,7 @@ class OrphanRecoveryTimerTest {
   }
 
   @Test
-  void stopsAtBudgetAndStillReadsExhaustedAndRunsFinally() {
+  void stopsAtBudgetAndRunsFinally() {
     MutableClock clock = new MutableClock();
     timer = timerWithClock(clock);
     when(jobBulkStore.resetOrphanJobsBefore(
@@ -828,7 +831,7 @@ class OrphanRecoveryTimerTest {
         .thenAnswer(
             invocation -> {
               clock.advance(Duration.ofSeconds(6));
-              return new OrphanRecovery(500, 500, 0);
+              return new OrphanRecovery(500, 500, 0, List.of());
             });
     try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
       timer.recoverNow();
@@ -836,7 +839,6 @@ class OrphanRecoveryTimerTest {
     }
     verify(jobBulkStore, times(2))
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
-    verify(jobBulkStore).recoverExhaustedOrphans(FIXED_NOW.minusSeconds(60), 3, 100);
     verify(resourcePermitService).sweepWaiters();
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
   }
@@ -845,70 +847,91 @@ class OrphanRecoveryTimerTest {
   void stopsAfterFullPageThatResetsNothing() {
     when(jobBulkStore.resetOrphanJobsBefore(
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
-        .thenReturn(new OrphanRecovery(500, 0, 0));
+        .thenReturn(new OrphanRecovery(500, 0, 0, List.of()));
     timer.recoverNow();
     verify(jobBulkStore)
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
   }
 
   @Test
-  void exhaustedReadFollowsPagesAndCompletesRowsInOrder() {
+  void exhaustedRowsAreFailedInOrderPageByPage() {
     JobEntity first = exhaustedJob(11);
     JobEntity second = exhaustedJob(12);
+    JobEntity third = exhaustedJob(13);
+    when(jobBulkStore.resetOrphanJobsBefore(
+            any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(
+            new OrphanRecovery(500, 498, 0, exhaustedRows.subList(0, 2)),
+            new OrphanRecovery(1, 0, 0, exhaustedRows.subList(2, 3)));
     timer.recoverNow();
     InOrder order = inOrder(jobBulkStore, lifecycleFacade);
-    order
-        .verify(jobBulkStore)
-        .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
-    order.verify(jobBulkStore).recoverExhaustedOrphans(FIXED_NOW.minusSeconds(60), 3, 100);
+    order.verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
     order.verify(lifecycleFacade).completeFailure(first, JobStatus.RUNNING, false);
     order.verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
-    verify(jobBulkStore, never()).deferExhaustedOrphan(any(UUID.class), anyLong());
+    order.verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    order.verify(lifecycleFacade).completeFailure(third, JobStatus.RUNNING, false);
   }
 
   @Test
-  void rejectedCompletionDefersClaim() {
+  void fullExhaustedPageContinuesToNextPage() {
+    for (int i = 0; i < 510; i++) exhaustedJob(i);
+    when(jobBulkStore.resetOrphanJobsBefore(
+            any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(
+            new OrphanRecovery(500, 0, 0, exhaustedRows.subList(0, 500)),
+            new OrphanRecovery(10, 0, 0, exhaustedRows.subList(500, 510)));
+    timer.recoverNow();
+    verify(jobBulkStore, times(2)).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(lifecycleFacade, times(510))
+        .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+  }
+
+  @Test
+  void rejectedCompletionDoesNotBlockNextRow() {
     JobEntity job = exhaustedJob(7);
+    JobEntity next = exhaustedJob(8);
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
     timer.recoverNow();
-    verify(jobBulkStore).deferExhaustedOrphan(job.getId(), 7);
+    verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
+    verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+    verifyNoMoreInteractions(jobBulkStore);
   }
 
   @Test
-  void missingJobAndSnapshotDefersClaim() {
-    UUID id = UUID.randomUUID();
-    when(jobBulkStore.recoverExhaustedOrphans(any(Instant.class), eq(3), eq(100)))
-        .thenReturn(List.of(new ExhaustedOrphan(id, 8, 3, "dead")));
-    when(jobCrudStore.findById(id)).thenReturn(Optional.empty());
-    lenient().when(jobBulkStore.findOrphanCompletionSnapshot(id)).thenReturn(Optional.empty());
+  void missingJobDoesNotBlockNextRow() {
+    JobEntity missing = exhaustedJob(8);
+    JobEntity next = exhaustedJob(9);
+    when(jobCrudStore.findById(missing.getId())).thenReturn(Optional.empty());
     timer.recoverNow();
-    verify(jobBulkStore).deferExhaustedOrphan(id, 8);
+    verify(lifecycleFacade, never()).completeFailure(missing, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
+    verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+    verifyNoMoreInteractions(jobBulkStore);
   }
 
   @Test
-  void completionExceptionDefersAndDeferExceptionDoesNotBlockNextRow() {
+  void completionExceptionDoesNotBlockNextRow() {
     JobEntity first = exhaustedJob(11);
     JobEntity second = exhaustedJob(12);
     when(lifecycleFacade.completeFailure(first, JobStatus.RUNNING, false))
         .thenThrow(new IllegalStateException("completion unavailable"));
-    lenient()
-        .when(jobBulkStore.deferExhaustedOrphan(first.getId(), 11))
-        .thenThrow(new IllegalStateException("defer unavailable"));
     timer.recoverNow();
-    verify(jobBulkStore).deferExhaustedOrphan(first.getId(), 11);
     verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
-    verify(jobBulkStore, never()).deferExhaustedOrphan(second.getId(), 12);
+    verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+    verifyNoMoreInteractions(jobBulkStore);
   }
 
   @Test
-  void failureAfterRecordedCompletionDoesNotDefer() {
+  void failureAfterRecordedCompletionDoesNotEscapeScan() {
     JobEntity job = exhaustedJob(11);
     doThrow(new IllegalStateException("callback failed"))
         .when(callbackInvoker)
         .accept(eq(job), any(Throwable.class));
     timer.recoverNow();
     verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
-    verify(jobBulkStore, never()).deferExhaustedOrphan(any(UUID.class), anyLong());
   }
 
   @Test
@@ -917,6 +940,8 @@ class OrphanRecoveryTimerTest {
     timer = timerWithClock(clock);
     JobEntity first = exhaustedJob(11);
     JobEntity second = exhaustedJob(12);
+    when(jobBulkStore.resetOrphanJobsBefore(any(Instant.class), eq(3), eq(500)))
+        .thenReturn(new OrphanRecovery(500, 498, 0, exhaustedRows));
     when(lifecycleFacade.completeFailure(first, JobStatus.RUNNING, false))
         .thenAnswer(
             invocation -> {
@@ -927,6 +952,8 @@ class OrphanRecoveryTimerTest {
     verify(lifecycleFacade).completeFailure(first, JobStatus.RUNNING, false);
     verify(lifecycleFacade, never()).completeFailure(second, JobStatus.RUNNING, false);
     verify(resourcePermitService).sweepWaiters();
+    verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
   }
 
   @Test
@@ -939,7 +966,7 @@ class OrphanRecoveryTimerTest {
         .thenAnswer(
             invocation -> {
               clock.advance(OrphanRecoveryTimer.ORPHAN_SCAN_BUDGET.plusSeconds(1));
-              return new OrphanRecovery(500, 500, 0);
+              return new OrphanRecovery(500, 499, 0, exhaustedRows);
             });
     timer.recoverNow();
     verify(lifecycleFacade).completeFailure(first, JobStatus.RUNNING, false);
@@ -976,7 +1003,7 @@ class OrphanRecoveryTimerTest {
               } else {
                 secondEntered.countDown();
               }
-              return new OrphanRecovery(0, 0, 0);
+              return new OrphanRecovery(0, 0, 0, List.of());
             });
     ExecutorService scans = Executors.newFixedThreadPool(2);
     try {
@@ -1025,8 +1052,10 @@ class OrphanRecoveryTimerTest {
     exhaustedRows.add(new ExhaustedOrphan(job.getId(), seq, 3, "dead"));
     // Each helper call re-stubs the read; lenient so the replaced stubbing is not reported.
     lenient()
-        .when(jobBulkStore.recoverExhaustedOrphans(any(Instant.class), eq(3), eq(100)))
-        .thenAnswer(invocation -> List.copyOf(exhaustedRows));
+        .when(
+            jobBulkStore.resetOrphanJobsBefore(
+                any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenAnswer(invocation -> new OrphanRecovery(exhaustedRows.size(), 0, 0, exhaustedRows));
     lenient().when(jobCrudStore.findById(job.getId())).thenReturn(Optional.of(job));
     lenient().when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     return job;

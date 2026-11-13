@@ -88,7 +88,6 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ClaimState;
-import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
@@ -811,14 +810,5 @@ final class MongoJobCrudOperations {
   private static boolean holdsBusinessKey(JobEntity job) {
     return job.getBusinessKey() != null
         && StatusClassifier.isLiveStatus(StatusClassifier.effectiveStatus(job.getStatus()));
-  }
-
-  public List<ExhaustedOrphan> recoverExhaustedOrphans(
-      Instant cutoff, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
-  }
-
-  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 }

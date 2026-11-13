@@ -25,7 +25,6 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ClaimState;
-import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -276,16 +275,5 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     return tags.countJobsByExecutionNodeForTag(tag);
-  }
-
-  @Override
-  public List<ExhaustedOrphan> recoverExhaustedOrphans(
-      Instant cutoff, int maxCrashRedeliveries, int limit) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
-  }
-
-  @Override
-  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
-    throw new UnsupportedOperationException("Bounded orphan recovery is not implemented yet");
   }
 }

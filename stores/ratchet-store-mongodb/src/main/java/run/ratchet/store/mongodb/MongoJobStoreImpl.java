@@ -65,7 +65,6 @@ import run.ratchet.store.id.UuidV7EntityListener;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
-import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RecurringClaim;
 import run.ratchet.store.spi.RecurringExecutionPlan;
@@ -1190,16 +1189,5 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public boolean deletePartitionSet(UUID setId) {
     return partitions.deletePartitionSet(setId);
-  }
-
-  @Override
-  public List<ExhaustedOrphan> recoverExhaustedOrphans(
-      Instant cutoff, int maxCrashRedeliveries, int limit) {
-    return crud.recoverExhaustedOrphans(cutoff, maxCrashRedeliveries, limit);
-  }
-
-  @Override
-  public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
-    return crud.deferExhaustedOrphan(jobId, claimSeq);
   }
 }

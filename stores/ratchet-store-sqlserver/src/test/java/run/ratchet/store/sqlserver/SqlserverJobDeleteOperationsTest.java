@@ -24,6 +24,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -33,6 +34,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import run.ratchet.store.spi.ExhaustedOrphan;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 
 class SqlserverJobDeleteOperationsTest {
@@ -108,6 +111,9 @@ class SqlserverJobDeleteOperationsTest {
                           return selected.stream().map(row -> row[0]).toList();
                         }
                         return selected.stream()
+                            .sorted(
+                                Comparator.comparing(
+                                    row -> SqlserverJobRowMapper.uuidOrNull(row[0])))
                             .map(
                                 row ->
                                     new Object[] {
@@ -142,35 +148,40 @@ class SqlserverJobDeleteOperationsTest {
   void noCandidatesTakesNoLocks() {
     assertEquals(0, operations().resetOrphanJobsBefore(Instant.now(), 1, 500).scanned());
     assertEquals(1, statements.size());
+    String candidate = statements.get(0).sql();
+    assertTrue(candidate.contains("ORDER BY picked_at"));
+    assertFalse(candidate.substring(candidate.indexOf("WHERE")).contains("crash_count"));
     assertFalse(statements.get(0).sql().contains("UPDLOCK"));
-    assertFalse(statements.get(0).sql().contains("HOLDLOCK"));
     assertFalse(statements.get(0).sql().contains("ORDER BY job_id"));
     assertTrue(statements.stream().noneMatch(statement -> statement.sql().startsWith("UPDATE")));
   }
 
   @Test
   void candidatesAreLockedAndSplitUsingCurrentCrashCounts() {
-    for (int i = 1; i <= 4; i++) seed(i, i % 2, "dead");
+    // Insertion order represents original claim age, deliberately different from primary key order.
+    for (int i = 4; i >= 1; i--) seed(i, i % 2, "dead");
     var operations = operations();
     var reset = operations.resetOrphanJobsBefore(Instant.now(), 1, 500);
-    assertEquals(2, reset.scanned());
+    assertEquals(4, reset.scanned());
     assertEquals(2, reset.reset());
-    assertTrue(statements.get(1).sql().contains("FORCESEEK(pk_scheduler_job_queue(job_id))"));
     assertTrue(statements.get(1).sql().contains("scheduler_node"));
-    assertTrue(statements.get(1).sql().contains("HOLDLOCK"));
+    assertTrue(statements.get(1).sql().contains("ORDER BY job_id"));
     assertUpdatesUseIds();
-    statements.clear();
-    var exhausted = operations.recoverExhaustedOrphans(Instant.now(), 1, 500);
+    var exhausted = reset.exhausted();
     assertEquals(
-        Set.of(new UUID(0, 1), new UUID(0, 3)),
-        exhausted.stream().map(row -> row.jobId()).collect(Collectors.toSet()));
+        List.of(new UUID(0, 3), new UUID(0, 1)),
+        exhausted.stream().map(ExhaustedOrphan::jobId).toList());
     assertTrue(
         exhausted.stream()
             .allMatch(
                 row ->
                     row.claimSeq() == 7 && row.crashCount() == 1 && "dead".equals(row.pickedBy())));
     assertTrue(statements.get(0).sql().contains("ORDER BY picked_at"));
-    assertTrue(statements.stream().noneMatch(statement -> isQueueUpdate(statement.sql())));
+    assertDeferredIds(exhausted);
+    assertMutationIds(
+        "scheduler_job_execution",
+        Set.of(new UUID(0, 1), new UUID(0, 2), new UUID(0, 3), new UUID(0, 4)));
+    assertMutationIds("PENDING", Set.of(new UUID(0, 2), new UUID(0, 4)));
     assertExecutionClose();
   }
 
@@ -188,10 +199,10 @@ class SqlserverJobDeleteOperationsTest {
   @Test
   void exhaustedLimitBoundsSelectionAndExecutionClose() {
     for (int i = 1; i <= 6; i++) seed(i, 1, "dead");
-    var result = operations().recoverExhaustedOrphans(Instant.now(), 1, 2);
+    var result = operations().resetOrphanJobsBefore(Instant.now(), 1, 2).exhausted();
     assertEquals(2, result.size());
     assertEquals(1, candidateReads());
-    assertTrue(statements.stream().noneMatch(statement -> isQueueUpdate(statement.sql())));
+    assertDeferredIds(result);
     assertExecutionClose();
   }
 
@@ -202,9 +213,25 @@ class SqlserverJobDeleteOperationsTest {
     assertEquals(2, result.scanned());
     assertEquals(1, result.reset());
     assertEquals(1, result.released());
+    assertTrue(result.exhausted().isEmpty());
+    assertMutationIds("scheduler_job_execution", Set.of(new UUID(0, 1), new UUID(0, 2)));
+    assertMutationIds("PENDING", Set.of(new UUID(0, 2)));
+    Statement release =
+        statements.stream()
+            .filter(
+                statement ->
+                    isQueueUpdate(statement.sql())
+                        && statement.sql().contains("picked_by = NULL")
+                        && !statement.sql().contains("PENDING"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(Set.of(new UUID(0, 1)), boundIds(release));
+    assertFalse(release.sql().contains("picked_at ="));
+    assertFalse(release.sql().contains("claim_seq ="));
+    assertFalse(release.sql().contains("status ="));
     String lock = statements.get(1).sql();
-    assertTrue(lock.contains("FORCESEEK(pk_scheduler_job_queue(job_id))"));
-    assertFalse(lock.contains("HOLDLOCK"));
+    assertFalse(lock.contains("scheduler_node"));
+    assertTrue(lock.contains("ORDER BY job_id"));
     assertTrue(lock.contains("picked_by = ?"));
     assertEquals(1, candidateReads());
     assertUpdatesUseIds();
@@ -219,11 +246,8 @@ class SqlserverJobDeleteOperationsTest {
     for (int limit : List.of(0, -1)) {
       var periodic = operations.resetOrphanJobsBefore(Instant.now(), 1, limit);
       var startup = operations.resetOrphanJobsForNode("dead", 1, limit);
-      assertEquals(0, periodic.scanned());
-      assertEquals(0, periodic.reset());
-      assertEquals(0, startup.scanned());
-      assertEquals(0, startup.released());
-      assertTrue(operations.recoverExhaustedOrphans(Instant.now(), 1, limit).isEmpty());
+      assertEquals(OrphanRecovery.none(), periodic);
+      assertEquals(OrphanRecovery.none(), startup);
     }
     assertTrue(statements.isEmpty());
   }
@@ -238,6 +262,22 @@ class SqlserverJobDeleteOperationsTest {
     assertEquals(1, result.released());
     assertUpdatesExcludeRejected();
     assertUpdatesUseIds();
+  }
+
+  @Test
+  void periodicRecheckRejectionsNeverReachUpdates() {
+    for (int i = 1; i <= 4; i++) seed(i, i % 2, "dead");
+    rejectedIds.addAll(Set.of(new UUID(0, 1), new UUID(0, 2)));
+    var page = operations().resetOrphanJobsBefore(Instant.now(), 1, 500);
+    assertEquals(4, page.scanned());
+    assertEquals(1, page.reset());
+    assertEquals(0, page.released());
+    assertEquals(
+        List.of(new UUID(0, 3)), page.exhausted().stream().map(ExhaustedOrphan::jobId).toList());
+    assertUpdatesExcludeRejected();
+    assertMutationIds("scheduler_job_execution", Set.of(new UUID(0, 3), new UUID(0, 4)));
+    assertMutationIds("PENDING", Set.of(new UUID(0, 4)));
+    assertDeferredIds(page.exhausted());
   }
 
   @Test
@@ -284,7 +324,7 @@ class SqlserverJobDeleteOperationsTest {
   void exhaustedScanSkipsRowsWhoseOwnerIsLiveUnderLock() {
     seed(1, 1, "Back");
     liveOwners.add("back");
-    assertTrue(operations().recoverExhaustedOrphans(Instant.now(), 1, 500).isEmpty());
+    assertTrue(operations().resetOrphanJobsBefore(Instant.now(), 1, 500).exhausted().isEmpty());
     assertTrue(statements.stream().noneMatch(statement -> statement.sql().startsWith("UPDATE")));
   }
 
@@ -295,6 +335,53 @@ class SqlserverJobDeleteOperationsTest {
     assertEquals(1, result.reset());
     assertExecutionClose();
     assertUpdatesUseIds();
+  }
+
+  private Set<UUID> boundIds(Statement statement) {
+    return statement.parameters().values().stream()
+        .filter(byte[].class::isInstance)
+        .map(value -> SqlserverJobRowMapper.uuidOrNull(value))
+        .collect(Collectors.toSet());
+  }
+
+  private void assertMutationIds(String sqlFragment, Set<UUID> expected) {
+    Set<UUID> actual =
+        statements.stream()
+            .filter(
+                statement ->
+                    statement.sql().startsWith("UPDATE") && statement.sql().contains(sqlFragment))
+            .flatMap(statement -> boundIds(statement).stream())
+            .collect(Collectors.toSet());
+    assertEquals(expected, actual);
+  }
+
+  private void assertDeferredIds(List<ExhaustedOrphan> exhausted) {
+    Statement defer =
+        statements.stream()
+            .filter(
+                statement ->
+                    isQueueUpdate(statement.sql())
+                        && statement.sql().contains("picked_at = ?")
+                        && statement.sql().contains("updated_at = ?")
+                        && !statement.sql().contains("PENDING"))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(defer.sql().contains("job_id IN ("));
+    assertEquals(
+        exhausted.stream().map(ExhaustedOrphan::jobId).collect(Collectors.toSet()),
+        boundIds(defer));
+    assertFalse(defer.sql().contains("picked_by ="));
+    assertFalse(defer.sql().contains("claim_seq ="));
+    assertFalse(defer.sql().contains("crash_count ="));
+    assertFalse(defer.sql().contains("status ="));
+    assertTrue(defer.parameters().values().stream().anyMatch(Instant.class::isInstance));
+    for (ExhaustedOrphan row : exhausted) {
+      assertTrue(
+          defer.parameters().values().stream()
+              .filter(byte[].class::isInstance)
+              .map(value -> SqlserverJobRowMapper.uuidOrNull(value))
+              .anyMatch(row.jobId()::equals));
+    }
   }
 
   private long candidateReads() {

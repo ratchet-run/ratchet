@@ -25,7 +25,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.loadtest.api.ResetResponse;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.OrphanRecovery;
 
@@ -88,25 +87,15 @@ class LoadTestResetServiceTest {
     }
 
     @Override
-    public List<ExhaustedOrphan> recoverExhaustedOrphans(Instant cutoff, int max, int limit) {
-      return List.of();
-    }
-
-    @Override
-    public boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
-      return false;
-    }
-
-    @Override
     public OrphanRecovery resetOrphanJobsBefore(
         Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-      return new OrphanRecovery(0, 0, 0);
+      return new OrphanRecovery(0, 0, 0, List.of());
     }
 
     @Override
     public OrphanRecovery resetOrphanJobsForNode(
         String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-      return new OrphanRecovery(0, 0, 0);
+      return new OrphanRecovery(0, 0, 0, List.of());
     }
   }
 }

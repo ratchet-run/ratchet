@@ -679,28 +679,44 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int max, int limit) {
-    if (limit <= 0) return new OrphanRecovery(0, 0, 0);
+    if (limit <= 0) return OrphanRecovery.none();
     List<JobEntity> candidates =
         jobs.values().stream()
-            .filter(job -> orphanMatches(job, cutoff) && crashCount(job) < max)
+            .filter(job -> orphanMatches(job, cutoff))
+            .sorted(Comparator.comparing(JobEntity::getPickedAt))
             .limit(limit)
             .toList();
+    int reset = 0;
+    List<ExhaustedOrphan> exhausted = new ArrayList<>();
     for (JobEntity job : candidates) {
       closeOrphanExecutions(job.getId());
-      resetOrphan(job);
+      if (crashCount(job) < max) {
+        resetOrphan(job);
+        reset++;
+      } else {
+        exhausted.add(
+            new ExhaustedOrphan(
+                job.getId(), job.getClaimSeq(), crashCount(job), job.getPickedBy()));
+        Instant now = Instant.now();
+        job.setPickedAt(now);
+        job.setUpdatedAt(now);
+      }
     }
-    return new OrphanRecovery(candidates.size(), candidates.size(), 0);
+    return new OrphanRecovery(candidates.size(), reset, 0, exhausted);
   }
 
   @Override
   public synchronized OrphanRecovery resetOrphanJobsForNode(String nodeId, int max, int limit) {
-    if (limit <= 0) return new OrphanRecovery(0, 0, 0);
+    if (limit <= 0) return OrphanRecovery.none();
     List<JobEntity> candidates =
         jobs.values().stream()
             .filter(
                 job ->
                     job.getStatus() == JobStatus.RUNNING
                         && Objects.equals(nodeId, job.getPickedBy()))
+            .sorted(
+                Comparator.comparing(
+                    JobEntity::getPickedAt, Comparator.nullsFirst(Comparator.naturalOrder())))
             .limit(limit)
             .toList();
     int reset = 0;
@@ -715,37 +731,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
         released++;
       }
     }
-    return new OrphanRecovery(candidates.size(), reset, released);
-  }
-
-  @Override
-  public synchronized List<ExhaustedOrphan> recoverExhaustedOrphans(
-      Instant cutoff, int max, int limit) {
-    if (limit <= 0) return List.of();
-    List<JobEntity> candidates =
-        jobs.values().stream()
-            .filter(job -> orphanMatches(job, cutoff) && crashCount(job) >= max)
-            .sorted(Comparator.comparing(JobEntity::getPickedAt))
-            .limit(limit)
-            .toList();
-    List<ExhaustedOrphan> result = new ArrayList<>();
-    for (JobEntity job : candidates) {
-      closeOrphanExecutions(job.getId());
-      result.add(
-          new ExhaustedOrphan(job.getId(), job.getClaimSeq(), crashCount(job), job.getPickedBy()));
-    }
-    return List.copyOf(result);
-  }
-
-  @Override
-  public synchronized boolean deferExhaustedOrphan(UUID jobId, long claimSeq) {
-    JobEntity job = jobs.get(jobId);
-    if (job == null || job.getStatus() != JobStatus.RUNNING || job.getClaimSeq() != claimSeq)
-      return false;
-    Instant now = Instant.now();
-    job.setPickedAt(now);
-    job.setUpdatedAt(now);
-    return true;
+    return new OrphanRecovery(candidates.size(), reset, released, List.of());
   }
 
   private boolean orphanMatches(JobEntity job, Instant cutoff) {

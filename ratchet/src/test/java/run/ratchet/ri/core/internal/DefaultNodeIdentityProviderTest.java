@@ -114,12 +114,12 @@ class DefaultNodeIdentityProviderTest {
         .when(
             jobBulkStore.resetOrphanJobsForNode(
                 anyString(), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
-        .thenReturn(new OrphanRecovery(0, 0, 0));
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
     lenient()
         .when(
             jobBulkStore.resetOrphanJobsBefore(
                 any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
-        .thenReturn(new OrphanRecovery(0, 0, 0));
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
     provider = newProvider(false, "test-node", LongUnaryOperator.identity());
   }
 
@@ -143,7 +143,7 @@ class DefaultNodeIdentityProviderTest {
   void init_retriesOwnNodeRecoveryAfterTransientFailure() {
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenThrow(new RatchetTransientStoreException("transient conflict"))
-        .thenReturn(new OrphanRecovery(0, 0, 0));
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
 
     provider.init();
 
@@ -160,7 +160,7 @@ class DefaultNodeIdentityProviderTest {
     when(jobBulkStore.resetOrphanJobsBefore(
             clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenThrow(new RatchetTransientStoreException("transient conflict"))
-        .thenReturn(new OrphanRecovery(0, 0, 0));
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
 
     provider.init();
 
@@ -456,7 +456,7 @@ class DefaultNodeIdentityProviderTest {
   @Test
   void startupPassesCrashBudgetAndLeavesExhaustedFailuresForTimer() {
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
-        .thenReturn(new OrphanRecovery(2, 1, 1));
+        .thenReturn(new OrphanRecovery(2, 1, 1, List.of()));
 
     provider.init();
 
@@ -472,9 +472,9 @@ class DefaultNodeIdentityProviderTest {
   void ownRowsArePagedToEndAfterHeartbeat() {
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenReturn(
-            new OrphanRecovery(500, 400, 100),
-            new OrphanRecovery(500, 500, 0),
-            new OrphanRecovery(12, 10, 2));
+            new OrphanRecovery(500, 400, 100, List.of()),
+            new OrphanRecovery(500, 500, 0, List.of()),
+            new OrphanRecovery(12, 10, 2, List.of()));
     provider.init();
     InOrder order = inOrder(nodeStore, jobBulkStore);
     order.verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
@@ -486,9 +486,10 @@ class DefaultNodeIdentityProviderTest {
   @Test
   void transientFailureOnSecondPageIsRetriedAndPagingContinues() {
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
-        .thenReturn(new OrphanRecovery(500, 500, 0))
+        .thenReturn(new OrphanRecovery(500, 500, 0, List.of()))
         .thenThrow(new RatchetTransientStoreException("page two", null))
-        .thenReturn(new OrphanRecovery(500, 400, 100), new OrphanRecovery(12, 10, 2));
+        .thenReturn(
+            new OrphanRecovery(500, 400, 100, List.of()), new OrphanRecovery(12, 10, 2, List.of()));
     provider.init();
     verify(jobBulkStore, times(4))
         .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
@@ -498,7 +499,7 @@ class DefaultNodeIdentityProviderTest {
   void thirdTransientFailureOnSecondPagePropagates() {
     RatchetTransientStoreException failure = new RatchetTransientStoreException("page two", null);
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
-        .thenReturn(new OrphanRecovery(500, 500, 0))
+        .thenReturn(new OrphanRecovery(500, 500, 0, List.of()))
         .thenThrow(failure);
     assertSame(failure, assertThrows(RatchetTransientStoreException.class, provider::init));
     verify(jobBulkStore, times(4))
@@ -510,7 +511,7 @@ class DefaultNodeIdentityProviderTest {
   @Test
   void fullOwnPageThatChangesNothingEndsLoop() {
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
-        .thenReturn(new OrphanRecovery(500, 0, 0));
+        .thenReturn(new OrphanRecovery(500, 0, 0, List.of()));
     provider.init();
     verify(jobBulkStore)
         .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);

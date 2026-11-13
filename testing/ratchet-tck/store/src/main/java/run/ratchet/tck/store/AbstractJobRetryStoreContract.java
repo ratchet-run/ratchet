@@ -482,7 +482,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertTrue(store().resetFailedToPending(job.getId()));
     assertTrue(store().tryPickUpJob(job.getId(), "dead"));
     var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 500);
-    var recoveryExhausted = store().recoverExhaustedOrphans(Instant.now().plusSeconds(1), 0, 500);
+    var recoveryExhausted = recovery.exhausted();
     assertEquals(0, recoveryExhausted.get(0).crashCount());
   }
 
@@ -497,7 +497,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertEquals(1, store().resetFailedToPending(JobFilter.builder().build(), 100));
     assertTrue(store().tryPickUpJob(job.getId(), "dead"));
     var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 500);
-    var recoveryExhausted = store().recoverExhaustedOrphans(Instant.now().plusSeconds(1), 0, 500);
+    var recoveryExhausted = recovery.exhausted();
     assertEquals(0, recoveryExhausted.get(0).crashCount());
   }
 

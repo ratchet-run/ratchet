@@ -234,14 +234,13 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
     assertTrue(store().resetRunningJob(job.getId(), "self", seq));
     assertTrue(store().tryPickUpJob(job.getId(), "self"));
     var afterSingleReset = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 500);
-    var afterSingleResetExhausted =
-        store().recoverExhaustedOrphans(Instant.now().plusSeconds(1), 1, 500);
+    var afterSingleResetExhausted = afterSingleReset.exhausted();
     assertEquals(0, afterSingleReset.reset());
     assertEquals(1, afterSingleResetExhausted.get(0).crashCount());
     assertEquals(1, store().resetRunningJobs("self"));
     assertTrue(store().tryPickUpJob(job.getId(), "self"));
     var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 500);
-    var recoveryExhausted = store().recoverExhaustedOrphans(Instant.now().plusSeconds(1), 1, 500);
+    var recoveryExhausted = recovery.exhausted();
     assertEquals(0, recovery.reset());
     assertEquals(1, recoveryExhausted.get(0).crashCount());
   }

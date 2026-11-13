@@ -63,7 +63,6 @@ public class OrphanRecoveryTimer {
   static final int ORPHAN_PAGE_SIZE = 500;
   static final int MAX_ORPHAN_PAGES_PER_SCAN = 20;
   static final Duration ORPHAN_SCAN_BUDGET = Duration.ofSeconds(10);
-  static final int EXHAUSTED_LIMIT = 100;
   static final int STALE_EXECUTION_LIMIT = 500;
   private final JobBulkStore jobBulkStore;
   private final JobCrudStore jobCrudStore;
@@ -251,8 +250,7 @@ public class OrphanRecoveryTimer {
     OrphanRecovery recovery =
         jobBulkStore.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, ORPHAN_PAGE_SIZE);
     int resetJobs = recovery.reset();
-    for (ExhaustedOrphan orphan :
-        jobBulkStore.recoverExhaustedOrphans(cutoff, maxCrashRedeliveries, EXHAUSTED_LIMIT)) {
+    for (ExhaustedOrphan orphan : recovery.exhausted()) {
       failExhausted(orphan);
     }
     List<NodeEntity> staleNodes = nodeStore.findInactiveNodesSince(cutoff);

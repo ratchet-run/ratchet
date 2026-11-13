@@ -114,7 +114,7 @@ class MongoJobBulkStoreContractTest extends AbstractJobBulkStoreContract {
         .updateOne(eq("_id", job.getId()), unset("crash_count"));
 
     var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 500);
-    var recoveryExhausted = store().recoverExhaustedOrphans(Instant.now().plusSeconds(1), 0, 500);
+    var recoveryExhausted = recovery.exhausted();
 
     assertEquals(0, recovery.reset());
     assertEquals(1, recoveryExhausted.size());
