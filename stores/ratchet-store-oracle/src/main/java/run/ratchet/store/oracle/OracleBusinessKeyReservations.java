@@ -215,7 +215,7 @@ final class OracleBusinessKeyReservations {
                 select.setParameter(i + 1, chunk.get(i));
               }
               List<?> keys = select.getResultList();
-              for (Object key : keys) {
+              for (String key : BusinessKeyReservations.holdDeleteOrder(keys)) {
                 Query delete =
                     ctx.em()
                         .createNativeQuery(
@@ -265,7 +265,7 @@ final class OracleBusinessKeyReservations {
                 WHERE business_key = ? AND held_until IS NOT NULL AND held_until < ?
                 """;
             int deleted = 0;
-            for (Object key : keys) {
+            for (String key : BusinessKeyReservations.holdDeleteOrder(keys)) {
               deleted +=
                   ctx.em()
                       .createNativeQuery(deleteSql)
