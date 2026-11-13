@@ -35,6 +35,17 @@ final class SqlserverBusinessKeyReservations {
 
   private static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
 
+  // business_key is VARCHAR and the driver binds strings as NVARCHAR. Under a SQL collation that
+  // stops SQL Server seeking the primary key, so a hold delete range-scans idx_bk_held_until and
+  // locks other holds' index rows in expiry order. Cast the key and force the primary-key seek.
+  // language=SQL Server
+  private static final String DELETE_HOLD_BY_KEY =
+      """
+      DELETE r FROM scheduler_business_key_reservation r
+          WITH (FORCESEEK, INDEX(pk_scheduler_business_key_reservation))
+      WHERE r.business_key = CAST(? AS VARCHAR(512)) AND r.held_until IS NOT NULL
+      """;
+
   private final SqlserverStoreContext ctx;
 
   SqlserverBusinessKeyReservations(SqlserverStoreContext ctx) {
@@ -242,13 +253,8 @@ final class SqlserverBusinessKeyReservations {
             if (keys.isEmpty()) {
               return false;
             }
-            // language=SQL Server
             String deleteSql =
-                """
-                DELETE FROM scheduler_business_key_reservation
-                WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
-                  AND held_until IS NOT NULL
-                """;
+                DELETE_HOLD_BY_KEY + " AND r.owner_job_id = ? AND r.held_claim_seq = ?";
             return ctx.em()
                     .createNativeQuery(deleteSql)
                     .setParameter(1, keys.get(0))
@@ -287,13 +293,10 @@ final class SqlserverBusinessKeyReservations {
                 select.setParameter(i + 1, chunk.get(i));
               }
               List<?> keys = select.getResultList();
-              for (Object key : keys) {
+              for (String key : BusinessKeyReservations.holdDeleteOrder(keys)) {
                 Query delete =
                     ctx.em()
-                        .createNativeQuery(
-                            "DELETE FROM scheduler_business_key_reservation WHERE business_key = ?"
-                                + " AND "
-                                + predicate)
+                        .createNativeQuery(DELETE_HOLD_BY_KEY + " AND " + predicate)
                         .setParameter(1, key);
                 for (int i = 0; i < chunk.size(); i++) {
                   delete.setParameter(i + 2, chunk.get(i));
@@ -330,14 +333,9 @@ final class SqlserverBusinessKeyReservations {
                     .setParameter(1, limit)
                     .setParameter(2, Timestamp.from(now))
                     .getResultList();
-            // language=SQL Server
-            String deleteSql =
-                """
-                DELETE FROM scheduler_business_key_reservation
-                WHERE business_key = ? AND held_until IS NOT NULL AND held_until < ?
-                """;
+            String deleteSql = DELETE_HOLD_BY_KEY + " AND r.held_until < ?";
             int deleted = 0;
-            for (Object key : keys) {
+            for (String key : BusinessKeyReservations.holdDeleteOrder(keys)) {
               deleted +=
                   ctx.em()
                       .createNativeQuery(deleteSql)
