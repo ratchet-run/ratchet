@@ -26,6 +26,8 @@ import io.micronaut.context.ApplicationContext;
 import io.micronaut.inject.qualifiers.Qualifiers;
 import io.micronaut.jdbc.DataSourceResolver;
 import io.micronaut.transaction.TransactionDefinition;
+import io.micronaut.transaction.TransactionOperations;
+import io.micronaut.transaction.TransactionOperationsRegistry;
 import io.micronaut.transaction.hibernate.HibernateTransactionManager;
 import java.lang.reflect.Proxy;
 import java.sql.SQLException;
@@ -44,6 +46,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptionsFactory;
+import run.ratchet.micronaut.internal.RatchetTransactionOperations;
 import run.ratchet.ri.cdi.internal.JsonbPayloadSerializer;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.spi.NoOpMetricsCollector;
@@ -90,6 +93,13 @@ class RatchetJpaBootTest {
             context.getBean(SessionFactory.class, Qualifiers.byName(datasource));
         HibernateTransactionManager transactions =
             context.getBean(HibernateTransactionManager.class, Qualifiers.byName(datasource));
+        if (datasource.equals("default")) {
+          assertSame(
+              context
+                  .getBean(TransactionOperationsRegistry.class)
+                  .provideSynchronous(TransactionOperations.class, null),
+              context.getBean(RatchetTransactionOperations.class).operations());
+        }
         JobStore store = context.getBean(JobStore.class);
         assertTrue(Proxy.isProxyClass(store.getClass()));
         assertSame(store, store.capability(LockStore.class).orElseThrow());
@@ -176,6 +186,9 @@ class RatchetJpaBootTest {
                 "org.postgresql.Driver",
                 "jpa." + name + ".properties.hibernate.hbm2ddl.auto",
                 "validate"));
+    if (name.equals("default")) {
+      properties.remove("ratchet.jpa.datasource");
+    }
     if (!name.equals("default")) {
       // Fail if Ratchet accidentally selects the unselected default persistence unit.
       properties.put("datasources.default.url", POSTGRES.getJdbcUrl());

@@ -653,7 +653,7 @@ jobStore.capability(SignalStore.class)
     .ifPresent(signals -> signals.deliverSignalByKey(key, payload));
 ```
 
-Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
+Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations. The SQL stores advertise every capability; MongoDB does not advertise `TransactionalCompletionStore`. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
 
 ### Core Store Interfaces (mandatory)
 
@@ -681,6 +681,7 @@ A store advertises each of these by implementing the interface; the engine probe
 | `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
 | `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
 | `EventOutboxStore` | Durable terminal delivery | `findEventsCreatedBefore()`, `deleteEvents()` (at most 500 IDs); insert `JobCompletionPlan.outboxEvents()` atomically only when completion wins |
+| `TransactionalCompletionStore` | Completion in an existing SQL transaction | `terminalOutcome()`, `requireJoinedTransaction()`, and current planning reads (SQL stores only) |
 | `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
 | `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
@@ -934,6 +935,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobBulkStoreContract` | Bulk recovery, stale job detection |
 | `AbstractBatchStoreContract` | Batch progress tracking |
 | `AbstractEventOutboxStoreContract` | Atomic completion rows, cutoff reads, bounded idempotent deletion |
+| `AbstractTransactionalCompletionStoreContract` | Claim-specific outcome resolution, success claim copy, and current planning reads (SQL stores) |
 | `AbstractLockStoreContract` | Lock acquire, release, expiry |
 | `AbstractNodeStoreContract` | Node registration, heartbeat, dead node detection |
 | `AbstractArchiveStoreContract` | Job archiving and retrieval |

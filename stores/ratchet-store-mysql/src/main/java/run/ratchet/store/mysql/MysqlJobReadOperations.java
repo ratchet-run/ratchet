@@ -51,8 +51,12 @@ final class MysqlJobReadOperations {
     this.tags = tags;
   }
 
-  @SuppressWarnings("unchecked")
   Optional<JobEntity> findById(UUID id) {
+    return findById(id, false);
+  }
+
+  @SuppressWarnings("unchecked")
+  Optional<JobEntity> findById(UUID id, boolean sharedLock) {
     try {
       // language=MySQL
       String sql =
@@ -60,7 +64,8 @@ final class MysqlJobReadOperations {
               + MysqlJobRowMapper.HYDRATION_SELECT
               + " "
               + HYDRATION_FROM
-              + " WHERE c.job_id = ?";
+              + " WHERE c.job_id = ?"
+              + (sharedLock ? " LOCK IN SHARE MODE" : "");
       List<Object[]> rows =
           ctx.em()
               .createNativeQuery(sql)
@@ -70,6 +75,7 @@ final class MysqlJobReadOperations {
         return Optional.empty();
       }
       JobEntity job = mapper.hydrateJobEntity(rows.get(0));
+      // Tags play no part in completion planning, so they are read without shared locks.
       tags.hydrateTagsSingle(job);
       return Optional.of(job);
     } catch (RuntimeException e) {
@@ -139,8 +145,12 @@ final class MysqlJobReadOperations {
     }
   }
 
-  @SuppressWarnings("unchecked")
   List<JobEntity> findByIds(List<UUID> ids) {
+    return findByIds(ids, false);
+  }
+
+  @SuppressWarnings("unchecked")
+  List<JobEntity> findByIds(List<UUID> ids, boolean sharedLock) {
     try {
       if (ids.isEmpty()) {
         return List.of();
@@ -149,7 +159,8 @@ final class MysqlJobReadOperations {
       for (int start = 0; start < ids.size(); start += FIND_BY_IDS_CHUNK_SIZE) {
         jobs.addAll(
             findByIdsChunk(
-                ids.subList(start, Math.min(start + FIND_BY_IDS_CHUNK_SIZE, ids.size()))));
+                ids.subList(start, Math.min(start + FIND_BY_IDS_CHUNK_SIZE, ids.size())),
+                sharedLock));
       }
       tags.hydrateTagsBatch(jobs);
       return jobs;
@@ -159,7 +170,7 @@ final class MysqlJobReadOperations {
   }
 
   @SuppressWarnings("unchecked")
-  private List<JobEntity> findByIdsChunk(List<UUID> ids) {
+  private List<JobEntity> findByIdsChunk(List<UUID> ids, boolean sharedLock) {
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
     // language=MySQL
     String sql =
@@ -169,7 +180,8 @@ final class MysqlJobReadOperations {
             + HYDRATION_FROM
             + " WHERE c.job_id IN ("
             + placeholders
-            + ")";
+            + ")"
+            + (sharedLock ? " LOCK IN SHARE MODE" : "");
     Query idsQuery = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (UUID id : ids) {
@@ -254,8 +266,12 @@ final class MysqlJobReadOperations {
     }
   }
 
-  @SuppressWarnings("unchecked")
   List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
+    return findDependants(parentJobId, limit, offset, false);
+  }
+
+  @SuppressWarnings("unchecked")
+  List<JobEntity> findDependants(UUID parentJobId, int limit, int offset, boolean sharedLock) {
     try {
       // language=MySQL
       String sql =
@@ -263,14 +279,19 @@ final class MysqlJobReadOperations {
               + MysqlJobRowMapper.HYDRATION_SELECT
               + " "
               + HYDRATION_FROM
-              + " WHERE c.depends_on = ? ORDER BY c.created_at ASC, c.job_id ASC";
-      List<Object[]> rows =
+              + " WHERE c.depends_on = ? ORDER BY c.created_at ASC, c.job_id ASC"
+              + (sharedLock ? " LIMIT ? OFFSET ? LOCK IN SHARE MODE" : "");
+      Query query =
           ctx.em()
               .createNativeQuery(sql)
-              .setParameter(1, UuidByteArrayConverter.toBytes(parentJobId))
-              .setFirstResult(offset)
-              .setMaxResults(limit)
-              .getResultList();
+              .setParameter(1, UuidByteArrayConverter.toBytes(parentJobId));
+      if (sharedLock) {
+        // Keep LIMIT/OFFSET before the lock clause instead of relying on provider SQL rewriting.
+        query.setParameter(2, limit).setParameter(3, offset);
+      } else {
+        query.setFirstResult(offset).setMaxResults(limit);
+      }
+      List<Object[]> rows = query.getResultList();
       List<JobEntity> jobs = new ArrayList<>(rows.size());
       for (Object[] row : rows) {
         jobs.add(mapper.hydrateJobEntity(row));

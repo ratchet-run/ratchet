@@ -116,8 +116,13 @@ public final class MicronautTransactions {
 
   public static TransactionDefinition definition(
       TransactionOperations<?> operations, Transactional annotation) {
+    return definition(operations, annotation, null);
+  }
+
+  public static TransactionDefinition definition(
+      TransactionOperations<?> operations, Transactional annotation, String name) {
     Propagation effective = effectivePropagation(operations, annotation.value());
-    return definition(annotation, effective);
+    return definition(annotation, effective, name);
   }
 
   public static Propagation propagation(TxType type) {
@@ -132,11 +137,17 @@ public final class MicronautTransactions {
   }
 
   public static TransactionDefinition definition(Transactional annotation) {
-    return definition(annotation, propagation(annotation.value()));
+    return definition(annotation, propagation(annotation.value()), null);
   }
 
-  private static TransactionDefinition definition(Transactional annotation, Propagation effective) {
+  private static TransactionDefinition definition(
+      Transactional annotation, Propagation effective, String name) {
     return new TransactionDefinition() {
+      @Override
+      public String getName() {
+        return name;
+      }
+
       @Override
       public Propagation getPropagationBehavior() {
         return effective;

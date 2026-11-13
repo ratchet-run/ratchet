@@ -42,6 +42,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
@@ -55,6 +56,7 @@ import run.ratchet.micronaut.internal.tx.MicronautDefaultJobCreationService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobSchedulerService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultRecurringAnnotationMaintenanceService;
 import run.ratchet.micronaut.internal.tx.MicronautJobStateManager;
+import run.ratchet.micronaut.internal.tx.MicronautJobTransaction;
 import run.ratchet.micronaut.internal.tx.MicronautPollerCycleExecutor;
 import run.ratchet.micronaut.internal.tx.MicronautPostExecutionHandler;
 import run.ratchet.micronaut.internal.tx.MicronautRecurringJobExecutor;
@@ -64,6 +66,7 @@ import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.JobStateManager;
+import run.ratchet.ri.core.JobTransaction;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.DeadLetterService;
@@ -90,6 +93,7 @@ class TransactionCarrierContractTest {
               MicronautDefaultRecurringAnnotationMaintenanceService.class,
               DefaultRecurringAnnotationMaintenanceService.class),
           Map.entry(MicronautJobStateManager.class, JobStateManager.class),
+          Map.entry(MicronautJobTransaction.class, JobTransaction.class),
           Map.entry(MicronautPollerCycleExecutor.class, PollerCycleExecutor.class),
           Map.entry(MicronautPostExecutionHandler.class, PostExecutionHandler.class),
           Map.entry(MicronautRecurringJobExecutor.class, RecurringJobExecutor.class),
@@ -108,6 +112,7 @@ class TransactionCarrierContractTest {
           DefaultJobSchedulerService.class,
           DefaultRecurringAnnotationMaintenanceService.class,
           JobStateManager.class,
+          JobTransaction.class,
           PollerCycleExecutor.class,
           PostExecutionHandler.class,
           RecurringJobExecutor.class,
@@ -281,6 +286,21 @@ class TransactionCarrierContractTest {
     }
     // This plain marker product already satisfies the processor's constructor rule.
     assertTrue(Modifier.isPublic(BatchCompletionTransaction.class.getConstructor().getModifiers()));
+  }
+
+  @Test
+  void jobCarrierPreservesMethodTransactionContract() throws Exception {
+    Transactional expected =
+        JobTransaction.class.getMethod("run", Callable.class).getAnnotation(Transactional.class);
+    Transactional actual =
+        MicronautJobTransaction.class
+            .getDeclaredMethod("run", Callable.class)
+            .getAnnotation(Transactional.class);
+    assertNotNull(expected);
+    assertNotNull(actual);
+    assertEquals(expected.value(), actual.value());
+    assertArrayEquals(expected.rollbackOn(), actual.rollbackOn());
+    assertArrayEquals(expected.dontRollbackOn(), actual.dontRollbackOn());
   }
 
   @Test

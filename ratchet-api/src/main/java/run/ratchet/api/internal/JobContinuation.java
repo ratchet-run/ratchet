@@ -23,6 +23,7 @@ import run.ratchet.api.Nullable;
 public final class JobContinuation {
   private final UUID jobId;
   private volatile boolean supported = true;
+  private volatile boolean transactional;
   private @Nullable Duration delay;
 
   /**
@@ -41,13 +42,22 @@ public final class JobContinuation {
     this.supported = supported;
   }
 
+  /** Marks a transactional job, whose body cannot request continuation. */
+  public void transactional(boolean transactional) {
+    this.transactional = transactional;
+  }
+
   /**
    * Records the delay, replacing any previous continuation request.
    *
    * @param delay delay before the next execution
+   * @throws IllegalStateException if the body is a transactional job
    * @throws UnsupportedOperationException if the runtime store does not support job state
    */
   public synchronized void request(Duration delay) {
+    if (transactional) {
+      throw new IllegalStateException("@TransactionalJob does not support requestContinuation()");
+    }
     if (!supported) {
       throw new UnsupportedOperationException(
           "Job " + jobId + " store does not support job state (JobStateStore)");

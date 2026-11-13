@@ -65,6 +65,7 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
+import run.ratchet.store.spi.TerminalOutcome;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.IsolationCheck;
 import run.ratchet.store.util.SqlEventOutbox;
@@ -134,6 +135,49 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public Optional<ClaimState> currentClaim(UUID jobId) {
     return jobs.currentClaim(jobId);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public TerminalOutcome terminalOutcome(UUID jobId, long claimSeq) {
+    return SqlJobCompletion.terminalOutcome(
+        em, jobId, claimSeq, true, UuidByteArrayConverter::toBytes);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public void requireJoinedTransaction() {
+    if (!em.isJoinedToTransaction()) {
+      throw new IllegalStateException("Store entity manager is not joined to the transaction");
+    }
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public Optional<JobEntity> findByIdForCompletion(UUID id) {
+    // READ COMMITTED (SQL Server uses RCSI) already reads current rows per statement.
+    return jobs.findById(id);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public List<JobEntity> findByIdsForCompletion(List<UUID> ids) {
+    // READ COMMITTED (SQL Server uses RCSI) already reads current rows per statement.
+    return jobs.findByIds(ids);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public List<JobEntity> findDependantsForCompletion(UUID parentJobId, int limit, int offset) {
+    // READ COMMITTED (SQL Server uses RCSI) already reads current rows per statement.
+    return jobs.findDependants(parentJobId, limit, offset);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public List<WorkflowConditionEntity> findConditionsForCompletion(UUID parentJobId) {
+    // READ COMMITTED (SQL Server uses RCSI) already reads current rows per statement.
+    return auxiliary.findConditionsByParentJobId(parentJobId);
   }
 
   @Override

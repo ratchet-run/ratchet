@@ -63,6 +63,7 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
+import run.ratchet.store.spi.TerminalOutcome;
 import run.ratchet.store.util.IsolationCheck;
 import run.ratchet.store.util.SqlEventOutbox;
 import run.ratchet.store.util.SqlJobCompletion;
@@ -126,6 +127,45 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public Optional<ClaimState> currentClaim(UUID jobId) {
     return jobs.currentClaim(jobId);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public TerminalOutcome terminalOutcome(UUID jobId, long claimSeq) {
+    return SqlJobCompletion.terminalOutcome(
+        em, jobId, claimSeq, false, UuidByteArrayConverter::toBytes);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public void requireJoinedTransaction() {
+    if (!em.isJoinedToTransaction()) {
+      throw new IllegalStateException("Store entity manager is not joined to the transaction");
+    }
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public Optional<JobEntity> findByIdForCompletion(UUID id) {
+    return jobs.findById(id, true);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public List<JobEntity> findByIdsForCompletion(List<UUID> ids) {
+    return jobs.findByIds(ids, true);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public List<JobEntity> findDependantsForCompletion(UUID parentJobId, int limit, int offset) {
+    return jobs.findDependants(parentJobId, limit, offset, true);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public List<WorkflowConditionEntity> findConditionsForCompletion(UUID parentJobId) {
+    return auxiliary.findConditionsByParentJobId(parentJobId, true);
   }
 
   @Override
