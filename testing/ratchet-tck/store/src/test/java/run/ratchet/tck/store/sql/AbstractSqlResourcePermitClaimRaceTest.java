@@ -883,6 +883,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var reservedJob = fixture().newPendingJob();
     reservedJob.setResourceName("res-race");
     reservedJob.setTags(List.of("reserved"));
+    // A new waiter's wait_since is its due time, so this puts it ahead of every worker job.
+    reservedJob.setScheduledTime(Instant.now().minusSeconds(3600));
     var reserved = store.create(reservedJob);
     var reservedClaims =
         store.claimNextBatch(1, "reserved", new NodeTagFilter(List.of("reserved"), List.of()));
