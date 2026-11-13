@@ -36,9 +36,9 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
   void acquireAndRelease_withinLimit() {
     store().configureResource("gpu", 2, 5000, "GPU resource pool");
 
-    JobEntity j1 = claimNewJob();
-    JobEntity j2 = claimNewJob();
-    JobEntity j3 = claimNewJob();
+    JobEntity j1 = claimNewJob("gpu");
+    JobEntity j2 = claimNewJob("gpu");
+    JobEntity j3 = claimNewJob("gpu");
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -86,8 +86,8 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     store().configureResource("api", 1, 5000, "API slot");
     store().configureResource("disk", 1, 5000, "Disk slot");
 
-    JobEntity first = claimNewJob();
-    JobEntity second = claimNewJob();
+    JobEntity first = claimNewJob("api");
+    JobEntity second = claimNewJob("api");
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -124,8 +124,8 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
   void configuredResource_deniesAfterPoolIsExhaustedUntilRelease() {
     store().configureResource("cpu", 1, 5000, "CPU slot");
 
-    JobEntity first = claimNewJob();
-    JobEntity second = claimNewJob();
+    JobEntity first = claimNewJob("cpu");
+    JobEntity second = claimNewJob("cpu");
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -214,6 +214,13 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     JobEntity claimed = store().claimNextBatch(1, "retry").get(0);
     assertEquals(waiter.getId(), claimed.getId());
     return claimed;
+  }
+
+  private JobEntity claimNewJob(String resource) {
+    var job = newPendingJob();
+    job.setResourceName(resource);
+    store().save(job);
+    return store().claimNextBatch(1, "node-1").get(0);
   }
 
   private JobEntity claimNewJob() {

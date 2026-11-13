@@ -17,6 +17,7 @@ package run.ratchet.tck.store.sql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.ACQUIRED;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.AT_CAPACITY;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.SUPERSEDED;
@@ -52,6 +53,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -73,6 +75,10 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
 
   protected abstract JpaContainerFixture fixture();
 
+  protected boolean saveLocksTheQueueRowFirst() {
+    return false;
+  }
+
   @BeforeEach
   @AfterEach
   void clean() {
@@ -83,7 +89,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
   void staleClaimThatPassedTheCheckHoldsPermitUntilItReleases() {
     ResourcePermitStore permits = fixture().resourcePermitStore();
     permits.configureResource("res-race", 1, 60_000, "claim race");
-    JobEntity first = claimNewJob("node-a");
+    JobEntity first = claimNewJob("res-race", "node-a");
     Thread testThread = Thread.currentThread();
     AtomicBoolean fired = new AtomicBoolean();
     AtomicReference<JobEntity> retry = new AtomicReference<>();
@@ -137,7 +143,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     assertTrue(fired.get(), "the claim changed between the check and the write");
     assertEquals(ACQUIRED, stale);
     assertEquals(AT_CAPACITY, acquire(permits, retry.get(), "node-b"));
-    JobEntity other = claimNewJob("node-c");
+    JobEntity other = claimNewJob("res-race", "node-c");
     assertEquals(AT_CAPACITY, acquire(permits, other, "node-c"));
     permits.releasePermit("res-race", first.getId(), first.getClaimSeq());
     permits.wakeWaiters("res-race");
@@ -151,9 +157,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
   void claimChangeAfterTheCheckParksNothing() throws Exception {
     var permits = fixture().resourcePermitStore();
     permits.configureResource("res-race", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("res-race", "holder");
     assertEquals(ACQUIRED, acquire(permits, holder, "holder"));
-    var old = claimNewJob("old");
+    var old = claimNewJob("res-race", "old");
     var current = new AtomicReference<JobEntity>();
     var fired = new AtomicBoolean();
     var caller = Thread.currentThread();
@@ -204,9 +210,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
   void releaseDuringAParkStillWakesTheWaiter() throws Exception {
     var permits = fixture().resourcePermitStore();
     permits.configureResource("res-race", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("res-race", "holder");
     assertEquals(ACQUIRED, acquire(permits, holder, "holder"));
-    var waiter = claimNewJob("waiter");
+    var waiter = claimNewJob("res-race", "waiter");
     var fired = new AtomicBoolean();
     var releaseStarted = new CountDownLatch(1);
     var waker = new AtomicReference<Future<List<WokenWaiter>>>();
@@ -267,9 +273,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
     permits.configureResource("res-resched", 1, 60_000, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("res-resched", "holder");
     assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-resched"));
-    var waiter = claimNewJob("waiter");
+    var waiter = claimNewJob("res-resched", "waiter");
     assertEquals(AT_CAPACITY, acquire(permits, waiter, "waiter", "res-resched"));
     permits.releasePermit("res-resched", holder.getId(), holder.getClaimSeq());
     var userTime = new AtomicReference<Instant>();
@@ -316,15 +322,226 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
+  /** Pins parking without a waiter when a save moves the job after the claim read. */
+  @Test
+  void parkWritesNoWaiterRowWhenASaveMovesTheJobAfterTheClaimRead() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-a", 1, 0, null);
+    permits.configureResource("res-b", 1, 0, null);
+    var holder = claimNewJob("res-a", "holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-a"));
+    var waiter = claimNewJob("res-a", "node-a");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-a"));
+    var claims = store.claimNextBatch(1, "node-a");
+    assertEquals(1, claims.size());
+    assertEquals(waiter.getId(), claims.get(0).getId());
+    var caller = Thread.currentThread();
+    var fired = new AtomicBoolean();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && isClaimRead(sql)
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            var moved = store.findById(waiter.getId()).orElseThrow();
+                            moved.setResourceName("res-b");
+                            store.save(moved);
+                          }));
+                }
+              });
+      assertEquals(AT_CAPACITY, acquire(permits, claims.get(0), "node-a", "res-a"));
+      assertTrue(fired.get());
+      assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
+      var stored = store.findById(waiter.getId()).orElseThrow();
+      assertEquals("res-b", stored.getResourceName());
+      assertEquals(JobStatus.PENDING, stored.getStatus());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  /** Pins removal of a newly inserted waiter by a save moving the job during its park. */
+  @Test
+  void saveThatMovesTheJobWhileItParksRemovesTheNewWaiterRow() throws Exception {
+    assumeFalse(saveLocksTheQueueRowFirst(), "save locks the queue row before handling waiters");
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-a", 1, 60_000, null);
+    permits.configureResource("res-b", 1, 60_000, null);
+    var holder = claimNewJob("res-a", "holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-a"));
+    var waiter = claimNewJob("res-a", "node-a");
+    var running = store.findById(waiter.getId()).orElseThrow();
+    running.setResourceName("res-b");
+    var caller = Thread.currentThread();
+    var fired = new AtomicBoolean();
+    var saveReachedTheJobRow = new CountDownLatch(1);
+    var saveReachedBeforeCommit = new AtomicBoolean();
+    var save = new AtomicReference<Future<?>>();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() != caller
+                    && !event.completed()
+                    && event.operation().equals("executeUpdate")
+                    && normalized.trim().startsWith("UPDATE SCHEDULER_JOB SET")) {
+                  saveReachedTheJobRow.countDown();
+                }
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("executeUpdate")
+                    && normalized.trim().startsWith("INSERT INTO SCHEDULER_RESOURCE_WAITER")
+                    && fired.compareAndSet(false, true)) {
+                  save.set(executor.submit(() -> store.save(running)));
+                  try {
+                    saveReachedBeforeCommit.set(saveReachedTheJobRow.await(5, TimeUnit.SECONDS));
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                  }
+                }
+              });
+      assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-a"));
+      assertTrue(fired.get());
+      awaitFuture(save.get());
+      assertTrue(
+          permits.findResourcesWithWaiters(null, 10).isEmpty(),
+          "save reached the job row before park committed: " + saveReachedBeforeCommit.get());
+      assertTrue(saveReachedBeforeCommit.get(), "the save did not reach the job row mid-park");
+      assertEquals("res-b", store.findById(waiter.getId()).orElseThrow().getResourceName());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  /** Pins skipping a waiter whose job moves after wake reads its old resource line. */
+  @Test
+  void wakeSkipsAWaiterWhoseJobMovesToAnotherResourceAfterTheLineIsRead() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-wake", 1, 60_000, null);
+    var holder = claimNewJob("res-wake", "holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-wake"));
+    var waiter = claimNewJob("res-wake", "waiter");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "waiter", "res-wake"));
+    var parkedTime =
+        store
+            .findById(waiter.getId())
+            .orElseThrow()
+            .getScheduledTime()
+            .truncatedTo(ChronoUnit.MILLIS);
+    permits.releasePermit("res-wake", holder.getId(), holder.getClaimSeq());
+    var caller = Thread.currentThread();
+    var fired = new AtomicBoolean();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.contains(
+                        "SELECT W.JOB_ID, Q.STATUS, W.PRIORITY, Q.EXECUTION_TARGET, W.WAIT_SINCE")
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            var moved = store.findById(waiter.getId()).orElseThrow();
+                            moved.setResourceName("res-elsewhere");
+                            store.save(moved);
+                          }));
+                }
+              });
+      var result = permits.wakeWaiters("res-wake");
+      assertTrue(fired.get());
+      assertTrue(result.stream().noneMatch(w -> w.jobId().equals(waiter.getId())));
+      assertEquals(
+          parkedTime,
+          store
+              .findById(waiter.getId())
+              .orElseThrow()
+              .getScheduledTime()
+              .truncatedTo(ChronoUnit.MILLIS));
+      assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  /** Pins waiter removal by a reschedule in a transaction with an earlier read view. */
+  @Test
+  void rescheduleInATransactionThatReadEarlierStillRemovesTheWaiter() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-view", 1, 60_000, null);
+    var holder = claimNewJob("res-view", "holder");
+    assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-view"));
+    var waiter = claimNewJob("res-view", "node-a");
+    var parked = new AtomicReference<JobEntity>();
+    var userTime = Instant.now().plusSeconds(3600).truncatedTo(ChronoUnit.MILLIS);
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .runInTransaction(
+              () -> {
+                // The first plain read fixes MySQL's read view before the other thread parks.
+                store.findById(holder.getId());
+                awaitFuture(
+                    executor.submit(
+                        () -> {
+                          assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-view"));
+                          parked.set(store.findById(waiter.getId()).orElseThrow());
+                        }));
+                var entity = parked.get();
+                entity.setScheduledTime(userTime);
+                store.save(entity);
+              });
+      permits.releasePermit("res-view", holder.getId(), holder.getClaimSeq());
+      var woken = permits.wakeWaiters("res-view");
+      assertTrue(woken.stream().noneMatch(w -> w.jobId().equals(waiter.getId())));
+      assertEquals(
+          userTime,
+          store
+              .findById(waiter.getId())
+              .orElseThrow()
+              .getScheduledTime()
+              .truncatedTo(ChronoUnit.MILLIS));
+      assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
   /** Pins preservation of a waiter renewed after the stale sweep reads its previous park. */
   @Test
   void staleSweepKeepsAWaiterThatParkedAgainAfterTheSweepReadIt() throws Exception {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
     permits.configureResource("res-sweep", 1, 0, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("res-sweep", "holder");
     assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-sweep"));
-    var waiter = claimNewJob("node-a");
+    var waiter = claimNewJob("res-sweep", "node-a");
     assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-sweep"));
     var reclaimed = store.claimNextBatch(1, "node-a");
     assertEquals(1, reclaimed.size());
@@ -378,9 +595,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
     permits.configureResource("res-sweep", 1, 0, null);
-    var holder = claimNewJob("holder");
+    var holder = claimNewJob("res-sweep", "holder");
     assertEquals(ACQUIRED, acquire(permits, holder, "holder", "res-sweep"));
-    var waiter = claimNewJob("node-a");
+    var waiter = claimNewJob("res-sweep", "node-a");
     assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-sweep"));
     var reclaimed = store.claimNextBatch(1, "node-a");
     assertEquals(1, reclaimed.size());
@@ -421,8 +638,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                 if (Thread.currentThread() != caller
                     && !event.completed()
                     && event.operation().equals("executeUpdate")
-                    && normalized.trim().startsWith("UPDATE SCHEDULER_RESOURCE_WAITER")
-                    && normalized.contains("SET LEASE_UNTIL")) {
+                    && normalized.trim().startsWith("UPDATE SCHEDULER_RESOURCE_WAITER")) {
                   renewReached.countDown();
                   // A store whose delete waits for the park's commit cannot finish the sweep here.
                   try {
@@ -441,6 +657,17 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
           List.of("res-sweep"),
           permits.findResourcesWithWaiters(null, 10),
           "sweep delete landed before the renew: " + deleteLandedFirst.get());
+      permits.releasePermit("res-sweep", holder.getId(), holder.getClaimSeq());
+      assertEquals(
+          List.of(waiter.getId()),
+          permits.wakeWaiters("res-sweep").stream().map(WokenWaiter::jobId).toList());
+      assertEquals(
+          waiter.getScheduledTime().truncatedTo(ChronoUnit.MILLIS),
+          store
+              .findById(waiter.getId())
+              .orElseThrow()
+              .getScheduledTime()
+              .truncatedTo(ChronoUnit.MILLIS));
     } finally {
       fixture().observeNativeQueries((sql, event) -> {});
       executor.shutdownNow();
@@ -459,13 +686,22 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var store = fixture().store();
     permits.configureResource("res-race", 2, 0, null);
     store.upsertHeartbeat("stress", Instant.now().plusSeconds(3600));
-    // The test holds both permits until a worker parks, so parking does not depend on timing. The
-    // holders run on the live "stress" node and sit outside ids and the batch, so orphan recovery,
-    // cancel and save leave them alone.
-    var holders = List.of(claimNewJob("stress"), claimNewJob("stress"));
+    // The reserved waiter stays PENDING with a live 10 s lease at retry 0, so the first wake
+    // after the holders release returns it. Holders run on the live "stress" node outside ids
+    // and the batch, so orphan recovery, cancel and save leave them alone.
+    var holders = List.of(claimNewJob("res-race", "stress"), claimNewJob("res-race", "stress"));
     for (var holder : holders) {
       assertEquals(ACQUIRED, acquire(permits, holder, "stress"));
     }
+    var reservedJob = fixture().newPendingJob();
+    reservedJob.setResourceName("res-race");
+    reservedJob.setTags(List.of("reserved"));
+    var reserved = store.create(reservedJob);
+    var reservedClaims = store.claimNextBatch(1, "reserved");
+    assertEquals(1, reservedClaims.size());
+    assertEquals(reserved.getId(), reservedClaims.get(0).getId());
+    assertEquals(AT_CAPACITY, acquire(permits, reservedClaims.get(0), "reserved"));
+    var workerTags = new NodeTagFilter(List.of(), List.of("reserved"));
     var parent = fixture().newBatchParentJob();
     parent.setScheduledTime(Instant.now().plusSeconds(3600));
     parent = store.create(parent);
@@ -474,6 +710,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var ids = new ArrayList<UUID>();
     for (int i = 0; i < 120; i++) {
       var job = fixture().newPendingJob();
+      job.setResourceName("res-race");
       if (i < 60) {
         job.setDependsOn(parentId);
         job.setJobType(JobExecutionType.BATCH_CHILD);
@@ -494,7 +731,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var start = new CountDownLatch(1);
     Runnable worker =
         () -> {
-          for (var job : store.claimNextBatch(3, "stress")) {
+          for (var job : store.claimNextBatch(3, "stress", workerTags)) {
             var result = acquire(permits, job, "stress");
             if (result == AT_CAPACITY) parks.incrementAndGet();
             if (result != ACQUIRED) continue;
@@ -547,7 +784,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               woken.addAndGet(permits.wakeWaiters("res-race").size());
             },
             () -> {
-              for (var job : store.claimNextBatch(1, "crashed")) {
+              for (var job : store.claimNextBatch(1, "crashed", workerTags)) {
                 acquire(permits, job, "crashed");
               }
             },
@@ -716,13 +953,13 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
     permits.configureResource("res-skip", 2, 60_000, null);
-    var holderA = claimNewJob("node-a");
+    var holderA = claimNewJob("res-skip", "node-a");
     assertEquals(ACQUIRED, acquire(permits, holderA, "node-a", "res-skip"));
-    var holderB = claimNewJob("node-a");
+    var holderB = claimNewJob("res-skip", "node-a");
     assertEquals(ACQUIRED, acquire(permits, holderB, "node-a", "res-skip"));
-    var first = claimNewJob("node-a");
+    var first = claimNewJob("res-skip", "node-a");
     assertEquals(AT_CAPACITY, acquire(permits, first, "node-a", "res-skip"));
-    var second = claimNewJob("node-a");
+    var second = claimNewJob("res-skip", "node-a");
     assertEquals(AT_CAPACITY, acquire(permits, second, "node-a", "res-skip"));
     permits.releasePermit("res-skip", holderA.getId(), holderA.getClaimSeq());
     permits.releasePermit("res-skip", holderB.getId(), holderB.getClaimSeq());
@@ -826,8 +1063,10 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
-  private JobEntity claimNewJob(String nodeId) {
-    JobEntity pending = fixture().store().create(fixture().newPendingJob());
+  private JobEntity claimNewJob(String resource, String nodeId) {
+    var job = fixture().newPendingJob();
+    job.setResourceName(resource);
+    JobEntity pending = fixture().store().create(job);
     var claimed = fixture().store().claimNextBatch(1, nodeId);
     assertEquals(1, claimed.size());
     assertEquals(pending.getId(), claimed.get(0).getId());

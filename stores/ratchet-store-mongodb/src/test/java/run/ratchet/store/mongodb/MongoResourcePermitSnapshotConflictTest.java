@@ -63,7 +63,7 @@ class MongoResourcePermitSnapshotConflictTest {
   void generationWriteBeforeReads_observesSupersededClaim() {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("one", 1, 100, "test");
-    JobEntity first = claimNewJob();
+    JobEntity first = claimNewJob("one");
     assertEquals(
         ACQUIRED, permits.tryAcquirePermit("one", first.getId(), first.getClaimSeq(), "old"));
     AtomicBoolean hookRan = new AtomicBoolean();
@@ -100,7 +100,7 @@ class MongoResourcePermitSnapshotConflictTest {
   void newPermitAcquire_generationWriteObservesSupersededClaim() {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("one", 1, 100, "test");
-    JobEntity first = claimNewJob();
+    JobEntity first = claimNewJob("one");
     AtomicBoolean hookRan = new AtomicBoolean();
     Runnable hook =
         () -> {
@@ -113,7 +113,7 @@ class MongoResourcePermitSnapshotConflictTest {
           JobEntity retry = fixture.store().claimNextBatch(1, "new").get(0);
           assertEquals(first.getId(), retry.getId());
           assertTrue(retry.getClaimSeq() > first.getClaimSeq());
-          JobEntity second = claimNewJob();
+          JobEntity second = claimNewJob("one");
           assertEquals(
               ACQUIRED,
               permits.tryAcquirePermit("one", second.getId(), second.getClaimSeq(), "other"));
@@ -123,7 +123,7 @@ class MongoResourcePermitSnapshotConflictTest {
     assertEquals(
         SUPERSEDED, wrapped.tryAcquirePermit("one", first.getId(), first.getClaimSeq(), "old"));
     assertTrue(hookRan.get());
-    JobEntity third = claimNewJob();
+    JobEntity third = claimNewJob("one");
     assertEquals(
         AT_CAPACITY, permits.tryAcquirePermit("one", third.getId(), third.getClaimSeq(), "third"));
   }
@@ -132,11 +132,11 @@ class MongoResourcePermitSnapshotConflictTest {
   void twoFullPoolAcquiresAndConcurrentWake_doNotLoseWakeup() throws Exception {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("one", 1, 30_000, "test");
-    JobEntity holder = claimNewJob();
+    JobEntity holder = claimNewJob("one");
     assertEquals(
         ACQUIRED, permits.tryAcquirePermit("one", holder.getId(), holder.getClaimSeq(), "holder"));
-    JobEntity first = claimNewJob();
-    JobEntity second = claimNewJob();
+    JobEntity first = claimNewJob("one");
+    JobEntity second = claimNewJob("one");
     CountDownLatch parked = new CountDownLatch(1);
     CountDownLatch allowCommit = new CountDownLatch(1);
     AtomicBoolean once = new AtomicBoolean();
@@ -246,8 +246,10 @@ class MongoResourcePermitSnapshotConflictTest {
             });
   }
 
-  private JobEntity claimNewJob() {
-    fixture.store().create(fixture.newPendingJob());
+  private JobEntity claimNewJob(String resource) {
+    var job = fixture.newPendingJob();
+    job.setResourceName(resource);
+    fixture.store().create(job);
     return fixture.store().claimNextBatch(1, "node").get(0);
   }
 
