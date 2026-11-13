@@ -4166,6 +4166,45 @@ class JobTaskTest {
     Assertions.assertEquals(attempt.executionStartTime(), job.getExecutionStartTime());
   }
 
+  @Test
+  void graceStopOfACanceledJob_endsCanceledWithoutTheTimeoutPath() throws Exception {
+    // A stop after a watchdog grace request ends canceled when another node cancelled the job.
+    JobTimeoutHandler timeout = mock(JobTimeoutHandler.class);
+    jobTask = newJobTaskWithTimeoutHandler(timeout);
+    JobEntity job = cancelScenario(false);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    attempt.requestCancellation();
+    failBody(() -> new CancellationRequestedException("grace stop"));
+
+    jobTask.call();
+
+    verifyCanceledExecution(job);
+    verify(timeout, never()).processCooperativeTimeout(any());
+  }
+
+  @Test
+  void nonRetryableFailureOfACanceledJob_endsCanceled() throws Exception {
+    // A non-retryable failure that loses its failure write to a cancel ends canceled.
+    JobEntity job = cancelScenario(false);
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    job.setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    jobTask.attach(cancelAttempt());
+    RuntimeException error = new IllegalStateException("do not retry");
+    failBody(() -> error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+
+    jobTask.call();
+
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade, atLeastOnce()).saveExecution(execution.capture());
+    Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getValue().getStatus());
+    verify(observabilityFacade).recordJobCancellation(job);
+    Assertions.assertNull(CallbackRecorder.context);
+  }
+
   private JobAttemptControl cancelAttempt() {
     return new JobAttemptControl(
         JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW.minusSeconds(10), 0, 7L, "node-1");
