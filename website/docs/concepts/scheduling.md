@@ -180,6 +180,8 @@ scheduler.enqueue(() -> processWebhook(payload))
     .submit();
 ```
 
+The ledger keeps idempotency keys after archive and purge. Use [`findIdempotencyKeyHolder`](../api-reference/job-scheduler-service#idempotency-key-lookup) to read the retained job or the spent key's original id.
+
 The idempotency key is enforced by a UNIQUE constraint in the database. Submitting a duplicate key returns the original job's handle. If a racing insert throws `DuplicateIdempotencyKeyException`, retry in a fresh transaction to get that handle.
 
 **Business keys** serve a different purpose -- they prevent concurrent execution of the same logical operation, but allow re-runs after completion:

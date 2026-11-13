@@ -49,6 +49,17 @@ class DefaultJobSchedulerServiceTransactionContractTest {
   }
 
   @Test
+  void idempotencyKeyLookupSupportsCallerTransactionAndInvalidKeysDoNotRollBack()
+      throws NoSuchMethodException {
+    assertSupports("findIdempotencyKeyHolder", String.class);
+    Transactional boundary =
+        DefaultJobSchedulerService.class
+            .getMethod("findIdempotencyKeyHolder", String.class)
+            .getAnnotation(Transactional.class);
+    assertTrue(Arrays.asList(boundary.dontRollbackOn()).contains(IllegalArgumentException.class));
+  }
+
+  @Test
   void listenerRegistration_isNotSupportedTransactionAttribute() throws NoSuchMethodException {
     assertNotSupported("addEventListener");
     assertNotSupported("removeEventListener");

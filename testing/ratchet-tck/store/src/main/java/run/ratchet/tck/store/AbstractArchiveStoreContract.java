@@ -98,6 +98,25 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void findArchivedJob_readsOriginalIdUntilPurged() {
+    var archives = archiveStore();
+    assertTrue(archives.findArchivedJob(UUID.randomUUID()).isEmpty());
+    var job = persist(newPendingJob());
+    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
+    var completed = store().findById(job.getId()).orElseThrow();
+    archives.archiveAndDeleteJobsBatch(List.of(completed), "lookup-test", "tck");
+    var archived = archives.findArchivedJob(job.getId()).orElseThrow();
+    assertEquals(job.getId(), archived.getOriginalJobId());
+    assertEquals(completed.getStatus(), archived.getFinalStatus());
+    assertEquals(completed.getJobType(), archived.getJobType());
+    assertEquals(1, archives.purgeArchivedJobs(archived.getArchivedAt().plusSeconds(1)));
+    assertTrue(archives.findArchivedJob(job.getId()).isEmpty());
+  }
+
+  @Test
   void findArchivedJobs_returnsByTargetClass() {
     var job = persist(newPendingJob());
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);

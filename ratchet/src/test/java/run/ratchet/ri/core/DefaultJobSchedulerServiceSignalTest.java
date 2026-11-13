@@ -607,6 +607,7 @@ class DefaultJobSchedulerServiceSignalTest {
         jobTerminalStore,
         jobCrudStore,
         batchStore,
+        null,
         tagStore,
         workflowConditionStore,
         recurringJobStore,

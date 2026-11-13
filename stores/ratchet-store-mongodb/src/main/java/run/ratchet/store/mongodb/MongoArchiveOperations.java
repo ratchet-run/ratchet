@@ -33,6 +33,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ENCRYPTION_KEY_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.NAMESPACE;
+import static run.ratchet.store.mongodb.MongoFieldNames.ORIGINAL_JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.PROPERTY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATE;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
@@ -52,6 +53,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -215,6 +217,17 @@ final class MongoArchiveOperations implements ArchiveStore {
   @Override
   public long countJobsForArchiving(Instant olderThan) {
     return ctx.jobs().countDocuments(archiveCandidates(olderThan));
+  }
+
+  @Override
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    Objects.requireNonNull(originalJobId, "originalJobId");
+    return Optional.ofNullable(
+            ctx.archives()
+                .find(eq(ORIGINAL_JOB_ID, originalJobId))
+                .sort(descending(ARCHIVED_AT))
+                .first())
+        .map(DocumentMapper::toArchivedJobEntity);
   }
 
   @Override
