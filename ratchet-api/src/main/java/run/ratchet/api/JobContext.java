@@ -46,12 +46,16 @@ import run.ratchet.spi.JobLogger;
  * <h2>Cooperative cancellation</h2>
  *
  * <p>Check {@link #isCancellationRequested()} or {@link #throwIfCancellationRequested()} at safe
- * points between units of work. A {@link CancellationRequestedException} created after a request in
- * the same attempt produces the timeout outcome (the same retries/DLQ and
- * JobExecutionTimedOutEvent) without an interrupt. One created before the request or kept from an
- * earlier attempt is an ordinary failure. Returning normally counts as success unless continuation
- * is requested: Ratchet cannot distinguish early return from finished work. The hard interrupt at
- * the deadline remains the backstop.
+ * points between units of work. When the execution watchdog makes the request, a {@link
+ * CancellationRequestedException} created after it in the same attempt produces the timeout outcome
+ * (the same retries/DLQ and JobExecutionTimedOutEvent) without an interrupt. One created before the
+ * request or kept from an earlier attempt is an ordinary failure. Returning normally counts as
+ * success unless continuation is requested: Ratchet cannot distinguish early return from finished
+ * work. The hard interrupt at the deadline remains the backstop.
+ *
+ * <p>When {@link JobSchedulerService#cancelJob} or {@code replace} makes the request, the job is
+ * already CANCELED. It stays CANCELED and its result is discarded however the body ends: by
+ * throwing, by returning normally or by requesting continuation.
  *
  * @since 0.1
  */
@@ -476,8 +480,10 @@ public final class JobContext {
    * job: right after the cancel commits when it runs on this node, and within about ten seconds
    * when it runs on another node. Safe from any thread and cheap (no I/O); every attempt, including
    * retries, starts cleared. Check at safe points and stop via {@link
-   * #throwIfCancellationRequested()}: returning normally counts as success unless you request
-   * continuation.
+   * #throwIfCancellationRequested()}. After a watchdog request, returning normally counts as
+   * success unless you request continuation. After a {@code cancelJob} or {@code replace} request,
+   * the job stays CANCELED and its result is discarded: neither returning normally nor requesting
+   * continuation undoes the cancel.
    */
   public boolean isCancellationRequested() {
     return cancellationRequested.getAsBoolean();

@@ -186,7 +186,7 @@ scheduler.enqueue(() -> webhookHandler.process(payload))
 JobBuilder withBusinessKey(String key)
 ```
 
-Sets a business key for preventing concurrent execution against the same entity. An active job (PENDING, RUNNING, PAUSED, or WAITING) holding the key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until that job reaches a terminal state and frees the key for reuse.
+Sets a business key for preventing concurrent execution against the same entity. An active job (PENDING, RUNNING, PAUSED, or WAITING) holding the key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until the holder frees the key. Most jobs free it when they reach a terminal state. A RUNNING job that is cancelled becomes CANCELED at once but keeps the key until its body ends, so `submit()` can still throw while the holder shows CANCELED. See [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job).
 
 Use [`findBusinessKeyHolder`](./job-scheduler-service#business-key-lookup) to inspect the current holder before submitting.
 

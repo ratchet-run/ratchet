@@ -302,7 +302,7 @@ If you see persistent failures, check if your code is double-submitting in a ret
 
 ### Active business key violation
 
-`submit()` throws `DuplicateBusinessKeyException` when an active job (PENDING, RUNNING, PAUSED, or WAITING) or a recurring job already holds the business key with a different idempotency key. Ratchet reports this without a database constraint error. Retrying does not help until the holder releases the key.
+`submit()` throws `DuplicateBusinessKeyException` when an active job (PENDING, RUNNING, PAUSED, or WAITING) or a recurring job already holds the business key with a different idempotency key. A RUNNING job that was cancelled also holds it, with status CANCELED, until its body ends (see [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job)). Ratchet reports this without a database constraint error. Retrying does not help until the holder releases the key.
 
 Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
 
@@ -317,23 +317,25 @@ For a database-level fallback, query the reservation table. It covers both kinds
 ```sql
 -- owner_table is QUEUE for a one-off job (owner_job_id = scheduler_job.job_id)
 -- or RECURRING for a recurring job (owner_job_id = scheduler_recurring_job.id).
-SELECT business_key, owner_table, owner_job_id, reserved_at
+-- held_until is set while a cancelled RUNNING job holds the key until its body ends.
+SELECT business_key, owner_table, owner_job_id, reserved_at, held_until, held_by_node
 FROM scheduler_business_key_reservation
 WHERE business_key = 'your-business-key';
 ```
 
 On MySQL, Oracle and SQL Server `owner_job_id` is the UUID stored as 16 raw bytes. On MongoDB the same data is in the `scheduler_business_key_reservation` collection, with the business key as `_id`.
 
-For a one-off holder, this query shows the job's status:
+For a one-off holder, this query shows the job's status. It starts from the reservation, so it also finds a cancelled job that still holds the key. Such a job has left `scheduler_job_queue`, so its live status is empty and its `terminal_status` is `CANCELED`:
 
 ```sql
 -- One-off jobs only. Live status / scheduled_time are on scheduler_job_queue;
--- created_at is cold metadata on scheduler_job.
-SELECT q.job_id, q.status, q.scheduled_time, c.created_at
-FROM scheduler_job_queue q
-JOIN scheduler_job c ON c.job_id = q.job_id
-WHERE q.business_key = 'your-business-key'
-  AND q.status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING');
+-- terminal_status and created_at are on scheduler_job.
+SELECT c.job_id, q.status, c.terminal_status, r.held_until, q.scheduled_time, c.created_at
+FROM scheduler_business_key_reservation r
+JOIN scheduler_job c ON c.job_id = r.owner_job_id
+LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+WHERE r.business_key = 'your-business-key'
+  AND r.owner_table = 'QUEUE';
 ```
 
 ## Timeout behavior
