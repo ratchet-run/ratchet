@@ -736,7 +736,6 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  @Transactional(Transactional.TxType.SUPPORTS)
   public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
     return archives.findArchivedJob(originalJobId);
   }

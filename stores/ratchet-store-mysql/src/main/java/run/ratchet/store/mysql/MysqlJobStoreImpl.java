@@ -724,7 +724,6 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
-  @Transactional(Transactional.TxType.SUPPORTS)
   public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
     return archives.findArchivedJob(originalJobId);
   }
