@@ -345,6 +345,9 @@ class ResourcePermitIT extends BaseRatchetIT {
     assertTrue(jobCrudStore.findById(parent).isEmpty(), "the parent job must not commit");
     assertTrue(batchStore.findBatchById(parent).isEmpty(), "the batch row must not commit");
     assertTrue(
+        jobCrudStore.findDependants(parent, JobCrudStore.DEFAULT_PAGE_LIMIT, 0).isEmpty(),
+        "the first chunk's child job must not commit");
+    assertTrue(
         jobCrudStore.findOriginalJobIdByIdempotencyKey(key).isEmpty(),
         "the idempotency key must not commit");
   }
