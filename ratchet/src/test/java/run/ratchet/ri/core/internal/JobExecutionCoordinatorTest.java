@@ -15,12 +15,18 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import run.ratchet.ri.core.JobExecutorService;
@@ -29,6 +35,45 @@ import run.ratchet.ri.core.JobSubmissionService;
 import run.ratchet.ri.core.RetryBufferDrainer;
 
 class JobExecutionCoordinatorTest {
+  @AfterEach
+  void clearInterrupt() {
+    Thread.interrupted();
+  }
+
+  @Test
+  void interruptedDrainClearsFlushAndClaimReleaseThenRestoresInterrupt() throws Exception {
+    JobExecutorService executor = mock(JobExecutorService.class);
+    JobStateManager state = mock(JobStateManager.class);
+    JobStateFlusher flusher = mock(JobStateFlusher.class);
+    List<Boolean> flags = new ArrayList<>();
+    doThrow(new InterruptedException("stop")).when(executor).awaitIdle(Duration.ofSeconds(1));
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(flusher)
+        .flushAll();
+    when(state.resetRunningJobsForNode())
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return 1;
+            });
+    JobExecutionCoordinator coordinator =
+        new JobExecutionCoordinator(
+            mock(JobSubmissionService.class),
+            state,
+            mock(RetryBufferDrainer.class),
+            executor,
+            flusher);
+
+    coordinator.shutdown(Duration.ofSeconds(1));
+
+    assertEquals(List.of(false, false), flags);
+    assertTrue(Thread.currentThread().isInterrupted());
+  }
+
   @Test
   void releasesClaimsBeforeInterruptingWorkersThatOutliveDrain() throws InterruptedException {
     JobExecutorService executor = mock(JobExecutorService.class);

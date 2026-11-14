@@ -17,6 +17,7 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -43,6 +44,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -69,6 +71,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.TransactionalJob;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.ri.core.JobTransaction;
+import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.TransactionalCompletion;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
@@ -95,6 +98,7 @@ import run.ratchet.store.spi.TransactionalCompletionStore;
 class JobTaskTransactionalTest {
   private static final Instant NOW = Instant.parse("2026-11-13T12:00:00Z");
   private static final ThreadLocal<Callable<Object>> BODY = new ThreadLocal<>();
+  private final ResourcePermitService permits = mock(ResourcePermitService.class);
   private final JobStore store = mock(JobStore.class);
   private final TransactionalCompletionStore transactions =
       mock(TransactionalCompletionStore.class);
@@ -146,7 +150,7 @@ class JobTaskTransactionalTest {
     task =
         new JobTask(
             store,
-            null,
+            permits,
             lifecycle,
             () -> "node",
             observer,
@@ -200,6 +204,249 @@ class JobTaskTransactionalTest {
     BODY.remove();
     Thread.interrupted();
     JobContext.clear();
+  }
+
+  @Test
+  void interruptedOrdinarySuccessClearsStoreCallsAndPermitReleaseAndSkipsFlush() {
+    job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
+    job.setResourceName("limited");
+    when(permits.tryAcquire("limited", job.getId(), "node")).thenReturn(true);
+    List<Boolean> flags = new ArrayList<>();
+    when(store.getJobStatus(job.getId()))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return JobStatus.RUNNING;
+            });
+    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return JobSuccessFinalizer.Outcome.COMPLETED_FULL;
+            });
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(permits)
+        .release("limited", job.getId());
+    JobStateStore state = mock(JobStateStore.class);
+    when(store.capability(JobStateStore.class)).thenReturn(Optional.of(state));
+    BODY.set(
+        () -> {
+          JobContext.current().progress(1, 2);
+          Thread.currentThread().interrupt();
+          return 42;
+        });
+
+    task.call();
+
+    assertTrue(Thread.currentThread().isInterrupted());
+    assertTrue(flags.size() >= 4, "cancel checks, success write and permit release must run");
+    assertFalse(flags.contains(true));
+    verify(permits).release("limited", job.getId());
+    verify(flusher).markDirty(any(JobProgressWriter.class));
+    verifyNoInteractions(state);
+  }
+
+  @Test
+  void interruptedOrdinaryFailureClearsFailureWritesAndRestoresInterrupt() {
+    job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
+    List<Boolean> flags = new ArrayList<>();
+    when(store.incrementRetryAttempt(job.getId(), 7L))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return 1;
+            });
+    when(lifecycle.completeFailure(eq(job), any(), anyBoolean()))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return true;
+            });
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(observer)
+        .saveExecution(execution);
+    BODY.set(
+        () -> {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException("body failed");
+        });
+
+    task.call();
+
+    assertTrue(Thread.currentThread().isInterrupted());
+    assertTrue(flags.size() >= 3);
+    assertFalse(flags.contains(true));
+    verify(lifecycle).completeFailure(eq(job), any(), anyBoolean());
+  }
+
+  @Test
+  void interruptedTransactionalBodyClearsCompletionAndCommit() throws Exception {
+    List<Boolean> flags = new ArrayList<>();
+    BODY.set(
+        () -> {
+          Thread.currentThread().interrupt();
+          return 42;
+        });
+    when(lifecycle.completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return completion;
+            });
+    doAnswer(
+            inv -> {
+              Object result = inv.callRealMethod();
+              // The transaction interceptor commits after the carrier's work returns.
+              flags.add(Thread.currentThread().isInterrupted());
+              return result;
+            })
+        .when(carrier)
+        .run(any());
+
+    task.call();
+
+    assertTrue(Thread.currentThread().isInterrupted());
+    assertEquals(List.of(false, false), flags);
+    verify(lifecycle).runFollowups(completion);
+  }
+
+  @Test
+  void interruptedFinalizerReportsBeforeMinimalStoreWrite() {
+    job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
+    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(JobSuccessFinalizer.Outcome.INTERRUPTED);
+    List<Boolean> flags = new ArrayList<>();
+    when(finalizer.finalizeMinimalSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), eq(true)))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL;
+            });
+
+    task.call();
+
+    assertTrue(Thread.currentThread().isInterrupted());
+    assertEquals(List.of(false), flags);
+  }
+
+  @Test
+  void interruptedCommitReadBackoffDispatchesWithFlagClear() throws Exception {
+    loseCommitAcknowledgement();
+    List<Boolean> flags = new ArrayList<>();
+    AtomicInteger reads = new AtomicInteger();
+    when(transactions.terminalOutcome(job.getId(), 7L))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              if (reads.incrementAndGet() == 1) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(new SQLTransientException("read unavailable"));
+              }
+              return TerminalOutcome.COMMITTED;
+            });
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(lifecycle)
+        .runFollowups(completion);
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(observer)
+        .saveExecution(execution);
+
+    task.call();
+
+    assertTrue(Thread.currentThread().isInterrupted());
+    assertEquals(List.of(false, false, false, false), flags);
+  }
+
+  @Test
+  void interruptedCommitOutcomeSleepLeavesDispatchedWritesClear() throws Exception {
+    loseCommitAcknowledgement();
+    task.setTerminalRetryDelays(10_000, 10_000);
+    CountDownLatch initialReadsExhausted = new CountDownLatch(1);
+    AtomicInteger reads = new AtomicInteger();
+    List<Boolean> flags = new ArrayList<>();
+    AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+    AtomicBoolean restored = new AtomicBoolean();
+    when(transactions.terminalOutcome(job.getId(), 7L))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              if (reads.incrementAndGet() <= 5) {
+                if (reads.get() == 5) initialReadsExhausted.countDown();
+                throw new IllegalStateException(new SQLTransientException("read unavailable"));
+              }
+              return TerminalOutcome.COMMITTED;
+            });
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(lifecycle)
+        .runFollowups(completion);
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(observer)
+        .saveExecution(execution);
+    Thread worker =
+        new Thread(
+            () -> {
+              BODY.set(() -> 42);
+              try {
+                task.call();
+                restored.set(Thread.currentThread().isInterrupted());
+              } catch (Throwable failure) {
+                workerFailure.set(failure);
+              } finally {
+                BODY.remove();
+                Thread.interrupted();
+                JobContext.clear();
+              }
+            });
+    worker.start();
+    try {
+      assertTrue(initialReadsExhausted.await(5, TimeUnit.SECONDS));
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (worker.getState() != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
+        Thread.sleep(1);
+      }
+      assertEquals(Thread.State.TIMED_WAITING, worker.getState());
+      worker.interrupt();
+      worker.join(5_000);
+    } finally {
+      if (worker.isAlive()) {
+        attempt.revoke();
+        worker.interrupt();
+        worker.join(5_000);
+      }
+    }
+    assertFalse(worker.isAlive());
+    assertNull(workerFailure.get());
+    assertTrue(restored.get());
+    assertEquals(6, reads.get());
+    assertEquals(8, flags.size());
+    assertFalse(flags.contains(true));
+    assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
   }
 
   @Test

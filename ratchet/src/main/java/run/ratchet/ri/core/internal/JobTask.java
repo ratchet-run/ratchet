@@ -147,6 +147,7 @@ public class JobTask implements Callable<Void> {
   private @Nullable JobAttemptControl attempt;
   private @Nullable JobCheckpointWriter checkpointWriter;
   private boolean stateFlushed;
+  private volatile boolean workerInterrupted;
   private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
   private volatile long terminalRetryBaseDelayMs = 1_000;
@@ -581,9 +582,13 @@ public class JobTask implements Callable<Void> {
     } finally {
       // Must be Throwable, not Exception — Error must still clear MDC. See
       // JobMdcContextThrowableTest
-      if (checkpointWriter != null) checkpointWriter.close();
-      if (progressWriter != null) progressWriter.close();
-      JobMdcContext.clear();
+      try {
+        if (checkpointWriter != null) checkpointWriter.close();
+        if (progressWriter != null) progressWriter.close();
+        JobMdcContext.clear();
+      } finally {
+        if (workerInterrupted) Thread.currentThread().interrupt();
+      }
     }
     return null;
   }
@@ -592,6 +597,7 @@ public class JobTask implements Callable<Void> {
     if (stateFlushed
         || attempt == null
         || attempt.isSuperseded()
+        || workerInterrupted
         || Thread.currentThread().isInterrupted()) return;
     stateFlushed = true;
     flushWritersQuietly();
@@ -1448,6 +1454,7 @@ public class JobTask implements Callable<Void> {
         boolean transientFailure = JobSuccessFinalizer.isTransientStoreFailure(failure);
         if (transientFailure
             && transactionAttempt < 5
+            && !workerInterrupted
             && sleepTransactionBackoff(transactionAttempt)) {
           outcome.reset();
           continue;
@@ -1461,14 +1468,26 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private static boolean sleepTransactionBackoff(int attempt) {
+  private boolean sleepTransactionBackoff(int attempt) {
+    if (Thread.interrupted()) {
+      workerInterrupted = true;
+      return false;
+    }
     try {
       Thread.sleep((25L << (attempt - 1)) + ThreadLocalRandom.current().nextLong(26));
       return true;
     } catch (InterruptedException interrupted) {
-      Thread.currentThread().interrupt();
+      workerInterrupted = true;
       return false;
     }
+  }
+
+  /**
+   * Records a cleared interrupt for restoration when the task ends. Only ever sets the field, so
+   * concurrent records cannot lose one.
+   */
+  private void recordInterrupt(boolean interrupted) {
+    if (interrupted) workerInterrupted = true;
   }
 
   void setTerminalRetryDelays(long baseDelayMs, long maxDelayMs) {
@@ -1483,6 +1502,7 @@ public class JobTask implements Callable<Void> {
     TransactionalCompletionStore store =
         jobStore.capability(TransactionalCompletionStore.class).orElseThrow();
     boolean interrupted = Thread.interrupted();
+    recordInterrupt(interrupted);
     TerminalOutcome terminal = null;
     try {
       for (int readAttempt = 1; readAttempt <= 5; readAttempt++) {
@@ -1505,7 +1525,7 @@ public class JobTask implements Callable<Void> {
           interrupted |= Thread.interrupted();
           if (!sleepTransactionBackoff(readAttempt)) {
             interrupted = true;
-            Thread.interrupted();
+            recordInterrupt(Thread.interrupted());
             if (terminalRetryRevoked()) return;
           }
         }
@@ -1537,7 +1557,7 @@ public class JobTask implements Callable<Void> {
         }
       }
     } finally {
-      if (interrupted) Thread.currentThread().interrupt();
+      recordInterrupt(interrupted);
     }
     switch (terminal) {
       case COMMITTED -> handleTransactionalSuccess(start, outcome);
@@ -1560,11 +1580,13 @@ public class JobTask implements Callable<Void> {
 
   private TerminalRetryWait waitForTerminalRetry(long delayMs) {
     boolean interrupted = Thread.interrupted();
+    recordInterrupt(interrupted);
     if (terminalRetryRevoked()) return new TerminalRetryWait(interrupted, true);
     try {
       Thread.sleep(delayMs);
     } catch (InterruptedException sleepInterrupted) {
       interrupted = true;
+      workerInterrupted = true;
       if (terminalRetryRevoked()) return new TerminalRetryWait(true, true);
     }
     return new TerminalRetryWait(interrupted, false);
@@ -1618,12 +1640,19 @@ public class JobTask implements Callable<Void> {
     JobSuccessFinalizer.Outcome finalizationState =
         successFinalizer.finalizeSuccess(
             job, resultJson, resultType, start, endTime, executionMs, queueMs);
+    if (finalizationState == JobSuccessFinalizer.Outcome.INTERRUPTED) {
+      workerInterrupted = true;
+      finalizationState =
+          successFinalizer.finalizeMinimalSuccess(
+              job, resultJson, resultType, start, endTime, executionMs, queueMs, true);
+    }
     if (finalizationState == JobSuccessFinalizer.Outcome.STUCK && attempt != null) {
       log.warnf(
           "Job %s success finalization remains stuck; continuing minimal writes; body will not"
               + " rerun",
           job.getId());
       boolean interrupted = Thread.interrupted();
+      recordInterrupt(interrupted);
       long delayMs = terminalRetryBaseDelayMs;
       try {
         while (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
@@ -1640,7 +1669,7 @@ public class JobTask implements Callable<Void> {
           delayMs = nextTerminalRetryDelay(delayMs);
         }
       } finally {
-        if (interrupted) Thread.currentThread().interrupt();
+        recordInterrupt(interrupted);
       }
     }
     if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
@@ -1783,6 +1812,8 @@ public class JobTask implements Callable<Void> {
           payload.methodDescriptor(),
           payload.target());
       throw e;
+    } finally {
+      recordInterrupt(Thread.interrupted());
     }
   }
 
