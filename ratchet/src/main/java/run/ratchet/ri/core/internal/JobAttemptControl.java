@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.Logger;
@@ -49,6 +50,34 @@ public final class JobAttemptControl {
       hook.run();
     } catch (Throwable failure) {
       log.warnf(failure, "State flush failed for job %s", jobId);
+    }
+  }
+
+  private final Object interruptLock = new Object();
+  private boolean bodyRunning;
+  private boolean executionCancelled;
+
+  /** Cancels execution permanently, interrupting the worker only while the job body runs. */
+  public boolean cancelExecution(Future<?> future) {
+    synchronized (interruptLock) {
+      executionCancelled = true;
+      return future.cancel(bodyRunning);
+    }
+  }
+
+  /** Starts a body invocation, including a transactional retry, unless execution was cancelled. */
+  public boolean markBodyStarted() {
+    synchronized (interruptLock) {
+      if (executionCancelled) return false;
+      bodyRunning = true;
+      return true;
+    }
+  }
+
+  /** Records that the current body invocation has finished. */
+  public void markBodyFinished() {
+    synchronized (interruptLock) {
+      bodyRunning = false;
     }
   }
 

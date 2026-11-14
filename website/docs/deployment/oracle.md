@@ -77,7 +77,7 @@ Point a JTA data source at your Oracle instance and list the Ratchet entities in
 
 The Oracle store does not require a fixed persistence-unit name. If your application has multiple persistence units, provide a CDI alternative for `RatchetEntityManagerProvider` the same way the [PostgreSQL guide](/deployment/postgresql#datasource) shows.
 
-The Oracle JDBC driver closes a connection when a call runs on an interrupted thread. Ratchet clears the worker thread's interrupt flag before its own store calls and restores it afterwards. Job code that accesses Oracle after catching an interrupt should do the same. Configure the connection pool to validate connections on borrow or evict them on `SQLRecoverableException`, so it does not hand out a closed connection again.
+The Oracle JDBC driver closes a connection when a call runs on an interrupted thread. Ratchet interrupts a worker only while the job body runs. When the body returns or throws, Ratchet clears the interrupt flag, makes its own store calls, and restores the flag when the task ends. Job code that calls Oracle after catching an interrupt should also clear the flag first and restore it afterwards. Configure the connection pool to validate connections on borrow or evict them on `SQLRecoverableException`, so it does not hand out a closed connection again.
 
 ### WildFly CLI
 

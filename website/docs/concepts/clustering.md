@@ -280,7 +280,7 @@ Ratchet's CDI lifecycle performs an orderly, bounded shutdown:
 2. **Stop background work:** The Poller, recurring scheduler, and maintenance timers stop. The heartbeat keeps running, so other nodes do not treat the draining node as dead
 3. **Drain active executions:** The execution coordinator waits for accepted work within the shutdown timeout
 4. **Release durable claims:** Remaining RUNNING rows owned by the node return to PENDING without a crash charge, even when workers are still active. Their RUNNING execution rows close as FAILED with the message "The node running this attempt shut down before it finished; the job was released to run again."
-5. **Cancel active executions:** Workers still running are interrupted. Their claims are already released, so the interrupt does not use up a retry attempt
+5. **Cancel active executions:** A worker still inside its job body is interrupted. A worker that has not started its body does not start it, and a worker that has returned from its body is not interrupted while it records the outcome. Their claims are already released, so the cancellation does not use up a retry attempt
 6. **Stop the heartbeat**
 7. **Release resources:** Runtime caches and coordinator resources are cleared
 

@@ -51,6 +51,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -204,6 +206,63 @@ class JobTaskTransactionalTest {
     BODY.remove();
     Thread.interrupted();
     JobContext.clear();
+  }
+
+  @Test
+  void watchdogCancellationDuringSuccessWriteDoesNotInterruptWorker() throws Exception {
+    job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
+    FutureTask<Void> future = new FutureTask<>(task);
+    AtomicBoolean wrote = new AtomicBoolean();
+    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            inv -> {
+              assertTrue(attempt.cancelExecution(future));
+              assertFalse(Thread.currentThread().isInterrupted());
+              wrote.set(true);
+              return JobSuccessFinalizer.Outcome.COMPLETED_FULL;
+            });
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              BODY.set(() -> 42);
+              try {
+                future.run();
+              } catch (Throwable thrown) {
+                failure.set(thrown);
+              } finally {
+                BODY.remove();
+                JobContext.clear();
+              }
+            });
+    worker.start();
+    worker.join(5000);
+    assertFalse(worker.isAlive());
+    assertNull(failure.get());
+    assertTrue(wrote.get());
+    assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+  }
+
+  @Test
+  void watchdogCancellationBeforeBodyDefersInterruptedFailureWithoutInvokingBody() {
+    AtomicBoolean invoked = new AtomicBoolean();
+    BODY.set(
+        () -> {
+          invoked.set(true);
+          return 42;
+        });
+    when(timeoutHandler.isWatchdogCancelled(job.getId())).thenReturn(true);
+    attempt.cancelExecution(mock(Future.class));
+
+    task.call();
+
+    assertFalse(invoked.get());
+    assertTrue(supplierFailure.get() instanceof InterruptedException);
+    verify(timeoutHandler).isWatchdogCancelled(job.getId());
+    assertEquals(TimeoutException.class.getName(), execution.getErrorClass());
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verifyNoInteractions(finalizer);
   }
 
   @Test
@@ -557,6 +616,35 @@ class JobTaskTransactionalTest {
     verify(carrier, times(2)).run(any());
     verify(store, never()).incrementRetryAttempt(any(), any());
     verify(lifecycle).runFollowups(completion);
+  }
+
+  @Test
+  void cancellationBetweenTransactionsPreventsRetryBodyWithoutInterruptingWorker()
+      throws Exception {
+    AtomicInteger bodies = new AtomicInteger();
+    BODY.set(() -> bodies.incrementAndGet());
+    FutureTask<Void> future = new FutureTask<>(task);
+    when(lifecycle.completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            invocation -> {
+              assertTrue(attempt.cancelExecution(future));
+              assertFalse(Thread.currentThread().isInterrupted());
+              throw new IllegalStateException(new SQLTransientException("deadlock"));
+            });
+
+    future.run();
+
+    assertEquals(1, bodies.get());
+    verify(carrier, times(2)).run(any());
+    verify(lifecycle, times(1))
+        .completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+    assertTrue(supplierFailure.get() instanceof InterruptedException);
+    verify(observer).recordJobFailure(eq(job), any(InterruptedException.class), anyInt());
+    verify(lifecycle).completeFailure(eq(job), eq(JobStatus.RUNNING), anyBoolean());
+    assertFalse(Thread.currentThread().isInterrupted());
+    verify(lifecycle, never()).runFollowups(any());
   }
 
   @Test

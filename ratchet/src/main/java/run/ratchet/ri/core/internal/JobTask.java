@@ -1799,6 +1799,9 @@ public class JobTask implements Callable<Void> {
 
     try {
       if (continuation != null) continuation.clear();
+      if (attempt != null && !attempt.markBodyStarted()) {
+        throw new InterruptedException("Attempt cancelled before its body started");
+      }
       return payloadInvoker.invoke(payload);
     } catch (ClassNotFoundException cnfe) {
       log.errorf(cnfe, "Job %s target class not found: %s", job.getId(), payload.target());
@@ -1813,6 +1816,7 @@ public class JobTask implements Callable<Void> {
           payload.target());
       throw e;
     } finally {
+      if (attempt != null) attempt.markBodyFinished();
       recordInterrupt(Thread.interrupted());
     }
   }
