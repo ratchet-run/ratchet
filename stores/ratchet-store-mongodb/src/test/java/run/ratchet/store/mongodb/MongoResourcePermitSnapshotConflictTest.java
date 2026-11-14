@@ -75,7 +75,7 @@ class MongoResourcePermitSnapshotConflictTest {
           if (!hookRan.compareAndSet(false, true)) return;
           assertEquals(
               1,
-              fixture.store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+              fixture.store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
           JobEntity reclaimed = fixture.store().claimNextBatch(1, "new").get(0);
           assertEquals(first.getId(), reclaimed.getId());
           assertTrue(reclaimed.getClaimSeq() > first.getClaimSeq());
@@ -166,7 +166,7 @@ class MongoResourcePermitSnapshotConflictTest {
           }
           assertEquals(
               1,
-              fixture.store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+              fixture.store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
           JobEntity retry = fixture.store().claimNextBatch(1, "new").get(0);
           assertEquals(first.getId(), retry.getId());
           assertTrue(retry.getClaimSeq() > first.getClaimSeq());
