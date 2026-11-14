@@ -73,9 +73,12 @@ node still on the older version releases the key at once when it cancels a runni
 MongoDB node on the older version deletes every hold when it starts. When a new node cancels a job
 that runs on an older node, the body is not asked to stop and the older node does not release the
 hold when the body ends, so the key stays held until the hold's limit (the cancel time plus the
-job's timeout plus `ratchet.node.orphan-grace-seconds`). A cancelled job's key is held and released
-as described in [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job)
-only once every node runs the new version.
+job's timeout, plus `ratchet.node.orphan-grace-seconds`, plus
+`ratchet.node.orphan-scan-interval-seconds`). A cancelled job's key is held and released as
+described in [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job)
+only once every node runs the new version. A custom store must also keep a hold through deletes,
+archival and cancel by tag, as described in
+[Business-key holds after a running cancel](/conformance/adopting-the-tck#business-key-holds-after-a-running-cancel).
 
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.

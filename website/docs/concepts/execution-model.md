@@ -307,13 +307,17 @@ When a cancelled job stops by throwing any exception, the attempt ends as `CANCE
 
 A step that waits on a cancelled or failed job can start just before Ratchet cancels it. Ratchet then cancels that step as a running job, and holds its business key as described below. The step gets its stop request from the store check every 5 seconds, so the request arrives within about 10 seconds. No `JobCancelledEvent` is published for the step. The `ChainFailedEvent` for a cancelled job has the error message `Job was canceled`, because a cancelled job has no error of its own.
 
-If the job has a business key, the key stays held until the body ends, so a new job with the same key cannot run alongside the old body. While the key is held, `submit()` throws `DuplicateBusinessKeyException` and `findBusinessKeyHolder` returns the cancelled job with status `CANCELED`. The hold ends in one of three ways:
+If the job has a business key, the key stays held until the body ends, so a new job with the same key cannot run alongside the old body. While the key is held, `submit()` throws `DuplicateBusinessKeyException` and `findBusinessKeyHolder` returns the cancelled job with status `CANCELED`. `cancelJob` and `replace` of a running job hold the key. So do the cancels Ratchet makes itself, such as the cancel of a running step described above. A hard timeout does not. The hold ends in one of three ways:
 
-- The worker releases it when the body ends.
+- The worker releases it when the body ends. If the worker thread is interrupted at that point, for example by the watchdog at the deadline, or if the store call fails, a scheduler thread makes the release instead. It tries again every 5 seconds for up to 5 minutes.
 - The orphan scan on another node releases it when it cleans up the node that ran the body. A node also releases its own holds when it starts.
-- The orphan scan deletes it once its limit has passed. The limit is the cancel time plus the job's timeout (or `ratchet.timeout.default-sla-seconds`) plus `ratchet.node.orphan-grace-seconds`.
+- The orphan scan deletes it once its limit has passed. The limit is the cancel time plus the job's timeout (or `ratchet.timeout.default-sla-seconds`), plus `ratchet.node.orphan-grace-seconds`, plus `ratchet.node.orphan-scan-interval-seconds`. The body's deadline comes first, so the limit only ends the hold of a body that ignored both the stop request and the deadline interrupt.
 
-If the worker thread is interrupted when the body ends, for example by the watchdog at the deadline or by a node shutdown, the worker neither checks for the cancel nor releases the key. The attempt's execution record can then show a failure, and the key can stay held until the limit. Only `cancelJob` and `replace` of a running job, and the cancel of a running step described above, hold the key. A hard timeout does not.
+The node that cancels the job sets the limit, and the node that runs the body sets the deadline. Give every node the same `default-sla-seconds`, `orphan-grace-seconds` and `orphan-scan-interval-seconds`, and keep their clocks in sync. Otherwise the limit can pass before the body's deadline.
+
+If the worker thread is interrupted when the body ends, for example by the watchdog or by a node shutdown, the worker does not check for the cancel, so the attempt's execution record can show a failure.
+
+Deleting or archiving a job does not end its hold. The store's `delete` of a held job fails, its `deleteJobsByIds` skips the job, and job retention archives the job only after the hold ends.
 
 ## Performance Characteristics
 

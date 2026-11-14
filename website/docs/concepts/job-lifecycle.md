@@ -302,7 +302,7 @@ The next claim advances the claim sequence. A stalled worker cannot overwrite th
 
 ## Archival
 
-Completed jobs (SUCCEEDED and FAILED) are eligible for archival after a configurable retention period. The `JobArchivingService` moves old jobs from `scheduler_job` to `scheduler_job_archive`, keeping the active table lean for efficient polling.
+Completed jobs (SUCCEEDED and FAILED) are eligible for archival after a configurable retention period. The `JobArchivingService` moves old jobs from `scheduler_job` to `scheduler_job_archive`, keeping the active table lean for efficient polling. A cancelled job that still holds its business key is archived only after the hold ends (see [Cancelling a running job](execution-model.md#cancelling-a-running-job)).
 
 ## Related
 
