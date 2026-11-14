@@ -24,12 +24,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Extension;
 import jakarta.inject.Inject;
+import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BusinessKeyHolder;
+import run.ratchet.api.BusinessKeyLookup;
+import run.ratchet.api.IdempotencyKeyHolder;
+import run.ratchet.api.IdempotencyKeyHolder.Retention;
+import run.ratchet.api.IdempotencyKeyLookup;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
@@ -67,6 +79,8 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
   @Inject private JobQueryService queries;
   @Inject private JobCrudStore jobCrudStore;
   @Inject private JobSchedulerService scheduler;
+  @Inject private BusinessKeyLookup businessKeys;
+  @Inject private IdempotencyKeyLookup idempotencyKeys;
 
   @Inject private Instance<RecurringJobStore> recurringStore;
   @Inject private Instance<BatchStore> batchStore;
@@ -133,6 +147,39 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
   }
 
   @Test
+  void idempotencyKeyLookupWorksWithoutCapabilities() {
+    String key = UUID.randomUUID().toString();
+    JobHandle handle =
+        scheduler
+            .schedule(Duration.ofHours(1), SimpleJob::execute)
+            .withIdempotencyKey(key)
+            .submit();
+    try {
+      var expected =
+          new IdempotencyKeyHolder(handle.id(), Retention.LIVE, JobType.SINGLE, JobStatus.PENDING);
+      assertEquals(expected, scheduler.findIdempotencyKeyHolder(key).orElseThrow());
+      assertEquals(expected, idempotencyKeys.findIdempotencyKeyHolder(key).orElseThrow());
+    } finally {
+      scheduler.cancelJob(handle.id());
+    }
+  }
+
+  @Test
+  void businessKeyLookupWorksWithoutCapabilities() {
+    String key = "core-only-" + UUID.randomUUID();
+    JobHandle handle =
+        scheduler.schedule(Duration.ofHours(1), SimpleJob::execute).withBusinessKey(key).submit();
+    try {
+      var expected = new BusinessKeyHolder(handle.id(), JobType.SINGLE, JobStatus.PENDING);
+      assertEquals(expected, scheduler.findBusinessKeyHolder(key).orElseThrow());
+      assertEquals(expected, businessKeys.findBusinessKeyHolder(key).orElseThrow());
+    } finally {
+      scheduler.cancelJob(handle.id());
+    }
+    assertTrue(businessKeys.findBusinessKeyHolder(key).isEmpty());
+  }
+
+  @Test
   void capabilityDependentSubmissionsFailFastAndCancellationsNoOp() {
     // A recurring-cancel by business key has no RecurringJobStore to consult on a core-only store,
     // so it reports zero cancellations rather than dereferencing the absent capability.
@@ -148,5 +195,16 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
         UnsupportedOperationException.class,
         () -> jobService.enqueue(SimpleJob::execute).withResource("db-pool").immediate().submit(),
         "a resource-gated submission must fail fast when ResourcePermitStore is absent");
+  }
+
+  @Test
+  void resourceLimitsNeedThePermitCapability() {
+    // A limit that cannot be stored must not look as if it was set; reads find nothing.
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> scheduler.setResourceLimit(ResourceLimit.of("db-pool", 2)),
+        "setResourceLimit must fail when ResourcePermitStore is absent");
+    assertEquals(Optional.empty(), scheduler.findResourceLimit("db-pool"));
+    assertEquals(List.of(), scheduler.listResourceLimits());
   }
 }

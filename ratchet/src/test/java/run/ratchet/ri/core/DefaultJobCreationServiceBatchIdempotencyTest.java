@@ -111,7 +111,7 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
         null,
         Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
         true,
-        true,
+        null,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer());

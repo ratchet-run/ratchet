@@ -26,11 +26,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Assertions;
@@ -38,11 +40,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BusinessKeyHolder;
+import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
@@ -82,6 +89,10 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   private DefaultJobCreationService newService() {
+    return newService(true);
+  }
+
+  private DefaultJobCreationService newService(boolean useConflictTransaction) {
     lenient()
         .when(conflictResolutionTransaction.complete(any()))
         .thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(0).get());
@@ -105,11 +116,11 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         null,
         Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
         true,
-        true,
+        null,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer(),
-        conflictResolutionTransaction);
+        useConflictTransaction ? conflictResolutionTransaction : null);
   }
 
   @Test
@@ -151,15 +162,13 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
     String key = "runtime-raced";
     UUID existingId = UUID.randomUUID();
 
-    JobEntity existing = new JobEntity();
-    existing.setId(existingId);
-    existing.setIdempotencyKey(key);
-    existing.setBusinessKey("raced");
-
     // The racer commits after the idempotency lookup misses but before the business-key lookup,
     // so only the second lookup sees its job.
-    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(key)).thenReturn(Optional.empty());
-    when(jobCrudStore.findActiveByBusinessKey("raced")).thenReturn(Optional.of(existing));
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(key))
+        .thenReturn(Optional.empty(), Optional.of(existingId));
+    when(jobCrudStore.findBusinessKeyHolder("raced"))
+        .thenReturn(
+            Optional.of(new BusinessKeyHolder(existingId, JobType.SINGLE, JobStatus.PENDING)));
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -174,86 +183,55 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
-  void submit_rejectsActiveBusinessKey_whenIdempotencyKeyDiffers() {
+  void submit_rejectsRecurringHolderBeforeCreate() {
     DefaultJobCreationService service = newService();
-
-    JobEntity existing = new JobEntity();
-    existing.setId(UUID.randomUUID());
-    existing.setIdempotencyKey("someone-else");
-    existing.setBusinessKey("raced");
-
-    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine")).thenReturn(Optional.empty());
-    when(jobCrudStore.findActiveByBusinessKey("raced")).thenReturn(Optional.of(existing));
-
+    UUID holderId = UUID.randomUUID();
+    when(jobCrudStore.findBusinessKeyHolder("raced"))
+        .thenReturn(
+            Optional.of(new BusinessKeyHolder(holderId, JobType.RECURRING, JobStatus.PENDING)));
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
                 service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
     builder.withIdempotencyKey("mine").withBusinessKey("raced");
-
-    DuplicateBusinessKeyException thrown =
+    DuplicateBusinessKeyException failure =
         Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
-
-    assertEquals("raced", thrown.businessKey());
-    assertTrue(thrown.getMessage().contains("business key 'raced'"));
-    assertTrue(thrown.getMessage().contains(existing.getId().toString()));
+    assertTrue(failure.getMessage().contains("(jobId=" + holderId + ")"));
     verify(jobCrudStore, times(0)).create(any(JobEntity.class));
   }
 
   @Test
-  void submit_throwsDuplicateIdempotencyKey_whenInsertLosesBusinessKeyRaceWithSameIdempotencyKey() {
+  void submit_rejectsHolder_whenIdempotencyKeyMapsToAnotherJob() {
     DefaultJobCreationService service = newService();
-    String key = "mine";
-    UUID existingId = UUID.randomUUID();
-
-    JobEntity existing = new JobEntity();
-    existing.setId(existingId);
-    existing.setIdempotencyKey(key);
-    existing.setBusinessKey("raced");
-
-    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(key)).thenReturn(Optional.empty());
-    when(jobCrudStore.findActiveByBusinessKey("raced"))
-        .thenReturn(Optional.empty())
-        .thenReturn(Optional.of(existing));
-    RatchetTransientStoreException collision =
-        new BusinessKeyReservationConflictException("raced", new RuntimeException("duplicate"));
-    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
-
+    UUID holderId = UUID.randomUUID();
+    // The idempotency key resolves on the second lookup, but to a job other than the holder.
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine"))
+        .thenReturn(Optional.empty(), Optional.of(UUID.randomUUID()));
+    when(jobCrudStore.findBusinessKeyHolder("raced"))
+        .thenReturn(
+            Optional.of(new BusinessKeyHolder(holderId, JobType.SINGLE, JobStatus.PENDING)));
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
                 service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
-    builder.withIdempotencyKey(key).withBusinessKey("raced");
-
-    // The failed insert leaves the transaction rollback-only, so no handle can be returned from
-    // it; a retry in a fresh transaction resolves the original job.
-    DuplicateIdempotencyKeyException thrown =
-        Assertions.assertThrows(
-            DuplicateIdempotencyKeyException.class, () -> service.submit(builder));
-
-    assertEquals(key, thrown.idempotencyKey());
-    assertSame(collision, thrown.getCause());
-    verify(jobCrudStore, times(1)).create(any(JobEntity.class));
-    verify(jobCrudStore, times(2)).findActiveByBusinessKey("raced");
-    verify(conflictResolutionTransaction).complete(any());
+    builder.withIdempotencyKey("mine").withBusinessKey("raced");
+    DuplicateBusinessKeyException failure =
+        Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
+    assertTrue(failure.getMessage().contains("(jobId=" + holderId + ")"));
+    verify(jobCrudStore, times(2)).findOriginalJobIdByIdempotencyKey("mine");
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
   }
 
   @Test
-  void submit_rejectsBusinessKeyRace_whenIdempotencyKeyDiffers() {
+  void submit_rejectsActiveBusinessKey_whenIdempotencyKeyDiffers() {
     DefaultJobCreationService service = newService();
-    RatchetTransientStoreException collision =
-        new BusinessKeyReservationConflictException("raced", new RuntimeException("duplicate"));
 
-    JobEntity existing = new JobEntity();
-    existing.setId(UUID.randomUUID());
-    existing.setIdempotencyKey("someone-else");
-    existing.setBusinessKey("raced");
+    UUID existingId = UUID.randomUUID();
 
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine")).thenReturn(Optional.empty());
-    when(jobCrudStore.findActiveByBusinessKey("raced"))
-        .thenReturn(Optional.empty())
-        .thenReturn(Optional.of(existing));
-    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+    when(jobCrudStore.findBusinessKeyHolder("raced"))
+        .thenReturn(
+            Optional.of(new BusinessKeyHolder(existingId, JobType.SINGLE, JobStatus.PENDING)));
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -265,122 +243,124 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
 
     assertEquals("raced", thrown.businessKey());
-    assertSame(collision, thrown.getCause());
     assertTrue(thrown.getMessage().contains("business key 'raced'"));
-    assertTrue(thrown.getMessage().contains(existing.getId().toString()));
-    verify(jobCrudStore, times(1)).create(any(JobEntity.class));
-    verify(jobCrudStore, times(2)).findActiveByBusinessKey("raced");
-    verify(conflictResolutionTransaction).complete(any());
+    assertTrue(thrown.getMessage().contains(existingId.toString()));
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
   }
 
   @Test
-  void submit_rethrowsTransientStoreException_whenBusinessKeyRaceLookupFindsNothing() {
+  void submit_businessKeyConflictWithMatchingExplicitKey_returnsOriginal() {
     DefaultJobCreationService service = newService();
-    RatchetTransientStoreException collision =
-        new BusinessKeyReservationConflictException("raced", new RuntimeException("duplicate"));
-
-    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine")).thenReturn(Optional.empty());
-    when(jobCrudStore.findActiveByBusinessKey("raced"))
+    UUID originalId = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine"))
         .thenReturn(Optional.empty())
-        .thenReturn(Optional.empty());
-    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+        .thenReturn(Optional.of(originalId));
+    when(jobCrudStore.create(any(JobEntity.class)))
+        .thenThrow(new BusinessKeyReservationConflictException("raced"));
 
-    DefaultJobBuilder builder =
-        (DefaultJobBuilder)
-            DefaultJobBuilder.create(
-                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
-    builder.withIdempotencyKey("mine").withBusinessKey("raced");
-
-    RatchetTransientStoreException thrown =
-        Assertions.assertThrows(
-            RatchetTransientStoreException.class, () -> service.submit(builder));
-
-    assertSame(collision, thrown);
-    verify(jobCrudStore, times(1)).create(any(JobEntity.class));
-    verify(jobCrudStore, times(2)).findActiveByBusinessKey("raced");
+    assertEquals(originalId, service.submit(racingBuilder(service, true)).id());
     verify(conflictResolutionTransaction).complete(any());
+    verify(jobCrudStore, times(1)).findBusinessKeyHolder("raced");
   }
 
   @Test
-  void submit_rethrowsTransientStoreException_whenBusinessKeyRaceLookupFails() {
-    DefaultJobCreationService service = newService();
-    RatchetTransientStoreException collision =
-        new BusinessKeyReservationConflictException("raced", new RuntimeException("duplicate"));
-    RuntimeException lookupFailure = new IllegalStateException("transaction is aborted");
-
-    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine")).thenReturn(Optional.empty());
-    when(jobCrudStore.findActiveByBusinessKey("raced"))
+  void submit_businessKeyConflictWithoutTransactionHelper_resolvesOriginalDirectly() {
+    DefaultJobCreationService service = newService(false);
+    UUID originalId = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine"))
         .thenReturn(Optional.empty())
-        .thenThrow(lookupFailure);
-    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+        .thenReturn(Optional.of(originalId));
+    when(jobCrudStore.create(any(JobEntity.class)))
+        .thenThrow(new BusinessKeyReservationConflictException("raced"));
 
-    DefaultJobBuilder builder =
-        (DefaultJobBuilder)
-            DefaultJobBuilder.create(
-                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
-    builder.withIdempotencyKey("mine").withBusinessKey("raced");
-
-    RatchetTransientStoreException thrown =
-        Assertions.assertThrows(
-            RatchetTransientStoreException.class, () -> service.submit(builder));
-
-    assertSame(collision, thrown);
-    assertEquals(1, thrown.getSuppressed().length);
-    assertSame(lookupFailure, thrown.getSuppressed()[0]);
-    verify(jobCrudStore, times(1)).create(any(JobEntity.class));
-    verify(jobCrudStore, times(2)).findActiveByBusinessKey("raced");
-    verify(conflictResolutionTransaction).complete(any());
+    assertEquals(originalId, service.submit(racingBuilder(service, true)).id());
+    verify(jobCrudStore, times(2)).findOriginalJobIdByIdempotencyKey("mine");
+    verify(conflictResolutionTransaction, times(0)).complete(any());
   }
 
   @Test
-  void submit_rejectsReservationConflictWithoutExplicitKey_withoutRepeatingLookup() {
+  void submit_businessKeyConflictWithUnmatchedExplicitKey_throwsDuplicate() {
     DefaultJobCreationService service = newService();
     BusinessKeyReservationConflictException collision =
-        new BusinessKeyReservationConflictException("raced", new RuntimeException("duplicate"));
-    when(jobCrudStore.findActiveByBusinessKey("raced"))
-        .thenReturn(Optional.empty())
-        .thenThrow(new IllegalStateException("transaction is rollback-only"));
+        new BusinessKeyReservationConflictException("raced");
     when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
 
-    DefaultJobBuilder builder =
-        (DefaultJobBuilder)
-            DefaultJobBuilder.create(
-                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
-    builder.withBusinessKey("raced");
-    // Null/blank overrides must preserve the generated key and the absence of an explicit key.
+    DuplicateBusinessKeyException thrown =
+        Assertions.assertThrows(
+            DuplicateBusinessKeyException.class,
+            () -> service.submit(racingBuilder(service, true)));
+
+    assertSame(collision, thrown.getCause());
+    assertEquals("raced", thrown.businessKey());
+    verify(jobCrudStore, times(2)).findOriginalJobIdByIdempotencyKey("mine");
+    verify(conflictResolutionTransaction).complete(any());
+    verify(jobCrudStore, times(1)).findBusinessKeyHolder("raced");
+  }
+
+  @Test
+  void submit_businessKeyConflictWithGeneratedKey_throwsDuplicateWithoutResolutionLookup() {
+    DefaultJobCreationService service = newService();
+    BusinessKeyReservationConflictException collision =
+        new BusinessKeyReservationConflictException("raced");
+    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+    DefaultJobBuilder builder = racingBuilder(service, false);
     builder.withIdempotencyKey(null).withIdempotencyKey(" ");
     assertEquals(builder.idempotencyKey(), UUID.fromString(builder.idempotencyKey()).toString());
 
     DuplicateBusinessKeyException thrown =
         Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
 
-    assertEquals("raced", thrown.businessKey());
     assertSame(collision, thrown.getCause());
-    verify(jobCrudStore, times(1)).findActiveByBusinessKey("raced");
+    verify(jobCrudStore, times(1)).findOriginalJobIdByIdempotencyKey(builder.idempotencyKey());
+    verify(jobCrudStore, times(1)).findBusinessKeyHolder("raced");
     verify(conflictResolutionTransaction, times(0)).complete(any());
   }
 
   @Test
-  void submit_preservesExplicitKey_whenLaterOverrideIsBlank() {
+  void submit_businessKeyConflictLookupFailure_rethrowsConflictWithSuppressedFailure() {
     DefaultJobCreationService service = newService();
     BusinessKeyReservationConflictException collision =
-        new BusinessKeyReservationConflictException("raced", new RuntimeException("duplicate"));
-    when(jobCrudStore.findActiveByBusinessKey("raced"))
+        new BusinessKeyReservationConflictException("raced");
+    RuntimeException lookupFailure = new IllegalStateException("lookup unavailable");
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine"))
         .thenReturn(Optional.empty())
-        .thenThrow(new IllegalStateException("lookup unavailable"));
+        .thenThrow(lookupFailure);
     when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
-
-    DefaultJobBuilder builder =
-        (DefaultJobBuilder)
-            DefaultJobBuilder.create(
-                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
-    builder.withBusinessKey("raced").withIdempotencyKey("mine").withIdempotencyKey(" ");
+    DefaultJobBuilder builder = racingBuilder(service, true);
+    builder.withIdempotencyKey(" ");
 
     assertSame(
         collision,
         Assertions.assertThrows(
-            RatchetTransientStoreException.class, () -> service.submit(builder)));
+            BusinessKeyReservationConflictException.class, () -> service.submit(builder)));
+    assertEquals(1, collision.getSuppressed().length);
+    assertSame(lookupFailure, collision.getSuppressed()[0]);
     verify(conflictResolutionTransaction).complete(any());
+    verify(jobCrudStore, times(1)).findBusinessKeyHolder("raced");
+  }
+
+  @Test
+  void submit_exemptsOnlyDuplicateBusinessKeyAndMissingLimitFromRollback() throws Exception {
+    Transactional annotation =
+        DefaultJobCreationService.class
+            .getMethod("submit", JobBuilder.class)
+            .getAnnotation(Transactional.class);
+
+    assertEquals(
+        Set.of(DuplicateBusinessKeyException.class, ResourceNotConfiguredException.class),
+        Set.of(annotation.dontRollbackOn()));
+  }
+
+  private DefaultJobBuilder racingBuilder(DefaultJobCreationService service, boolean explicit) {
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
+    builder.withBusinessKey("raced");
+    if (explicit) {
+      builder.withIdempotencyKey("mine");
+    }
+    return builder;
   }
 
   @Test
@@ -389,7 +369,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
     // Even a reservation-looking message must not trigger business-key translation.
     RatchetTransientStoreException failure =
         new RatchetTransientStoreException("Active business key in use: raced");
-    when(jobCrudStore.findActiveByBusinessKey("raced")).thenReturn(Optional.empty());
+    when(jobCrudStore.findBusinessKeyHolder("raced")).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenThrow(failure);
 
     DefaultJobBuilder builder =
@@ -402,7 +382,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         failure,
         Assertions.assertThrows(
             RatchetTransientStoreException.class, () -> service.submit(builder)));
-    verify(jobCrudStore, times(1)).findActiveByBusinessKey("raced");
+    verify(jobCrudStore, times(1)).findBusinessKeyHolder("raced");
     verify(conflictResolutionTransaction, times(0)).complete(any());
   }
 

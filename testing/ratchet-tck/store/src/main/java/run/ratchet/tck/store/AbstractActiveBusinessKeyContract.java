@@ -29,29 +29,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.opentest4j.TestAbortedException;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
+import run.ratchet.store.util.BusinessKeyReservations;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /**
- * Pins the read-side semantics of {@code findActiveByBusinessKey} across the full job lifecycle.
- *
- * <p>The complementary contracts focus on different concerns:
- *
- * <ul>
- *   <li>{@link AbstractJobCrudStoreContract} — generic CRUD plus the PENDING happy path and a
- *       SUCCEEDED-ignored sanity check.
- *   <li>{@link AbstractDualWriteInvariantContract} — terminal-release, reset re-reservation, and
- *       concurrent-enqueue invariants on stores that physically split queue state from cold
- *       metadata.
- * </ul>
- *
- * <p>This contract fills the remaining status matrix — RUNNING, WAITING, PAUSED, FAILED-terminal,
- * and CANCELED — and locks the pause/resume cycle plus uniqueness while a peer is in any active
- * state. It is independent of physical layout: SQL stores satisfy it via the {@code
- * scheduler_business_key_reservation} table, Mongo via a partial unique index over active
- * business-key statuses.
+ * Verifies reservation reads for jobs and recurring masters through findBusinessKeyHolder. Jobs
+ * return their public type and live status: PENDING, RUNNING, PAUSED or WAITING. Recurring masters
+ * return RECURRING with PAUSED when paused and PENDING otherwise. Missing owners and released
+ * reservations return empty. Pause, resume and concurrent writes must preserve reservation
+ * ownership consistently.
  */
 public abstract class AbstractActiveBusinessKeyContract implements JobStoreContractFixture {
 
@@ -68,37 +64,40 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   // ───────────────────────── status visibility matrix ─────────────────────────
 
   @Test
-  void findActiveByBusinessKey_runningJob_returnsJob() {
+  void findBusinessKeyHolder_runningJob_returnsJob() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
-    assertTrue(
-        store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null),
-        "PENDING→RUNNING CAS precondition");
+    var claimed = store().claimNextBatch(1, "business-key-reader");
+    assertEquals(List.of(saved.getId()), claimed.stream().map(JobEntity::getId).toList());
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.RUNNING, result.orElseThrow().status());
 
-    assertTrue(result.isPresent(), "RUNNING job should be visible to findActiveByBusinessKey");
-    assertEquals(saved.getId(), result.get().getId());
+    assertTrue(result.isPresent(), "RUNNING job should be visible to findBusinessKeyHolder");
+    assertEquals(saved.getId(), result.get().id());
   }
 
   @Test
-  void findActiveByBusinessKey_pausedJob_returnsJob() {
+  void findBusinessKeyHolder_pausedJob_returnsJob() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
     assertTrue(
         store().transitionToPaused(saved.getId(), JobStatus.PENDING),
         "PENDING→PAUSED transition precondition");
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.PAUSED, result.orElseThrow().status());
 
     assertTrue(
         result.isPresent(),
-        "PAUSED job should remain visible to findActiveByBusinessKey — PAUSED is an active status");
-    assertEquals(saved.getId(), result.get().getId());
+        "PAUSED job should remain visible to findBusinessKeyHolder. PAUSED is an active status");
+    assertEquals(saved.getId(), result.get().id());
   }
 
   @Test
-  void findActiveByBusinessKey_waitingJob_returnsJob() {
+  void findBusinessKeyHolder_waitingJob_returnsJob() {
     String bk = uniqueBusinessKey();
     JobEntity waiting = jobWithBusinessKey(bk);
     waiting.setStatus(JobStatus.WAITING);
@@ -106,17 +105,19 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     waiting.setSignalTimeout(Instant.now().plusSeconds(600));
     JobEntity saved = persist(waiting);
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.WAITING, result.orElseThrow().status());
 
     assertTrue(
         result.isPresent(),
-        "WAITING job should remain visible to findActiveByBusinessKey — WAITING is an active"
+        "WAITING job should remain visible to findBusinessKeyHolder. WAITING is an active"
             + " status");
-    assertEquals(saved.getId(), result.get().getId());
+    assertEquals(saved.getId(), result.get().id());
   }
 
   @Test
-  void findActiveByBusinessKey_failedTerminal_returnsEmpty() {
+  void findBusinessKeyHolder_failedTerminal_returnsEmpty() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
     UUID id = saved.getId();
@@ -125,22 +126,21 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
         store().markJobFailedTerminal(id, "permanent error", 3, null),
         "markJobFailedTerminal precondition");
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
 
     assertFalse(
-        result.isPresent(), "FAILED-terminal job should NOT be visible to findActiveByBusinessKey");
+        result.isPresent(), "FAILED-terminal job should NOT be visible to findBusinessKeyHolder");
   }
 
   @Test
-  void findActiveByBusinessKey_canceledJob_returnsEmpty() {
+  void findBusinessKeyHolder_canceledJob_returnsEmpty() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
     assertTrue(store().cancelJob(saved.getId()), "cancelJob precondition");
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
 
-    assertFalse(
-        result.isPresent(), "CANCELED job should NOT be visible to findActiveByBusinessKey");
+    assertFalse(result.isPresent(), "CANCELED job should NOT be visible to findBusinessKeyHolder");
   }
 
   // ───────────────────────── pause/resume cycle ─────────────────────────
@@ -156,9 +156,11 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
         store().transitionToPaused(id, JobStatus.RUNNING),
         "RUNNING→PAUSED transition must succeed");
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.PAUSED, result.orElseThrow().status());
     assertTrue(result.isPresent(), "BK should still be reserved after RUNNING→PAUSED");
-    assertEquals(id, result.get().getId());
+    assertEquals(id, result.get().id());
   }
 
   @Test
@@ -168,14 +170,19 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     UUID id = saved.getId();
 
     store().transitionToPaused(id, JobStatus.PENDING);
-    assertTrue(store().findActiveByBusinessKey(bk).isPresent(), "BK reserved while PAUSED");
+    assertEquals(
+        new BusinessKeyHolder(id, JobType.SINGLE, JobStatus.PAUSED),
+        store().findBusinessKeyHolder(bk).orElseThrow(),
+        "BK reserved while PAUSED");
 
     JobStatus resumed = store().transitionFromPausedAtomic(id);
     assertEquals(JobStatus.PENDING, resumed, "Resumed back to original PENDING status");
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.PENDING, result.orElseThrow().status());
     assertTrue(result.isPresent(), "BK still reserved after PAUSED→PENDING resume");
-    assertEquals(id, result.get().getId());
+    assertEquals(id, result.get().id());
   }
 
   @Test
@@ -189,7 +196,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
 
     assertEquals(JobStatus.CANCELED, store().getJobStatus(id));
     assertFalse(
-        store().findActiveByBusinessKey(bk).isPresent(),
+        store().findBusinessKeyHolder(bk).isPresent(),
         "BK must be released when a PAUSED job is canceled");
 
     // Re-enqueue with the same BK should now succeed
@@ -260,7 +267,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void unknownBusinessKey_returnsEmpty() {
     persist(jobWithBusinessKey(uniqueBusinessKey()));
 
-    var result = store().findActiveByBusinessKey("definitely-not-a-real-key-" + UUID.randomUUID());
+    var result = store().findBusinessKeyHolder("definitely-not-a-real-key-" + UUID.randomUUID());
 
     assertFalse(result.isPresent(), "Unknown business key must yield empty");
   }
@@ -272,13 +279,19 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     JobEntity jobA = persist(jobWithBusinessKey(bkA));
     JobEntity jobB = persist(jobWithBusinessKey(bkB));
 
-    var resultA = store().findActiveByBusinessKey(bkA);
-    var resultB = store().findActiveByBusinessKey(bkB);
+    var resultA = store().findBusinessKeyHolder(bkA);
+    var resultB = store().findBusinessKeyHolder(bkB);
 
     assertTrue(resultA.isPresent());
-    assertEquals(jobA.getId(), resultA.get().getId(), "BK A must resolve to job A");
+    assertEquals(
+        new BusinessKeyHolder(jobA.getId(), JobType.SINGLE, JobStatus.PENDING),
+        resultA.orElseThrow(),
+        "BK A must resolve to job A");
     assertTrue(resultB.isPresent());
-    assertEquals(jobB.getId(), resultB.get().getId(), "BK B must resolve to job B");
+    assertEquals(
+        new BusinessKeyHolder(jobB.getId(), JobType.SINGLE, JobStatus.PENDING),
+        resultB.orElseThrow(),
+        "BK B must resolve to job B");
   }
 
   @Test
@@ -291,12 +304,14 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
 
     JobEntity replacement = persist(jobWithBusinessKey(bk));
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.PENDING, result.orElseThrow().status());
     assertTrue(result.isPresent(), "Replacement must take ownership of the BK");
     assertEquals(
         replacement.getId(),
-        result.get().getId(),
-        "findActiveByBusinessKey must return the live replacement, not the SUCCEEDED predecessor");
+        result.get().id(),
+        "findBusinessKeyHolder must return the live replacement, not the SUCCEEDED predecessor");
   }
 
   @Test
@@ -309,12 +324,14 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
 
     JobEntity replacement = persist(jobWithBusinessKey(bk));
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.PENDING, result.orElseThrow().status());
     assertTrue(result.isPresent(), "Replacement must take ownership of the BK after FAILED");
     assertEquals(
         replacement.getId(),
-        result.get().getId(),
-        "findActiveByBusinessKey must return the live replacement, not the FAILED predecessor");
+        result.get().id(),
+        "findBusinessKeyHolder must return the live replacement, not the FAILED predecessor");
   }
 
   @Test
@@ -326,12 +343,14 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
 
     JobEntity replacement = persist(jobWithBusinessKey(bk));
 
-    var result = store().findActiveByBusinessKey(bk);
+    var result = store().findBusinessKeyHolder(bk);
+    assertEquals(JobType.SINGLE, result.orElseThrow().type());
+    assertEquals(JobStatus.PENDING, result.orElseThrow().status());
     assertTrue(result.isPresent(), "Replacement must take ownership of the BK after CANCELED");
     assertEquals(
         replacement.getId(),
-        result.get().getId(),
-        "findActiveByBusinessKey must return the live replacement, not the CANCELED predecessor");
+        result.get().id(),
+        "findBusinessKeyHolder must return the live replacement, not the CANCELED predecessor");
   }
 
   // ───────────────────────── retry / reset cycles ─────────────────────────
@@ -349,7 +368,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     store().markJobFailedTerminal(id, "transient", 1, null);
     assertTrue(store().resetFailedToPending(id), "resetFailedToPending precondition");
     assertTrue(
-        store().findActiveByBusinessKey(bk).isPresent(),
+        store().findBusinessKeyHolder(bk).isPresent(),
         "BK must remain reserved through the retry path");
 
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
@@ -359,7 +378,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
 
     assertEquals(JobStatus.SUCCEEDED, store().getJobStatus(id));
     assertFalse(
-        store().findActiveByBusinessKey(bk).isPresent(),
+        store().findBusinessKeyHolder(bk).isPresent(),
         "BK must be released exactly once at terminal SUCCEEDED");
   }
 
@@ -401,11 +420,14 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     assertEquals(0L, unexpectedFailures, "no thread should fail with a non-stale-write exception");
 
     JobStatus finalStatus = store().getJobStatus(id);
-    boolean bkActive = store().findActiveByBusinessKey(bk).isPresent();
+    boolean bkActive = store().findBusinessKeyHolder(bk).isPresent();
 
     if (finalStatus == JobStatus.PENDING) {
       assertTrue(resetWon.get(), "PENDING outcome implies reset won the race");
       assertTrue(bkActive, "BK must be reserved when reset wins (PENDING is an active status)");
+      assertEquals(
+          new BusinessKeyHolder(id, JobType.SINGLE, JobStatus.PENDING),
+          store().findBusinessKeyHolder(bk).orElseThrow());
     } else if (finalStatus == JobStatus.CANCELED) {
       assertTrue(cancelWon.get(), "CANCELED outcome implies cancel won the race");
       assertFalse(bkActive, "BK must be released when cancel wins (CANCELED is a terminal status)");
@@ -445,9 +467,12 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     assertEquals(0L, unexpectedFailures, "no non-stale-write failures expected");
 
     JobStatus finalStatus = store().getJobStatus(id);
-    boolean bkActive = store().findActiveByBusinessKey(bk).isPresent();
+    boolean bkActive = store().findBusinessKeyHolder(bk).isPresent();
     if (finalStatus == JobStatus.PAUSED) {
       assertTrue(bkActive, "BK must remain reserved when final state is PAUSED");
+      assertEquals(
+          new BusinessKeyHolder(id, JobType.SINGLE, JobStatus.PAUSED),
+          store().findBusinessKeyHolder(bk).orElseThrow());
     } else if (finalStatus == JobStatus.CANCELED) {
       assertFalse(bkActive, "BK must be released when final state is CANCELED");
     } else {
@@ -473,11 +498,124 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     store().compareAndSwapStatus(jobA.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobSucceededMinimal(jobA.getId(), Instant.now(), Instant.now(), 0L, 0L);
 
-    var resultA = store().findActiveByBusinessKey(bkA);
-    var resultB = store().findActiveByBusinessKey(bkB);
+    var resultA = store().findBusinessKeyHolder(bkA);
+    var resultB = store().findBusinessKeyHolder(bkB);
     assertFalse(resultA.isPresent(), "BK A must be released after job A SUCCEEDED");
     assertTrue(resultB.isPresent(), "BK B must be untouched by job A's lifecycle");
-    assertEquals(jobB.getId(), resultB.get().getId(), "BK B still owned by job B");
+    assertEquals(
+        new BusinessKeyHolder(jobB.getId(), JobType.SINGLE, JobStatus.PENDING),
+        resultB.orElseThrow(),
+        "BK B still owned by job B");
+  }
+
+  protected void insertReservationWithoutOwner(
+      String businessKey, UUID ownerId, String ownerTable) {
+    throw new TestAbortedException("store does not expose raw reservation writes");
+  }
+
+  @Test
+  void findBusinessKeyHolder_pendingJob_returnsHolder() {
+    String key = uniqueBusinessKey();
+    JobEntity saved = persist(jobWithBusinessKey(key));
+    assertEquals(
+        new BusinessKeyHolder(saved.getId(), JobType.SINGLE, JobStatus.PENDING),
+        store().findBusinessKeyHolder(key).orElseThrow());
+  }
+
+  @Test
+  void findBusinessKeyHolder_succeededJob_returnsEmpty() {
+    String key = uniqueBusinessKey();
+    JobEntity saved = persist(jobWithBusinessKey(key));
+    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    assertTrue(
+        store().markJobSucceededMinimal(saved.getId(), Instant.now(), Instant.now(), 0L, 0L));
+    assertTrue(store().findBusinessKeyHolder(key).isEmpty());
+  }
+
+  @Test
+  void findBusinessKeyHolder_deletedJob_returnsEmpty() {
+    String key = uniqueBusinessKey();
+    JobEntity saved = persist(jobWithBusinessKey(key));
+    store().delete(saved.getId());
+    assertTrue(store().findBusinessKeyHolder(key).isEmpty());
+  }
+
+  @Test
+  void findBusinessKeyHolder_missingOwners_returnsEmpty() {
+    String queueKey = uniqueBusinessKey();
+    String recurringKey = uniqueBusinessKey();
+    insertReservationWithoutOwner(
+        queueKey, UUID.randomUUID(), BusinessKeyReservations.OWNER_TABLE_QUEUE);
+    insertReservationWithoutOwner(
+        recurringKey, UUID.randomUUID(), BusinessKeyReservations.OWNER_TABLE_RECURRING);
+    assertTrue(store().findBusinessKeyHolder(queueKey).isEmpty());
+    assertTrue(store().findBusinessKeyHolder(recurringKey).isEmpty());
+  }
+
+  @Test
+  void findBusinessKeyHolder_recurringMaster_returnsPendingOrPaused() {
+    String key = uniqueBusinessKey();
+    UUID id = createRecurringHolder(key);
+    assertEquals(
+        new BusinessKeyHolder(id, JobType.RECURRING, JobStatus.PENDING),
+        store().findBusinessKeyHolder(key).orElseThrow());
+    assertTrue(recurringStore().pauseRecurring(id));
+    assertEquals(
+        new BusinessKeyHolder(id, JobType.RECURRING, JobStatus.PAUSED),
+        store().findBusinessKeyHolder(key).orElseThrow());
+  }
+
+  @Test
+  void findBusinessKeyHolder_exhaustedMaster_returnsEmpty() {
+    String key = uniqueBusinessKey();
+    UUID id = createRecurringHolder(key);
+    assertTrue(recurringStore().cancelRecurringAndArchive(id, ArchiveReason.EXHAUSTED));
+    assertTrue(store().findBusinessKeyHolder(key).isEmpty());
+  }
+
+  @Test
+  void findBusinessKeyHolder_canceledMaster_returnsEmpty() {
+    String key = uniqueBusinessKey();
+    UUID id = createRecurringHolder(key);
+    assertTrue(recurringStore().cancelRecurringAndArchive(id, ArchiveReason.CANCELED));
+    assertTrue(store().findBusinessKeyHolder(key).isEmpty());
+  }
+
+  @Test
+  void findBusinessKeyHolder_masterCanceledByKey_returnsEmpty() {
+    String key = uniqueBusinessKey();
+    createRecurringHolder(key);
+    assertTrue(recurringStore().cancelRecurringJobByBusinessKey(key));
+    assertTrue(store().findBusinessKeyHolder(key).isEmpty());
+  }
+
+  private UUID createRecurringHolder(String key) {
+    var recurring = recurringStore();
+    UUID id = UUID.randomUUID();
+    recurring.createRecurring(
+        new RecurringJobDefinition(
+            id,
+            "0 * * * * ?",
+            "UTC",
+            Instant.now().plusSeconds(60),
+            false,
+            null,
+            2,
+            0,
+            BackoffPolicy.NONE,
+            0,
+            0,
+            newPendingJob().getPayload(),
+            null,
+            null,
+            key,
+            null,
+            null,
+            Instant.now(),
+            null,
+            false,
+            RecurringMisfirePolicy.defaults()));
+    return id;
   }
 
   private JobEntity jobWithBusinessKey(String bk) {

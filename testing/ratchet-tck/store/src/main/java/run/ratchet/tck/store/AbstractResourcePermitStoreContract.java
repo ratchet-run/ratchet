@@ -27,14 +27,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.ResourceLimit;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.tck.util.ConcurrentTestRunner;
@@ -83,10 +88,119 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   void tryAcquirePermit_unconfiguredResource_failsHard() {
     var job = persist(pendingJob("missing-resource"));
 
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> resourcePermitStore().tryAcquirePermit("missing-resource", job.getId(), 0L, "node-1"),
-        "Unconfigured resources should fail hard, before the claim check and before capacity");
+    ResourceNotConfiguredException exception =
+        assertThrows(
+            ResourceNotConfiguredException.class,
+            () ->
+                resourcePermitStore()
+                    .tryAcquirePermit("missing-resource", job.getId(), 0L, "node-1"),
+            "Unconfigured resources should fail hard, before the claim check and before capacity");
+    assertEquals("missing-resource", exception.resourceName());
+  }
+
+  @Test
+  void findResourceLimit_returnsTheStoredValues() {
+    resourcePermitStore().configureResource("gpu", 2, 1500, "GPU pool");
+
+    assertEquals(
+        Optional.of(new ResourceLimit("gpu", 2, Duration.ofMillis(1500), "GPU pool")),
+        resourcePermitStore().findResourceLimit("gpu"));
+  }
+
+  @Test
+  void findResourceLimit_unknownResource_returnsEmpty() {
+    resourcePermitStore().configureResource("gpu", 2, 1500, "GPU pool");
+
+    assertEquals(Optional.empty(), resourcePermitStore().findResourceLimit("missing-resource"));
+  }
+
+  @Test
+  void configureResource_overwritesEveryValueIncludingANullDescription() {
+    resourcePermitStore().configureResource("res-overwrite", 1, 1000, "initial");
+    resourcePermitStore().configureResource("res-overwrite", 4, 0, null);
+
+    assertEquals(
+        Optional.of(new ResourceLimit("res-overwrite", 4, Duration.ZERO, null)),
+        resourcePermitStore().findResourceLimit("res-overwrite"));
+  }
+
+  @Test
+  void listResourceLimits_returnsEveryLimit() {
+    assertEquals(List.of(), resourcePermitStore().listResourceLimits());
+    resourcePermitStore().configureResource("alpha", 1, 1000, "first");
+    resourcePermitStore().configureResource("beta", 3, 250, null);
+
+    // Order is not part of the contract: stores sort names under different collations.
+    assertEquals(
+        Set.of(
+            new ResourceLimit("alpha", 1, Duration.ofMillis(1000), "first"),
+            new ResourceLimit("beta", 3, Duration.ofMillis(250), null)),
+        Set.copyOf(resourcePermitStore().listResourceLimits()));
+  }
+
+  @Test
+  void configureResource_lowerLimitKeepsHeldPermitsAndBlocksNewAcquires() {
+    resourcePermitStore().configureResource("res-lower", 2, 1000, "lower");
+    var first = claimNewJob("res-lower", "node-1");
+    var second = claimNewJob("res-lower", "node-1");
+    assertEquals(ACQUIRED, acquire("res-lower", first, "node-1"));
+    assertEquals(ACQUIRED, acquire("res-lower", second, "node-1"));
+
+    resourcePermitStore().configureResource("res-lower", 1, 1000, "lower");
+
+    var third = claimNewJob("res-lower", "node-1");
+    assertEquals(
+        AT_CAPACITY,
+        acquire("res-lower", third, "node-1"),
+        "two held permits exceed the new limit of one");
+    release("res-lower", first);
+    release("res-lower", second);
+  }
+
+  @Test
+  void configureResource_raisedLimitAdmitsTheNextAcquire() {
+    resourcePermitStore().configureResource("res-raise", 1, 1000, "raise");
+    var first = claimNewJob("res-raise", "node-1");
+    assertEquals(ACQUIRED, acquire("res-raise", first, "node-1"));
+
+    resourcePermitStore().configureResource("res-raise", 2, 1000, "raise");
+
+    assertEquals(
+        ACQUIRED,
+        acquire("res-raise", claimNewJob("res-raise", "node-1"), "node-1"),
+        "the raised limit has a free slot");
+  }
+
+  @Test
+  void configureResource_concurrentFirstCreate_allSucceedAndLeaveOneLimit() {
+    // Nodes that start together all set the same new limit. Each call is its own transaction, and
+    // none may fail because another created the row first.
+    // Resolve the capability on the test thread. A worker's skip would surface as a failure.
+    ResourcePermitStore permits = resourcePermitStore();
+    int threads = 8;
+    for (int round = 0; round < 5; round++) {
+      String name = "race-" + round;
+      Runnable[] tasks = new Runnable[threads];
+      for (int i = 0; i < threads; i++) {
+        int max = i + 1;
+        tasks[i] = () -> permits.configureResource(name, max, 1000, "race");
+      }
+
+      List<Throwable> failures = ConcurrentTestRunner.runAll(Duration.ofSeconds(30), tasks);
+
+      for (Throwable failure : failures) {
+        if (failure != null) {
+          throw new AssertionError("a concurrent first configure of " + name + " failed", failure);
+        }
+      }
+      ResourceLimit limit = permits.findResourceLimit(name).orElseThrow();
+      assertTrue(limit.maxConcurrent() >= 1 && limit.maxConcurrent() <= threads, limit::toString);
+      assertEquals(
+          1,
+          permits.listResourceLimits().stream()
+              .filter(stored -> stored.resourceName().equals(name))
+              .count());
+    }
   }
 
   @Test

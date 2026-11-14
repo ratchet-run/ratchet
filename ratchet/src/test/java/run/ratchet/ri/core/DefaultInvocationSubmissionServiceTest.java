@@ -33,6 +33,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
@@ -48,6 +49,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -66,6 +68,7 @@ import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -136,6 +139,7 @@ class DefaultInvocationSubmissionServiceTest {
   @Mock private WorkflowConditionStore workflowConditionStore;
   @Mock private RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
+  @Mock private ResourcePermitStore resourcePermitStore;
 
   private DefaultJobCreationService creationService;
   private DefaultInvocationSubmissionService service;
@@ -157,6 +161,9 @@ class DefaultInvocationSubmissionServiceTest {
 
   @BeforeEach
   void setUp() {
+    lenient()
+        .when(resourcePermitStore.findResourceLimit("gateway"))
+        .thenReturn(Optional.of(ResourceLimit.of("gateway", 1)));
     creationService = newCreationService(null);
     service =
         new DefaultInvocationSubmissionService(creationService, new DefaultJobInvocationResolver());
@@ -194,7 +201,7 @@ class DefaultInvocationSubmissionServiceTest {
         null,
         Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
         true,
-        true,
+        resourcePermitStore,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer());

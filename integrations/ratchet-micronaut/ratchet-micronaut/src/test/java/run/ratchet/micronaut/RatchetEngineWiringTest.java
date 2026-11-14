@@ -30,8 +30,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.IdempotencyKeyLookup;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
@@ -246,6 +248,8 @@ class RatchetEngineWiringTest {
     try (var context = TestContexts.engine(Map.of())) {
       context.start();
       assertNotNull(context.getBean(JobSchedulerService.class));
+      assertNotNull(context.getBean(BusinessKeyLookup.class));
+      assertNotNull(context.getBean(IdempotencyKeyLookup.class));
       assertNotNull(context.getBean(MicronautRecurringDiscovery.class));
       assertNotNull(context.getBean(RecurringAnnotationMaintenanceService.class));
       assertFalse(context.getBean(PoolRegistry.class).hasPool(ExecutorTargets.VIRTUAL));

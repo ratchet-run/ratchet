@@ -22,6 +22,7 @@ import jakarta.security.enterprise.AuthenticationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.DoNotRetry;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 class DoNotRetryPolicyTest {
 
@@ -100,6 +101,13 @@ class DoNotRetryPolicyTest {
   void shouldNotRetry_doNotRetryAnnotatedCause_returnsTrue() {
     RuntimeException wrapped = new RuntimeException("wrapper", new AnnotatedBusinessException());
     assertTrue(policy.shouldNotRetry(wrapped));
+  }
+
+  @Test
+  void shouldNotRetry_resourceNotConfigured_returnsTrue() {
+    // The class-name list matches IllegalArgumentException exactly, not its subclasses, so this
+    // subclass relies on its @DoNotRetry annotation.
+    assertTrue(policy.shouldNotRetry(new ResourceNotConfiguredException("gpu")));
   }
 
   @Test

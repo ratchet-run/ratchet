@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.jboss.logging.Logger;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
@@ -50,8 +51,8 @@ import run.ratchet.api.WorkflowCondition.ConditionType;
 import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
-import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.ChainScheduler;
@@ -141,7 +142,7 @@ public class DefaultJobCreationService
   private final MetricsCollector metricsCollector;
   private final Clock clock;
   private final boolean signalCapabilityAvailable;
-  private final boolean resourcePermitCapabilityAvailable;
+  private final ResourcePermitStore resourcePermitStore;
 
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final BatchCompletionTransaction conflictResolutionTransaction;
@@ -171,7 +172,7 @@ public class DefaultJobCreationService
     this.afterCommitRegistrar = null;
     this.conflictResolutionTransaction = null;
     this.signalCapabilityAvailable = false;
-    this.resourcePermitCapabilityAvailable = false;
+    this.resourcePermitStore = null;
   }
 
   @Inject
@@ -221,7 +222,7 @@ public class DefaultJobCreationService
         metricsCollector,
         clock,
         signalStore.isResolvable(),
-        resourcePermitStore.isResolvable(),
+        resourcePermitStore.isResolvable() ? resourcePermitStore.get() : null,
         options != null ? options.callerPrincipalResolver() : null,
         afterCommitRegistrar,
         errorSanitizer,
@@ -249,7 +250,7 @@ public class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable,
+      ResourcePermitStore resourcePermitStore,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
@@ -273,7 +274,7 @@ public class DefaultJobCreationService
         metricsCollector,
         clock,
         signalCapabilityAvailable,
-        resourcePermitCapabilityAvailable,
+        resourcePermitStore,
         callerPrincipalResolver,
         afterCommitRegistrar,
         errorSanitizer,
@@ -301,7 +302,7 @@ public class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable,
+      ResourcePermitStore resourcePermitStore,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer,
@@ -333,15 +334,18 @@ public class DefaultJobCreationService
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.conflictResolutionTransaction = conflictResolutionTransaction;
     this.signalCapabilityAvailable = signalCapabilityAvailable;
-    this.resourcePermitCapabilityAvailable = resourcePermitCapabilityAvailable;
+    this.resourcePermitStore = resourcePermitStore;
   }
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the submission.
+   *     container starts one for the submission. A duplicate business key does not mark the
+   *     caller's transaction rollback-only. A missing resource limit is thrown before any write and
+   *     leaves the caller's transaction usable.
    */
   @Override
-  @Transactional
+  @Transactional(
+      dontRollbackOn = {DuplicateBusinessKeyException.class, ResourceNotConfiguredException.class})
   public JobHandle submit(JobBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -364,11 +368,9 @@ public class DefaultJobCreationService
 
     String businessKey = state.businessKey();
     if (businessKey != null) {
-      Optional<JobEntity> activeByBk = jobCrudStore.findActiveByBusinessKey(businessKey);
-      if (activeByBk.isPresent()) {
-        // A racer with the same idempotency key can commit between the two lookups. Its job is
-        // the one the idempotency lookup would have returned, so resolve to it the same way.
-        return resolveActiveBusinessKey(activeByBk.get(), businessKey, idempotencyKey, null);
+      Optional<BusinessKeyHolder> holder = jobCrudStore.findBusinessKeyHolder(businessKey);
+      if (holder.isPresent()) {
+        return resolveBusinessKeyHolder(holder.get().id(), businessKey, idempotencyKey);
       }
     }
 
@@ -386,6 +388,7 @@ public class DefaultJobCreationService
     }
     String resourceName = builder.resourceName();
     requireResourcePermitCapability(resourceName, "Job declares resource");
+    requireResourceLimit(resourceName);
     Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
@@ -422,40 +425,30 @@ public class DefaultJobCreationService
     }
     checkCreateAuthorization(job);
 
-    // A concurrent insert can abort the current database transaction. Let its duplicate-key
-    // exception roll back; a fresh submission resolves the permanent reservation above.
     JobEntity saved;
     try {
       saved = createJob(job);
     } catch (BusinessKeyReservationConflictException e) {
-      if (businessKey == null) {
-        throw e;
+      if (state.hasExplicitIdempotencyKey()) {
+        Optional<UUID> original;
+        try {
+          // A fresh transaction can see the winner outside a MySQL REPEATABLE READ snapshot.
+          original =
+              conflictResolutionTransaction != null
+                  ? conflictResolutionTransaction.complete(
+                      () -> jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey))
+                  : jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+        } catch (RuntimeException lookupFailure) {
+          e.addSuppressed(lookupFailure);
+          throw e;
+        }
+        if (original.isPresent()) {
+          UUID originalId = original.get();
+          return () -> originalId;
+        }
       }
-      if (!state.hasExplicitIdempotencyKey()) {
-        // The reservation duplicate proves the conflict; no read in the failed transaction is
-        // needed for a submission using its generated idempotency key.
-        throw new DuplicateBusinessKeyException(
-            businessKey, "Active job already exists with business key '" + businessKey + "'", e);
-      }
-      Optional<JobEntity> raced;
-      try {
-        // Hibernate can mark JTA rollback-only even on MySQL. Suspend that transaction for the
-        // read, using the existing REQUIRES_NEW helper shared by all runtime adapters.
-        raced =
-            conflictResolutionTransaction != null
-                ? conflictResolutionTransaction.complete(
-                    () -> jobCrudStore.findActiveByBusinessKey(businessKey))
-                : jobCrudStore.findActiveByBusinessKey(businessKey);
-      } catch (RuntimeException lookupFailure) {
-        // If the winner cannot be read, its idempotency key is unknown. A fresh submission can
-        // resolve it; never guess which duplicate exception applies or return a handle here.
-        e.addSuppressed(lookupFailure);
-        throw e;
-      }
-      if (raced.isPresent()) {
-        return resolveActiveBusinessKey(raced.get(), businessKey, idempotencyKey, e);
-      }
-      throw e;
+      throw new DuplicateBusinessKeyException(
+          businessKey, "Active job already exists with business key '" + businessKey + "'", e);
     }
     UUID jobId = saved.getId();
 
@@ -503,38 +496,34 @@ public class DefaultJobCreationService
     return () -> jobId;
   }
 
-  private JobHandle resolveActiveBusinessKey(
-      JobEntity active,
-      String businessKey,
-      String idempotencyKey,
-      RatchetTransientStoreException cause) {
-    UUID activeId = active.getId();
-    if (idempotencyKey.equals(active.getIdempotencyKey())) {
-      if (cause != null) {
-        // The failed insert left this transaction rollback-only, so a handle cannot be returned
-        // from it. A retry in a fresh transaction resolves the permanent reservation.
-        throw new DuplicateIdempotencyKeyException(idempotencyKey, cause);
-      }
+  private JobHandle resolveBusinessKeyHolder(
+      UUID holderId, String businessKey, String idempotencyKey) {
+    // A racer can commit after the first lookup. A permanent unique idempotency key maps to
+    // the holder exactly when both submissions use the same key.
+    if (jobCrudStore
+        .findOriginalJobIdByIdempotencyKey(idempotencyKey)
+        .filter(holderId::equals)
+        .isPresent()) {
       log.debugf(
-          "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, activeId);
-      return () -> activeId;
+          "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, holderId);
+      return () -> holderId;
     }
     throw new DuplicateBusinessKeyException(
         businessKey,
         "Active job already exists with business key '"
             + businessKey
             + "' (jobId="
-            + activeId
-            + ")",
-        cause);
+            + holderId
+            + ")");
   }
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the batch submission.
+   *     container starts one for the batch submission. A missing resource limit is thrown before
+   *     any write and leaves the caller's transaction usable.
    */
   @Override
-  @Transactional
+  @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
   public JobHandle submit(DefaultBatchBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -558,6 +547,7 @@ public class DefaultJobCreationService
     }
     requireBatchCapability();
     requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
+    requireResourceLimit(builder.childResourceName());
     if (builder.partitionKey() != null) return submitPartitions(builder);
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
@@ -844,10 +834,11 @@ public class DefaultJobCreationService
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the streaming batch submission.
+   *     container starts one for the streaming batch submission. A missing resource limit is thrown
+   *     before any write and leaves the caller's transaction usable.
    */
   @Override
-  @Transactional
+  @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
   // The internal builder crosses a public interface method that must retain transaction advice.
   @SuppressWarnings("ClassEscapesDefinedScope")
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
@@ -886,6 +877,7 @@ public class DefaultJobCreationService
       }
     }
 
+    requireResourceLimit(builder.childResourceName());
     List<JobPayload> stagedChildren = null;
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
@@ -1181,8 +1173,14 @@ public class DefaultJobCreationService
         && Objects.equals(existing.misfirePolicy(), replacement.misfirePolicy());
   }
 
+  private void requireResourceLimit(String resourceName) {
+    if (resourceName != null && resourcePermitStore.findResourceLimit(resourceName).isEmpty()) {
+      throw new ResourceNotConfiguredException(resourceName);
+    }
+  }
+
   private void requireResourcePermitCapability(String resourceName, String subject) {
-    if (resourceName != null && !resourceName.isBlank() && !resourcePermitCapabilityAvailable) {
+    if (resourceName != null && !resourceName.isBlank() && resourcePermitStore == null) {
       // The caller asked for concurrency gating on a named resource, but the store cannot enforce
       // it. Reject the submission rather than silently running the job with unbounded concurrency.
       throw new UnsupportedOperationException(

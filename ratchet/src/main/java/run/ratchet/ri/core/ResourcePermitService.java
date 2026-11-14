@@ -16,7 +16,9 @@
 package run.ratchet.ri.core;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 /**
@@ -51,8 +53,21 @@ public interface ResourcePermitService {
    */
   int getRetryDelay(String resourceName);
 
+  /**
+   * Configures a resource and wakes waiters after commit.
+   *
+   * @throws UnsupportedOperationException when there is no ResourcePermitStore
+   */
   void configureResource(
       String resourceName, int maxConcurrent, int retryDelayMs, String description);
+
+  /** The stored limit; empty when there is none or no ResourcePermitStore. */
+  Optional<ResourceLimit> findResourceLimit(String resourceName);
+
+  /**
+   * Every stored limit sorted by name in String natural order, unmodifiable; empty with no store.
+   */
+  List<ResourceLimit> listResourceLimits();
 
   /** Wakes resource waiters and removes stale waiter rows with bounded work. */
   void sweepWaiters();

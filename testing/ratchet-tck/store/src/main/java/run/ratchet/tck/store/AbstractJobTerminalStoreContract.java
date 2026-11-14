@@ -445,7 +445,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             List.of());
     assertFalse(store().commitCompletion(stale).committed());
     assertEquals(JobStatus.RUNNING, store().getJobStatus(child.getId()));
-    assertTrue(store().findActiveByBusinessKey(child.getBusinessKey()).isPresent());
+    assertTrue(store().findBusinessKeyHolder(child.getBusinessKey()).isPresent());
     assertEquals(0, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
     var completed = store().commitCompletion(plan);
     assertTrue(completed.committed());
@@ -455,7 +455,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     assertEquals(0, completed.batchProgress().completedItems());
     assertEquals(1, completed.batchProgress().failedItems());
     assertEquals(JobStatus.CANCELED, store().findById(child.getId()).orElseThrow().getStatus());
-    assertTrue(store().findActiveByBusinessKey(child.getBusinessKey()).isEmpty());
+    assertTrue(store().findBusinessKeyHolder(child.getBusinessKey()).isEmpty());
     assertFalse(store().commitCompletion(plan).committed());
     var batch = batchStore().findBatchById(parent.getId()).orElseThrow();
     assertEquals(0, batch.getCompletedItems());
@@ -589,12 +589,12 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     callback.setBusinessKey("paused-callback-" + root.getId());
     callback = persist(callback);
     assertTrue(store().transitionToPaused(callback.getId(), JobStatus.PENDING));
-    assertTrue(store().findActiveByBusinessKey(callback.getBusinessKey()).isPresent());
+    assertTrue(store().findBusinessKeyHolder(callback.getBusinessKey()).isPresent());
 
     assertTrue(store().cancelJob(callback.getId()));
 
     assertEquals(JobStatus.CANCELED, store().getJobStatus(callback.getId()));
-    assertTrue(store().findActiveByBusinessKey(callback.getBusinessKey()).isEmpty());
+    assertTrue(store().findBusinessKeyHolder(callback.getBusinessKey()).isEmpty());
     var replacement = newPendingJob();
     replacement.setBusinessKey(callback.getBusinessKey());
     persist(replacement);

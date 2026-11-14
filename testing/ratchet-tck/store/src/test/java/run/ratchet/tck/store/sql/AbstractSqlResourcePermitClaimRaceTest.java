@@ -855,7 +855,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var permits = fixture().resourcePermitStore();
     var batches = fixture().batchStore();
     var store = fixture().store();
-    permits.configureResource("res-race", 2, 0, null);
+    // A wake-up skips a waiter whose lease has ended. The reserved job parks under a retry delay
+    // as long as the run, so its lease (twice that) lasts the whole run; the workers run with none.
+    permits.configureResource("res-race", 2, (int) hardCap.toMillis(), null);
     store.upsertHeartbeat("stress", Instant.now().plusSeconds(3600));
     // The reserved waiter is excluded until a wake returns it, then rejoins the run.
     // Holders run on the live "stress" node outside ids and the batch, so orphan recovery,
@@ -891,6 +893,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     assertEquals(1, reservedClaims.size());
     assertEquals(reserved.getId(), reservedClaims.get(0).getId());
     assertEquals(AT_CAPACITY, acquire(permits, reservedClaims.get(0), "reserved"));
+    permits.configureResource("res-race", 2, 0, null);
     var reservedWoken = new AtomicBoolean();
     ToIntFunction<String> wake =
         resource -> {

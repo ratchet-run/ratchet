@@ -28,14 +28,17 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.dto.JobClaimDto;
@@ -175,6 +178,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  // The conflict is raised before any write and must not mark the caller's transaction.
+  @Transactional(dontRollbackOn = BusinessKeyReservationConflictException.class)
   public JobEntity create(JobEntity job) {
     return jobs.create(job);
   }
@@ -210,8 +215,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return jobs.findActiveByBusinessKey(businessKey);
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return jobs.findBusinessKeyHolder(businessKey);
   }
 
   @Override
@@ -726,6 +731,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    return archives.findArchivedJob(originalJobId);
+  }
+
+  @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     return archives.findArchivedJobs(targetClass, businessKey, from, to, limit);
@@ -877,6 +887,16 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   public int getPermitRetryDelay(String resource) {
     return auxiliary.getPermitRetryDelay(resource);
+  }
+
+  @Override
+  public Optional<ResourceLimit> findResourceLimit(String name) {
+    return auxiliary.findResourceLimit(name);
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    return auxiliary.listResourceLimits();
   }
 
   @Override

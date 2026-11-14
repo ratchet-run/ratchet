@@ -445,6 +445,149 @@ scheduler.scheduleRecurring("0 0 10 * * ?", ZoneId.of("UTC"),
     .submit();
 ```
 
+## Resource limits
+
+`JobSchedulerService` extends `ResourceLimits`, which manages the limits that `withResource(...)` acquires permits against. `ResourceLimits`, `ResourceLimit` and `ResourceNotConfiguredException` are stable API.
+
+```java
+public record ResourceLimit(
+    String resourceName, int maxConcurrent, Duration retryDelay, @Nullable String description) {
+  public static final Duration DEFAULT_RETRY_DELAY = Duration.ofSeconds(5);
+  public static ResourceLimit of(String resourceName, int maxConcurrent);
+  public ResourceLimit withRetryDelay(Duration retryDelay);
+  public ResourceLimit withDescription(@Nullable String description);
+}
+```
+
+`retryDelay` is how long a waiting job goes between checks when no wake-up reaches it. See [Permit-based backpressure](../deployment/performance-tuning.md#permit-based-backpressure).
+
+### setResourceLimit
+
+```java
+void setResourceLimit(ResourceLimit limit)
+```
+
+Creates the limit for `limit.resourceName()`, or replaces every value of an existing one, including a null description.
+
+- The name is trimmed and must be 1 to 100 printable ASCII characters. `maxConcurrent` must be at least 1. `retryDelay` must be from 0 to `Integer.MAX_VALUE` milliseconds and is stored in whole milliseconds. A description is trimmed, blank becomes null, and it must be at most 255 printable ASCII characters. Anything else, or a null limit, throws `IllegalArgumentException` before anything is written.
+- Throws `UnsupportedOperationException` if the store does not advertise the `ResourcePermitStore` capability.
+- Transaction attribute: REQUIRED. On SQL stores the limit row stays locked until commit, which holds up permit requests for that resource, so call it outside long transactions. On MongoDB the change applies at once, and a rollback does not undo it. A rejected argument or a missing capability leaves the caller's transaction usable.
+- Lowering a limit keeps permits already held. New jobs wait until enough permits are released. Raising a limit wakes waiting jobs after commit. A new retry delay applies from each job's next miss.
+
+Set limits at start-up, before you submit jobs that name them. See [Configure resource limits](../deployment/performance-tuning.md#configure-resource-limits).
+
+```java
+scheduler.setResourceLimit(
+    ResourceLimit.of("payment-gateway", 3).withRetryDelay(Duration.ofMillis(1500)));
+```
+
+### findResourceLimit
+
+```java
+Optional<ResourceLimit> findResourceLimit(String resourceName)
+```
+
+Returns the limit stored for the name, or empty. A null or blank name returns empty. The name is trimmed. A name that no limit can have (over 100 characters, or not printable ASCII) throws `IllegalArgumentException`. Returns empty on a store without the `ResourcePermitStore` capability. Name matching follows the store: MySQL, and SQL Server with a case-insensitive collation, ignore case.
+
+Transaction attribute: SUPPORTS.
+
+### listResourceLimits
+
+```java
+List<ResourceLimit> listResourceLimits()
+```
+
+Returns every stored limit, sorted by name. Returns an empty list on a store without the `ResourcePermitStore` capability. It reads all limits at once, so it suits a small number of resources.
+
+Transaction attribute: SUPPORTS.
+
+### ResourceNotConfiguredException
+
+`submit()` throws `run.ratchet.api.exception.ResourceNotConfiguredException` when a job or batch names a resource with no limit. It extends `IllegalArgumentException`, carries the name in `resourceName()`, and leaves the caller's transaction usable. A job whose limit is deleted after submit fails with the same exception when it is claimed, without using a retry.
+
+## Business key lookup
+
+### findBusinessKeyHolder
+
+```java
+Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey)
+```
+
+Returns the active holder of a business key from the same reservation that `JobBuilder.submit()` checks. A holder can be a job or a recurring master. `BusinessKeyHolder` contains `id()`, `type()` and `status()`. The id is the job id or recurring master id. `cancelJob(id)` cancels either.
+
+For a job, the type is its public type (`SINGLE` for a job from `JobBuilder`) and the status is its live `PENDING`, `RUNNING`, `PAUSED` or `WAITING` status. For a recurring master, the type is `RECURRING` and the status is `PAUSED` when paused, or `PENDING` otherwise. This matches `JobQueryService.getRecurringMasters()`. Status is never null or terminal.
+
+Returns empty when no reservation exists, including after the holder finishes, is canceled, or is deleted. It also returns empty if a reservation exists but its owner row is not visible to the read. This can happen during a store's own write or between MongoDB's reservation and owner reads.
+
+Key handling matches `JobBuilder.withBusinessKey`: null or blank returns empty, and the key is trimmed. More than 255 characters after trimming, or a character outside printable ASCII (U+0020 to U+007E), throws `IllegalArgumentException`.
+
+This is a point-in-time read. A later `submit()` can still lose a race. Treat the answer as a hint or pre-check, not a lock.
+
+The call never starts a transaction that outlives it. Finding a holder, finding none, or rejecting an invalid key never marks the caller transaction rollback-only. A store failure throws and, as with `submit()`, can leave it rollback-only.
+
+Whether the read joins a caller transaction depends on the store. The bundled SQL stores join it, so the read sees the caller's own uncommitted submissions. The MongoDB store does not. A MongoDB submission commits in its own session and is not rolled back with the caller transaction, and the lookup sees only committed data.
+
+On MySQL under the default REPEATABLE READ, the transaction's first plain read fixes its snapshot. The lookup does not see a holder that commits after that point. It can still return a holder that ends after that point, because the end is not visible until a fresh snapshot. Call outside a transaction or use READ COMMITTED for the latest state.
+
+There is no per-job authorization check, matching `submit()`, which reports a held key to any caller.
+
+The method is inherited from the stable `BusinessKeyLookup` interface. Inject that interface when only the lookup is needed:
+
+```java
+@Inject
+BusinessKeyLookup businessKeys;
+
+void inspect(String key) {
+    businessKeys.findBusinessKeyHolder(key).ifPresent(holder -> {
+        System.out.println(holder.id() + " " + holder.type() + " " + holder.status());
+    });
+}
+```
+
+`JobQueryService.findJobs` searches job rows, including finished jobs. It sees recurring masters only when the filter's `types` is exactly `RECURRING`, which reads the recurring store. Other searches need the query capability and find nothing without it. Use this lookup to ask whether a key is held now.
+
+## Idempotency key lookup
+
+### findIdempotencyKeyHolder
+
+```java
+Optional<IdempotencyKeyHolder> findIdempotencyKeyHolder(String idempotencyKey)
+```
+
+Reads the same ledger that `submit()` checks. The stable `IdempotencyKeyLookup` interface can also be injected directly. An unused key returns empty. Null or blank keys return empty; keys are trimmed, and more than 36 characters throws `IllegalArgumentException`, matching `withIdempotencyKey`.
+
+The holder contains `id()`, `retention()`, `type()` and `status()`:
+
+| Retention | What the holder reports |
+| --- | --- |
+| `LIVE` | The job still has a live row. `type()` is its public type and `status()` its current status. |
+| `ARCHIVED` | Only an archive row remains. `type()` is its public type and `status()` its terminal final status. |
+| `PURGED` | No row remains, only the ledger entry. `type()` and `status()` are null. |
+
+`PURGED` also covers a deleted job on a store without archive support. In every state, a resubmit under the same key returns the original id and runs nothing. `findJobs` with `JobFilter.idempotencyKey` searches live jobs only.
+
+For a failed job, submit a replacement under a new key derived from the holder's id. A UUID hash keeps the replacement key within 36 characters:
+
+```java
+scheduler.findIdempotencyKeyHolder(key).ifPresent(holder -> {
+    if (holder.retention() == IdempotencyKeyHolder.Retention.PURGED) {
+        // The key is spent. Only holder.id() remains.
+        return;
+    }
+    if (holder.status() == JobStatus.FAILED) {
+        String replacementKey = UUID.nameUUIDFromBytes(
+            ("retry:" + holder.id()).getBytes(StandardCharsets.UTF_8)).toString();
+        scheduler.enqueue(() -> reportService.generateDailyReport())
+            .withIdempotencyKey(replacementKey)
+            .submit();
+    }
+});
+```
+
+This is a point-in-time read, not a lock; a later submit can still race. No per-job authorization check is performed, matching `submit()`. Found, missing, and invalid-key results do not mark a caller transaction rollback-only. Store failures can.
+
+SQL stores join the caller transaction and see its own uncommitted submissions. MongoDB reads committed data and does not join it. On MySQL REPEATABLE READ, the first plain read fixes the snapshot; later commits and state changes may be invisible. Read outside a transaction or use READ COMMITTED for the latest state.
+
 ## Event listener management
 
 ### addEventListener

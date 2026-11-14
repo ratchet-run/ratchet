@@ -187,6 +187,7 @@ public class InlineConstructionSubmissionTest {
         null,
         null,
         null,
+        null,
         new DefaultJobInvocationResolver(),
         service,
         null,
@@ -197,7 +198,8 @@ public class InlineConstructionSubmissionTest {
         Clock.systemUTC(),
         null,
         new JakartaAfterCommitRegistrar(),
-        mock(BatchService.class));
+        mock(BatchService.class),
+        null);
   }
 
   private DefaultJobCreationService service(ClassPolicy policy) {
@@ -222,7 +224,7 @@ public class InlineConstructionSubmissionTest {
         null,
         Clock.systemUTC(),
         true,
-        true,
+        null,
         null,
         new JakartaAfterCommitRegistrar(),
         null);

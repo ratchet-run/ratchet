@@ -20,6 +20,7 @@ import static example.ratchet.verification.NativeVerification.check;
 
 import example.ratchet.CircuitBreakerBeanConfiguration.ProtectedService;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.aop.support.AopUtils;
@@ -30,6 +31,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import run.ratchet.api.JobQueryService;
@@ -57,6 +60,29 @@ public class SqlNativeVerification {
       JobQueryService queries) {
     return args -> {
       if (!environment.getProperty("consumer.full-verify", Boolean.class, false)) return;
+      try {
+        SecurityContextHolder.clearContext();
+        SecurityContextHolder.getContext()
+            .setAuthentication(
+                UsernamePasswordAuthenticationToken.authenticated("consumer-alice", "", List.of()));
+        var authenticated = service.submit("native-principal-" + UUID.randomUUID());
+        check(
+            "consumer-alice"
+                .equals(
+                    queries
+                        .getJobDetail(authenticated.id())
+                        .orElseThrow()
+                        .summary()
+                        .callerPrincipal()),
+            "authenticated Spring Security submitter was not recorded as consumer-alice");
+        SecurityContextHolder.clearContext();
+        var anonymous = service.submit("native-no-principal-" + UUID.randomUUID());
+        check(
+            queries.getJobDetail(anonymous.id()).orElseThrow().summary().callerPrincipal() == null,
+            "empty Spring Security context recorded a caller principal");
+      } finally {
+        SecurityContextHolder.clearContext();
+      }
       check(AopUtils.isAopProxy(protectedService), "circuit-breaker bean has no native proxy");
       for (int i = 0; i < 3; i++) {
         try {

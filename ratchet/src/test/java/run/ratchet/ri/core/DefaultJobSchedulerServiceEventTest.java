@@ -123,6 +123,7 @@ class DefaultJobSchedulerServiceEventTest {
             jobTerminalStore,
             jobCrudStore,
             batchStore,
+            null,
             tagStore,
             workflowConditionStore,
             recurringJobStore,
@@ -138,7 +139,8 @@ class DefaultJobSchedulerServiceEventTest {
             FIXED_CLOCK,
             null,
             registrar,
-            batchService);
+            batchService,
+            null);
   }
 
   @ParameterizedTest

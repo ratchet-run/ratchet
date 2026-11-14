@@ -97,6 +97,7 @@ class BatchControlTest {
         null,
         null,
         null,
+        null,
         wakeup,
         mock(RecurringScheduler.class),
         null,
@@ -109,7 +110,8 @@ class BatchControlTest {
         Clock.systemUTC(),
         null,
         registrar,
-        batchService);
+        batchService,
+        null);
   }
 
   @Test
@@ -301,6 +303,7 @@ class BatchControlTest {
             null,
             null,
             null,
+            null,
             wakeup,
             null,
             null,
@@ -313,7 +316,8 @@ class BatchControlTest {
             clock,
             null,
             registrar,
-            batchService);
+            batchService,
+            null);
     SystemJobCancellation cancellation =
         new SystemJobCancellation(
             events, statuses, jobs, batchService, null, wakeup, null, clock, registrar);

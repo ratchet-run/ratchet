@@ -371,11 +371,17 @@ producing factory's destroy metadata, including inferred `close()` or `shutdown(
 If that metadata names the product's `@PreDestroy` method, such as `close()` on an `AutoCloseable`
 product, the method can run twice. Make overlapping cleanup idempotent.
 
-To capture an authenticated submitter, supply a `PrincipalSource` bean for your application's
-security framework. The starter does not automatically install a Spring Security adapter. It
-captures the returned principal name; it does not restore a request or authentication context on
-the worker. Use `JobAuthorizationPolicy` for application authorization rules and a `ClassPolicy`
-bean when the default package allowlist is insufficient.
+When Spring Security is on the classpath, the starter adds a `PrincipalSource` that reads
+`SecurityContextHolder`: the name of the user authenticated on the submitting thread. For anonymous
+and unauthenticated callers, and on a thread with no authentication such as a scheduled method or a
+startup listener, this source has no principal. A configured `CallerPrincipalResolver`, or the
+principal of the running job when one job submits another, is consulted first and can still supply
+one; see [caller principal resolution](/getting-started/configuration#caller-principal-resolution).
+With another security framework,
+supply your own `PrincipalSource` bean; the starter then skips the Spring Security one. Ratchet
+captures the principal name only. It does not restore a request or authentication context on the
+worker. Use `JobAuthorizationPolicy` for application authorization rules and a `ClassPolicy` bean
+when the default package allowlist is insufficient.
 
 ## JPA provider portability
 

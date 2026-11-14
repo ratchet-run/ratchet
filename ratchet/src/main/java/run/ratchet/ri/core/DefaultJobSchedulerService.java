@@ -24,12 +24,16 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
+import run.ratchet.api.BusinessKeyHolder;
+import run.ratchet.api.IdempotencyKeyHolder;
+import run.ratchet.api.IdempotencyKeyHolder.Retention;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
@@ -40,6 +44,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringJobBuilder;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.StreamingBatchBuilder;
@@ -51,6 +56,9 @@ import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
+import run.ratchet.api.internal.BusinessKeyNormalizer;
+import run.ratchet.api.internal.IdempotencyKeyNormalizer;
+import run.ratchet.api.internal.ResourceLimitRules;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -65,6 +73,7 @@ import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -108,7 +117,9 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   private final JobTerminalStore jobTerminalStore;
   private final JobCrudStore jobCrudStore;
   private final BatchStore batchStore;
+  private final ArchiveStore archiveStore;
   private final BatchService batchService;
+  private final ResourcePermitService resourcePermitService;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final RecurringJobStore recurringJobStore;
@@ -136,7 +147,9 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.jobTerminalStore = null;
     this.jobCrudStore = null;
     this.batchStore = null;
+    this.archiveStore = null;
     this.batchService = null;
+    this.resourcePermitService = null;
     this.tagStore = null;
     this.workflowConditionStore = null;
     this.recurringJobStore = null;
@@ -164,6 +177,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
       Instance<BatchStore> batchStore,
+      Instance<ArchiveStore> archiveStore,
       TagStore tagStore,
       Instance<WorkflowConditionStore> workflowConditionStore,
       Instance<RecurringJobStore> recurringJobStore,
@@ -179,7 +193,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      ResourcePermitService resourcePermitService) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -188,6 +203,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         jobTerminalStore,
         jobCrudStore,
         batchStore.isResolvable() ? batchStore.get() : null,
+        archiveStore.isResolvable() ? archiveStore.get() : null,
         tagStore,
         workflowConditionStore.isResolvable() ? workflowConditionStore.get() : null,
         recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
@@ -203,7 +219,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         clock,
         options,
         afterCommitRegistrar,
-        batchService);
+        batchService,
+        resourcePermitService);
   }
 
   /**
@@ -219,6 +236,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
       BatchStore batchStore,
+      ArchiveStore archiveStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
       RecurringJobStore recurringJobStore,
@@ -234,7 +252,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      ResourcePermitService resourcePermitService) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -242,7 +261,9 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
+    this.archiveStore = archiveStore;
     this.batchService = batchService;
+    this.resourcePermitService = resourcePermitService;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
     this.recurringJobStore = recurringJobStore;
@@ -278,6 +299,44 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   @Transactional
   public boolean deletePartitionSet(String key) {
     return partitionService != null && partitionService.deletePartitionSet(key);
+  }
+
+  /**
+   * @implSpec Transaction attribute: REQUIRED. Argument and capability errors leave the caller's
+   *     transaction usable.
+   */
+  @Override
+  @Transactional(
+      value = Transactional.TxType.REQUIRED,
+      dontRollbackOn = {IllegalArgumentException.class, UnsupportedOperationException.class})
+  public void setResourceLimit(ResourceLimit limit) {
+    ResourceLimit normalized = ResourceLimitRules.normalize(limit);
+    resourcePermitService.configureResource(
+        normalized.resourceName(),
+        normalized.maxConcurrent(),
+        (int) normalized.retryDelay().toMillis(),
+        normalized.description());
+  }
+
+  /**
+   * @implSpec Transaction attribute: SUPPORTS. Invalid names leave the caller's transaction usable.
+   */
+  @Override
+  @Transactional(
+      value = Transactional.TxType.SUPPORTS,
+      dontRollbackOn = IllegalArgumentException.class)
+  public Optional<ResourceLimit> findResourceLimit(String resourceName) {
+    String name = ResourceLimitRules.normalizeName(resourceName);
+    return name == null ? Optional.empty() : resourcePermitService.findResourceLimit(name);
+  }
+
+  /**
+   * @implSpec Transaction attribute: SUPPORTS.
+   */
+  @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
+  public List<ResourceLimit> listResourceLimits() {
+    return resourcePermitService.listResourceLimits();
   }
 
   @Override
@@ -350,6 +409,51 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       throw new IllegalArgumentException("decision must not be null");
     }
     return deliverSignalDecision(signalKey, decision);
+  }
+
+  @Override
+  @Transactional(
+      value = Transactional.TxType.SUPPORTS,
+      dontRollbackOn = IllegalArgumentException.class)
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    // Deliberately does not consult authorizationPolicy, matching submit().
+    String key = BusinessKeyNormalizer.normalize(businessKey);
+    return key == null ? Optional.empty() : jobCrudStore.findBusinessKeyHolder(key);
+  }
+
+  @Override
+  @Transactional(
+      value = Transactional.TxType.SUPPORTS,
+      dontRollbackOn = IllegalArgumentException.class)
+  public Optional<IdempotencyKeyHolder> findIdempotencyKeyHolder(String idempotencyKey) {
+    // Deliberately does not consult authorizationPolicy, matching submit().
+    String key = IdempotencyKeyNormalizer.normalize(idempotencyKey);
+    if (key == null) {
+      return Optional.empty();
+    }
+    return jobCrudStore
+        .findOriginalJobIdByIdempotencyKey(key)
+        .map(
+            id -> {
+              var live = jobCrudStore.findById(id);
+              if (live.isPresent()) {
+                var job = live.get();
+                return new IdempotencyKeyHolder(
+                    id, Retention.LIVE, job.getPublicJobType(), job.getStatus());
+              }
+              if (archiveStore != null) {
+                var archived = archiveStore.findArchivedJob(id);
+                if (archived.isPresent()) {
+                  var job = archived.get();
+                  return new IdempotencyKeyHolder(
+                      id,
+                      Retention.ARCHIVED,
+                      job.getJobType().toPublicType(),
+                      job.getFinalStatus());
+                }
+              }
+              return new IdempotencyKeyHolder(id, Retention.PURGED, null, null);
+            });
   }
 
   @Override

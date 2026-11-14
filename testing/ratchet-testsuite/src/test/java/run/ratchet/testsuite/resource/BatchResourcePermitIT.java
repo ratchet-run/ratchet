@@ -17,6 +17,7 @@ package run.ratchet.testsuite.resource;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
@@ -27,8 +28,10 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
-import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.api.ResourceLimit;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -51,7 +54,7 @@ class BatchResourcePermitIT extends BaseRatchetIT {
 
   @Inject private JobCrudStore jobCrudStore;
 
-  @Inject private ResourcePermitService resourcePermitService;
+  @Inject private JobSchedulerService scheduler;
 
   @Inject private JobStore jobStore;
 
@@ -74,8 +77,27 @@ class BatchResourcePermitIT extends BaseRatchetIT {
   }
 
   @Test
+  void batchWithUnconfiguredChildResource_shouldThrowAtSubmit() {
+    ResourceNotConfiguredException exception =
+        assertThrows(
+            ResourceNotConfiguredException.class,
+            () ->
+                jobService
+                    .enqueueBatch("missing-resource-batch")
+                    .forEach(ITEMS, ResourceTestJob::executeItem)
+                    .withResource("missing-batch-res")
+                    .submit());
+
+    assertEquals("missing-batch-res", exception.resourceName());
+    assertEquals(0, ResourceTestJob.getCompletedCount(), "no child should run");
+  }
+
+  @Test
   void batchChildrenSharingAResource_shouldNeverExceedPermitCount() {
-    resourcePermitService.configureResource("batch-res", PERMITS, 500, "batch test");
+    scheduler.setResourceLimit(
+        ResourceLimit.of("batch-res", PERMITS)
+            .withRetryDelay(Duration.ofMillis(500))
+            .withDescription("batch test"));
 
     JobHandle handle =
         jobService

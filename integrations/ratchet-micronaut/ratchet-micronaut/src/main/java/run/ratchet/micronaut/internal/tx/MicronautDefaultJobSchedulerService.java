@@ -23,6 +23,7 @@ import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
@@ -31,6 +32,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -60,6 +62,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
       JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
       BatchStore batchStore,
+      ArchiveStore archiveStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
       RecurringJobStore recurringJobStore,
@@ -75,7 +78,8 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      ResourcePermitService resourcePermitService) {
     super(
         eventPublisher,
         jobBatchStatusStore,
@@ -84,6 +88,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
         jobTerminalStore,
         jobCrudStore,
         batchStore,
+        archiveStore,
         tagStore,
         workflowConditionStore,
         recurringJobStore,
@@ -99,6 +104,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
         clock,
         options,
         afterCommitRegistrar,
-        batchService);
+        batchService,
+        resourcePermitService);
   }
 }

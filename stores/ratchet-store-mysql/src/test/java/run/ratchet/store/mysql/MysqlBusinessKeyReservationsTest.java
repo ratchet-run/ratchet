@@ -36,6 +36,20 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 class MysqlBusinessKeyReservationsTest {
 
   @Test
+  void tryReserveRejectsOverlongKeyBeforeSql() {
+    MysqlBusinessKeyReservations reservations =
+        new MysqlBusinessKeyReservations(new MysqlStoreContext(null, null));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            reservations.tryReserve(
+                "k".repeat(256),
+                UUID.randomUUID(),
+                MysqlBusinessKeyReservations.OWNER_TABLE_QUEUE));
+  }
+
+  @Test
   void insertReservationRequiresBusinessKey() {
     MysqlBusinessKeyReservations reservations =
         new MysqlBusinessKeyReservations(new MysqlStoreContext(null, null));

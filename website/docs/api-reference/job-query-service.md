@@ -37,6 +37,8 @@ For lifecycle operations such as cancel, pause, resume, retry, and signal delive
 JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset)
 ```
 
+A business-key filter searches job rows, including finished jobs. It sees recurring masters only when `types` is exactly `RECURRING`, which reads the recurring store. Other searches need the query capability and find nothing without it. To ask whether a key is held now, use [`BusinessKeyLookup.findBusinessKeyHolder`](./job-scheduler-service#business-key-lookup).
+
 Returns a page of lightweight job summaries matching the supplied filter.
 
 ```java
@@ -59,6 +61,8 @@ for (JobSummary job : page.items()) {
 `JobFilter` fields are optional. A `null` field means "do not constrain this dimension." Vararg filters such as `statuses()` and `types()` ignore empty argument lists, so a UI can safely pass zero selected statuses to mean "all statuses."
 
 With `includeArchived(true)`, sorting and cursor pagination use the same effective values across retained jobs and archives. In SQL stores, terminal jobs no longer retain their live queue row: their `scheduledTime` falls back to execution start time, then creation time. Archival records that effective value as `originalScheduledTime`; it cannot reconstruct a scheduled time already removed with the queue row.
+For archived and purged keys, use [`IdempotencyKeyLookup.findIdempotencyKeyHolder`](./job-scheduler-service#idempotency-key-lookup); `JobFilter.idempotencyKey` searches live jobs only.
+
 Archive inclusion is skipped whenever `callerPrincipal`, `tags`, `propertyFilters`, `idempotencyKey`, `pickedBy`, `resourceName`, or `traceCorrelationId` constrains the query, because archived rows do not retain these fields and cannot satisfy those filters or authorization scopes.
 
 Jobs can be filtered by indexed extension properties when the store advertises `JobPropertyStore`. Non-empty property filters throw `UnsupportedOperationException` when that capability is absent:

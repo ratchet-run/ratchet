@@ -41,6 +41,7 @@ import run.ratchet.ri.core.JobTypeRateLimiter;
 import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.RetryBufferManager;
 import run.ratchet.ri.core.SubmissionFailureHandler;
 import run.ratchet.ri.core.SubmissionGateChecker;
@@ -62,6 +63,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
@@ -245,7 +247,7 @@ class RatchetSubmissionConfiguration {
             metrics,
             clock,
             store.capability(SignalStore.class).isPresent(),
-            store.capability(ResourcePermitStore.class).isPresent(),
+            store.capability(ResourcePermitStore.class).orElse(null),
             options.callerPrincipalResolver(),
             registrar,
             errorSanitizer,
@@ -272,7 +274,8 @@ class RatchetSubmissionConfiguration {
       RatchetOptions options,
       AfterCommitRegistrar registrar,
       BatchService batchService,
-      PartitionService partitions) {
+      PartitionService partitions,
+      ResourcePermitService resourcePermitService) {
     MicronautDefaultJobSchedulerService service =
         new MicronautDefaultJobSchedulerService(
             events,
@@ -282,6 +285,7 @@ class RatchetSubmissionConfiguration {
             store,
             store,
             store.capability(BatchStore.class).orElse(null),
+            store.capability(ArchiveStore.class).orElse(null),
             store,
             store.capability(WorkflowConditionStore.class).orElse(null),
             store.capability(RecurringJobStore.class).orElse(null),
@@ -297,7 +301,8 @@ class RatchetSubmissionConfiguration {
             clock,
             options,
             registrar,
-            batchService);
+            batchService,
+            resourcePermitService);
     service.configurePartitions(partitions);
     return service;
   }

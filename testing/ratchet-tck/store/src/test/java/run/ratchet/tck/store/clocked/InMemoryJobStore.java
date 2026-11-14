@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
@@ -159,7 +160,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
+  public synchronized Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
     if (businessKey == null) {
       return Optional.empty();
     }
@@ -169,7 +170,9 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
             j ->
                 j.getStatus() == JobStatus.PENDING
                     || j.getStatus() == JobStatus.RUNNING
-                    || j.getStatus() == JobStatus.WAITING)
+                    || j.getStatus() == JobStatus.WAITING
+                    || j.getStatus() == JobStatus.PAUSED)
+        .map(j -> new BusinessKeyHolder(j.getId(), j.getJobType().toPublicType(), j.getStatus()))
         .findFirst();
   }
 

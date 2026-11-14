@@ -223,7 +223,7 @@ class DefaultJobCreationServicePayloadSizeTest {
         null,
         Clock.systemUTC(),
         true,
-        true,
+        null,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer());

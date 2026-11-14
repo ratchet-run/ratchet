@@ -46,6 +46,27 @@ final class PostgresqlBusinessKeyReservations {
     return BusinessKeyReservations.ownerTableFor(jobType);
   }
 
+  boolean tryReserve(String businessKey, UUID ownerJobId, String ownerTable) {
+    try {
+      String sql =
+          """
+          INSERT INTO scheduler_business_key_reservation
+            (business_key, owner_job_id, owner_table, reserved_at)
+          VALUES (?, ?, ?, statement_timestamp())
+          ON CONFLICT (business_key) DO NOTHING
+          """;
+      return ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, businessKey)
+              .setParameter(2, ownerJobId)
+              .setParameter(3, ownerTable)
+              .executeUpdate()
+          == 1;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("try reserve business key", e);
+    }
+  }
+
   void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {
     try {
       // Keep DML local: PostgreSQL binds UUID values directly and owns its timestamp expression.

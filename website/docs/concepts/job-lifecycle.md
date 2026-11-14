@@ -143,11 +143,17 @@ When you call `submit()` on a builder, the engine:
 1. Analyzes the lambda to extract target class, method, and arguments
 2. Converts that metadata into a persisted job payload via the active `JobInvocationResolver`
 3. Checks the idempotency key for duplicates (globally unique, forever)
-4. Checks the business key for active conflicts (unique among PENDING/RUNNING/PAUSED/WAITING jobs)
+4. Checks the business key for active conflicts (unique among PENDING/RUNNING/PAUSED/WAITING jobs and active recurring masters)
 5. Persists the `JobEntity` with status PENDING
 6. For immediate or CRITICAL-priority jobs, publishes a wakeup notification via `ClusterCoordinator`
 
-A conflicting business key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state. A racing submission with the same idempotency key either returns the original job's handle or throws `DuplicateIdempotencyKeyException`. Retrying that submission in a fresh transaction returns the original handle.
+A conflicting business key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state. Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
+
+To see who holds a key before you submit, call [`findBusinessKeyHolder`](../api-reference/job-scheduler-service#business-key-lookup). The answer is a point-in-time check, so a later submit can still lose a race.
+
+`DuplicateIdempotencyKeyException` and `RatchetTransientStoreException` still leave the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
+
+On MySQL and SQL Server, after the store reports the conflict, the caller keeps a lock on the holder's key until its transaction ends. The holder's completion waits for that lock. Keep the caller's transaction short.
 
 ```java
 JobHandle handle = scheduler.enqueue(() -> service.process(id))

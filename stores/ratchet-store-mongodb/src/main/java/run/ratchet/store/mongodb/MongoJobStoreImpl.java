@@ -34,12 +34,14 @@ import org.bson.BsonBinaryWriter;
 import org.bson.codecs.Codec;
 import org.bson.codecs.EncoderContext;
 import org.bson.io.BasicOutputBuffer;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.RatchetConfigurationException;
@@ -208,8 +210,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return crud.findActiveByBusinessKey(businessKey);
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return crud.findBusinessKeyHolder(businessKey);
   }
 
   @Override
@@ -694,6 +696,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    return archives.findArchivedJob(originalJobId);
+  }
+
+  @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     return archives.findArchivedJobs(targetClass, businessKey, from, to, limit);
@@ -868,6 +875,16 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public int getPermitRetryDelay(String resource) {
     return auxiliary.getPermitRetryDelay(resource);
+  }
+
+  @Override
+  public Optional<ResourceLimit> findResourceLimit(String name) {
+    return auxiliary.findResourceLimit(name);
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    return auxiliary.listResourceLimits();
   }
 
   @Override

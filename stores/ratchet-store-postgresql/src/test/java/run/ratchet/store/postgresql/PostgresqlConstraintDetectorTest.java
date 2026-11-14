@@ -22,41 +22,51 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 class PostgresqlConstraintDetectorTest {
 
   private final PostgresqlConstraintDetector detector = new PostgresqlConstraintDetector();
 
   @Test
-  void translatesReservationConflictToPreciseSignal() {
-    RuntimeException failure =
-        new RuntimeException(
-            "hibernate",
-            new SQLException(
-                "duplicate key value violates unique constraint"
-                    + " \"scheduler_business_key_reservation_pkey\"",
-                "23505"));
+  void reservationConflictWritesNothingForTheJob() {
     EntityManager em = mock(EntityManager.class);
-    when(em.createNativeQuery(anyString())).thenThrow(failure);
+    Query cold = mock(Query.class, RETURNS_SELF);
+    Query hot = mock(Query.class, RETURNS_SELF);
+    Query reserve = mock(Query.class, RETURNS_SELF);
+    when(em.createNativeQuery(anyString())).thenReturn(cold, hot, reserve);
+    when(reserve.executeUpdate()).thenReturn(0);
+    PostgresqlStoreContext ctx = new PostgresqlStoreContext(em);
     PostgresqlJobWriteOperations writes =
-        new PostgresqlJobWriteOperations(new PostgresqlStoreContext(em), null, null);
+        new PostgresqlJobWriteOperations(ctx, new PostgresqlBusinessKeyReservations(ctx), null);
     JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
     job.setBusinessKey("order-1");
+    job.setIdempotencyKey(UUID.randomUUID().toString());
 
     BusinessKeyReservationConflictException thrown =
         assertThrows(BusinessKeyReservationConflictException.class, () -> writes.saveInsert(job));
 
-    assertSame(failure, thrown.getCause());
+    assertNull(thrown.getCause());
+    verify(cold, never()).executeUpdate();
+    verify(hot, never()).executeUpdate();
+    verify(em, times(3)).createNativeQuery(anyString());
   }
 
   @Test
@@ -78,7 +88,8 @@ class PostgresqlConstraintDetectorTest {
         new RuntimeException(
             "hibernate",
             new SQLException(
-                "duplicate key value violates unique constraint \"scheduler_business_key_reservation_pkey\"",
+                "duplicate key value violates unique constraint"
+                    + " \"scheduler_business_key_reservation_pkey\"",
                 "23505"));
 
     assertEquals("scheduler_business_key_reservation_pkey", detector.constraintName(wrapped));
@@ -123,7 +134,8 @@ class PostgresqlConstraintDetectorTest {
         new RuntimeException(
             "hibernate",
             new SQLException(
-                "duplicate key value violates unique constraint \"scheduler_business_key_reservation_pkey\"",
+                "duplicate key value violates unique constraint"
+                    + " \"scheduler_business_key_reservation_pkey\"",
                 "23505"));
 
     assertTrue(detector.isDuplicateBusinessKey(wrapped));

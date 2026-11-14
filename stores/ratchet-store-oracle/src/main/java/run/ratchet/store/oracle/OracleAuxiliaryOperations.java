@@ -18,6 +18,7 @@ package run.ratchet.store.oracle;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,7 +30,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
@@ -259,7 +262,7 @@ final class OracleAuxiliaryOperations
           """;
       List<?> limits = ctx.em().createNativeQuery(sql).setParameter(1, resource).getResultList();
       if (limits.isEmpty()) {
-        throw new IllegalArgumentException("Resource is not configured: " + resource);
+        throw new ResourceNotConfiguredException(resource);
       }
       // READ COMMITTED reads the latest committed claim after the resource lock.
       // language=Oracle
@@ -706,34 +709,101 @@ final class OracleAuxiliaryOperations
   }
 
   @Override
-  public void configureResource(
-      String name, int maxConcurrent, int retryDelayMs, String description) {
+  public Optional<ResourceLimit> findResourceLimit(String name) {
     try {
       // language=Oracle
       String sql =
           """
-          MERGE INTO scheduler_resource_limit d
-          USING (SELECT ? AS resource_name, ? AS max_concurrent, ? AS retry_delay_ms,
-                        ? AS description FROM dual) s
-          ON (d.resource_name = s.resource_name)
-          WHEN MATCHED THEN UPDATE SET
-            d.max_concurrent = s.max_concurrent,
-            d.retry_delay_ms = s.retry_delay_ms,
-            d.description = s.description,
-            d.updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-          WHEN NOT MATCHED THEN INSERT
-            (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
-            VALUES (s.resource_name, s.max_concurrent, s.retry_delay_ms, s.description,
-                    CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP),
-                    CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP))
+          SELECT resource_name, max_concurrent, retry_delay_ms, description
+          FROM scheduler_resource_limit WHERE resource_name = ?
           """;
-      ctx.em()
-          .createNativeQuery(sql)
-          .setParameter(1, name)
-          .setParameter(2, maxConcurrent)
-          .setParameter(3, retryDelayMs)
-          .setParameter(4, description)
-          .executeUpdate();
+      Object[] row =
+          (Object[]) ctx.em().createNativeQuery(sql).setParameter(1, name).getSingleResult();
+      return Optional.of(mapResourceLimit(row));
+    } catch (NoResultException e) {
+      return Optional.empty();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find resource limit", e);
+    }
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    try {
+      // language=Oracle
+      String sql =
+          """
+          SELECT resource_name, max_concurrent, retry_delay_ms, description
+          FROM scheduler_resource_limit
+          """;
+      List<?> rows = ctx.em().createNativeQuery(sql).getResultList();
+      List<ResourceLimit> limits = new ArrayList<>(rows.size());
+      for (Object row : rows) {
+        limits.add(mapResourceLimit((Object[]) row));
+      }
+      return limits;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("list resource limits", e);
+    }
+  }
+
+  private static ResourceLimit mapResourceLimit(Object[] row) {
+    return new ResourceLimit(
+        (String) row[0],
+        ((Number) row[1]).intValue(),
+        Duration.ofMillis(((Number) row[2]).intValue()),
+        (String) row[3]);
+  }
+
+  @Override
+  public void configureResource(
+      String name, int maxConcurrent, int retryDelayMs, String description) {
+    try {
+      // MERGE lets two sessions that both miss the row both insert, so one fails with ORA-00001.
+      // language=Oracle
+      String updateSql =
+          """
+          UPDATE scheduler_resource_limit
+          SET max_concurrent = ?, retry_delay_ms = ?, description = ?,
+              updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+          WHERE resource_name = ?
+          """;
+      Query updateQuery =
+          ctx.em()
+              .createNativeQuery(updateSql)
+              .setParameter(1, maxConcurrent)
+              .setParameter(2, retryDelayMs)
+              .setParameter(3, description)
+              .setParameter(4, name);
+      if (updateQuery.executeUpdate() > 0) {
+        return;
+      }
+
+      // language=Oracle
+      String insertSql =
+          """
+          INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(scheduler_resource_limit(resource_name)) */
+          INTO scheduler_resource_limit
+            (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP),
+                  CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP))
+          """;
+      int inserted =
+          ctx.em()
+              .createNativeQuery(insertSql)
+              .setParameter(1, name)
+              .setParameter(2, maxConcurrent)
+              .setParameter(3, retryDelayMs)
+              .setParameter(4, description)
+              .executeUpdate();
+      if (inserted > 0) {
+        return;
+      }
+
+      if (updateQuery.executeUpdate() == 0) {
+        throw new IllegalStateException(
+            "Resource limit '" + name + "' was deleted while it was being configured");
+      }
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("configure resource", e);
     }

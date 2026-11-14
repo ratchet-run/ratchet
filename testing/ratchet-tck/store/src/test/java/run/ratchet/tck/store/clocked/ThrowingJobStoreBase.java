@@ -23,11 +23,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.ChildResult;
@@ -136,8 +138,8 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return fail("findActiveByBusinessKey");
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return fail("findBusinessKeyHolder");
   }
 
   @Override
@@ -573,6 +575,11 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    return fail("findArchivedJob");
+  }
+
+  @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     return fail("findArchivedJobs");
@@ -759,6 +766,16 @@ public abstract class ThrowingJobStoreBase
   @Override
   public int getPermitRetryDelay(String resource) {
     return fail("getPermitRetryDelay");
+  }
+
+  @Override
+  public Optional<ResourceLimit> findResourceLimit(String name) {
+    return fail("findResourceLimit");
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    return fail("listResourceLimits");
   }
 
   @Override
