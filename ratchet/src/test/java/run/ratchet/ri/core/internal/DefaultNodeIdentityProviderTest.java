@@ -509,12 +509,25 @@ class DefaultNodeIdentityProviderTest {
   }
 
   @Test
-  void fullOwnPageThatChangesNothingEndsLoop() {
+  void fullOwnPageThatChangesNothingIsReadAgain() {
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
-        .thenReturn(new OrphanRecovery(500, 0, 0, List.of()));
+        .thenReturn(
+            new OrphanRecovery(500, 0, 0, List.of()),
+            new OrphanRecovery(500, 0, 0, List.of()),
+            new OrphanRecovery(2, 2, 0, List.of()));
     provider.init();
-    verify(jobBulkStore)
+    InOrder order = inOrder(nodeStore, jobBulkStore);
+    order.verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+    order
+        .verify(jobBulkStore, times(3))
         .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    order
+        .verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
   }
 
   @Test

@@ -340,7 +340,8 @@ final class OracleJobDeleteOperations {
               ctx.em()
                   .createNativeQuery(
                       """
-                      UPDATE scheduler_job_queue SET picked_at = ?, updated_at = ?
+                      UPDATE scheduler_job_queue
+                      SET picked_at = ?, updated_at = ?, version = version + 1
                       WHERE status = 'RUNNING' AND job_id IN (
                       """
                           + String.join(",", Collections.nCopies(exhausted.size(), "?"))

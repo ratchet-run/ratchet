@@ -35,6 +35,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -1039,6 +1040,34 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     assertTrue(store().markJobFailedTerminal(row.jobId(), "done", 0, row.claimSeq()));
     assertEquals(
         OrphanRecovery.none(), store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 1, 10));
+  }
+
+  @Test
+  void deferredExhaustedClaimRejectsStaleSaveAndStillCompletes() {
+    JobEntity job = agedOrphan("dead", true);
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    OrphanRecovery recovery = store().resetOrphanJobsBefore(Instant.now().minusSeconds(30), 1, 10);
+    assertEquals(1, recovery.exhausted().size());
+    ExhaustedOrphan row = recovery.exhausted().get(0);
+    assertEquals(job.getId(), row.jobId());
+    Instant deferredPickedAt = store().findById(job.getId()).orElseThrow().getPickedAt();
+
+    RuntimeException failure = assertThrows(RuntimeException.class, () -> store().save(stale));
+    Throwable cause = failure;
+    while (cause != null && !(cause instanceof RatchetOptimisticLockException)) {
+      cause = cause.getCause();
+    }
+    assertTrue(cause instanceof RatchetOptimisticLockException);
+
+    JobEntity deferred = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, deferred.getStatus());
+    assertEquals(deferredPickedAt, deferred.getPickedAt());
+    assertEquals(row.claimSeq(), deferred.getClaimSeq());
+    assertEquals("dead", deferred.getPickedBy());
+    assertEquals(
+        OrphanRecovery.none(),
+        store().resetOrphanJobsBefore(Instant.now().minusSeconds(30), 1, 10));
+    assertTrue(store().markJobFailedTerminal(row.jobId(), "done", 0, row.claimSeq()));
   }
 
   @Test

@@ -53,10 +53,11 @@ public interface JobBulkStore {
    * <p>Rows below {@code maxCrashRedeliveries} (missing count means zero) become PENDING, with
    * owner and picked_at cleared, crash count incremented and updated_at set to now. Exhausted rows
    * stay RUNNING with the same owner, crash count and claim_seq; picked_at and updated_at are both
-   * set to the current JVM time ({@link Instant#now()}). This defers them for one grace period.
-   * Every confirmed row leaves the candidate window for this cutoff. Returns (scanned, reset, 0,
-   * exhausted), with the page's exhausted claims in original picked_at order for the engine to
-   * fail.
+   * set to the current JVM time ({@link Instant#now()}), and the row version is incremented so a
+   * save of an entity read before the page fails its version check. This defers them for one grace
+   * period. Every confirmed row leaves the candidate window for this cutoff. Returns (scanned,
+   * reset, 0, exhausted), with the page's exhausted claims in original picked_at order for the
+   * engine to fail.
    *
    * <p>One transaction per call, never joined to a caller's transaction. A nonpositive limit
    * touches nothing and returns {@link OrphanRecovery#none()}.

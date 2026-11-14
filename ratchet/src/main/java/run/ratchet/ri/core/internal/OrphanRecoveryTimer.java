@@ -19,9 +19,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Random;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -47,7 +49,8 @@ import run.ratchet.store.spi.OrphanRecovery;
  * Without periodic recovery, these jobs would remain stuck until a node restart.
  *
  * <p>Each scan charges a separate crash budget. Exhausted claims are failed through the fenced
- * completion path, including failure callbacks when payload hydration succeeds.
+ * completion path, including failure callbacks when payload hydration succeeds. Each page's
+ * exhausted claims are tried in a random order.
  *
  * <p>A node killed during its own scan leaves the lease held. Other nodes release it once the
  * holder's heartbeat is older than the orphan grace, instead of waiting for the lease TTL.
@@ -75,6 +78,7 @@ public class OrphanRecoveryTimer {
   private final SingletonLeaseService singletonLeaseService;
   private final long orphanGraceSeconds;
   private final Clock clock;
+  private final Random random;
   private final Object scanMonitor = new Object();
 
   private volatile ScheduledFuture<?> handle;
@@ -92,6 +96,7 @@ public class OrphanRecoveryTimer {
     this.singletonLeaseService = null;
     this.orphanGraceSeconds = 0;
     this.clock = null;
+    this.random = null;
     this.leaseTtl = null;
   }
 
@@ -108,6 +113,36 @@ public class OrphanRecoveryTimer {
       long orphanGraceSeconds,
       long leaseTtlSeconds,
       Clock clock) {
+    this(
+        jobBulkStore,
+        jobCrudStore,
+        nodeStore,
+        resourcePermitService,
+        singletonLeaseService,
+        lifecycleFacade,
+        failureCallback,
+        errorSanitizer,
+        maxCrashRedeliveries,
+        orphanGraceSeconds,
+        leaseTtlSeconds,
+        clock,
+        new Random());
+  }
+
+  OrphanRecoveryTimer(
+      JobBulkStore jobBulkStore,
+      JobCrudStore jobCrudStore,
+      NodeStore nodeStore,
+      ResourcePermitService resourcePermitService,
+      SingletonLeaseService singletonLeaseService,
+      PostExecutionHandler lifecycleFacade,
+      BiConsumer<JobEntity, Throwable> failureCallback,
+      ErrorSanitizer errorSanitizer,
+      int maxCrashRedeliveries,
+      long orphanGraceSeconds,
+      long leaseTtlSeconds,
+      Clock clock,
+      Random random) {
     this.jobBulkStore = Objects.requireNonNull(jobBulkStore, "jobBulkStore must not be null");
     this.jobCrudStore = Objects.requireNonNull(jobCrudStore, "jobCrudStore must not be null");
     this.nodeStore = Objects.requireNonNull(nodeStore, "nodeStore must not be null");
@@ -123,6 +158,7 @@ public class OrphanRecoveryTimer {
     this.orphanGraceSeconds = orphanGraceSeconds;
     this.leaseTtl = Duration.ofSeconds(leaseTtlSeconds);
     this.clock = clock;
+    this.random = Objects.requireNonNull(random, "random must not be null");
   }
 
   /** Runs once at start-up before the node claims work. Each attempt is its own store call. */
@@ -267,7 +303,12 @@ public class OrphanRecoveryTimer {
           jobBulkStore.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, ORPHAN_PAGE_SIZE);
       pages++;
       resetJobs += recovery.reset();
-      for (ExhaustedOrphan orphan : recovery.exhausted()) {
+      // A page defers all its exhausted claims with one timestamp, so they return together in the
+      // same order. A random order stops a slow failure at the head from using the budget on
+      // every scan while the claims behind it are never tried.
+      List<ExhaustedOrphan> exhausted = new ArrayList<>(recovery.exhausted());
+      Collections.shuffle(exhausted, random);
+      for (ExhaustedOrphan orphan : exhausted) {
         if (attemptedFailures > 0 && effective().instant().isAfter(deadline)) {
           stopReason = "budget";
           break scan;

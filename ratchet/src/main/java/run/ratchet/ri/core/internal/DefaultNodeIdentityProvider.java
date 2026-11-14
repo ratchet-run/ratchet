@@ -256,7 +256,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
     // Startup self-recovery: unconditionally reclaim RUNNING jobs owned by THIS nodeId. A node
     // that crashes and restarts inside the steady-state grace window would otherwise leave its
-    // own prior RUNNING rows in place until the heartbeat aged out.
+    // own prior RUNNING rows in place until the heartbeat aged out. Unlike the periodic scan this
+    // has no page or time limit: once this node heartbeats, no periodic scan sees its claims.
     int scanned = 0;
     int reset = 0;
     int released = 0;
@@ -270,9 +271,15 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       scanned += own.scanned();
       reset += own.reset();
       released += own.released();
-      if (own.scanned() < OrphanRecoveryTimer.ORPHAN_PAGE_SIZE
-          || own.reset() + own.released() == 0) {
+      if (own.scanned() < OrphanRecoveryTimer.ORPHAN_PAGE_SIZE) {
         break;
+      }
+      if (own.reset() + own.released() == 0) {
+        // Every row the page read left this node's claims before the recheck, for example to a
+        // peer's scan. More may remain. No row can join until this node claims, so read again.
+        log.warnf(
+            "Startup recovery for node %s read a full page that changed nothing; reading again",
+            resolvedNodeId);
       }
     }
     log.infof(

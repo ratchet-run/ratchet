@@ -380,7 +380,7 @@ final class MysqlJobDeleteOperations {
                 .createNativeQuery(
                     """
                     UPDATE scheduler_job_queue FORCE INDEX (PRIMARY)
-                    SET picked_at = ?, updated_at = ?
+                    SET picked_at = ?, updated_at = ?, version = version + 1
                     WHERE job_id IN (
                     """
                         + String.join(",", Collections.nCopies(exhaustedIds.size(), "?"))

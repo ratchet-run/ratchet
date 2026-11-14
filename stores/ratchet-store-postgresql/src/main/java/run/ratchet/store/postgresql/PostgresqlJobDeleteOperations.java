@@ -286,7 +286,8 @@ final class PostgresqlJobDeleteOperations {
         Query defer =
             ctx.em()
                 .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_at = ?, updated_at = ? "
+                    "UPDATE scheduler_job_queue SET picked_at = ?, updated_at = ?,"
+                        + " version = version + 1 "
                         + restricted
                         + " AND crash_count >= ? RETURNING job_id, claim_seq, crash_count,"
                         + " picked_by");

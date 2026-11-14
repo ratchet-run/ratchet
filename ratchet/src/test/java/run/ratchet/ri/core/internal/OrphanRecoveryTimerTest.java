@@ -40,6 +40,8 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -118,7 +120,8 @@ class OrphanRecoveryTimerTest {
             3,
             60,
             120,
-            FIXED_CLOCK);
+            FIXED_CLOCK,
+            new Random(341));
   }
 
   @Test
@@ -854,22 +857,36 @@ class OrphanRecoveryTimerTest {
   }
 
   @Test
-  void exhaustedRowsAreFailedInOrderPageByPage() {
+  void exhaustedRowsAreFailedPageByPage() {
     JobEntity first = exhaustedJob(11);
     JobEntity second = exhaustedJob(12);
     JobEntity third = exhaustedJob(13);
+    List<Object> events = new ArrayList<>();
     when(jobBulkStore.resetOrphanJobsBefore(
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
-        .thenReturn(
-            new OrphanRecovery(500, 498, 0, exhaustedRows.subList(0, 2)),
-            new OrphanRecovery(1, 0, 0, exhaustedRows.subList(2, 3)));
+        .thenAnswer(
+            invocation -> {
+              events.add("page 1");
+              return new OrphanRecovery(500, 498, 0, exhaustedRows.subList(0, 2));
+            })
+        .thenAnswer(
+            invocation -> {
+              events.add("page 2");
+              return new OrphanRecovery(1, 0, 0, exhaustedRows.subList(2, 3));
+            });
+    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+        .thenAnswer(
+            invocation -> {
+              JobEntity job = invocation.getArgument(0);
+              events.add(job.getId());
+              return true;
+            });
     timer.recoverNow();
-    InOrder order = inOrder(jobBulkStore, lifecycleFacade);
-    order.verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
-    order.verify(lifecycleFacade).completeFailure(first, JobStatus.RUNNING, false);
-    order.verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
-    order.verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
-    order.verify(lifecycleFacade).completeFailure(third, JobStatus.RUNNING, false);
+    assertEquals(5, events.size());
+    assertEquals("page 1", events.get(0));
+    assertEquals(Set.of(first.getId(), second.getId()), Set.copyOf(events.subList(1, 3)));
+    assertEquals("page 2", events.get(3));
+    assertEquals(third.getId(), events.get(4));
   }
 
   @Test
@@ -938,22 +955,57 @@ class OrphanRecoveryTimerTest {
   void exhaustedBudgetStopsBeforeSecondRow() {
     MutableClock clock = new MutableClock();
     timer = timerWithClock(clock);
-    JobEntity first = exhaustedJob(11);
-    JobEntity second = exhaustedJob(12);
+    exhaustedJob(11);
+    exhaustedJob(12);
     when(jobBulkStore.resetOrphanJobsBefore(any(Instant.class), eq(3), eq(500)))
         .thenReturn(new OrphanRecovery(500, 498, 0, exhaustedRows));
-    when(lifecycleFacade.completeFailure(first, JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
         .thenAnswer(
             invocation -> {
               clock.advance(OrphanRecoveryTimer.ORPHAN_SCAN_BUDGET.plusSeconds(1));
               return true;
             });
     timer.recoverNow();
-    verify(lifecycleFacade).completeFailure(first, JobStatus.RUNNING, false);
-    verify(lifecycleFacade, never()).completeFailure(second, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
     verify(resourcePermitService).sweepWaiters();
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+  }
+
+  @Test
+  void slowFailingHeadDoesNotStarveLaterExhaustedClaims() {
+    MutableClock clock = new MutableClock();
+    timer = timerWithClock(clock);
+    JobEntity first = exhaustedJob(11);
+    JobEntity second = exhaustedJob(12);
+    JobEntity third = exhaustedJob(13);
+    List<UUID> completed = new ArrayList<>();
+    when(jobBulkStore.resetOrphanJobsBefore(
+            any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenAnswer(
+            invocation -> {
+              List<ExhaustedOrphan> remaining =
+                  exhaustedRows.stream().filter(row -> !completed.contains(row.jobId())).toList();
+              return new OrphanRecovery(remaining.size(), 0, 0, remaining);
+            });
+    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+        .thenAnswer(
+            invocation -> {
+              JobEntity job = invocation.getArgument(0);
+              if (job == first) {
+                clock.advance(Duration.ofSeconds(11));
+                throw new IllegalStateException("store unavailable");
+              }
+              completed.add(job.getId());
+              return true;
+            });
+    for (int scan = 0; scan < 30 && completed.size() < 2; scan++) {
+      timer.recoverNow();
+      clock.advance(Duration.ofSeconds(61));
+    }
+    assertEquals(Set.of(second.getId(), third.getId()), Set.copyOf(completed));
+    verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(third, JobStatus.RUNNING, false);
   }
 
   @Test
@@ -1074,7 +1126,8 @@ class OrphanRecoveryTimerTest {
         3,
         60,
         120,
-        clock);
+        clock,
+        new Random(341));
   }
 
   private static final class MutableClock extends Clock {

@@ -370,7 +370,7 @@ final class SqlserverJobDeleteOperations {
             ctx.em()
                 .createNativeQuery(
                     """
-                    UPDATE q SET picked_at = ?, updated_at = ?
+                    UPDATE q SET picked_at = ?, updated_at = ?, version = q.version + 1
                     FROM scheduler_job_queue q WITH (FORCESEEK, INDEX(pk_scheduler_job_queue))
                     WHERE q.job_id IN (
                     """
