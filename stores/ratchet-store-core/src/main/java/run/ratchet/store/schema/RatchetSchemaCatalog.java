@@ -54,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 21;
+  public static final int CURRENT_VERSION = 22;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(

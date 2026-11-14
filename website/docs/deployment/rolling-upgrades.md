@@ -70,8 +70,8 @@ nodes run together, a save on an upgraded node cannot detect a concurrent change
 node. MongoDB needs no change.
 
 SQL stores also gain a migration that adds three nullable columns and the `idx_bk_held_until` index
-to `scheduler_business_key_reservation` (`V018__business_key_hold.sql` on MySQL,
-`V016__business_key_hold.sql` on PostgreSQL, Oracle and SQL Server). They let a cancelled running
+to `scheduler_business_key_reservation` (`V019__business_key_hold.sql` on MySQL,
+`V017__business_key_hold.sql` on PostgreSQL, Oracle and SQL Server). They let a cancelled running
 job keep its business key until its body ends. The table has one row per held business key and the
 new columns start empty, so the index builds quickly. On PostgreSQL, Oracle and SQL Server, writes
 to the table wait while the index is built, and on Oracle the DDL fails with ORA-00054 if another
