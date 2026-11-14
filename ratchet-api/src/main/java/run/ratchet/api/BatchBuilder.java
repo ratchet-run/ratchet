@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /**
  * Fluent builder for batch job execution with progress monitoring, conditional branching, and
@@ -84,7 +85,9 @@ public interface BatchBuilder {
    * usable. If the winner rolls back, submission can proceed. If the winner commits but the
    * original job cannot be looked up, the loser throws {@link DuplicateIdempotencyKeyException}
    * instead, and the caller's transaction still stays usable. On MySQL the wait is bounded by
-   * {@code innodb_lock_wait_timeout}. With the MongoDB store, the winner's parent write commits in
+   * {@code innodb_lock_wait_timeout}. If the wait times out, submission throws {@link
+   * RatchetTransientStoreException} and marks the caller's transaction rollback-only. Roll it back
+   * and retry in a new transaction. With the MongoDB store, the winner's parent write commits in
    * its own transaction, so rolling back the winner's caller transaction does not release the key,
    * and the loser returns the original handle. Task execution remains at least once.
    *

@@ -434,7 +434,21 @@ public class DefaultJobCreationService
       return resolveIdempotencyConflict(idempotencyKey, e);
     } catch (BusinessKeyReservationConflictException e) {
       if (state.hasExplicitIdempotencyKey()) {
-        Optional<UUID> original = findOriginalAfterConflict(idempotencyKey, e);
+        Optional<UUID> original;
+        try {
+          original = findOriginalInFreshTransaction(idempotencyKey);
+        } catch (RuntimeException lookupFailure) {
+          // The holder's idempotency key is unknown, so neither duplicate exception applies.
+          // A fresh submission can resolve it.
+          RatchetTransientStoreException failure =
+              lookupFailure instanceof RatchetTransientStoreException transientFailure
+                  ? transientFailure
+                  : new RatchetTransientStoreException(
+                      "Could not resolve the business key conflict for '" + businessKey + "'",
+                      lookupFailure);
+          failure.addSuppressed(e);
+          throw failure;
+        }
         if (original.isPresent()) {
           UUID originalId = original.get();
           return () -> originalId;
@@ -489,23 +503,25 @@ public class DefaultJobCreationService
     return () -> jobId;
   }
 
-  private Optional<UUID> findOriginalAfterConflict(String key, RuntimeException conflict) {
-    try {
-      // A fresh transaction sees the winner outside a MySQL REPEATABLE READ snapshot.
-      return conflictResolutionTransaction != null
-          ? conflictResolutionTransaction.complete(
-              () -> jobCrudStore.findOriginalJobIdByIdempotencyKey(key))
-          : jobCrudStore.findOriginalJobIdByIdempotencyKey(key);
-    } catch (RuntimeException lookupFailure) {
-      conflict.addSuppressed(lookupFailure);
-      throw conflict;
-    }
+  private Optional<UUID> findOriginalInFreshTransaction(String key) {
+    // A fresh transaction sees the winner outside a MySQL REPEATABLE READ snapshot.
+    return conflictResolutionTransaction != null
+        ? conflictResolutionTransaction.complete(
+            () -> jobCrudStore.findOriginalJobIdByIdempotencyKey(key))
+        : jobCrudStore.findOriginalJobIdByIdempotencyKey(key);
   }
 
   private JobHandle resolveIdempotencyConflict(
       String key, DuplicateIdempotencyKeyException conflict) {
-    UUID original = findOriginalAfterConflict(key, conflict).orElseThrow(() -> conflict);
-    return () -> original;
+    Optional<UUID> original;
+    try {
+      original = findOriginalInFreshTransaction(key);
+    } catch (RuntimeException lookupFailure) {
+      conflict.addSuppressed(lookupFailure);
+      throw conflict;
+    }
+    UUID originalId = original.orElseThrow(() -> conflict);
+    return () -> originalId;
   }
 
   private JobHandle resolveBusinessKeyHolder(

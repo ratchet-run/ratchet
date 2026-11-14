@@ -316,7 +316,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
-  void submit_businessKeyConflictLookupFailure_rethrowsConflictWithSuppressedFailure() {
+  void submit_businessKeyConflictLookupFailure_throwsTransientWithSuppressedConflict() {
     DefaultJobCreationService service = newService();
     BusinessKeyReservationConflictException collision =
         new BusinessKeyReservationConflictException("raced");
@@ -328,14 +328,36 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
     DefaultJobBuilder builder = racingBuilder(service, true);
     builder.withIdempotencyKey(" ");
 
-    assertSame(
-        collision,
+    RatchetTransientStoreException thrown =
         Assertions.assertThrows(
-            BusinessKeyReservationConflictException.class, () -> service.submit(builder)));
-    assertEquals(1, collision.getSuppressed().length);
-    assertSame(lookupFailure, collision.getSuppressed()[0]);
+            RatchetTransientStoreException.class, () -> service.submit(builder));
+
+    assertSame(lookupFailure, thrown.getCause());
+    assertEquals(1, thrown.getSuppressed().length);
+    assertSame(collision, thrown.getSuppressed()[0]);
     verify(conflictResolutionTransaction).complete(any());
     verify(jobCrudStore, times(1)).findBusinessKeyHolder("raced");
+  }
+
+  @Test
+  void submit_businessKeyConflictTransientLookupFailure_rethrowsItWithSuppressedConflict() {
+    DefaultJobCreationService service = newService();
+    BusinessKeyReservationConflictException collision =
+        new BusinessKeyReservationConflictException("raced");
+    RatchetTransientStoreException lookupFailure =
+        new RatchetTransientStoreException("lookup timed out");
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine"))
+        .thenReturn(Optional.empty())
+        .thenThrow(lookupFailure);
+    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+
+    assertSame(
+        lookupFailure,
+        Assertions.assertThrows(
+            RatchetTransientStoreException.class,
+            () -> service.submit(racingBuilder(service, true))));
+    assertEquals(1, lookupFailure.getSuppressed().length);
+    assertSame(collision, lookupFailure.getSuppressed()[0]);
   }
 
   @Test

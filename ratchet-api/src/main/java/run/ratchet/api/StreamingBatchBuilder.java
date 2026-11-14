@@ -80,7 +80,9 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * original job cannot be looked up, the loser throws {@link DuplicateIdempotencyKeyException}
    * instead, and the caller's transaction still stays usable. The loser closes the stream, but it
    * may already have read items, because payloads are validated before the parent is created. On
-   * MySQL the wait is bounded by {@code innodb_lock_wait_timeout}. With the MongoDB store, the
+   * MySQL the wait is bounded by {@code innodb_lock_wait_timeout}. If the wait times out,
+   * submission throws {@link RatchetTransientStoreException} and marks the caller's transaction
+   * rollback-only. Roll it back and retry in a new transaction. With the MongoDB store, the
    * winner's parent write commits in its own transaction, so rolling back the winner's caller
    * transaction does not release the key, and the loser returns the original handle. Task execution
    * remains at least once.

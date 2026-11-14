@@ -301,6 +301,9 @@ Each job gets a unique idempotency key. Submission first reads the permanent led
 Single-job and all batch-parent creation, including partitioned batches, use a non-raising reservation insert.
 A loser waits for the winner's transaction to end and returns its original handle after commit;
 if the winner rolls back, submission can proceed. The caller's transaction stays usable.
+On MySQL the wait is bounded by `innodb_lock_wait_timeout`. If the wait times out, submission throws
+`RatchetTransientStoreException` and marks the caller's transaction rollback-only. Roll it back and
+retry in a new transaction.
 With the MongoDB store, the winner's write commits in its own transaction, so rolling back the
 winner's caller transaction does not release the key, and the loser returns the original handle.
 `DuplicateIdempotencyKeyException` escapes only if the original handle cannot be resolved.
