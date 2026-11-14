@@ -46,6 +46,10 @@ public interface JobCrudStore {
   /**
    * Updates an existing job row and returns the persisted entity view.
    *
+   * <p>A save persists every changed field, including when scheduling or status fields change in
+   * the same call as {@code params}, the callback payloads, {@code dependsOn}, {@code supersededBy}
+   * or {@code resourceName}.
+   *
    * <p>Transaction attribute: {@code REQUIRED}.
    */
   JobEntity save(JobEntity job);

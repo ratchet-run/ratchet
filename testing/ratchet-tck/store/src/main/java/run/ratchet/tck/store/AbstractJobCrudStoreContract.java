@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ConcurrentModificationException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -99,6 +100,87 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
 
     assertTrue(reloaded.isPresent(), "Persisted job should be reloadable by ID");
     assertEquals(saved.getId(), reloaded.get().getId());
+  }
+
+  @Test
+  void save_scheduledTimeAndResourceName_persistsBothChanges() {
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    Instant scheduledTime = job.getScheduledTime().plusSeconds(60);
+    job.setScheduledTime(scheduledTime);
+    job.setResourceName("updated-resource");
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals(scheduledTime, found.getScheduledTime());
+    assertEquals("updated-resource", found.getResourceName());
+  }
+
+  @Test
+  void save_scheduledTimeAndParams_persistsBothChanges() {
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    Instant scheduledTime = job.getScheduledTime().plusSeconds(60);
+    Map<String, String> params = Map.of("key", "updated-value");
+    job.setScheduledTime(scheduledTime);
+    job.setParams(params);
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals(scheduledTime, found.getScheduledTime());
+    assertEquals(params, found.getParams());
+  }
+
+  @Test
+  void save_lastErrorAndDependsOnAndCallbacks_persistsEveryChange() {
+    var parent = persist(newPendingJob());
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    var onSuccess =
+        new JobPayload("com.example.Callback", "onSuccess", "()V", false, List.of(), null);
+    var onFailure =
+        new JobPayload("com.example.Callback", "onFailure", "()V", false, List.of(), null);
+    job.setLastError("updated-error");
+    job.setDependsOn(parent.getId());
+    job.setOnSuccessPayload(onSuccess);
+    job.setOnFailurePayload(onFailure);
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals("updated-error", found.getLastError());
+    assertEquals(parent.getId(), found.getDependsOn());
+    assertEquals(onSuccess, found.getOnSuccessPayload());
+    assertEquals(onFailure, found.getOnFailurePayload());
+  }
+
+  @Test
+  void save_canceledAndSupersededBy_persistsBothChanges() {
+    var replacement = persist(newPendingJob());
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    job.setStatus(JobStatus.CANCELED);
+    job.setSupersededBy(replacement.getId());
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.CANCELED, found.getStatus());
+    assertEquals(replacement.getId(), found.getSupersededBy());
+  }
+
+  @Test
+  void save_resourceNameOnly_persistsChange() {
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    job.setResourceName("updated-resource");
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals("updated-resource", found.getResourceName());
   }
 
   @Test
