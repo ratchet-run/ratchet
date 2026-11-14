@@ -25,6 +25,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Properties;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
@@ -139,7 +140,9 @@ public class JdbcContainerExtension
       container = createContainer(dbType);
       container.start();
       if ("mysql".equals(dbType)) {
-        grantMysqlProcessPrivilege(container);
+        grantMysqlLockWaitPrivileges(container);
+      } else if ("oracle".equals(dbType)) {
+        grantOracleLockWaitPrivilege(container);
       }
 
       // PostgreSQL needs `stringtype=unspecified` so the JDBC driver sends Java Strings as
@@ -255,17 +258,41 @@ public class JdbcContainerExtension
   }
 
   /**
-   * Lets the test user read {@code information_schema.INNODB_TRX}, so race tests can see a session
-   * waiting on a row lock. The grant runs before any test connection opens, which global privileges
-   * need. Testcontainers gives root the test user's password.
+   * Lets the test user read {@code information_schema.INNODB_TRX} and {@code
+   * performance_schema.data_lock_waits}, so race tests can identify the waiting and blocking
+   * sessions. The grants run before any test connection opens, which global privileges need.
+   * Testcontainers gives root the test user's password.
    */
-  private static void grantMysqlProcessPrivilege(JdbcDatabaseContainer<?> mysql) {
+  private static void grantMysqlLockWaitPrivileges(JdbcDatabaseContainer<?> mysql) {
     try (Connection c =
             DriverManager.getConnection(mysql.getJdbcUrl(), "root", mysql.getPassword());
         Statement s = c.createStatement()) {
       s.execute("GRANT PROCESS ON *.* TO '" + mysql.getUsername() + "'@'%'");
+      s.execute(
+          "GRANT SELECT ON performance_schema.data_lock_waits TO '"
+              + mysql.getUsername()
+              + "'@'%'");
     } catch (SQLException e) {
-      throw new IllegalStateException("Could not grant PROCESS to the MySQL test user", e);
+      throw new IllegalStateException(
+          "Could not grant lock-wait privileges to the MySQL test user", e);
+    }
+  }
+
+  /**
+   * Lets the test user read {@code v$session}, so race tests can identify the waiting and blocking
+   * sessions. The grant requires SYSDBA; Testcontainers gives SYS the container password.
+   */
+  private static void grantOracleLockWaitPrivilege(JdbcDatabaseContainer<?> oracle) {
+    Properties properties = new Properties();
+    properties.setProperty("user", "sys");
+    properties.setProperty("password", oracle.getPassword());
+    properties.setProperty("internal_logon", "sysdba");
+    try (Connection c = DriverManager.getConnection(oracle.getJdbcUrl(), properties);
+        Statement s = c.createStatement()) {
+      s.execute("GRANT SELECT ON SYS.V_$SESSION TO " + oracle.getUsername());
+    } catch (SQLException e) {
+      throw new IllegalStateException(
+          "Could not grant lock-wait privilege to the Oracle test user", e);
     }
   }
 
