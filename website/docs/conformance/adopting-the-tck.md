@@ -187,7 +187,9 @@ contract is not enough, because the report marks unexecuted required contracts a
 
 For a job that has a business key and is not created in a terminal state, `JobCrudStore.create()` must reserve the key before writing the idempotency key or job rows. A job created in a terminal state does not reserve its key, so it can be created while another job holds that key. A held key must raise `BusinessKeyReservationConflictException` without writing anything for the losing job. The caller's transaction must remain usable. Never raise this exception after writing job data.
 
-`AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners and holders committed after the caller's first read.
+`JobBulkStore.bulkInsert()` follows the same rule: it reserves a job's key only when the job is not created in a terminal state. If a write in your store waits for a key that another transaction has written but not committed, `bulkInsert()` must also write keys in the same order as `create()`: business-key reservations first, then idempotency keys, then job rows. Otherwise a bulk insert and a create that share both keys can deadlock.
+
+`AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners, holders committed after the caller's first read and the key order of bulk inserts.
 
 If your store's `create()` joins the caller's transaction, override four hooks on your `AbstractBusinessKeyReservationContract` subclass itself: `inOwnerTransaction`, `supportsOwnerTransaction`, `ownerSessionId` and `awaitBlockedSession`. The contract calls them on that subclass, so overriding them only on a separate fixture object leaves the defaults in place. Delegate from the subclass instead, as `PostgresqlBusinessKeyReservationContractTest` does. The first two run the owner-transaction tests. The other two let the race and reservation-order tests confirm in the database that one named session is waiting on a lock held by another.
 

@@ -133,6 +133,7 @@ class DefaultJobSchedulerServiceEventTest {
             jobTerminalStore,
             jobCrudStore,
             batchStore,
+            null,
             tagStore,
             workflowConditionStore,
             recurringJobStore,

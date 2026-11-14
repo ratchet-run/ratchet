@@ -187,6 +187,7 @@ public class InlineConstructionSubmissionTest {
         null,
         null,
         null,
+        null,
         new DefaultJobInvocationResolver(),
         service,
         null,

@@ -148,11 +148,12 @@ final class SqlserverJobWriteOperations {
     }
 
     try {
+      // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+      executeBusinessKeyBulkInsert(jobs);
       SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
       executeColdBulkInsert(jobs, nowTs);
       executeHotBulkInsert(jobs, nowTs);
       executeTerminalBackfills(jobs, nowTs);
-      executeBusinessKeyBulkInsert(jobs);
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException("Active business key in use", e);

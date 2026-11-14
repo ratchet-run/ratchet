@@ -20,6 +20,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -226,6 +228,30 @@ final class OracleArchiveOperations implements ArchiveStore {
       return ((Number) result).longValue();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("count jobs for archiving", e);
+    }
+  }
+
+  @Override
+  @SuppressWarnings("SqlSourceToSinkFlow")
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    Objects.requireNonNull(originalJobId, "originalJobId");
+    try {
+      String sql =
+          """
+          SELECT %s FROM scheduler_job_archive
+          WHERE original_job_id = ? ORDER BY archived_at DESC
+          FETCH FIRST 1 ROWS ONLY
+          """
+              .formatted(ArchiveParameterBinder.ARCHIVE_COLUMNS);
+      Query query = ctx.em().createNativeQuery(sql);
+      query.setParameter(1, UuidRawConverter.toBytes(originalJobId));
+      @SuppressWarnings("unchecked")
+      List<Object[]> rows = query.getResultList();
+      return rows.stream()
+          .findFirst()
+          .map(row -> ArchiveRowMapper.map(row, RowValues::instantOrNull));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find archived job", e);
     }
   }
 

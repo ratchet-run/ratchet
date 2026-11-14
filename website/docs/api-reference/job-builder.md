@@ -167,7 +167,7 @@ JobBuilder withIdempotencyKey(String key)
 Overrides the auto-generated idempotency key. By default, a UUID is generated at builder creation time. A custom idempotency key is **globally unique** -- once used, that key is consumed forever, preventing duplicate job creation.
 
 **Parameters:**
-- `key` -- the idempotency key. If null or blank, keeps the auto-generated UUID.
+- `key` -- the idempotency key. If null or blank, keeps the auto-generated UUID. After trimming, it must contain at most 36 printable ASCII characters (`U+0020` through `U+007E`). Any other key throws `IllegalArgumentException` from this method. Hash a longer or non-ASCII natural key to a 36-character value first.
 
 **Difference from `withBusinessKey`:**
 - `idempotencyKey` is UNIQUE globally -- once used, that key is consumed forever.

@@ -21,6 +21,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -242,6 +244,30 @@ final class SqlserverArchiveOperations implements ArchiveStore {
                 AND (c.job_id = pb.batch_id OR (c.job_type = 'BATCH_CHILD' AND c.depends_on = pb.batch_id)))
         """;
     return ctx.countByNative(sql, Timestamp.from(olderThan));
+  }
+
+  @Override
+  @SuppressWarnings("SqlSourceToSinkFlow")
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    Objects.requireNonNull(originalJobId, "originalJobId");
+    try {
+      String sql =
+          """
+          SELECT %s FROM scheduler_job_archive
+          WHERE original_job_id = ? ORDER BY archived_at DESC
+          OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY
+          """
+              .formatted(ArchiveParameterBinder.ARCHIVE_COLUMNS);
+      Query query = ctx.em().createNativeQuery(sql);
+      query.setParameter(1, UuidByteArrayConverter.toBytes(originalJobId));
+      @SuppressWarnings("unchecked")
+      List<Object[]> rows = query.getResultList();
+      return rows.stream()
+          .findFirst()
+          .map(row -> ArchiveRowMapper.map(row, RowValues::instantOrNull));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find archived job", e);
+    }
   }
 
   // SQL template is assembled from a compile-time-constant column list and AND-clauses defined in

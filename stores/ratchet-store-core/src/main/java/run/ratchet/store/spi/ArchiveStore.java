@@ -17,6 +17,8 @@ package run.ratchet.store.spi;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -80,6 +82,17 @@ public interface ArchiveStore {
    * @return number of candidate rows
    */
   long countJobsForArchiving(Instant olderThan);
+
+  /**
+   * Finds the newest archive row for an original job id, ordered by archive timestamp. Repeated
+   * calls to {@link #archiveJob} can create more than one row for the same original id.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param originalJobId the original job id; never {@code null}
+   * @return the newest archive row, or empty when none remains
+   */
+  Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId);
 
   /**
    * Finds archived jobs matching optional filters.

@@ -288,18 +288,21 @@ public interface JobBuilder {
    * transaction returns the original handle, even after job history is purged. Task execution
    * remains at least once.
    *
-   * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column, so it must be at most 36
-   * characters. This method trims the key and checks its length as soon as it is called, so a
-   * longer key throws here. {@link #withBusinessKey(String)} accepts up to 255 printable ASCII
-   * characters. The auto-generated default is a 36-character UUID.
+   * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column. After trimming, it must
+   * contain at most 36 printable ASCII characters ({@code U+0020} through {@code U+007E}), the same
+   * subset as {@link #withBusinessKey(String)}, so every store keeps it unchanged. This method
+   * trims and checks the key as soon as it is called, so an invalid key throws here. {@link
+   * #withBusinessKey(String)} accepts up to 255 characters. The auto-generated default is a
+   * 36-character UUID.
    *
-   * <p>If your natural key is longer than 36 characters, hash it to a 36-character value first, for
-   * example {@code UUID.nameUUIDFromBytes(naturalKey.getBytes(StandardCharsets.UTF_8))
-   * .toString()}.
+   * <p>If your natural key is longer than 36 characters or contains other characters, hash it to a
+   * 36-character value first, for example {@code
+   * UUID.nameUUIDFromBytes(naturalKey.getBytes(StandardCharsets.UTF_8)) .toString()}.
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
-   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters
+   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters or contains a
+   *     character outside printable ASCII
    */
   JobBuilder withIdempotencyKey(String key);
 

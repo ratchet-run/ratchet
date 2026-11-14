@@ -193,7 +193,7 @@ public class JobAlerts {
 }
 ```
 
-When Micronaut Security is on the classpath, the integration records the submitter from `SecurityService`: the name of the user authenticated on the current request. Submissions made outside a request, such as from a scheduled method or a startup listener, record no submitter. With another security framework, define your own `PrincipalSource` bean; the integration then skips the Micronaut Security one. Ratchet records the principal name at submission. It does not restore a request or security context on the worker. Jobs record no submitter when the application defines more than one `PrincipalSource` bean, or when it defines none and Micronaut Security is absent.
+When Micronaut Security is on the classpath, the integration adds a `PrincipalSource` that reads `SecurityService`: the name of the user authenticated on the current request. Outside a request, such as in a scheduled method or a startup listener, this source has no principal. A configured `CallerPrincipalResolver`, or the principal of the running job when one job submits another, is consulted first and can still supply one; see [caller principal resolution](/getting-started/configuration#caller-principal-resolution). With another security framework, define your own `PrincipalSource` bean; the integration then skips the Micronaut Security one. Ratchet records the principal name at submission. It does not restore a request or security context on the worker. If the application defines several `PrincipalSource` beans and Micronaut cannot select one, or defines none while Micronaut Security is absent, the integration has no principal source to read. A single bean, or one marked `@Primary`, supplies the principal.
 
 ## Circuit breakers on application beans
 

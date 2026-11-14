@@ -180,6 +180,8 @@ scheduler.enqueue(() -> processWebhook(payload))
     .submit();
 ```
 
+The ledger keeps idempotency keys after archive and purge. Use [`findIdempotencyKeyHolder`](../api-reference/job-scheduler-service#idempotency-key-lookup) to read a spent key's original job id and whether that job is live, archived or purged. While a row remains, it also reports the job's type and status.
+
 The idempotency key is enforced by a UNIQUE constraint in the database. Submitting a duplicate key returns the original job's handle. If a racing insert throws `DuplicateIdempotencyKeyException`, retry in a fresh transaction to get that handle.
 
 **Business keys** serve a different purpose -- they prevent concurrent execution of the same logical operation, but allow re-runs after completion:
@@ -193,8 +195,8 @@ scheduler.enqueue(() -> syncUser(userId))
 
 Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED, WAITING). Submitting another job with the same business key throws `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state and frees the key for reuse.
 
-For consistent behavior across stores, business keys are limited to 255 printable ASCII characters
-after trimming. Ratchet rejects longer or non-ASCII keys before persistence.
+For consistent behavior across stores, idempotency keys are limited to 36 and business keys to 255
+printable ASCII characters after trimming. Ratchet rejects longer or non-ASCII keys before persistence.
 
 | Mechanism | Scope | Lifetime | Use Case |
 |-----------|-------|----------|----------|
