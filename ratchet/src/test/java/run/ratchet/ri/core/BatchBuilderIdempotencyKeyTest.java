@@ -70,6 +70,8 @@ class BatchBuilderIdempotencyKeyTest {
         assertThrows(IllegalArgumentException.class, () -> setter.apply("k".repeat(37)));
     assertEquals("Idempotency key must be at most 36 characters, got 37", exception.getMessage());
     assertEquals(maximumKey, storedKey.get());
+    assertThrows(IllegalArgumentException.class, () -> setter.apply("batch-é"));
+    assertEquals(maximumKey, storedKey.get());
     setter.apply(null);
     assertNull(storedKey.get());
     setter.apply("batch-42");

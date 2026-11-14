@@ -18,6 +18,7 @@ package run.ratchet.tck.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -213,6 +214,18 @@ public abstract class AbstractIdempotencyContract {
     assertTrue(runtime().probe().awaitCompleted(b, defaultTimeout()), "Job b must complete");
     assertEquals(1, runtime().probe().invocationCount(a), "Job a invoked exactly once");
     assertEquals(1, runtime().probe().invocationCount(b), "Job b invoked exactly once");
+  }
+
+  /**
+   * An idempotency key MUST contain only printable ASCII after trimming. Oracle can count its
+   * {@code VARCHAR2} limit in bytes and SQL Server's {@code VARCHAR} columns use the collation's
+   * code page, so other characters are rejected before the key reaches a store.
+   */
+  @Test
+  void nonAsciiIdempotencyKey_isRejectedBeforeStoreConversion() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey("delivery-😀"));
   }
 
   protected abstract RatchetTckRuntime runtime();
