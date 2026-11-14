@@ -439,13 +439,10 @@ final class SqlserverJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
-    if (tryScheduledTimeOnlyHotUpdate(job, row)) {
-      return;
+    if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
+      guardAgainstHotMutation(job, row);
     }
-    if (tryHotMutationDispatch(job, row)) {
-      return;
-    }
-    guardAgainstHotMutation(job, row);
+    // Fast paths write only the queue row, so always update the job row too.
 
     // language=SQL Server
     String sql =
