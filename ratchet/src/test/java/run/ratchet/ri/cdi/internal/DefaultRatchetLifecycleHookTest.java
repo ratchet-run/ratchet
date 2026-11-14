@@ -18,11 +18,13 @@ package run.ratchet.ri.cdi.internal;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.annotation.Priority;
@@ -305,10 +307,12 @@ class DefaultRatchetLifecycleHookTest {
     assertEquals(List.of("successful.beforeStart", "successful.afterStart"), events);
     verify(provider).getScheduledExecutor();
     verify(pollerWakeupListener).init();
+    // The start-up permit clean-up is not a scheduled service, so it still runs.
+    verify(orphanRecoveryTimer).cleanupOwnPermitsAtStartup(isNull());
+    verifyNoMoreInteractions(orphanRecoveryTimer);
     verifyNoInteractions(
         poller,
         recurringScheduler,
-        orphanRecoveryTimer,
         batchRecoveryTimer,
         deadLetterService,
         jobArchivingService,

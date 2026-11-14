@@ -366,7 +366,7 @@ class DocumentMapperTest {
   @Test
   void roundTripsResourcePermitDocuments() {
     ResourcePermitEntity permit =
-        ResourcePermitEntity.create("gpu", UuidV7Factory.create(), "node");
+        ResourcePermitEntity.create("gpu", UuidV7Factory.create(), 0L, "node");
     permit.setId(UuidV7Factory.create());
     permit.setAcquiredAt(Instant.parse("2026-01-01T00:00:00Z"));
 

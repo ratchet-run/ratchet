@@ -230,7 +230,7 @@ class PostgresqlExceptionTranslationTest {
             new PostgresqlStoreContext(entityManager(queryThrowingOnExecute())));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   private static EntityManager entityManager(Query... queries) {

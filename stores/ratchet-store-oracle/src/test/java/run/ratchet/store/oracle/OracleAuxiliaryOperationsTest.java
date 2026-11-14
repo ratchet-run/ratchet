@@ -15,29 +15,45 @@
  */
 package run.ratchet.store.oracle;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
-import java.util.Arrays;
+import java.sql.Timestamp;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.ResourceLimitEntity;
+import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 class OracleAuxiliaryOperationsTest {
 
   @Test
   void tryAcquirePermit_sameJobExistingPermitIsIdempotent() {
     UUID jobId = UUID.fromString("01900000-0000-7000-8000-000000000001");
+    Map<String, Map<Integer, Object>> bound = new HashMap<>();
     OracleAuxiliaryOperations operations =
-        new OracleAuxiliaryOperations(entityManagerWithExistingPermit(jobId));
+        new OracleAuxiliaryOperations(entityManagerWithExistingPermit(bound));
 
-    assertTrue(operations.tryAcquirePermit("res", jobId, "node-1"));
+    assertEquals(AcquireResult.ACQUIRED, operations.tryAcquirePermit("res", jobId, 7L, "node-1"));
+
+    byte[] jobBytes = UuidRawConverter.toBytes(jobId);
+    assertEquals("res", bound.get("lock").get(1));
+    assertArrayEquals(jobBytes, (byte[]) bound.get("claim").get(1));
+    Map<Integer, Object> update = bound.get("update");
+    assertArrayEquals(
+        UuidRawConverter.toBytes(ResourcePermitEntity.idFor("res", jobId, 7L)),
+        (byte[]) update.get(3));
+    assertEquals("node-1", update.get(1));
+    assertInstanceOf(Timestamp.class, update.get(2));
   }
 
   @Test
@@ -74,7 +90,8 @@ class OracleAuxiliaryOperationsTest {
             });
   }
 
-  private static OracleStoreContext entityManagerWithExistingPermit(UUID expectedJobId) {
+  private static OracleStoreContext entityManagerWithExistingPermit(
+      Map<String, Map<Integer, Object>> bound) {
     EntityManager em =
         (EntityManager)
             Proxy.newProxyInstance(
@@ -82,7 +99,8 @@ class OracleAuxiliaryOperationsTest {
                 new Class<?>[] {EntityManager.class},
                 (proxy, method, args) -> {
                   return switch (method.getName()) {
-                    case "createNativeQuery" -> queryReturningExistingPermit(expectedJobId);
+                    case "createNativeQuery" ->
+                        queryReturningExistingPermit((String) args[0], bound);
                     case "persist" ->
                         throw new AssertionError("existing permit must not insert another row");
                     default -> throw new UnsupportedOperationException(method.getName());
@@ -91,7 +109,13 @@ class OracleAuxiliaryOperationsTest {
     return new OracleStoreContext(em, null);
   }
 
-  private static Query queryReturningExistingPermit(UUID expectedJobId) {
+  private static Query queryReturningExistingPermit(
+      String sql, Map<String, Map<Integer, Object>> bound) {
+    String kind =
+        sql.contains("scheduler_job_queue")
+            ? "claim"
+            : sql.startsWith("UPDATE scheduler_resource_permit") ? "update" : "lock";
+    Map<Integer, Object> parameters = bound.computeIfAbsent(kind, ignored -> new HashMap<>());
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
@@ -99,19 +123,19 @@ class OracleAuxiliaryOperationsTest {
             (proxy, method, args) -> {
               return switch (method.getName()) {
                 case "setParameter" -> {
-                  if (args.length > 1 && args[1] instanceof byte[] actual) {
-                    byte[] expected = UuidRawConverter.toBytes(expectedJobId);
-                    if (!Arrays.equals(expected, actual)) {
-                      throw new AssertionError("job_id parameter should use Oracle UUID bytes");
-                    }
-                  }
+                  parameters.put((Integer) args[0], args[1]);
                   yield proxy;
                 }
-                // First query: the FOR UPDATE row lock returns max_concurrent = 2.
-                case "getResultList" -> Collections.singletonList(2);
-                // Second query: existing-permit-for-job count = 1, so acquire is idempotent and
-                // must short-circuit before the active-count query or any INSERT.
-                case "getSingleResult" -> 1;
+                case "getResultList" ->
+                    kind.equals("claim")
+                        ? Collections.singletonList(new Object[] {"RUNNING", 7L})
+                        : Collections.singletonList("res");
+                case "executeUpdate" -> {
+                  if (!kind.equals("update")) {
+                    throw new AssertionError("existing permit must not insert another row");
+                  }
+                  yield 1;
+                }
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

@@ -1000,7 +1000,7 @@ class MongoExceptionTranslationTest {
     RatchetTransientStoreException thrown =
         assertThrows(
             RatchetTransientStoreException.class,
-            () -> auxiliary.tryAcquirePermit("api", UUID.randomUUID(), "node-1"));
+            () -> auxiliary.tryAcquirePermit("api", UUID.randomUUID(), 0L, "node-1"));
 
     assertSame(failure, thrown.getCause());
   }
