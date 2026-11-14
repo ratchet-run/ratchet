@@ -126,6 +126,13 @@ final class MysqlJobWriteOperations {
     executeBusinessKeyBulkInsert(jobs, nowTs);
 
     ctx.em().clear();
+    jobs.forEach(job -> job.setRowVersion(0));
+    jobs.forEach(
+        job -> {
+          if (job.getVersion() == null) {
+            job.setVersion(0);
+          }
+        });
   }
 
   void saveInsert(JobEntity job) {
@@ -164,12 +171,17 @@ final class MysqlJobWriteOperations {
       SqlIdempotencyKeys.reserve(
           ctx, List.of(job), nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
       coldInsert.executeUpdate();
+      job.setRowVersion(0);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
+        job.setRowVersion(1);
         job.setTerminalStatus(job.getStatus());
       } else {
         if (!recurring) {
           hotInsert.executeUpdate();
+          if (job.getVersion() == null) {
+            job.setVersion(0);
+          }
         }
       }
     } catch (RuntimeException e) {
@@ -192,7 +204,8 @@ final class MysqlJobWriteOperations {
     String sql =
         """
         UPDATE scheduler_job
-        SET terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
+        SET row_version = row_version + 1,
+            terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
         WHERE job_id = ?
         """;
     ctx.em()
@@ -207,6 +220,16 @@ final class MysqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
+    if (row == null) {
+      throw new IllegalStateException("save() called on missing job id=" + job.getId());
+    }
+    if (job.getRowVersion() == null) {
+      throw new IllegalArgumentException(
+          "save() needs a job loaded from the store; rowVersion is null for job " + job.getId());
+    }
+    if (job.getRowVersion() != ((Number) row[9]).intValue()) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
     if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
       guardAgainstHotMutation(job, row);
     }
@@ -221,26 +244,33 @@ final class MysqlJobWriteOperations {
             on_failure_payload = CAST(? AS JSON),
             depends_on = ?,
             superseded_by = ?,
-            resource_name = ?
-        WHERE job_id = ?
+            resource_name = ?,
+            row_version = row_version + 1
+        WHERE job_id = ? AND row_version = ?
         """;
     boolean active = JobEncryption.activeFor(job);
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, MysqlJobRowMapper.paramsToJson(job, active))
-        .setParameter(
-            2,
-            MysqlJobRowMapper.callbackPayloadToJson(
-                job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
-        .setParameter(
-            3,
-            MysqlJobRowMapper.callbackPayloadToJson(
-                job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
-        .setParameter(4, UuidByteArrayConverter.toBytes(job.getDependsOn()))
-        .setParameter(5, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
-        .setParameter(6, job.getResourceName())
-        .setParameter(7, UuidByteArrayConverter.toBytes(job.getId()))
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, MysqlJobRowMapper.paramsToJson(job, active))
+            .setParameter(
+                2,
+                MysqlJobRowMapper.callbackPayloadToJson(
+                    job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
+            .setParameter(
+                3,
+                MysqlJobRowMapper.callbackPayloadToJson(
+                    job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
+            .setParameter(4, UuidByteArrayConverter.toBytes(job.getDependsOn()))
+            .setParameter(5, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
+            .setParameter(6, job.getResourceName())
+            .setParameter(7, UuidByteArrayConverter.toBytes(job.getId()))
+            .setParameter(8, ((Number) row[9]).intValue())
+            .executeUpdate();
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    job.setRowVersion(((Number) row[9]).intValue() + 1);
   }
 
   private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
@@ -522,7 +552,7 @@ final class MysqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
+               c.terminal_status, c.row_version
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
@@ -538,9 +568,6 @@ final class MysqlJobWriteOperations {
 
   private void guardAgainstHotMutation(JobEntity incoming, Object[] row) {
     UUID id = incoming.getId();
-    if (row == null) {
-      throw new IllegalStateException("save() called on missing job id=" + id);
-    }
     String qStatus = (String) row[0];
     String terminal = (String) row[8];
 

@@ -90,7 +90,7 @@ final class MysqlJobRecurringAndResetOperations {
         UPDATE scheduler_job j
           JOIN scheduler_job_tag t ON t.job_id = j.job_id
           JOIN scheduler_job_queue q ON q.job_id = j.job_id
-        SET j.terminal_status = 'CANCELED',
+        SET j.row_version = j.row_version + 1, j.terminal_status = 'CANCELED',
             j.terminated_at = NOW(3)
         WHERE t.tag = ?
           AND j.job_type <> 'RECURRING'

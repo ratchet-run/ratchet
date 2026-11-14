@@ -139,7 +139,7 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        19,
+        21,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "catalog version should track the combined workflow, recurring, DLQ, and node schema"
             + " revision");
@@ -227,5 +227,16 @@ class RatchetSchemaCatalogTest {
             .orElseThrow();
     assertEquals(LogicalType.INT32, crashCount.type());
     assertFalse(crashCount.nullable());
+  }
+
+  @Test
+  void jobDeclaresRowVersion() {
+    Column rowVersion =
+        table("scheduler_job").columns().stream()
+            .filter(column -> column.name().equals("row_version"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(LogicalType.INT32, rowVersion.type());
+    assertFalse(rowVersion.nullable());
   }
 }

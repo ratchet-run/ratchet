@@ -49,6 +49,16 @@ the columns and builds the index online, so writes continue. `scheduler_batch` h
 batch, so this is usually quick, but on an installation that keeps many batches, run it in a quiet
 window. MongoDB creates the new collections and indexes when the store starts.
 
+Every SQL store also gains `scheduler_job.row_version`, in `V016__job_row_version.sql` on
+PostgreSQL, Oracle and SQL Server and in `V018__job_row_version.sql` on MySQL. Every write to a job
+row advances it, and `save()` uses it to reject a stale entity, for terminal jobs as well as live
+ones. The column is `NOT NULL` with a default of 0. MySQL, PostgreSQL and Oracle add such a column
+by changing only table metadata, so the migration is quick. SQL Server does the same on Enterprise
+edition; other editions write every row of `scheduler_job`, so run it in a quiet window on a large
+installation. Nodes from before this release do not advance `row_version`, so while old and new
+nodes run together, a save on an upgraded node cannot detect a concurrent change made by an old
+node. MongoDB needs no change.
+
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.
 

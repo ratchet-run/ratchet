@@ -223,6 +223,9 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "result_type", length = 100)
   private String resultType;
 
+  @Column(name = "row_version", nullable = false)
+  private Integer rowVersion;
+
   @Transient private Integer version;
 
   @Transient private Long claimSeq = 0L;
@@ -625,6 +628,22 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public void setResultType(String resultType) {
     this.resultType = resultType;
+  }
+
+  /**
+   * Version of the job row. Every write to the job row advances it; save() rejects an entity whose
+   * row version is stale.
+   */
+  public Integer getRowVersion() {
+    return rowVersion;
+  }
+
+  /**
+   * Version of the job row. Every write to the job row advances it; save() rejects an entity whose
+   * row version is stale.
+   */
+  public void setRowVersion(Integer rowVersion) {
+    this.rowVersion = rowVersion;
   }
 
   public Integer getVersion() {

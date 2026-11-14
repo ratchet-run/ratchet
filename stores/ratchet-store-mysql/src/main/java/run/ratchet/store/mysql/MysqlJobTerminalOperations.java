@@ -340,7 +340,7 @@ final class MysqlJobTerminalOperations {
         """
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        SET c.terminal_status = 'CANCELED',
+        SET c.row_version = c.row_version + 1, c.terminal_status = 'CANCELED',
             c.terminated_at = NOW(3),
             c.execution_start_time =
                 CASE WHEN q.status = 'RUNNING'
@@ -454,7 +454,7 @@ final class MysqlJobTerminalOperations {
     String clearTerminalSql =
         """
         UPDATE scheduler_job
-        SET terminal_status = NULL, terminal_error = NULL,
+        SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
             job_result = NULL, result_type = NULL,
             execution_start_time = NULL, execution_end_time = NULL,
             execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -515,7 +515,7 @@ final class MysqlJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -703,7 +703,7 @@ final class MysqlJobTerminalOperations {
         """
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        SET c.terminal_status = 'FAILED',
+        SET c.row_version = c.row_version + 1, c.terminal_status = 'FAILED',
             c.claim_seq = q.claim_seq,
             c.terminal_error = ?,
             c.total_attempts = %s,
@@ -775,7 +775,7 @@ final class MysqlJobTerminalOperations {
         """
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        SET c.terminal_status = 'SUCCEEDED',
+        SET c.row_version = c.row_version + 1, c.terminal_status = 'SUCCEEDED',
             c.claim_seq = q.claim_seq,
             c.job_result = CAST(? AS JSON), c.result_type = ?,
             c.execution_start_time = ?, c.execution_end_time = ?,
@@ -809,7 +809,7 @@ final class MysqlJobTerminalOperations {
         """
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        SET c.terminal_status = 'SUCCEEDED',
+        SET c.row_version = c.row_version + 1, c.terminal_status = 'SUCCEEDED',
             c.claim_seq = q.claim_seq,
             c.execution_start_time = ?, c.execution_end_time = ?,
             c.execution_duration_ms = ?, c.queue_wait_ms = ?,

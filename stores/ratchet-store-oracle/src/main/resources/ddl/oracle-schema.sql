@@ -126,6 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_archive_rec_archived_at ON scheduler_recurring_jo
 -- for the claim-path DTO; no mutation path writes them in both places.
 CREATE TABLE IF NOT EXISTS scheduler_job
 (
+    row_version NUMBER(10) DEFAULT 0 NOT NULL,
     job_id                RAW(16)      NOT NULL,
     job_type              VARCHAR2(16) NOT NULL,
     priority              NUMBER(3)    DEFAULT 2 NOT NULL,

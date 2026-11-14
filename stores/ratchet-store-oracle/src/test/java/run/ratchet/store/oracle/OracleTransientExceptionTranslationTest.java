@@ -56,9 +56,10 @@ class OracleTransientExceptionTranslationTest {
     job.setId(JOB_ID);
     job.setStatus(JobStatus.PENDING);
     job.setVersion(7);
+    job.setRowVersion(3);
     job.setScheduledTime(storedTime.plusSeconds(60));
     job.setResourceName("changed-resource");
-    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null};
+    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null, 3};
     AtomicInteger statements = new AtomicInteger();
     AtomicInteger coldUpdates = new AtomicInteger();
     AtomicInteger versionBindings = new AtomicInteger();
@@ -120,6 +121,7 @@ class OracleTransientExceptionTranslationTest {
       writes.save(job);
       assertEquals(3, statements.get());
       assertEquals(1, coldUpdates.get());
+      assertEquals(4, job.getRowVersion());
     }
     assertEquals(1, versionBindings.get());
     assertEquals(7, job.getVersion());

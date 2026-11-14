@@ -22,6 +22,7 @@ import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 
@@ -50,7 +51,12 @@ public interface JobCrudStore {
    * {@code attempts}, {@code pickedBy}, {@code pickedAt}, {@code pausedFromStatus}, {@code
    * lastError}), {@code params}, the callback payloads, {@code dependsOn}, {@code supersededBy} and
    * {@code resourceName}, including when several of them change in one call. The store manages the
-   * version and the update time.
+   * versions and the update time.
+   *
+   * <p>The entity must come from the store, rather than be built by hand. Save checks it against
+   * the stored job and rejects a stale entity with {@link RatchetOptimisticLockException}, writing
+   * nothing, for live and terminal jobs alike. A successful save advances the entity's versions in
+   * memory so the same instance can be saved again.
    *
    * <p>Job shape is fixed at creation: {@code jobType}, {@code priority}, {@code businessKey},
    * {@code timeoutSec}, {@code maxRetries}, {@code backoffPolicy}, {@code backoffParamMs}, {@code

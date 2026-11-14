@@ -118,6 +118,13 @@ class SqlJobCompletionTest {
                   em, store, mock(BatchStore.class), plan, false, uuid -> uuid, writer)
               .committed());
       verify(writer).accept(dependency);
+      verify(em)
+          .createNativeQuery(
+              """
+              UPDATE scheduler_job
+              SET job_type = ?, row_version = row_version + 1
+              WHERE job_id = ?
+              """);
     }
   }
 

@@ -142,6 +142,7 @@ CREATE INDEX idx_archive_rec_archived_at ON scheduler_recurring_job_archive (arc
 -- 4. scheduler_job — COLD metadata + terminal fields.
 CREATE TABLE scheduler_job
 (
+    row_version INT NOT NULL CONSTRAINT df_scheduler_job_row_version DEFAULT 0,
     job_id                BINARY(16) NOT NULL,
     job_type              VARCHAR(20)      NOT NULL,
     priority              INT              NOT NULL DEFAULT 2,
