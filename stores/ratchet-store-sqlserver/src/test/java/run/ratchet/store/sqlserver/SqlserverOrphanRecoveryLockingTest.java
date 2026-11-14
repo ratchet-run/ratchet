@@ -153,23 +153,36 @@ class SqlserverOrphanRecoveryLockingTest {
       }
       seed.getTransaction().commit();
 
+      // Each page commits on its own, and another session sees its result before the next page.
       var scanStore = store(scan);
       scan.getTransaction().begin();
       assertEquals(500, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
-      assertEquals(count - 500, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
-      assertEquals(
-          0,
-          ((Number)
-                  scan.createNativeQuery(
-                          """
-                          SELECT COUNT(*) FROM scheduler_job_queue
-                          WHERE picked_by = 'dead' AND status = 'RUNNING'
-                          """)
-                      .getSingleResult())
-              .intValue());
       scan.getTransaction().commit();
+      assertEquals(count - 500, runningCount(seed, "dead"));
+
+      scan.getTransaction().begin();
+      assertEquals(count - 500, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
+      scan.getTransaction().commit();
+      assertEquals(0, runningCount(seed, "dead"));
     } finally {
       closeSessions(List.of(scan, seed));
+    }
+  }
+
+  private static int runningCount(EntityManager em, String owner) {
+    em.getTransaction().begin();
+    try {
+      return ((Number)
+              em.createNativeQuery(
+                      """
+                      SELECT COUNT(*) FROM scheduler_job_queue
+                      WHERE picked_by = ? AND status = 'RUNNING'
+                      """)
+                  .setParameter(1, owner)
+                  .getSingleResult())
+          .intValue();
+    } finally {
+      em.getTransaction().commit();
     }
   }
 

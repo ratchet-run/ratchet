@@ -223,7 +223,7 @@ Each page returns claims below the crash limit to PENDING and adds one to their 
 
 A scan stops after 20 pages or 10 seconds. It logs when either limit stops it early, and the next scan carries on.
 
-The orphan recovery lease is not a fence. A scan can outlive its lease. Without a `LockStore`, every node scans at once. Each store re-checks the orphan condition under lock, and every completion is fenced on the claim sequence. Overlapping scans are safe.
+The orphan recovery lease is not a fence. A scan can outlive its lease. Without a `LockStore`, every node scans at once. Overlapping scans are safe: each store re-checks a claim in the statement that changes it, so two scans cannot both recover the same claim, and every completion is fenced on the claim sequence. How a page confirms that a claim's owner has stopped depends on the store; see [Singleton lease lifetimes](../deployment/cluster-configuration.md#singleton-lease-lifetimes).
 
 On restart, a node pages through all of its own claims before it claims anything. This has no page or time limit, because no periodic scan sees those claims once the restarted node is heartbeating again. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.
 

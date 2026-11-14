@@ -25,6 +25,7 @@ import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_
 import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -965,7 +966,8 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
         List.of(oldest, middle, youngest).stream()
             .map(job -> store().findById(job.getId()).orElseThrow())
             .toList();
-    Instant beforeCall = Instant.now();
+    // Stores may keep picked_at to the millisecond only.
+    Instant beforeCall = Instant.now().truncatedTo(ChronoUnit.MILLIS);
     OrphanRecovery page = store().resetOrphanJobsBefore(now.minusSeconds(30), 1, 10);
     assertEquals(4, page.scanned());
     assertEquals(1, page.reset());

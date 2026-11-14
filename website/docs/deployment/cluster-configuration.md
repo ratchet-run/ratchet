@@ -168,7 +168,9 @@ Locks are acquired with an expiration time. If a node crashes, its locks expire 
 
 Each scan closes its lease when it finishes. The TTL limits how long a crashed holder blocks another node.
 
-The orphan recovery lease is not a fence. A scan can outlive it, and without a `LockStore` every node scans at once. Overlapping scans are still safe, because each store re-checks the orphan condition under lock and every completion is fenced on the claim sequence.
+The orphan recovery lease is not a fence. A scan can outlive it, and without a `LockStore` every node scans at once. Overlapping scans are still safe. Each store re-checks a claim in the statement that changes it, so two scans cannot both recover the same claim, and every completion is fenced on the claim sequence.
+
+The stores differ in how a page confirms that a claim's owner has stopped. MySQL and SQL Server lock the owner's node row until the page commits, so a heartbeat that commits during the page waits for it. PostgreSQL and Oracle check the heartbeat in each statement without locking the node row. MongoDB reads the live node ids once, at the start of the page's transaction. On those three stores, a page can miss a heartbeat that commits while it runs, and reset a claim whose owner has just come back. The owner's later completion is then rejected, because the claim is no longer RUNNING under its claim sequence, and the job runs again.
 
 If a node dies during its own orphan scan, another node can release the orphan recovery lease before its TTL runs out. It does so once the dead node's heartbeat is older than `ratchet.node.orphan-grace-seconds`, then runs the scan. With the defaults (60-second grace, 30-second TTL, heartbeats at most 20 seconds apart) the TTL usually runs out first, so the early release matters when you raise the TTL or a node's heartbeats are delayed. The other leases always wait for their TTL.
 
