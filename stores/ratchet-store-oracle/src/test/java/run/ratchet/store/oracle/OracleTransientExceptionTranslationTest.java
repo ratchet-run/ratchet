@@ -21,8 +21,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.sql.SQLException;
 import java.sql.SQLTransientException;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,6 +38,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 
 class OracleTransientExceptionTranslationTest {
@@ -133,6 +136,65 @@ class OracleTransientExceptionTranslationTest {
     }
     assertEquals(1, versionBindings.get());
     assertEquals(7, job.getVersion());
+  }
+
+  @Test
+  void saveTranslatesSnapshotDeadlock() {
+    var writes = writeOperations(entityManager(queryThrowingOnResults()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
+  }
+
+  @Test
+  void saveTranslatesColdUpdateDeadlock() {
+    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null, null, 0};
+    var writes =
+        writeOperations(
+            entityManager(
+                queryReturning(Collections.singletonList(snapshot)), queryThrowingOnExecute()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
+  }
+
+  @Test
+  void saveInsertTranslatesFirstWriteDeadlock() {
+    // Cold and hot INSERTs are prepared before the idempotency reservation writes first.
+    var writes =
+        writeOperations(
+            entityManager(
+                queryReturningUpdate(1), queryReturningUpdate(1), queryThrowingOnExecute()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.saveInsert(existingJob()));
+  }
+
+  @Test
+  void bulkInsertTranslatesFirstWriteDeadlock() {
+    var writes = writeOperations(entityManager(queryThrowingOnExecute()));
+
+    assertThrows(
+        RatchetTransientStoreException.class, () -> writes.bulkInsert(List.of(existingJob())));
+  }
+
+  @Test
+  void saveMissingJobLeavesIllegalStateExceptionUnchanged() {
+    var writes = writeOperations(entityManager(queryReturning(List.of())));
+
+    assertThrows(IllegalStateException.class, () -> writes.save(existingJob()));
+  }
+
+  private static JobEntity existingJob() {
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setVersion(0);
+    job.setRowVersion(0);
+    return job;
+  }
+
+  private static OracleJobWriteOperations writeOperations(EntityManager em) {
+    var ctx = new OracleStoreContext(em, null);
+    return new OracleJobWriteOperations(
+        ctx, new OracleBusinessKeyReservations(ctx), new OracleTagOperations(ctx));
   }
 
   @Test
@@ -294,5 +356,71 @@ class OracleTransientExceptionTranslationTest {
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });
+  }
+
+  private static EntityManager entityManager(Query... queries) {
+    AtomicInteger nextQuery = new AtomicInteger();
+    return (EntityManager)
+        Proxy.newProxyInstance(
+            EntityManager.class.getClassLoader(),
+            new Class<?>[] {EntityManager.class},
+            (proxy, method, args) -> {
+              if ("createNativeQuery".equals(method.getName())) {
+                return queries[nextQuery.getAndIncrement()];
+              }
+              if ("contains".equals(method.getName())) {
+                return false;
+              }
+              if ("contains".equals(method.getName())) {
+                return false;
+              }
+              throw new UnsupportedOperationException(method.getName());
+            });
+  }
+
+  private static Query queryReturning(List<?> rows) {
+    return query(rows, 1, null, null);
+  }
+
+  private static Query queryReturningUpdate(int updated) {
+    return query(List.of(), updated, null, null);
+  }
+
+  private static Query queryThrowingOnExecute() {
+    return query(List.of(), 0, deadlock(), null);
+  }
+
+  private static Query queryThrowingOnResults() {
+    return query(List.of(), 0, null, deadlock());
+  }
+
+  private static Query query(
+      List<?> rows, int updated, RuntimeException executeFailure, RuntimeException resultsFailure) {
+    return (Query)
+        Proxy.newProxyInstance(
+            Query.class.getClassLoader(),
+            new Class<?>[] {Query.class},
+            (proxy, method, args) -> {
+              return switch (method.getName()) {
+                case "setParameter", "setFirstResult", "setMaxResults" -> proxy;
+                case "executeUpdate" -> {
+                  if (executeFailure != null) {
+                    throw executeFailure;
+                  }
+                  yield updated;
+                }
+                case "getResultList" -> {
+                  if (resultsFailure != null) {
+                    throw resultsFailure;
+                  }
+                  yield rows;
+                }
+                default -> throw new UnsupportedOperationException(method.getName());
+              };
+            });
+  }
+
+  private static RuntimeException deadlock() {
+    return new PersistenceException("deadlock", new SQLException("deadlock", "61000", 60));
   }
 }

@@ -137,6 +137,65 @@ class SqlserverExceptionTranslationTest {
   }
 
   @Test
+  void saveTranslatesSnapshotDeadlock() {
+    var writes = writeOperations(entityManager(queryThrowingOnResults()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
+  }
+
+  @Test
+  void saveTranslatesColdUpdateDeadlock() {
+    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null, 0};
+    var writes =
+        writeOperations(
+            entityManager(
+                queryReturning(Collections.singletonList(snapshot)), queryThrowingOnExecute()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
+  }
+
+  @Test
+  void saveInsertTranslatesFirstWriteDeadlock() {
+    // Cold and hot INSERTs are prepared before the idempotency reservation writes first.
+    var writes =
+        writeOperations(
+            entityManager(
+                queryReturningUpdate(1), queryReturningUpdate(1), queryThrowingOnExecute()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.saveInsert(existingJob()));
+  }
+
+  @Test
+  void bulkInsertTranslatesFirstWriteDeadlock() {
+    var writes = writeOperations(entityManager(queryThrowingOnExecute()));
+
+    assertThrows(
+        RatchetTransientStoreException.class, () -> writes.bulkInsert(List.of(existingJob())));
+  }
+
+  @Test
+  void saveMissingJobLeavesIllegalStateExceptionUnchanged() {
+    var writes = writeOperations(entityManager(queryReturning(List.of())));
+
+    assertThrows(IllegalStateException.class, () -> writes.save(existingJob()));
+  }
+
+  private static JobEntity existingJob() {
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setVersion(0);
+    job.setRowVersion(0);
+    return job;
+  }
+
+  private static SqlserverJobWriteOperations writeOperations(EntityManager em) {
+    var ctx = new SqlserverStoreContext(em);
+    return new SqlserverJobWriteOperations(
+        ctx, new SqlserverBusinessKeyReservations(ctx), new SqlserverTagOperations(ctx));
+  }
+
+  @Test
   void archiveJobTranslatesInsertDeadlock() {
     EntityManager em =
         entityManager(
@@ -336,6 +395,9 @@ class SqlserverExceptionTranslationTest {
             (proxy, method, args) -> {
               if ("createNativeQuery".equals(method.getName())) {
                 return queries[nextQuery.getAndIncrement()];
+              }
+              if ("contains".equals(method.getName())) {
+                return false;
               }
               throw new UnsupportedOperationException(method.getName());
             });
