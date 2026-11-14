@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -162,6 +163,29 @@ class MysqlAuxiliaryOperationsTest {
     }
   }
 
+  @Test
+  void successfulAcquireDeletesOnlyItsResourceWaiter() {
+    UUID jobId = UUID.randomUUID();
+    var sequence =
+        new NativeSequence(
+            List.<Object[]>of(new Object[] {1, 1000}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res"}),
+            List.of(),
+            List.of(),
+            1);
+    assertEquals(
+        AcquireResult.ACQUIRED, sequence.operations().tryAcquirePermit("res", jobId, 7L, "node"));
+    assertEquals(5, sequence.sql.size());
+    assertEquals(
+        "DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name = ?",
+        sequence.sql.get(4).strip());
+    assertArrayEquals(
+        UuidByteArrayConverter.toBytes(jobId), (byte[]) sequence.parameters.get(4).get(1));
+    assertEquals("res", sequence.parameters.get(4).get(2));
+    assertEquals(2, sequence.parameters.get(4).size());
+    sequence.assertConsumed();
+  }
+
   private static final Timestamp DUE = Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"));
 
   private static final class NativeSequence {
@@ -180,6 +204,7 @@ class MysqlAuxiliaryOperationsTest {
                   EntityManager.class.getClassLoader(),
                   new Class<?>[] {EntityManager.class},
                   (proxy, method, args) -> {
+                    if ("persist".equals(method.getName())) return null;
                     if (!"createNativeQuery".equals(method.getName())) {
                       throw new UnsupportedOperationException(method.getName());
                     }

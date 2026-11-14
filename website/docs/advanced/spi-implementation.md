@@ -737,10 +737,11 @@ check this under a job-row lock taken without waiting, and a save that changes t
 the same lock. MongoDB relies on the write conflict on the job document.
 
 - `tryAcquirePermit` gives the permit only if a slot is still free after it counts the live
-  waiters ahead of the caller. When it gives the permit, it deletes the caller's waiter row. A
-  waiter is live while its lease is current and its job is PENDING or RUNNING. The order is
-  priority, then `wait_since`, then job id. A caller with no waiter row uses its own priority,
-  `scheduled_time` and id.
+  waiters ahead of the caller. When it gives the permit, it deletes the caller's waiter row for
+  that resource; a row the job has since written for another resource stays. A waiter is live
+  while its lease is current and its job is PENDING or RUNNING. The order is priority, then
+  `wait_since`, then job id. A caller with no waiter row uses its own priority, `scheduled_time`
+  and id.
 - On a miss, `tryAcquirePermit` parks the job in the same transaction and returns `AT_CAPACITY`.
   The park is fenced on RUNNING and the claim. It makes the job PENDING (or PAUSED in a paused
   batch), due at now plus `retry_delay_ms`, sets `last_error` and leaves attempts unchanged. It
@@ -767,7 +768,8 @@ the same lock. MongoDB relies on the write conflict on the job document.
   nothing inserts the row again, with the priority and `wait_since` the acquire counted with. With
   no waiters, the sweep costs one indexed read.
 - A user reschedule that changes `scheduled_time` deletes the waiter row, and so does a save that
-  changes the job's resource. Engine reschedules keep it.
+  changes the job's resource. Compare with the resource stored when the save holds the job-row
+  lock, not with an earlier unlocked read. Engine reschedules keep it.
 - `releasePermit`, `releaseAllPermits`, `configureResource` and `cleanupOrphanedPermits` do not
   wake anyone. After they commit, the engine calls `wakeWaiters` for the released or configured
   resource, or runs the sweep when it does not know the resource.

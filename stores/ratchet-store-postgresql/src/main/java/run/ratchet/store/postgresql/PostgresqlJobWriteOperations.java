@@ -98,7 +98,6 @@ final class PostgresqlJobWriteOperations {
   private static final int IDX_HOT_LAST_ERROR = 6;
   private static final int IDX_HOT_VERSION = 7;
   private static final int IDX_HOT_TERMINAL_STATUS = 8;
-  private static final int IDX_HOT_RESOURCE_NAME = 9;
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlBusinessKeyReservations reservations;
@@ -468,10 +467,8 @@ final class PostgresqlJobWriteOperations {
         .setParameter(6, job.getResourceName())
         .setParameter(7, job.getId())
         .executeUpdate();
-    // Delete after the cold update, which takes the job-row lock that a concurrent park checks.
-    if (row != null && !Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())) {
-      deleteWaiter(job.getId());
-    }
+    // Under the job-row lock, keep only a waiter on the resource this save stores.
+    deleteWaiterOffResource(job.getId(), job.getResourceName());
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
@@ -519,6 +516,19 @@ final class PostgresqlJobWriteOperations {
       deleteWaiter(id);
     }
     return true;
+  }
+
+  private void deleteWaiterOffResource(UUID id, String resource) {
+    if (resource == null) {
+      deleteWaiter(id);
+      return;
+    }
+    // language=PostgreSQL
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name <> ?
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, id).setParameter(2, resource).executeUpdate();
   }
 
   private void deleteWaiter(UUID id) {
@@ -626,7 +636,7 @@ final class PostgresqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status, c.resource_name
+               c.terminal_status
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?

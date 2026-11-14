@@ -35,11 +35,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ResourcePermitStore;
 
@@ -94,6 +96,61 @@ class MongoResourcePermitSnapshotConflictTest {
     assertEquals(
         ACQUIRED,
         permits.tryAcquirePermit("one", reclaimed.getId(), reclaimed.getClaimSeq(), "retry"));
+  }
+
+  @Test
+  void staleAcquireKeepsTheWaiterANewerClaimParkedOnAnotherResource() {
+    ResourcePermitStore permits = fixture.resourcePermitStore();
+    permits.configureResource("res-a", 1, 0, "test");
+    permits.configureResource("res-b", 1, 60_000, "test");
+    JobEntity holderA = claimNewJob("res-a");
+    assertEquals(
+        ACQUIRED,
+        permits.tryAcquirePermit("res-a", holderA.getId(), holderA.getClaimSeq(), "node-a"));
+    JobEntity holderB = claimNewJob("res-b");
+    assertEquals(
+        ACQUIRED,
+        permits.tryAcquirePermit("res-b", holderB.getId(), holderB.getClaimSeq(), "node-b"));
+    JobEntity waiter = claimNewJob("res-a");
+    assertEquals(
+        AT_CAPACITY,
+        permits.tryAcquirePermit("res-a", waiter.getId(), waiter.getClaimSeq(), "node-a"));
+    permits.releasePermit("res-a", holderA.getId(), holderA.getClaimSeq());
+    JobEntity old = fixture.store().claimNextBatch(1, "node-a").get(0);
+    assertEquals(waiter.getId(), old.getId());
+    AtomicInteger writes = new AtomicInteger();
+    AtomicBoolean hookRan = new AtomicBoolean();
+    Runnable hook =
+        () -> {
+          if (writes.incrementAndGet() != 2) return;
+          assertTrue(
+              fixture
+                  .store()
+                  .scheduleJobRetry(
+                      old.getId(),
+                      "moved",
+                      Instant.now().minusSeconds(5),
+                      old.getAttempts(),
+                      old.getClaimSeq()));
+          JobEntity moved = fixture.store().findById(old.getId()).orElseThrow();
+          moved.setResourceName("res-b");
+          fixture.store().save(moved);
+          JobEntity newer = fixture.store().claimNextBatch(1, "node-b").get(0);
+          assertEquals(old.getId(), newer.getId());
+          assertTrue(newer.getClaimSeq() > old.getClaimSeq());
+          assertEquals(
+              AT_CAPACITY,
+              permits.tryAcquirePermit("res-b", newer.getId(), newer.getClaimSeq(), "node-b"));
+          hookRan.set(true);
+        };
+    MongoAuxiliaryOperations wrapped = fixture.auxiliaryOperations(wrapDatabase(hook));
+    assertEquals(
+        SUPERSEDED, wrapped.tryAcquirePermit("res-a", old.getId(), old.getClaimSeq(), "node-a"));
+    assertTrue(hookRan.get());
+    assertEquals(List.of("res-b"), permits.findResourcesWithWaiters(null, 10));
+    JobEntity stored = fixture.store().findById(old.getId()).orElseThrow();
+    assertEquals("res-b", stored.getResourceName());
+    assertEquals(JobStatus.PENDING, stored.getStatus());
   }
 
   @Test
