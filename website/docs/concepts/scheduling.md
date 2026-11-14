@@ -182,7 +182,7 @@ scheduler.enqueue(() -> processWebhook(payload))
 
 The ledger keeps idempotency keys after archive and purge. Use [`findIdempotencyKeyHolder`](../api-reference/job-scheduler-service#idempotency-key-lookup) to read a spent key's original job id and whether that job is live, archived or purged. While a row remains, it also reports the job's type and status.
 
-The idempotency key is enforced by a UNIQUE constraint in the database. Submitting a duplicate key returns the original job's handle. If a racing insert throws `DuplicateIdempotencyKeyException`, retry in a fresh transaction to get that handle.
+The idempotency key is enforced by a UNIQUE constraint in the database. Submitting a duplicate key returns the original job's handle. A losing submission waits until the winner's transaction ends, then returns the original handle if the winner commits; if it rolls back, submission can proceed. The caller's transaction stays usable. On MySQL the wait is bounded by `innodb_lock_wait_timeout`.
 
 **Business keys** serve a different purpose -- they prevent concurrent execution of the same logical operation, but allow re-runs after completion:
 

@@ -157,6 +157,10 @@ final class MongoJobCrudOperations {
   }
 
   JobEntity create(ClientSession session, JobEntity job) {
+    return create(session, job, false);
+  }
+
+  JobEntity create(ClientSession session, JobEntity job, boolean idempotencyKeyReserved) {
     if (job.getId() == null) job.setId(UuidV7Factory.create());
     Instant now = Instant.now();
     job.setCreatedAt(now);
@@ -165,7 +169,9 @@ final class MongoJobCrudOperations {
     truncateInstantsToMillis(job);
     try {
       reservations.syncForJob(session, job);
-      MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
+      if (!idempotencyKeyReserved) {
+        MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
+      }
       ctx.jobs().insertOne(session, DocumentMapper.toDocument(job));
     } catch (RuntimeException e) {
       if (e instanceof BusinessKeyReservationConflictException) {

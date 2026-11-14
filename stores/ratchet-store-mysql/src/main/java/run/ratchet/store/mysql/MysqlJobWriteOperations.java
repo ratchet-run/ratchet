@@ -129,6 +129,10 @@ final class MysqlJobWriteOperations {
   }
 
   void saveInsert(JobEntity job) {
+    saveInsert(job, false);
+  }
+
+  void saveInsert(JobEntity job, boolean idempotencyKeyReserved) {
     assignIdIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
@@ -161,8 +165,14 @@ final class MysqlJobWriteOperations {
           throw new BusinessKeyReservationConflictException(job.getBusinessKey());
         }
       }
-      SqlIdempotencyKeys.reserve(
-          ctx, List.of(job), nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
+      // Ordinary creation: business-key reservation, idempotency key, cold row, hot row.
+      // Partition creation has already reserved the ledger key before partition metadata.
+      if (!idempotencyKeyReserved && !tryReserveIdempotencyKey(job, nowTs)) {
+        if (hasBkey && !bornTerminal) {
+          reservations.deleteReservationByOwner(job.getId());
+        }
+        throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey());
+      }
       coldInsert.executeUpdate();
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
@@ -173,7 +183,8 @@ final class MysqlJobWriteOperations {
         }
       }
     } catch (RuntimeException e) {
-      if (e instanceof BusinessKeyReservationConflictException) {
+      if (e instanceof BusinessKeyReservationConflictException
+          || e instanceof DuplicateIdempotencyKeyException) {
         throw e;
       }
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
@@ -185,6 +196,25 @@ final class MysqlJobWriteOperations {
     if (job.getTags() != null && !job.getTags().isEmpty()) {
       tags.insertTags(job.getId(), job.getTags());
     }
+  }
+
+  boolean tryReserveIdempotencyKey(JobEntity job, Timestamp nowTs) {
+    if (job.getIdempotencyKey().length() > 36) {
+      throw new IllegalArgumentException("Idempotency key exceeds 36 characters");
+    }
+    String sql =
+        """
+        INSERT IGNORE INTO scheduler_idempotency_key
+          (idempotency_key, original_job_id, reserved_at)
+        VALUES (?, ?, ?)
+        """;
+    return ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, job.getIdempotencyKey())
+            .setParameter(2, UuidByteArrayConverter.toBytes(job.getId()))
+            .setParameter(3, nowTs)
+            .executeUpdate()
+        == 1;
   }
 
   private void executeColdTerminalBackfill(JobEntity job, Timestamp nowTs) {

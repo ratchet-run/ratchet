@@ -168,8 +168,9 @@ public interface JobBuilder {
    * until the winner's transaction ends. It then throws, or succeeds if the winner rolled back.
    * With a custom idempotency key matching the winner's, it returns the winner's handle instead.
    *
-   * <p>{@link DuplicateIdempotencyKeyException} and {@link RatchetTransientStoreException} still
-   * leave the transaction rollback-only. This also applies to a MySQL deadlock victim when two or
+   * <p>{@link DuplicateIdempotencyKeyException} leaves the caller's transaction usable and is
+   * thrown only if the original handle cannot be resolved. {@link RatchetTransientStoreException}
+   * leaves the transaction rollback-only. This also applies to a MySQL deadlock victim when two or
    * more submissions wait on a winner that rolls back, and to a PostgreSQL serialization failure
    * when the caller uses an isolation level above READ COMMITTED. Retry in a fresh transaction.
    *
@@ -181,7 +182,7 @@ public interface JobBuilder {
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
    *     key with a different idempotency key
    * @throws DuplicateIdempotencyKeyException if a concurrent submission wins the same idempotency
-   *     key; retry in a fresh transaction to obtain the original handle
+   *     key and its original handle cannot be resolved
    * @throws RatchetTransientStoreException if the lookup after a business-key conflict fails, or
    *     another transient store failure occurs; retry in a fresh transaction
    * @throws PayloadTooLargeException if the task or a persisted callback/branch exceeds the
@@ -283,10 +284,10 @@ public interface JobBuilder {
    * {@link #withBusinessKey(String)}, once consumed this key is never reusable. A duplicate
    * submission returns the original job's handle rather than creating a second job.
    *
-   * <p>When two submissions <em>race</em> on the same key, the losing {@code submit()} may throw
-   * instead of merging. The key still binds to exactly one job; a subsequent submission in a fresh
-   * transaction returns the original handle, even after job history is purged. Task execution
-   * remains at least once.
+   * <p>When two submissions race on the same key, the loser waits until the winner's transaction
+   * ends, then returns the original handle if the winner commits. The caller's transaction stays
+   * usable. If the winner rolls back, submission can proceed. On MySQL the wait is bounded by
+   * {@code innodb_lock_wait_timeout}. Task execution remains at least once.
    *
    * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column, so it must be at most 36
    * characters. This method trims the key and checks its length as soon as it is called, so a

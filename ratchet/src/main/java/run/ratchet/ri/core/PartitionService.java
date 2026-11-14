@@ -177,6 +177,39 @@ public class PartitionService {
         || status == JobStatus.CANCELED;
   }
 
+  record SubmissionSnapshot(PartitionSetEntity set, List<PartitionEntity> rows) {}
+
+  /**
+   * Checks readiness in the caller's transaction, then seals and reloads in a fresh transaction.
+   * Sealing commits independently of the submission, as the sweep does, so the ledger key remains
+   * the first lock the submission transaction takes.
+   */
+  SubmissionSnapshot sealForSubmission(PartitionSetEntity set) {
+    JobEntity parent = jobs.findById(set.getLatestBatchId()).orElse(null);
+    if (parent != null && !terminal(parent.getStatus())) {
+      return new SubmissionSnapshot(set, List.of());
+    }
+    if (store.countUnfinishedBatchChildren(set.getLatestBatchId()) > 0) {
+      return new SubmissionSnapshot(set, List.of());
+    }
+    return transactions.complete(
+        () -> {
+          trySeal(set);
+          PartitionSetEntity refreshed = store.findPartitionSetById(set.getSetId()).orElseThrow();
+          List<PartitionEntity> rows = new ArrayList<>();
+          if (refreshed.getSealedGeneration() >= refreshed.getLatestGeneration()) {
+            int after = -1;
+            while (true) {
+              var page = store.findPartitions(refreshed.getSetId(), after, 500);
+              if (page.isEmpty()) break;
+              rows.addAll(page);
+              after = page.get(page.size() - 1).getPartitionIndex();
+            }
+          }
+          return new SubmissionSnapshot(refreshed, rows);
+        });
+  }
+
   public boolean trySeal(PartitionSetEntity set) {
     if (store == null) return false;
     int generation = set.getLatestGeneration();

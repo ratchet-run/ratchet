@@ -151,7 +151,7 @@ A conflicting business key causes `submit()` to throw `DuplicateBusinessKeyExcep
 
 To see who holds a key before you submit, call [`findBusinessKeyHolder`](../api-reference/job-scheduler-service#business-key-lookup). The answer is a point-in-time check, so a later submit can still lose a race.
 
-`DuplicateIdempotencyKeyException` and `RatchetTransientStoreException` still leave the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
+`DuplicateIdempotencyKeyException` leaves the caller transaction usable; it escapes submission only when the original handle cannot be resolved. `RatchetTransientStoreException` leaves the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
 
 On MySQL and SQL Server, after the store reports the conflict, the caller keeps a lock on the holder's key until its transaction ends. The holder's completion waits for that lock. Keep the caller's transaction short.
 

@@ -296,9 +296,13 @@ The circuit breaker transitions:
 ERROR: duplicate key value violates unique constraint "uk_idempotency_key"
 ```
 
-Each job gets a unique idempotency key (UUID). On submission Ratchet first looks up the key (`findByIdempotencyKey`) and, if a job with that key already exists, returns a handle to the existing job instead of inserting a duplicate. This constraint violation therefore only surfaces on a concurrent race -- two submissions with the same idempotency key both pass the pre-insert lookup, and the second insert hits the `uk_idempotency_key` unique constraint.
-
-If you see persistent failures, check if your code is double-submitting in a retry loop, or reusing the same explicit idempotency key across concurrent submissions.
+Each job gets a unique idempotency key. Submission first reads the permanent ledger
+(`findOriginalJobIdByIdempotencyKey`) and returns the original handle when it finds a reservation.
+Single-job and all batch-parent creation, including partitioned batches, use a non-raising reservation insert.
+A loser waits for the winner's transaction to end and returns its original handle after commit;
+if the winner rolls back, submission can proceed. The caller's transaction stays usable.
+`DuplicateIdempotencyKeyException` escapes only if the original handle cannot be resolved.
+Bulk child inserts retain their failure behavior.
 
 ### Active business key violation
 
@@ -306,7 +310,7 @@ If you see persistent failures, check if your code is double-submitting in a ret
 
 Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
 
-`DuplicateIdempotencyKeyException` and `RatchetTransientStoreException` still leave the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
+`DuplicateIdempotencyKeyException` leaves the caller transaction usable; it escapes submission only when the original handle cannot be resolved. `RatchetTransientStoreException` leaves the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
 
 On MySQL and SQL Server, after the store reports the conflict, the caller keeps a lock on the holder's key until its transaction ends. The holder's completion waits for that lock. Keep the caller's transaction short.
 

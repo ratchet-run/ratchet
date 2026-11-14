@@ -27,7 +27,7 @@ Sets the batch parent's idempotency key. The key is trimmed and must be at most 
 
 A later `submit()` with the same key returns the original handle and writes no parent, children, progress hook or branches. This also works after job history is purged. Single jobs and batches share the key namespace. Children and branch jobs keep generated keys.
 
-If two submissions race on the same key, the loser may throw. Retry in a new transaction to get the original handle. Execution remains at least once.
+If two batch submissions of any kind, including partitioned batches, race on the same key, the loser waits until the winner's transaction ends, then returns the original handle if it commits. If it rolls back, submission can proceed. The caller's transaction stays usable. A streaming loser closes the stream. It may already have read items, because payloads are validated before the parent is created. On MySQL the wait is bounded by `innodb_lock_wait_timeout`. Execution remains at least once.
 
 **Returns:** the `BatchBuilder` for chaining.
 

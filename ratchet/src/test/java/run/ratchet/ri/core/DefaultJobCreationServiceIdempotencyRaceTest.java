@@ -123,7 +123,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
-  void submit_retryResolvesOriginalAfterInsertCollision() {
+  void submit_firstSubmitResolvesOriginalAfterInsertCollision() {
     DefaultJobCreationService service = newService();
     String key = "order-42";
     UUID existingId = UUID.randomUUID();
@@ -134,7 +134,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
 
     // No job is visible at the pre-insert lookup (the racer has not committed yet), so the insert
     // proceeds and loses the unique-constraint race. The store reports the collision; the
-    // fresh retry sees the winner's permanent reservation.
+    // conflict lookup sees the winner's permanent reservation.
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey(key))
         .thenReturn(Optional.empty())
         .thenReturn(Optional.of(existing.getId()));
@@ -147,12 +147,12 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
                 service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
     builder.withIdempotencyKey(key);
 
-    Assertions.assertThrows(DuplicateIdempotencyKeyException.class, () -> service.submit(builder));
     JobHandle handle = service.submit(builder);
 
     assertEquals(existingId, handle.id());
     verify(jobCrudStore, times(1)).create(any(JobEntity.class));
     verify(jobCrudStore, times(2)).findOriginalJobIdByIdempotencyKey(eq(key));
+    verify(conflictResolutionTransaction).complete(any());
   }
 
   @Test
@@ -339,14 +339,60 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
-  void submit_exemptsOnlyDuplicateBusinessKeyFromRollback() throws Exception {
-    Transactional annotation =
-        DefaultJobCreationService.class
-            .getMethod("submit", JobBuilder.class)
-            .getAnnotation(Transactional.class);
+  void submit_exemptsBusinessAndIdempotencyConflictsFromRollback() throws Exception {
+    for (Class<?> builderType :
+        List.of(JobBuilder.class, DefaultBatchBuilder.class, DefaultStreamingBatchBuilder.class)) {
+      Transactional annotation =
+          DefaultJobCreationService.class
+              .getMethod("submit", builderType)
+              .getAnnotation(Transactional.class);
+      assertEquals(
+          List.of(DuplicateBusinessKeyException.class, DuplicateIdempotencyKeyException.class),
+          List.of(annotation.dontRollbackOn()));
+    }
+  }
 
-    assertEquals(
-        List.of(DuplicateBusinessKeyException.class), List.of(annotation.dontRollbackOn()));
+  @Test
+  void submit_idempotencyConflictWithoutVisibleWinner_rethrows() {
+    DefaultJobCreationService service = newService();
+    DuplicateIdempotencyKeyException conflict = new DuplicateIdempotencyKeyException("mine");
+    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(conflict);
+    assertSame(
+        conflict,
+        Assertions.assertThrows(
+            DuplicateIdempotencyKeyException.class,
+            () -> service.submit(racingBuilder(service, true))));
+    verify(conflictResolutionTransaction).complete(any());
+  }
+
+  @Test
+  void submit_idempotencyLookupFailure_isSuppressed() {
+    DefaultJobCreationService service = newService();
+    DuplicateIdempotencyKeyException conflict = new DuplicateIdempotencyKeyException("mine");
+    RuntimeException failure = new IllegalStateException("lookup failed");
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine"))
+        .thenReturn(Optional.empty())
+        .thenThrow(failure);
+    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(conflict);
+    assertSame(
+        conflict,
+        Assertions.assertThrows(
+            DuplicateIdempotencyKeyException.class,
+            () -> service.submit(racingBuilder(service, true))));
+    assertEquals(1, conflict.getSuppressed().length);
+    assertSame(failure, conflict.getSuppressed()[0]);
+  }
+
+  @Test
+  void submit_idempotencyConflictWithoutHelper_resolvesDirectly() {
+    DefaultJobCreationService service = newService(false);
+    UUID original = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine"))
+        .thenReturn(Optional.empty(), Optional.of(original));
+    when(jobCrudStore.create(any(JobEntity.class)))
+        .thenThrow(new DuplicateIdempotencyKeyException("mine"));
+    assertEquals(original, service.submit(racingBuilder(service, true)).id());
+    verify(conflictResolutionTransaction, times(0)).complete(any());
   }
 
   private DefaultJobBuilder racingBuilder(DefaultJobCreationService service, boolean explicit) {

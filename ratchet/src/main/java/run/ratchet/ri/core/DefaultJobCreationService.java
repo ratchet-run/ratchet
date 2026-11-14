@@ -51,6 +51,7 @@ import run.ratchet.api.WorkflowCondition.ConditionType;
 import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.AfterCommitActions;
@@ -338,11 +339,16 @@ public class DefaultJobCreationService
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the submission. A duplicate business key does not mark the
-   *     caller's transaction rollback-only.
+   *     container starts one for the submission. Duplicate business and idempotency keys leave the
+   *     caller's transaction usable. An idempotency race resolves the original handle in a new
+   *     transaction when the conflict-resolution helper is available.
    */
   @Override
-  @Transactional(dontRollbackOn = DuplicateBusinessKeyException.class)
+  @Transactional(
+      dontRollbackOn = {
+        DuplicateBusinessKeyException.class,
+        DuplicateIdempotencyKeyException.class
+      })
   public JobHandle submit(JobBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -424,20 +430,11 @@ public class DefaultJobCreationService
     JobEntity saved;
     try {
       saved = createJob(job);
+    } catch (DuplicateIdempotencyKeyException e) {
+      return resolveIdempotencyConflict(idempotencyKey, e);
     } catch (BusinessKeyReservationConflictException e) {
       if (state.hasExplicitIdempotencyKey()) {
-        Optional<UUID> original;
-        try {
-          // A fresh transaction can see the winner outside a MySQL REPEATABLE READ snapshot.
-          original =
-              conflictResolutionTransaction != null
-                  ? conflictResolutionTransaction.complete(
-                      () -> jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey))
-                  : jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
-        } catch (RuntimeException lookupFailure) {
-          e.addSuppressed(lookupFailure);
-          throw e;
-        }
+        Optional<UUID> original = findOriginalAfterConflict(idempotencyKey, e);
         if (original.isPresent()) {
           UUID originalId = original.get();
           return () -> originalId;
@@ -492,6 +489,25 @@ public class DefaultJobCreationService
     return () -> jobId;
   }
 
+  private Optional<UUID> findOriginalAfterConflict(String key, RuntimeException conflict) {
+    try {
+      // A fresh transaction sees the winner outside a MySQL REPEATABLE READ snapshot.
+      return conflictResolutionTransaction != null
+          ? conflictResolutionTransaction.complete(
+              () -> jobCrudStore.findOriginalJobIdByIdempotencyKey(key))
+          : jobCrudStore.findOriginalJobIdByIdempotencyKey(key);
+    } catch (RuntimeException lookupFailure) {
+      conflict.addSuppressed(lookupFailure);
+      throw conflict;
+    }
+  }
+
+  private JobHandle resolveIdempotencyConflict(
+      String key, DuplicateIdempotencyKeyException conflict) {
+    UUID original = findOriginalAfterConflict(key, conflict).orElseThrow(() -> conflict);
+    return () -> original;
+  }
+
   private JobHandle resolveBusinessKeyHolder(
       UUID holderId, String businessKey, String idempotencyKey) {
     // A racer can commit after the first lookup. A permanent unique idempotency key maps to
@@ -515,10 +531,15 @@ public class DefaultJobCreationService
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the batch submission.
+   *     container starts one for the batch submission. A batch-parent idempotency race returns the
+   *     original handle without marking the caller transaction rollback-only.
    */
   @Override
-  @Transactional
+  @Transactional(
+      dontRollbackOn = {
+        DuplicateBusinessKeyException.class,
+        DuplicateIdempotencyKeyException.class
+      })
   public JobHandle submit(DefaultBatchBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -561,7 +582,12 @@ public class DefaultJobCreationService
     JobEntity parent = newBatchParent(callerPrincipal, idempotencyKey);
     parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
-    JobEntity savedParent = createJob(parent);
+    JobEntity savedParent;
+    try {
+      savedParent = createJob(parent);
+    } catch (DuplicateIdempotencyKeyException e) {
+      return resolveIdempotencyConflict(parent.getIdempotencyKey(), e);
+    }
     UUID parentId = savedParent.getId();
 
     BatchEntity batch = new BatchEntity();
@@ -700,8 +726,8 @@ public class DefaultJobCreationService
           throw new IllegalArgumentException("Partition ranges changed");
       }
       if (set.getSealedGeneration() < set.getLatestGeneration()) {
-        partitionService.trySeal(set);
-        set = partitions.findPartitionSet(builder.partitionKey()).orElseThrow();
+        var snapshot = partitionService.sealForSubmission(set);
+        set = snapshot.set();
         if (set.getSealedGeneration() < set.getLatestGeneration()) {
           if (!builder.reopened().isEmpty())
             throw new IllegalStateException(
@@ -711,15 +737,9 @@ public class DefaultJobCreationService
           UUID latest = set.getLatestBatchId();
           return () -> latest;
         }
-        // Lazy sealing updated outcomes and checkpoints; reload before choosing targets.
+        // Use the fresh transaction's rows even under MySQL REPEATABLE READ.
         stored.clear();
-        after = -1;
-        while (true) {
-          var page = partitions.findPartitions(set.getSetId(), after, 500);
-          if (page.isEmpty()) break;
-          stored.addAll(page);
-          after = page.get(page.size() - 1).getPartitionIndex();
-        }
+        stored.addAll(snapshot.rows());
       }
       for (var row : stored) {
         boolean reopen = builder.reopened().contains(row.getPartitionIndex());
@@ -791,10 +811,14 @@ public class DefaultJobCreationService
               parent.isEncryptedPayload(),
               caller));
     }
-    if (!partitions.createOrAdvance(
-        new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
-      throw new IllegalStateException(
-          "Partition set '" + builder.partitionKey() + "' was submitted concurrently; retry");
+    try {
+      if (!partitions.createOrAdvance(
+          new PartitionGenerationWrite(set, expectedVersion, rows, parent, batch)))
+        throw new IllegalStateException(
+            "Partition set '" + builder.partitionKey() + "' was submitted concurrently; retry");
+    } catch (DuplicateIdempotencyKeyException e) {
+      return resolveIdempotencyConflict(parent.getIdempotencyKey(), e);
+    }
     try {
       for (PreparedWorkflowBranch branch : branches) {
         persistWorkflowBranch(branch);
@@ -828,10 +852,15 @@ public class DefaultJobCreationService
 
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the streaming batch submission.
+   *     container starts one for the streaming batch submission. An idempotency race returns the
+   *     original handle and closes the stream without marking the caller transaction rollback-only.
    */
   @Override
-  @Transactional
+  @Transactional(
+      dontRollbackOn = {
+        DuplicateBusinessKeyException.class,
+        DuplicateIdempotencyKeyException.class
+      })
   // The internal builder crosses a public interface method that must retain transaction advice.
   @SuppressWarnings("ClassEscapesDefinedScope")
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
@@ -899,7 +928,14 @@ public class DefaultJobCreationService
     JobEntity parent = newBatchParent(callerPrincipal, idempotencyKey);
     parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
-    JobEntity savedParent = createJob(parent);
+    JobEntity savedParent;
+    try {
+      savedParent = createJob(parent);
+    } catch (DuplicateIdempotencyKeyException e) {
+      // Payloads are validated before the parent exists, so a lost race may already have read
+      // items. The caller's stream is still closed when submission returns.
+      return resolveIdempotencyConflict(parent.getIdempotencyKey(), e);
+    }
     UUID parentId = savedParent.getId();
 
     int totalItems = 0;

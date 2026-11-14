@@ -52,12 +52,14 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
   private static final String NEEDS_OWNER_TRANSACTION =
       """
       supportsOwnerTransaction() is false on this contract class. A store whose create joins \
-      the caller's transaction overrides it and inOwnerTransaction(Runnable) here.""";
+      the caller's transaction overrides it and inOwnerTransaction(Runnable) here.\
+      """;
 
   private static final String NEEDS_LOCK_WAIT_HOOKS =
       """
       awaitBlockedSession(Object, Object, Duration) returned false on this contract class. \
-      Override it and ownerSessionId() here to observe database lock waits.""";
+      Override it and ownerSessionId() here to observe database lock waits.\
+      """;
 
   // Each step the main thread runs before it releases a held session waits at most 30 s, and a
   // test runs at most four of them, so a held session waits longer than their sum.
@@ -189,12 +191,8 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
     String key = uniqueKey();
     JobEntity duplicate = jobWithBusinessKey(key);
     duplicate.setIdempotencyKey(original.getIdempotencyKey());
-    try {
-      inOwnerTransaction(
-          () -> assertThrows(DuplicateIdempotencyKeyException.class, () -> create(duplicate)));
-    } catch (RuntimeException expectedCommitFailure) {
-      // Providers may mark the owner transaction rollback-only after the idempotency conflict.
-    }
+    inOwnerTransaction(
+        () -> assertThrows(DuplicateIdempotencyKeyException.class, () -> create(duplicate)));
 
     assertTrue(store().findBusinessKeyHolder(key).isEmpty());
     JobEntity replacement = create(jobWithBusinessKey(key));
@@ -234,18 +232,12 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
       var duplicating =
           workers.submit(
               () -> {
-                try {
-                  inOwnerTransaction(
-                      () -> {
-                        duplicateSession.set(ownerSessionId());
-                        duplicateStarted.countDown();
-                        assertThrows(
-                            DuplicateIdempotencyKeyException.class, () -> create(duplicate));
-                      });
-                } catch (RuntimeException expectedCommitFailure) {
-                  // Providers may mark the owner transaction rollback-only after the
-                  // idempotency conflict.
-                }
+                inOwnerTransaction(
+                    () -> {
+                      duplicateSession.set(ownerSessionId());
+                      duplicateStarted.countDown();
+                      assertThrows(DuplicateIdempotencyKeyException.class, () -> create(duplicate));
+                    });
               });
       assertTrue(duplicateStarted.await(30, TimeUnit.SECONDS), "Duplicate did not start");
       assumeTrue(

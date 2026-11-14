@@ -36,6 +36,7 @@ import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -43,6 +44,36 @@ import run.ratchet.store.entity.JobExecutionType;
 class PostgresqlConstraintDetectorTest {
 
   private final PostgresqlConstraintDetector detector = new PostgresqlConstraintDetector();
+
+  @Test
+  void idempotencyConflictReleasesSameCallBusinessReservationWithoutJobWrites() {
+    EntityManager em = mock(EntityManager.class);
+    Query cold = mock(Query.class, RETURNS_SELF);
+    Query hot = mock(Query.class, RETURNS_SELF);
+    Query business = mock(Query.class, RETURNS_SELF);
+    Query idempotency = mock(Query.class, RETURNS_SELF);
+    Query release = mock(Query.class, RETURNS_SELF);
+    when(em.createNativeQuery(anyString())).thenReturn(cold, hot, business, idempotency, release);
+    when(business.executeUpdate()).thenReturn(1);
+    when(idempotency.executeUpdate()).thenReturn(0);
+    PostgresqlStoreContext ctx = new PostgresqlStoreContext(em);
+    PostgresqlJobWriteOperations writes =
+        new PostgresqlJobWriteOperations(ctx, new PostgresqlBusinessKeyReservations(ctx), null);
+    JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setBusinessKey("fresh-business-key");
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+
+    DuplicateIdempotencyKeyException conflict =
+        assertThrows(DuplicateIdempotencyKeyException.class, () -> writes.saveInsert(job));
+
+    assertNull(conflict.getCause());
+    assertEquals(job.getIdempotencyKey(), conflict.idempotencyKey());
+    verify(release).executeUpdate();
+    verify(cold, never()).executeUpdate();
+    verify(hot, never()).executeUpdate();
+    verify(em, times(5)).createNativeQuery(anyString());
+  }
 
   @Test
   void reservationConflictWritesNothingForTheJob() {

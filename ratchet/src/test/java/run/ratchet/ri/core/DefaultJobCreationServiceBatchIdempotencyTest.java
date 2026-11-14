@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,12 +34,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,6 +68,7 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 class DefaultJobCreationServiceBatchIdempotencyTest {
 
   @Mock private BatchService batchService;
+  @Mock private BatchCompletionTransaction conflictResolutionTransaction;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
   @Mock private BatchStore batchStore;
@@ -91,6 +93,9 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
   }
 
   private DefaultJobCreationService newService() {
+    lenient()
+        .when(conflictResolutionTransaction.complete(any()))
+        .thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(0).get());
     return new DefaultJobCreationService(
         batchService,
         jobCrudStore,
@@ -114,7 +119,8 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
         true,
         null,
         new JakartaAfterCommitRegistrar(),
-        new DefaultErrorSanitizer());
+        new DefaultErrorSanitizer(),
+        conflictResolutionTransaction);
   }
 
   @Test
@@ -236,43 +242,63 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
   }
 
   @Test
-  void parentInsertRacePropagatesBeforeChildrenOrBatchWrites() {
+  void parentInsertRaceReturnsOriginalBeforeChildrenOrBatchWrites() {
     DefaultJobCreationService service = newService();
-    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("batch-42")).thenReturn(Optional.empty());
-    DuplicateIdempotencyKeyException collision =
-        new DuplicateIdempotencyKeyException("batch-42", new RuntimeException("duplicate"));
-    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+    UUID original = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("batch-42"))
+        .thenReturn(Optional.empty(), Optional.of(original));
+    when(jobCrudStore.create(any(JobEntity.class)))
+        .thenThrow(new DuplicateIdempotencyKeyException("batch-42"));
     DefaultBatchBuilder builder = batchBuilder(service);
     builder.withIdempotencyKey("batch-42");
 
-    assertSame(collision, assertThrows(DuplicateIdempotencyKeyException.class, builder::submit));
-
+    assertEquals(original, builder.submit().id());
+    verify(conflictResolutionTransaction).complete(any());
     verifyNoInteractions(jobBulkStore, batchStore, workflowConditionStore);
   }
 
   @Test
-  void streamingParentInsertRaceClosesStreamAfterReadingOnlyItsFirstItem() {
+  void streamingParentInsertRaceReturnsOriginalAndClosesStreamAfterFirstItem() {
     DefaultJobCreationService service = newService();
-    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("stream-42")).thenReturn(Optional.empty());
-    DuplicateIdempotencyKeyException collision =
-        new DuplicateIdempotencyKeyException("stream-42", new RuntimeException("duplicate"));
-    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
-    // The first item is prepared before the parent insert so an invalid target writes no rows.
+    UUID original = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("stream-42"))
+        .thenReturn(Optional.empty(), Optional.of(original));
+    when(jobCrudStore.create(any(JobEntity.class)))
+        .thenThrow(new DuplicateIdempotencyKeyException("stream-42"));
+    AtomicBoolean closed = new AtomicBoolean();
     AtomicInteger reads = new AtomicInteger();
-    Iterator<String> items =
-        Stream.of("first", "second").peek(item -> reads.incrementAndGet()).iterator();
-    @SuppressWarnings("unchecked")
-    Stream<String> stream = mock(Stream.class);
-    when(stream.iterator()).thenReturn(items);
+    Stream<String> stream =
+        Stream.of("first", "second")
+            .peek(item -> reads.incrementAndGet())
+            .onClose(() -> closed.set(true));
     DefaultStreamingBatchBuilder<String> builder = streamingBuilder(service, stream);
     builder.withIdempotencyKey("stream-42");
 
-    assertSame(collision, assertThrows(DuplicateIdempotencyKeyException.class, builder::start));
-
+    assertEquals(original, builder.start().id());
+    verify(conflictResolutionTransaction).complete(any());
+    // Payloads are validated before the parent exists, so only the first item is read.
     assertEquals(1, reads.get());
-    verify(stream).iterator();
-    verify(stream).close();
-    verifyNoMoreInteractions(stream);
+    assertTrue(closed.get());
+    verifyNoInteractions(jobBulkStore, batchStore, workflowConditionStore);
+  }
+
+  @Test
+  void generatedStreamingParentKeyRaceAlsoClosesStream() {
+    DefaultJobCreationService service = newService();
+    UUID original = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString()))
+        .thenReturn(Optional.of(original));
+    when(jobCrudStore.create(any(JobEntity.class)))
+        .thenThrow(new DuplicateIdempotencyKeyException("generated-key"));
+    AtomicBoolean closed = new AtomicBoolean();
+    AtomicInteger reads = new AtomicInteger();
+    Stream<String> stream =
+        Stream.of("one").peek(item -> reads.incrementAndGet()).onClose(() -> closed.set(true));
+
+    assertEquals(original, streamingBuilder(service, stream).start().id());
+    assertEquals(1, reads.get());
+    assertTrue(closed.get());
+    verify(conflictResolutionTransaction).complete(any());
     verifyNoInteractions(jobBulkStore, batchStore, workflowConditionStore);
   }
 
