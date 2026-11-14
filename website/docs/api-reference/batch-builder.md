@@ -23,7 +23,7 @@ Obtained from [`JobSchedulerService.enqueueBatch()`](./job-scheduler-service#enq
 BatchBuilder withIdempotencyKey(String key)
 ```
 
-Sets the batch parent's idempotency key. The key is trimmed and must be at most 36 characters. A longer trimmed key throws `IllegalArgumentException` from this method. Null or blank keeps the generated key.
+Sets the batch parent's idempotency key. The key is trimmed and must contain at most 36 printable ASCII characters (`U+0020` through `U+007E`). Any other trimmed key throws `IllegalArgumentException` from this method. Null or blank keeps the generated key.
 
 A later `submit()` with the same key returns the original handle and writes no parent, children, progress hook or branches. This also works after job history is purged. Single jobs and batches share the key namespace. Children and branch jobs keep generated keys.
 

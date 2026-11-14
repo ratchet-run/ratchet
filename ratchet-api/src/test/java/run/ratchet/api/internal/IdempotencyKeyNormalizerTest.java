@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class IdempotencyKeyNormalizerTest {
 
@@ -57,5 +59,20 @@ class IdempotencyKeyNormalizerTest {
             IllegalArgumentException.class,
             () -> IdempotencyKeyNormalizer.normalize(" " + "k".repeat(37) + " "));
     assertEquals("Idempotency key must be at most 36 characters, got 37", exception.getMessage());
+  }
+
+  @Test
+  void acceptsEveryPrintableAsciiCharacter() {
+    assertEquals("a b~!", IdempotencyKeyNormalizer.normalize(" a b~! "));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"invoice-😀", "café", "key\u007f", "a\u0001b", "a b"})
+  void rejectsCharactersOutsidePrintableAscii(String key) {
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, () -> IdempotencyKeyNormalizer.normalize(key));
+    assertEquals(
+        "Idempotency key must contain only printable ASCII characters (U+0020-U+007E)",
+        exception.getMessage());
   }
 }

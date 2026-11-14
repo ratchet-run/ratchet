@@ -163,6 +163,10 @@ trimming, a business key may contain up to 255 printable ASCII characters. Oracl
 collation's code page. Printable ASCII is one byte and round-trips unchanged in both, so Ratchet
 rejects other values before persistence rather than allowing store-specific conversion or failure.
 
+Idempotency keys follow the same rule with a 36-character limit. Oracle stores them in
+`VARCHAR2(36)` and SQL Server in `VARCHAR(36)`, so a multibyte key could overflow the Oracle column,
+and SQL Server could store two distinct keys as the same value.
+
 ### Indexes
 
 SQL stores define hot queue indexes for the Poller and supporting cold-table
