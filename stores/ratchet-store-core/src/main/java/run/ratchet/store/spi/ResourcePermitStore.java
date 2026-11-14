@@ -142,13 +142,13 @@ public interface ResourcePermitStore {
   /**
    * Reads one stored limit by name; empty when there is none. Does not apply validation rules. Name
    * matching follows the store's key comparison, which may ignore case. Transaction attribute:
-   * {@code SUPPORTS}.
+   * {@code REQUIRED}, the store's class-level boundary.
    */
   Optional<ResourceLimit> findResourceLimit(String name);
 
   /**
    * Reads every stored limit, in no particular order. Does not apply validation rules. Transaction
-   * attribute: {@code SUPPORTS}.
+   * attribute: {@code REQUIRED}, the store's class-level boundary.
    */
   List<ResourceLimit> listResourceLimits();
 
