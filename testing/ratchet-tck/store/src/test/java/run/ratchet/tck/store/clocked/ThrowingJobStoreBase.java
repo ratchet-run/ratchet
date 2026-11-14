@@ -402,12 +402,6 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return fail("resetOrphanJobs");
-  }
-
-  @Override
   public int closeStaleExecutions(Instant cutoff, int limit) {
     return fail("closeStaleExecutions");
   }

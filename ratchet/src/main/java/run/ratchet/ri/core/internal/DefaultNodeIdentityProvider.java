@@ -256,17 +256,36 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
     // Startup self-recovery: unconditionally reclaim RUNNING jobs owned by THIS nodeId. A node
     // that crashes and restarts inside the steady-state grace window would otherwise leave its
-    // own prior RUNNING rows in place until the heartbeat aged out.
-    OrphanRecovery own =
-        recoverAtStartup(
-            resolvedNodeId,
-            () ->
-                jobBulkStore.resetOrphanJobsForNode(
-                    resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.EXHAUSTED_LIMIT));
+    // own prior RUNNING rows in place until the heartbeat aged out. Unlike the periodic scan this
+    // has no page or time limit: once this node heartbeats, no periodic scan sees its claims.
+    int scanned = 0;
+    int reset = 0;
+    int released = 0;
+    while (true) {
+      OrphanRecovery own =
+          recoverAtStartup(
+              resolvedNodeId,
+              () ->
+                  jobBulkStore.resetOrphanJobsForNode(
+                      resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
+      scanned += own.scanned();
+      reset += own.reset();
+      released += own.released();
+      if (own.scanned() < OrphanRecoveryTimer.ORPHAN_PAGE_SIZE) {
+        break;
+      }
+      if (own.reset() + own.released() == 0) {
+        // Every row the page read left this node's claims before the recheck, for example to a
+        // peer's scan. More may remain. No row can join until this node claims, so read again.
+        log.warnf(
+            "Startup recovery for node %s read a full page that changed nothing; reading again",
+            resolvedNodeId);
+      }
+    }
     log.infof(
-        "Startup recovery for node %s: reset %s job(s), returned %s exhausted claim(s) for later"
-            + " failure",
-        resolvedNodeId, own.reset(), own.exhausted().size());
+        "Startup recovery for node %s: scanned %s candidate(s), reset %s job(s), released %s"
+            + " owner(s)",
+        resolvedNodeId, scanned, reset, released);
 
     // The orphan recovery timer runs this scan again after one interval, so only the node's own
     // reset above must succeed for startup to continue.
@@ -275,13 +294,14 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
           recoverAtStartup(
               resolvedNodeId,
               () ->
-                  jobBulkStore.resetOrphanJobs(
-                      Duration.ofSeconds(orphanGraceSeconds),
+                  jobBulkStore.resetOrphanJobsBefore(
+                      effective().instant().minusSeconds(orphanGraceSeconds),
                       maxCrashRedeliveries,
-                      OrphanRecoveryTimer.EXHAUSTED_LIMIT));
+                      OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
       log.infof(
-          "Startup orphan recovery: reset %s job(s), found %s exhausted claim(s)",
-          others.reset(), others.exhausted().size());
+          "Startup orphan recovery: scanned %s candidate(s), reset %s job(s), released %s owner(s);"
+              + " exhausted claims deferred by this page are failed by the first periodic scan",
+          others.scanned(), others.reset(), others.released());
     } catch (RatchetTransientStoreException e) {
       log.warnf(
           e,
@@ -295,8 +315,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   /**
    * Retries transient startup recovery failures, propagating failure when attempts are exhausted.
    *
-   * <p>Each attempt is a separate store call. A retry is clean only when no caller transaction is
-   * open around {@code init()}, so that the failed attempt has already rolled back.
+   * <p>Each attempt is a separate store call and transaction, so a failed page has rolled back
+   * before its retry, even when a caller transaction is open around {@code init()}.
    */
   private OrphanRecovery recoverAtStartup(String nodeId, Supplier<OrphanRecovery> recovery) {
     for (int attempt = 1; ; attempt++) {

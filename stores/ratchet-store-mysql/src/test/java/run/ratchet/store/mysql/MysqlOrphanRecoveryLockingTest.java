@@ -114,11 +114,11 @@ class MysqlOrphanRecoveryLockingTest {
       heartbeatStore.upsertHeartbeat(storedNodeId, now);
       heartbeat.getTransaction().commit();
 
-      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 500);
       // Before this fix isolation 4 reset the job because the heartbeat check read the old
       // snapshot.
       assertEquals(0, recovery.reset());
-      assertTrue(recovery.exhausted().isEmpty());
+      assertTrue(scanStore.resetOrphanJobsBefore(cutoff, 3, 100).exhausted().isEmpty());
 
       // The scan locks only candidate owners' node rows, so other nodes' heartbeats do not wait.
       heartbeat.getTransaction().begin();
@@ -176,8 +176,8 @@ class MysqlOrphanRecoveryLockingTest {
       // Before this fix the scan waited on the held row and failed with a lock-wait timeout.
       var recovery =
           startup
-              ? scanStore.resetOrphanJobsForNode("dead", 3, 100)
-              : scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+              ? scanStore.resetOrphanJobsForNode("dead", 3, 500)
+              : scanStore.resetOrphanJobsBefore(cutoff, 3, 500);
       assertEquals(1, recovery.reset());
       scan.getTransaction().commit();
 

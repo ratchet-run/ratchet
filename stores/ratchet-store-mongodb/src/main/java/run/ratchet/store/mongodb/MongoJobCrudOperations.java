@@ -24,7 +24,6 @@ import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.nin;
-import static com.mongodb.client.model.Filters.not;
 import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
@@ -70,9 +69,9 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -739,10 +738,6 @@ final class MongoJobCrudOperations {
     return Optional.of(snapshot);
   }
 
-  OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return resetOrphanJobsBefore(Instant.now().minus(grace), maxCrashRedeliveries, exhaustedLimit);
-  }
-
   int closeStaleExecutions(Instant cutoffInstant, int limit) {
     if (limit <= 0) {
       return 0;
@@ -810,8 +805,10 @@ final class MongoJobCrudOperations {
     }
   }
 
-  OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoffInstant, int maxCrashRedeliveries, int exhaustedLimit) {
+  OrphanRecovery resetOrphanJobsBefore(Instant cutoffInstant, int maxCrashRedeliveries, int limit) {
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
     Date cutoff = DocumentMapper.toDate(cutoffInstant);
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
@@ -825,7 +822,7 @@ final class MongoJobCrudOperations {
                     eq(STATUS, STATUS_RUNNING),
                     nin(PICKED_BY, activeNodeIds),
                     lt(PICKED_AT, cutoff));
-            return recoverOrphans(session, orphan, maxCrashRedeliveries, exhaustedLimit, false);
+            return recoverOrphans(session, orphan, maxCrashRedeliveries, limit, false);
           },
           TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
@@ -833,8 +830,10 @@ final class MongoJobCrudOperations {
     }
   }
 
-  OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+  OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () ->
@@ -842,7 +841,7 @@ final class MongoJobCrudOperations {
                   session,
                   and(eq(STATUS, STATUS_RUNNING), eq(PICKED_BY, nodeId)),
                   maxCrashRedeliveries,
-                  exhaustedLimit,
+                  limit,
                   true),
           TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
@@ -854,75 +853,96 @@ final class MongoJobCrudOperations {
       ClientSession session,
       Bson orphan,
       int maxCrashRedeliveries,
-      int exhaustedLimit,
+      int limit,
       boolean releaseOwner) {
-    List<UUID> orphanIds = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(session, orphan).projection(new Document(ID, 1))) {
-      orphanIds.add(doc.get(ID, UUID.class));
+    List<Document> candidates = new ArrayList<>();
+    for (Document doc :
+        ctx.jobs()
+            .find(session, orphan)
+            .projection(
+                new Document(ID, 1)
+                    .append(CLAIM_SEQ, 1)
+                    .append(CRASH_COUNT, 1)
+                    .append(PICKED_BY, 1)
+                    .append(PICKED_AT, 1))
+            .limit(limit)) {
+      candidates.add(doc);
     }
-    if (!orphanIds.isEmpty()) {
-      Date endedAt = DocumentMapper.toDate(Instant.now());
-      for (int start = 0; start < orphanIds.size(); start += ORPHAN_EXECUTION_CLOSE_BATCH) {
-        List<UUID> batch =
-            orphanIds.subList(
-                start, Math.min(start + ORPHAN_EXECUTION_CLOSE_BATCH, orphanIds.size()));
-        ctx.executions()
-            .updateMany(
-                session,
-                and(in(JOB_ID, batch), eq(STATUS, STATUS_RUNNING)),
-                combine(
-                    set(STATUS, STATUS_FAILED),
-                    set(ENDED_AT, endedAt),
-                    set(ERROR_MESSAGE, ORPHAN_RECOVERY_ERROR_MESSAGE)));
+    if (candidates.isEmpty()) {
+      return OrphanRecovery.none();
+    }
+    List<UUID> ids = new ArrayList<>();
+    List<UUID> resettable = new ArrayList<>();
+    List<UUID> exhaustedIds = new ArrayList<>();
+    List<Document> exhaustedDocs = new ArrayList<>();
+    for (Document doc : candidates) {
+      UUID id = doc.get(ID, UUID.class);
+      ids.add(id);
+      // Missing crash counts mean zero, including with a zero maximum.
+      if (maxCrashRedeliveries > 0 && doc.getInteger(CRASH_COUNT, 0) < maxCrashRedeliveries) {
+        resettable.add(id);
+      } else {
+        exhaustedIds.add(id);
+        exhaustedDocs.add(doc);
       }
     }
-    // Missing means zero, including when the configured budget is zero.
-    Bson atLimit =
-        maxCrashRedeliveries == 0
-            ? or(gte(CRASH_COUNT, 0), exists(CRASH_COUNT, false))
-            : gte(CRASH_COUNT, maxCrashRedeliveries);
-    Bson hasBudget =
-        maxCrashRedeliveries == 0
-            ? and(exists(CRASH_COUNT, true), not(gte(CRASH_COUNT, 0)))
-            : not(gte(CRASH_COUNT, maxCrashRedeliveries));
-    UpdateResult reset =
+    Date now = DocumentMapper.toDate(Instant.now());
+    ctx.executions()
+        .updateMany(
+            session,
+            and(in(JOB_ID, ids), eq(STATUS, STATUS_RUNNING)),
+            combine(
+                set(STATUS, STATUS_FAILED),
+                set(ENDED_AT, now),
+                set(ERROR_MESSAGE, ORPHAN_RECOVERY_ERROR_MESSAGE)));
+    int reset = 0;
+    if (!resettable.isEmpty()) {
+      reset =
+          (int)
+              ctx.jobs()
+                  .updateMany(
+                      session,
+                      and(in(ID, resettable), orphan),
+                      combine(
+                          set(STATUS, STATUS_PENDING),
+                          set(PICKED_BY, null),
+                          set(PICKED_AT, null),
+                          inc(CRASH_COUNT, 1),
+                          set(UPDATED_AT, now),
+                          inc(VERSION, 1)))
+                  .getModifiedCount();
+    }
+    int released = 0;
+    List<ExhaustedOrphan> exhausted = new ArrayList<>();
+    if (!exhaustedIds.isEmpty()) {
+      if (releaseOwner) {
+        released =
+            (int)
+                ctx.jobs()
+                    .updateMany(session, and(in(ID, exhaustedIds), orphan), set(PICKED_BY, null))
+                    .getModifiedCount();
+      } else {
         ctx.jobs()
             .updateMany(
                 session,
-                and(orphan, hasBudget),
-                combine(
-                    set(STATUS, STATUS_PENDING),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    inc(CRASH_COUNT, 1),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    Bson exhaustedFilter = and(orphan, atLimit);
-    List<ExhaustedOrphan> exhausted = new ArrayList<>();
-    if (exhaustedLimit > 0) {
-      for (Document doc :
-          ctx.jobs()
-              .find(session, exhaustedFilter)
-              .projection(
-                  new Document(ID, 1)
-                      .append(CLAIM_SEQ, 1)
-                      .append(CRASH_COUNT, 1)
-                      .append(PICKED_BY, 1))
-              .sort(ascending(ID))
-              .limit(exhaustedLimit)) {
-        Number claim = doc.get(CLAIM_SEQ, Number.class);
-        exhausted.add(
-            new ExhaustedOrphan(
-                doc.get(ID, UUID.class),
-                claim == null ? 0L : claim.longValue(),
-                doc.getInteger(CRASH_COUNT, 0),
-                doc.getString(PICKED_BY)));
+                and(in(ID, exhaustedIds), orphan),
+                combine(set(PICKED_AT, now), set(UPDATED_AT, now), inc(VERSION, 1)));
+        // The read stays unsorted: no index supports sorting this MongoDB predicate by age.
+        exhaustedDocs.sort(
+            Comparator.comparing(
+                doc -> doc.getDate(PICKED_AT), Comparator.nullsFirst(Comparator.naturalOrder())));
+        for (Document doc : exhaustedDocs) {
+          Number claim = doc.get(CLAIM_SEQ, Number.class);
+          exhausted.add(
+              new ExhaustedOrphan(
+                  doc.get(ID, UUID.class),
+                  claim == null ? 0L : claim.longValue(),
+                  doc.getInteger(CRASH_COUNT, 0),
+                  doc.getString(PICKED_BY)));
+        }
       }
     }
-    if (releaseOwner) {
-      ctx.jobs().updateMany(session, exhaustedFilter, set(PICKED_BY, null));
-    }
-    return new OrphanRecovery((int) reset.getModifiedCount(), List.copyOf(exhausted));
+    return new OrphanRecovery(candidates.size(), reset, released, List.copyOf(exhausted));
   }
 
   private static boolean holdsBusinessKey(JobEntity job) {

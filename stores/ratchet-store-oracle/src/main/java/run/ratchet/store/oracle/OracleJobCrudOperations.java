@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.oracle;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -237,26 +236,18 @@ final class OracleJobCrudOperations implements JobCrudStore, JobBulkStore, JobAn
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return deletes.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
-  }
-
-  @Override
   public int closeStaleExecutions(Instant cutoff, int limit) {
     return deletes.closeStaleExecutions(cutoff, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-    return deletes.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
+    return deletes.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    return deletes.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    return deletes.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, limit);
   }
 
   @Override

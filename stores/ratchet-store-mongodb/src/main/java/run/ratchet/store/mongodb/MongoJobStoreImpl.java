@@ -520,26 +520,18 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return crud.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
-  }
-
-  @Override
   public int closeStaleExecutions(Instant cutoff, int limit) {
     return crud.closeStaleExecutions(cutoff, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-    return crud.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
+    return crud.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    return crud.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
+  public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    return crud.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, limit);
   }
 
   @Override

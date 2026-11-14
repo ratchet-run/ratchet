@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,12 +43,14 @@ import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
@@ -79,6 +82,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   private final Map<UUID, JobEntity> jobs = new HashMap<>();
   private final Map<String, UUID> idempotencyKeys = new HashMap<>();
   private final Map<UUID, List<JobExecutionEntity>> executions = new HashMap<>();
+  private final Map<UUID, Integer> crashCounts = new HashMap<>();
+  private final Map<String, Instant> heartbeats = new HashMap<>();
   private final Clock clock;
 
   protected InMemoryJobStore() {
@@ -95,6 +100,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     jobs.clear();
     idempotencyKeys.clear();
     executions.clear();
+    crashCounts.clear();
+    heartbeats.clear();
   }
 
   // ----- JobCrudStore (real bodies) -----
@@ -546,7 +553,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized void upsertHeartbeat(String nodeId, Instant ts) {
-    // No-op: in-memory store has no node coordination needs.
+    heartbeats.put(nodeId, ts);
   }
 
   @Override
@@ -589,24 +596,6 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
     return findById(jobId);
-  }
-
-  @Override
-  public synchronized OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return new OrphanRecovery(0, List.of());
-  }
-
-  @Override
-  public synchronized OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-    return new OrphanRecovery(0, List.of());
-  }
-
-  @Override
-  public synchronized OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    return new OrphanRecovery(0, List.of());
   }
 
   @Override
@@ -686,5 +675,92 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return 0;
+  }
+
+  @Override
+  public synchronized OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int max, int limit) {
+    if (limit <= 0) return OrphanRecovery.none();
+    List<JobEntity> candidates =
+        jobs.values().stream()
+            .filter(job -> orphanMatches(job, cutoff))
+            .sorted(Comparator.comparing(JobEntity::getPickedAt))
+            .limit(limit)
+            .toList();
+    int reset = 0;
+    List<ExhaustedOrphan> exhausted = new ArrayList<>();
+    for (JobEntity job : candidates) {
+      closeOrphanExecutions(job.getId());
+      if (crashCount(job) < max) {
+        resetOrphan(job);
+        reset++;
+      } else {
+        exhausted.add(
+            new ExhaustedOrphan(
+                job.getId(), job.getClaimSeq(), crashCount(job), job.getPickedBy()));
+        Instant now = Instant.now();
+        job.setPickedAt(now);
+        job.setUpdatedAt(now);
+      }
+    }
+    return new OrphanRecovery(candidates.size(), reset, 0, exhausted);
+  }
+
+  @Override
+  public synchronized OrphanRecovery resetOrphanJobsForNode(String nodeId, int max, int limit) {
+    if (limit <= 0) return OrphanRecovery.none();
+    List<JobEntity> candidates =
+        jobs.values().stream()
+            .filter(
+                job ->
+                    job.getStatus() == JobStatus.RUNNING
+                        && Objects.equals(nodeId, job.getPickedBy()))
+            .sorted(
+                Comparator.comparing(
+                    JobEntity::getPickedAt, Comparator.nullsFirst(Comparator.naturalOrder())))
+            .limit(limit)
+            .toList();
+    int reset = 0;
+    int released = 0;
+    for (JobEntity job : candidates) {
+      closeOrphanExecutions(job.getId());
+      if (crashCount(job) < max) {
+        resetOrphan(job);
+        reset++;
+      } else {
+        job.setPickedBy(null);
+        released++;
+      }
+    }
+    return new OrphanRecovery(candidates.size(), reset, released, List.of());
+  }
+
+  private boolean orphanMatches(JobEntity job, Instant cutoff) {
+    Instant heartbeat = job.getPickedBy() == null ? null : heartbeats.get(job.getPickedBy());
+    return job.getStatus() == JobStatus.RUNNING
+        && job.getPickedAt() != null
+        && job.getPickedAt().isBefore(cutoff)
+        && (heartbeat == null || heartbeat.isBefore(cutoff));
+  }
+
+  private int crashCount(JobEntity job) {
+    return crashCounts.getOrDefault(job.getId(), 0);
+  }
+
+  private void resetOrphan(JobEntity job) {
+    crashCounts.put(job.getId(), crashCount(job) + 1);
+    job.setStatus(JobStatus.PENDING);
+    job.setPickedBy(null);
+    job.setPickedAt(null);
+    job.setUpdatedAt(Instant.now());
+  }
+
+  private void closeOrphanExecutions(UUID jobId) {
+    for (JobExecutionEntity execution : executions.getOrDefault(jobId, List.of())) {
+      if (execution.getStatus() == ExecutionStatus.RUNNING) {
+        execution.setStatus(ExecutionStatus.FAILED);
+        execution.setEndedAt(Instant.now());
+        execution.setErrorMessage(JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE);
+      }
+    }
   }
 }

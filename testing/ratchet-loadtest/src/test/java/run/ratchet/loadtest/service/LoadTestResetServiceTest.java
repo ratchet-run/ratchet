@@ -17,7 +17,6 @@ package run.ratchet.loadtest.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,19 +89,13 @@ class LoadTestResetServiceTest {
     @Override
     public OrphanRecovery resetOrphanJobsBefore(
         Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-      return new OrphanRecovery(0, List.of());
-    }
-
-    @Override
-    public OrphanRecovery resetOrphanJobs(
-        Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-      return new OrphanRecovery(0, List.of());
+      return new OrphanRecovery(0, 0, 0, List.of());
     }
 
     @Override
     public OrphanRecovery resetOrphanJobsForNode(
         String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-      return new OrphanRecovery(0, List.of());
+      return new OrphanRecovery(0, 0, 0, List.of());
     }
   }
 }

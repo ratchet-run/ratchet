@@ -20,10 +20,10 @@ import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -150,10 +150,6 @@ final class PostgresqlJobDeleteOperations {
     return Optional.of(snapshot);
   }
 
-  OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return resetOrphanJobsBefore(Instant.now().minus(grace), maxCrashRedeliveries, exhaustedLimit);
-  }
-
   int closeStaleExecutions(Instant cutoff, int limit) {
     if (limit <= 0) {
       return 0;
@@ -188,8 +184,10 @@ final class PostgresqlJobDeleteOperations {
     }
   }
 
-  OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
+  OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
     String predicate =
         """
         WHERE status = 'RUNNING'
@@ -202,20 +200,18 @@ final class PostgresqlJobDeleteOperations {
         """;
     Timestamp cutoffTimestamp = Timestamp.from(cutoff);
     return recoverOrphans(
-        predicate,
-        List.of(cutoffTimestamp, cutoffTimestamp),
-        maxCrashRedeliveries,
-        exhaustedLimit,
-        false);
+        predicate, List.of(cutoffTimestamp, cutoffTimestamp), maxCrashRedeliveries, limit, false);
   }
 
-  OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+  OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    if (limit <= 0) {
+      return OrphanRecovery.none();
+    }
     return recoverOrphans(
         "WHERE status = 'RUNNING' AND picked_by = ?",
         List.of(nodeId),
         maxCrashRedeliveries,
-        exhaustedLimit,
+        limit,
         true);
   }
 
@@ -223,47 +219,85 @@ final class PostgresqlJobDeleteOperations {
       String predicate,
       List<?> parameters,
       int maxCrashRedeliveries,
-      int exhaustedLimit,
+      int limit,
       boolean releaseOwner) {
     try {
-      // Close first: after the reset the predicate no longer matches. Each statement checks the
-      // heartbeat again, so a node that heartbeats in between keeps its job, and this attempt reads
-      // FAILED until that node's own saveExecution writes the real outcome.
+      Query candidates =
+          ctx.em()
+              .createNativeQuery(
+                  "SELECT job_id FROM scheduler_job_queue "
+                      + predicate
+                      + " ORDER BY picked_at LIMIT ?");
+      bindPredicate(candidates, parameters, 1);
+      candidates.setParameter(parameters.size() + 1, limit);
+      List<?> candidateRows = candidates.getResultList();
+      if (candidateRows.isEmpty()) {
+        return OrphanRecovery.none();
+      }
+      List<UUID> ids = new ArrayList<>(candidateRows.size());
+      for (Object row : candidateRows) {
+        ids.add(PostgresqlJobRowMapper.uuidOrNull(row));
+      }
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      String restricted = predicate + " AND job_id IN (" + placeholders + ")";
+      List<Object> restrictedParameters = new ArrayList<>(parameters);
+      for (UUID id : ids) {
+        restrictedParameters.add(id);
+      }
+      // Close first: reset removes the predicate. Each statement rechecks the full orphan
+      // condition, so an intervening heartbeat keeps its job.
       Query close =
           ctx.em()
               .createNativeQuery(
-                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
-                      + "statement_timestamp(), error_message = ? "
-                      + "WHERE status = 'RUNNING' AND job_id IN "
-                      + "(SELECT job_id FROM scheduler_job_queue "
-                      + predicate
+                  """
+                  UPDATE scheduler_job_execution
+                  SET status = 'FAILED', ended_at = statement_timestamp(), error_message = ?
+                  WHERE status = 'RUNNING' AND job_id IN (SELECT job_id FROM scheduler_job_queue
+                  """
+                      + restricted
                       + ")");
       close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
-      bindPredicate(close, parameters, 2);
+      bindPredicate(close, restrictedParameters, 2);
       close.executeUpdate();
-      String resetSql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-              crash_count = crash_count + 1, updated_at = statement_timestamp()
-          """
-              + predicate
-              + " AND crash_count < ?";
-      Query reset = ctx.em().createNativeQuery(resetSql);
-      bindRecovery(reset, parameters, maxCrashRedeliveries);
+      Query reset =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  UPDATE scheduler_job_queue
+                  SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
+                      crash_count = crash_count + 1, updated_at = statement_timestamp()
+                  """
+                      + restricted
+                      + " AND crash_count < ?");
+      bindRecovery(reset, restrictedParameters, maxCrashRedeliveries);
       int count = reset.executeUpdate();
+      int released = 0;
       List<ExhaustedOrphan> exhausted = new ArrayList<>();
-      if (exhaustedLimit > 0) {
-        String selectSql =
-            """
-            SELECT job_id, claim_seq, crash_count, picked_by FROM scheduler_job_queue
-            """
-                + predicate
-                + " AND crash_count >= ? ORDER BY job_id";
-        Query select = ctx.em().createNativeQuery(selectSql);
-        bindRecovery(select, parameters, maxCrashRedeliveries);
-        select.setMaxResults(exhaustedLimit);
-        for (Object result : select.getResultList()) {
+      if (releaseOwner) {
+        Query release =
+            ctx.em()
+                .createNativeQuery(
+                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                        + restricted
+                        + " AND crash_count >= ?");
+        bindRecovery(release, restrictedParameters, maxCrashRedeliveries);
+        released = release.executeUpdate();
+      } else {
+        Query defer =
+            ctx.em()
+                .createNativeQuery(
+                    "UPDATE scheduler_job_queue SET picked_at = ?, updated_at = ?,"
+                        + " version = version + 1 "
+                        + restricted
+                        + " AND crash_count >= ? RETURNING job_id, claim_seq, crash_count,"
+                        + " picked_by");
+        Timestamp now = Timestamp.from(Instant.now());
+        defer.setParameter(1, now);
+        defer.setParameter(2, now);
+        bindPredicate(defer, restrictedParameters, 3);
+        defer.setParameter(restrictedParameters.size() + 3, maxCrashRedeliveries);
+        List<?> deferredRows = defer.getResultList();
+        for (Object result : deferredRows) {
           Object[] row = (Object[]) result;
           exhausted.add(
               new ExhaustedOrphan(
@@ -273,18 +307,9 @@ final class PostgresqlJobDeleteOperations {
                   row[3] == null ? null : row[3].toString()));
         }
       }
-      if (releaseOwner) {
-        Query release =
-            ctx.em()
-                .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_by = NULL "
-                        + predicate
-                        + " AND crash_count >= ?");
-        bindRecovery(release, parameters, maxCrashRedeliveries);
-        release.executeUpdate();
-      }
+      exhausted.sort(Comparator.comparingInt(row -> ids.indexOf(row.jobId())));
       ctx.em().clear();
-      return new OrphanRecovery(count, List.copyOf(exhausted));
+      return new OrphanRecovery(candidateRows.size(), count, released, List.copyOf(exhausted));
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("recover orphan jobs", e);
     }
