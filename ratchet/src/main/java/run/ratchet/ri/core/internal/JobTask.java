@@ -149,6 +149,10 @@ public class JobTask implements Callable<Void> {
   private @Nullable JobCheckpointWriter checkpointWriter;
   private boolean stateFlushed;
   private volatile boolean workerInterrupted;
+  // The body threw an interruption with its flag already clear, as Thread.sleep does. call()
+  // restores it like workerInterrupted, but it does not skip the final state flush, so the failure
+  // path still saves the last committed checkpoint.
+  private volatile boolean bodyThrewInterrupt;
   private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
   private volatile long terminalRetryBaseDelayMs = 1_000;
@@ -590,7 +594,7 @@ public class JobTask implements Callable<Void> {
         if (progressWriter != null) progressWriter.close();
         JobMdcContext.clear();
       } finally {
-        if (workerInterrupted) Thread.currentThread().interrupt();
+        if (workerInterrupted || bodyThrewInterrupt) Thread.currentThread().interrupt();
       }
     }
     return null;
@@ -1479,6 +1483,7 @@ public class JobTask implements Callable<Void> {
         if (transientFailure
             && transactionAttempt < 5
             && !workerInterrupted
+            && !bodyThrewInterrupt
             && sleepTransactionBackoff(transactionAttempt)) {
           outcome.reset();
           continue;
@@ -1830,7 +1835,7 @@ public class JobTask implements Callable<Void> {
       try {
         return payloadInvoker.invoke(payload);
       } catch (Exception ex) {
-        if (isInterruption(ex)) recordInterrupt(true);
+        if (isInterruption(ex)) bodyThrewInterrupt = true;
         throw ex;
       }
     } catch (ClassNotFoundException cnfe) {

@@ -2139,6 +2139,54 @@ class JobTaskTest {
   }
 
   @Test
+  void thrownBodyInterruption_flushesCheckpointBeforeFailureWrites() throws Exception {
+    assertBodyInterruptionFlush(false);
+  }
+
+  @Test
+  void bodyLeavingInterruptFlagSet_skipsCheckpointFlush() throws Exception {
+    assertBodyInterruptionFlush(true);
+  }
+
+  private void assertBodyInterruptionFlush(boolean flagSet) throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    // Checkpoints need a serializer, the shared commit and flush mocks, and a claimed attempt.
+    initInterruptibleBodyTask(
+        invoker,
+        callbackTask(
+            invoker, new JsonbTestPayloadSerializer(), checkpointRegistrar, jobStateFlusher));
+    jobTask.attach(
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1"));
+    JobStateStore stateStore = pendingCheckpointStore();
+    when(invoker.invoke(any()))
+        .thenAnswer(
+            inv -> {
+              JobContext.current().checkpoint("committed");
+              checkpointCommit.run();
+              if (flagSet) Thread.currentThread().interrupt();
+              // Thread.sleep and similar calls clear the flag before they throw.
+              throw new InterruptedException("body interrupted");
+            });
+
+    try {
+      jobTask.call();
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      if (flagSet) {
+        verify(stateStore, never()).initState(any(), anyString(), anyString(), anyLong());
+        verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+      } else {
+        InOrder order = inOrder(stateStore, jobStore);
+        order
+            .verify(stateStore)
+            .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+        order.verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+      }
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
   void cancelledBeforeBodyStarts_doesNotRestoreInterrupt() throws Exception {
     JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
     JobAttemptControl attempt = initInterruptibleBodyTask(invoker);
@@ -2165,7 +2213,12 @@ class JobTaskTest {
 
   @SuppressWarnings("unchecked")
   private JobAttemptControl initInterruptibleBodyTask(JobPayloadInvoker invoker) throws Exception {
-    jobTask = callbackTask(invoker);
+    return initInterruptibleBodyTask(invoker, callbackTask(invoker));
+  }
+
+  private JobAttemptControl initInterruptibleBodyTask(JobPayloadInvoker invoker, JobTask task)
+      throws Exception {
+    jobTask = task;
     JobEntity job = createTestJob();
     job.setMaxRetries(3);
     initJobTaskWithDefaultStubs(job);
@@ -2516,6 +2569,15 @@ class JobTaskTest {
   }
 
   private JobTask callbackTask(JobPayloadInvoker invoker) {
+    return callbackTask(
+        invoker, null, mock(AfterCommitRegistrar.class), mock(JobStateFlusher.class));
+  }
+
+  private JobTask callbackTask(
+      JobPayloadInvoker invoker,
+      PayloadSerializer serializer,
+      AfterCommitRegistrar registrar,
+      JobStateFlusher flusher) {
     // Hydration/signal poison exits before service-name lookup.
     lenient()
         .when(invoker.resilienceTarget(any()))
@@ -2538,9 +2600,9 @@ class JobTaskTest {
         context -> noopLogger(),
         (jobId, result) -> SerializedJobResult.empty(),
         null,
-        null,
-        mock(AfterCommitRegistrar.class),
-        mock(JobStateFlusher.class),
+        serializer,
+        registrar,
+        flusher,
         null,
         FIXED_CLOCK,
         null,
