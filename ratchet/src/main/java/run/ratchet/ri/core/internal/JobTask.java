@@ -48,6 +48,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.api.internal.CancellationIdentities;
@@ -898,44 +899,60 @@ public class JobTask implements Callable<Void> {
           resourcePermitService.tryAcquire(resourceName, job.getId(), nodeIdProvider.getNodeId());
 
       if (!acquired) {
-        int retryDelay = resourcePermitService.getRetryDelay(resourceName);
-        Instant newScheduledTime = effective().instant().plusMillis(retryDelay);
-
-        if (currentExecution != null) {
-          ResourceCapacityException capacityFailure =
-              new ResourceCapacityException(
-                  "Resource '" + resourceName + "' at capacity - rescheduling");
-          currentExecution.markFailed(
-              capacityFailure.getClass().getName(), sanitizeError(capacityFailure));
-          observabilityFacade.saveExecution(currentExecution);
-        }
-
-        if (!jobStore.scheduleJobRetry(
-            job.getId(),
-            "Waiting for resource: " + resourceName,
-            newScheduledTime,
-            job.getAttempts(),
-            expectedClaimSeq())) {
-          warnRejectedOwnerWrite();
-          return false;
-        }
-
-        log.infof(
-            "Job %s waiting for resource '%s' - rescheduled for %sms",
-            job.getId(), resourceName, retryDelay);
-
-        return false;
+        return rescheduleForResource(resourceName, false);
       }
 
       permitAcquired = true;
       log.infof("Job %s acquired permit for resource '%s'", job.getId(), resourceName);
       return true;
 
+    } catch (RatchetTransientStoreException e) {
+      // tryAcquire runs outside our transaction, so its store transaction has already rolled back.
+      log.warnf(
+          e,
+          "Permit check failed transiently for job %s, resource '%s'",
+          job.getId(),
+          resourceName);
+      return rescheduleForResource(resourceName, true);
     } catch (IllegalArgumentException e) {
       log.errorf(e, "Job %s references unconfigured resource: %s", job.getId(), resourceName);
       handleFailure(e);
       return false;
     }
+  }
+
+  private boolean rescheduleForResource(String resourceName, boolean transientFailure) {
+    int retryDelay = resourcePermitService.getRetryDelay(resourceName);
+    Instant newScheduledTime = effective().instant().plusMillis(retryDelay);
+
+    if (currentExecution != null) {
+      ResourceCapacityException capacityFailure =
+          new ResourceCapacityException(
+              transientFailure
+                  ? "Resource '" + resourceName + "' permit check failed transiently - rescheduling"
+                  : "Resource '" + resourceName + "' at capacity - rescheduling");
+      currentExecution.markFailed(
+          capacityFailure.getClass().getName(), sanitizeError(capacityFailure));
+      observabilityFacade.saveExecution(currentExecution);
+    }
+
+    if (!jobStore.scheduleJobRetry(
+        job.getId(),
+        transientFailure
+            ? "Permit check failed transiently for resource: " + resourceName
+            : "Waiting for resource: " + resourceName,
+        newScheduledTime,
+        job.getAttempts(),
+        expectedClaimSeq())) {
+      warnRejectedOwnerWrite();
+      return false;
+    }
+
+    log.infof(
+        "Job %s waiting for resource '%s' - rescheduled for %sms",
+        job.getId(), resourceName, retryDelay);
+
+    return false;
   }
 
   private void releaseResourcePermit() {

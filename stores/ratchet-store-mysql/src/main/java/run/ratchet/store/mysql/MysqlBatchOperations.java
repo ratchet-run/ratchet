@@ -129,6 +129,27 @@ final class MysqlBatchOperations implements BatchStore {
     }
   }
 
+  // A non-locking read, so it uses the transaction's REPEATABLE READ snapshot. That snapshot can
+  // predate the parent lock when the caller read earlier in the transaction, so this query does
+  // not filter on status: a child that became eligible since then is still found, and
+  // CHILD_LOCK_SQL checks its current status under the row lock.
+  static final String CHILD_DISCOVERY_SQL =
+      """
+      SELECT c.job_id
+      FROM scheduler_job c STRAIGHT_JOIN scheduler_job_queue q ON q.job_id = c.job_id
+      WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND c.job_id > ?
+      ORDER BY c.job_id
+      LIMIT 500
+      """;
+
+  static final String CHILD_LOCK_SQL =
+      """
+      SELECT job_id FROM scheduler_job_queue FORCE INDEX (PRIMARY)
+      WHERE job_id IN (%s) AND status IN (%s)
+      ORDER BY job_id
+      FOR UPDATE
+      """;
+
   private int changeBatchChildren(UUID batchId, String operation) {
     if (!operation.equals("cancel")) {
       // Hold the parent lock through the entire sweep, including repeated repair calls.
@@ -152,21 +173,18 @@ final class MysqlBatchOperations implements BatchStore {
           default -> "'PAUSED'";
         };
     int total = 0;
+    byte[] cursor = new byte[16];
+    // Lock the parent first, then child queue rows by ascending primary key, never a status
+    // index. REPEATABLE READ also retains locks on children whose status does not match;
+    // that only blocks, without a cycle, because claims also lock queue rows by primary key.
     while (true) {
-      String selectSql =
-          """
-          SELECT q.job_id FROM scheduler_job_queue q JOIN scheduler_job c ON c.job_id = q.job_id
-          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s)
-          ORDER BY q.job_id LIMIT 500 FOR UPDATE OF q
-          """
-              .formatted(statuses);
-      var selection =
+      List<?> discovered =
           ctx.em()
-              .createNativeQuery(selectSql)
-              .setParameter(1, UuidByteArrayConverter.toBytes(batchId));
-
-      List<?> ids = selection.getResultList();
-      if (ids.isEmpty()) {
+              .createNativeQuery(CHILD_DISCOVERY_SQL)
+              .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+              .setParameter(2, cursor)
+              .getResultList();
+      if (discovered.isEmpty()) {
         if (operation.equals("cancel") && total > 0) {
           ctx.em()
               .createNativeQuery(
@@ -179,6 +197,16 @@ final class MysqlBatchOperations implements BatchStore {
               .executeUpdate();
         }
         return total;
+      }
+      cursor = (byte[]) discovered.get(discovered.size() - 1);
+      String candidates = String.join(", ", Collections.nCopies(discovered.size(), "?"));
+      var selection = ctx.em().createNativeQuery(CHILD_LOCK_SQL.formatted(candidates, statuses));
+      for (int i = 0; i < discovered.size(); i++) {
+        selection.setParameter(i + 1, discovered.get(i));
+      }
+      List<?> ids = selection.getResultList();
+      if (ids.isEmpty()) {
+        continue;
       }
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
       String sql;
@@ -196,7 +224,7 @@ final class MysqlBatchOperations implements BatchStore {
                 : "status = COALESCE(paused_from_status, 'PENDING'), paused_from_status = NULL";
         sql =
             """
-            UPDATE scheduler_job_queue SET %s, updated_at = NOW(3)
+            UPDATE scheduler_job_queue FORCE INDEX (PRIMARY) SET %s, updated_at = NOW(3)
             WHERE job_id IN (%s)
             """
                 .formatted(assignments, placeholders);

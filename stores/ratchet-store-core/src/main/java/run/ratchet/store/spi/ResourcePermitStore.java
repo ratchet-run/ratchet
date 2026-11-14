@@ -26,9 +26,8 @@ public interface ResourcePermitStore {
   /**
    * Attempts to acquire capacity for a configured resource.
    *
-   * <p>SQL stores that implement this with row locks require the caller's store operation to run in
-   * one active transaction so the capacity check and permit insert observe the same locked resource
-   * row.
+   * <p>TX attribute: REQUIRED. This call must start its transaction or be its first read, so a
+   * REPEATABLE READ snapshot is created only after locking the resource limit row.
    *
    * @param resource configured resource name to acquire against; never {@code null}
    * @param jobId job id the permit is being acquired for; never {@code null}

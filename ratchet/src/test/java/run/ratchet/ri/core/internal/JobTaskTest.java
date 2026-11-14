@@ -2782,6 +2782,39 @@ class JobTaskTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  void call_transientPermitFailureReschedulesWithoutConsumingAttempt() throws Exception {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setAttempts(2);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, "node-1"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"));
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(0L)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(jobStore)
+        .scheduleJobRetry(
+            eq(JOB_UUID),
+            eq("Permit check failed transiently for resource: gpu"),
+            eq(FIXED_NOW.plusMillis(250)),
+            eq(2),
+            eq(0L));
+    Assertions.assertEquals(2, job.getAttempts());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(validationFacade, never()).shouldNotRetry(any());
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class));
+  }
+
+  @Test
   void claimedBatchChildOfCancelledParentNeverStarts() throws Exception {
     assertClosedBatchChildNeverStarts(JobStatus.CANCELED);
   }

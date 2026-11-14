@@ -73,8 +73,8 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   /**
    * Attempts to acquire a permit atomically using pessimistic locking.
    *
-   * <p>TX attribute: REQUIRED. SQL stores depend on the caller's active transaction so the capacity
-   * check and permit insert share the same locked resource row.
+   * <p>TX attribute: REQUIRED. This call must start its transaction or be its first read, so a
+   * REPEATABLE READ snapshot is created only after locking the resource limit row.
    *
    * @return true if permit was acquired, false if resource is at capacity
    */

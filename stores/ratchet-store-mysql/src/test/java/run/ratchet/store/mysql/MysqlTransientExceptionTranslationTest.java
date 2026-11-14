@@ -17,6 +17,12 @@ package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -24,6 +30,7 @@ import java.lang.reflect.Proxy;
 import java.sql.SQLTransientException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
@@ -160,6 +167,30 @@ class MysqlTransientExceptionTranslationTest {
         new MysqlJobCountOperations(throwingContext("getSingleResult"));
 
     assertThrows(RatchetTransientStoreException.class, counts::countActiveNodes);
+  }
+
+  @Test
+  void permitInsertFlushTranslatesTransientFailureBeforeCommit() {
+    EntityManager em = mock(EntityManager.class);
+    Query limit = mock(Query.class);
+    Query permits = mock(Query.class);
+    when(em.createNativeQuery(contains("SELECT max_concurrent"))).thenReturn(limit);
+    when(em.createNativeQuery(
+            "SELECT job_id FROM scheduler_resource_permit WHERE resource_name = ?"))
+        .thenReturn(permits);
+    when(limit.setParameter(1, "api")).thenReturn(limit);
+    when(permits.setParameter(1, "api")).thenReturn(permits);
+    when(limit.getResultList()).thenReturn(List.of(2));
+    when(permits.getResultList()).thenReturn(List.of());
+    doThrow(new RuntimeException("flush", new SQLTransientException("deadlock"))).when(em).flush();
+    var auxiliary = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> auxiliary.tryAcquirePermit("api", JOB_ID, "node"));
+    var order = inOrder(em);
+    order.verify(em).persist(any());
+    order.verify(em).flush();
   }
 
   private static MysqlStoreContext throwingContext(String throwingQueryMethod) {

@@ -17,6 +17,11 @@ package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -47,6 +52,43 @@ class MysqlAuxiliaryOperationsTest {
 
     assertEquals(
         ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS, operations.getPermitRetryDelay("missing"));
+  }
+
+  @Test
+  void cleanupLocksAllResourcesInOrderBeforeDeletingAnyPermits() {
+    EntityManager em = mock(EntityManager.class);
+    Query discovery = mock(Query.class);
+    Query lock = mock(Query.class);
+    Query delete = mock(Query.class);
+    when(em.createNativeQuery(any(String.class)))
+        .thenAnswer(
+            invocation -> {
+              String sql = invocation.getArgument(0);
+              if (sql.contains("SELECT DISTINCT")) return discovery;
+              if (sql.contains("FOR UPDATE")) return lock;
+              return delete;
+            });
+    for (Query query : List.of(discovery, lock, delete)) {
+      when(query.setParameter(anyInt(), any())).thenReturn(query);
+    }
+    when(discovery.getResultList()).thenReturn(List.of("r-b", "r-a"));
+    when(lock.getResultList()).thenReturn(List.of("resource"));
+    when(delete.executeUpdate()).thenReturn(1, 2);
+    var operations = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+
+    assertEquals(3, operations.cleanupOrphanedPermits(List.of("stale")));
+    var order = inOrder(discovery, lock, delete);
+    order.verify(discovery).getResultList();
+    order.verify(lock).setParameter(1, "r-a");
+    order.verify(lock).getResultList();
+    order.verify(lock).setParameter(1, "r-b");
+    order.verify(lock).getResultList();
+    order.verify(delete).setParameter(1, "r-a");
+    order.verify(delete).setParameter(2, "stale");
+    order.verify(delete).executeUpdate();
+    order.verify(delete).setParameter(1, "r-b");
+    order.verify(delete).setParameter(2, "stale");
+    order.verify(delete).executeUpdate();
   }
 
   private static EntityManager entityManagerWithNoResult() {

@@ -64,6 +64,12 @@ class SqlserverBatchOperationsTest {
         assertEquals(matches ? 2 : 1, statements.size());
         assertTrue(statements.get(0).contains("SELECT status"));
         assertTrue(statements.get(0).contains("UPDLOCK"));
+        if (matches) {
+          assertTrue(statements.get(1).contains("INDEX(idx_job_depends_on)"));
+          assertTrue(statements.get(1).contains("INNER LOOP JOIN"));
+          assertTrue(statements.get(1).contains("FORCESEEK (pk_scheduler_job_queue (job_id))"));
+          assertTrue(statements.get(1).contains("OPTION (FORCE ORDER)"));
+        }
       }
     }
   }

@@ -245,12 +245,14 @@ final class MysqlAuxiliaryOperations
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
       int maxConcurrent = ((Number) limits.get(0)).intValue();
-      // The resource row serializes acquisitions. Read permits after taking that lock, using a
-      // current read: a REPEATABLE READ snapshot may predate a different owner's committed permit.
+      // The limit-row locking read does not create a REPEATABLE READ view. This first
+      // consistent read creates it after the lock, seeing earlier acquirers' committed permits;
+      // later releases only make the count conservative. This must be the transaction's first
+      // read: JobTask calls outside a transaction, so the REQUIRED transaction starts here.
       List<?> permits =
           ctx.em()
               .createNativeQuery(
-                  "SELECT job_id FROM scheduler_resource_permit WHERE resource_name = ? FOR UPDATE")
+                  "SELECT job_id FROM scheduler_resource_permit WHERE resource_name = ?")
               .setParameter(1, resource)
               .getResultList();
       int active = permits.size();
@@ -266,6 +268,7 @@ final class MysqlAuxiliaryOperations
 
       ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
       ctx.em().persist(permit);
+      ctx.em().flush();
       return true;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("try acquire permit", e);
@@ -364,14 +367,48 @@ final class MysqlAuxiliaryOperations
 
   private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
     String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
-    Query query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (String nodeId : staleNodeIds) {
-      query.setParameter(parameter++, nodeId);
+    Query discovery =
+        ctx.em()
+            .createNativeQuery(
+                """
+                SELECT DISTINCT resource_name FROM scheduler_resource_permit
+                WHERE node_id IN (%s)
+                """
+                    .formatted(placeholders));
+    for (int i = 0; i < staleNodeIds.size(); i++) {
+      discovery.setParameter(i + 1, staleNodeIds.get(i));
     }
-    return query.executeUpdate();
+    List<String> resources =
+        ((List<?>) discovery.getResultList()).stream().map(Object::toString).sorted().toList();
+    // Lock all limits in key order before deleting, matching acquire's limit-before-permit order.
+    // A stale node's permit created for an undiscovered resource is left for the next sweep.
+    for (String resource : resources) {
+      ctx.em()
+          .createNativeQuery(
+              """
+              SELECT resource_name FROM scheduler_resource_limit
+              WHERE resource_name = ? FOR UPDATE
+              """)
+          .setParameter(1, resource)
+          .getResultList();
+    }
+    int deleted = 0;
+    for (String resource : resources) {
+      Query delete =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  DELETE FROM scheduler_resource_permit
+                  WHERE resource_name = ? AND node_id IN (%s)
+                  """
+                      .formatted(placeholders));
+      delete.setParameter(1, resource);
+      for (int i = 0; i < staleNodeIds.size(); i++) {
+        delete.setParameter(i + 2, staleNodeIds.get(i));
+      }
+      deleted += delete.executeUpdate();
+    }
+    return deleted;
   }
 
   private void prepareCondition(WorkflowConditionEntity condition) {
