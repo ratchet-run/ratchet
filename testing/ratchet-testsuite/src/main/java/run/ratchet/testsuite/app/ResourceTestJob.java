@@ -15,6 +15,8 @@
  */
 package run.ratchet.testsuite.app;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ResourceTestJob {
@@ -22,6 +24,8 @@ public class ResourceTestJob {
   private static final AtomicInteger CONCURRENT = new AtomicInteger();
   private static final AtomicInteger MAX_CONCURRENT = new AtomicInteger();
   private static final AtomicInteger COMPLETED = new AtomicInteger();
+  private static final AtomicInteger GATED_RUNNING = new AtomicInteger();
+  private static volatile CountDownLatch gate = new CountDownLatch(0);
 
   public static void execute() throws InterruptedException {
     int current = CONCURRENT.incrementAndGet();
@@ -41,6 +45,31 @@ public class ResourceTestJob {
     }
   }
 
+  /** Holds its resource permit until {@link #openGate()} is called. */
+  public static void executeGated() throws InterruptedException {
+    GATED_RUNNING.incrementAndGet();
+    try {
+      if (!gate.await(60, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Gate was not opened within 60 seconds");
+      }
+      COMPLETED.incrementAndGet();
+    } finally {
+      GATED_RUNNING.decrementAndGet();
+    }
+  }
+
+  public static void closeGate() {
+    gate = new CountDownLatch(1);
+  }
+
+  public static void openGate() {
+    gate.countDown();
+  }
+
+  public static int getGatedRunning() {
+    return GATED_RUNNING.get();
+  }
+
   public static int getMaxConcurrentSeen() {
     return MAX_CONCURRENT.get();
   }
@@ -53,5 +82,6 @@ public class ResourceTestJob {
     CONCURRENT.set(0);
     MAX_CONCURRENT.set(0);
     COMPLETED.set(0);
+    openGate();
   }
 }
