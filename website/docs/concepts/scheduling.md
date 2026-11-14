@@ -195,8 +195,8 @@ scheduler.enqueue(() -> syncUser(userId))
 
 Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED, WAITING). Submitting another job with the same business key throws `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state and frees the key for reuse.
 
-For consistent behavior across stores, business keys are limited to 255 printable ASCII characters
-after trimming. Ratchet rejects longer or non-ASCII keys before persistence.
+For consistent behavior across stores, idempotency keys are limited to 36 and business keys to 255
+printable ASCII characters after trimming. Ratchet rejects longer or non-ASCII keys before persistence.
 
 | Mechanism | Scope | Lifetime | Use Case |
 |-----------|-------|----------|----------|

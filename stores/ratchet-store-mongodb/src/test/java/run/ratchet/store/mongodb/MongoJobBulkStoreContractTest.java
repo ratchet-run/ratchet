@@ -113,18 +113,19 @@ class MongoJobBulkStoreContractTest extends AbstractJobBulkStoreContract {
         .getCollection("scheduler_job")
         .updateOne(eq("_id", job.getId()), unset("crash_count"));
 
-    var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 100);
+    var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 500);
+    var recoveryExhausted = recovery.exhausted();
 
     assertEquals(0, recovery.reset());
-    assertEquals(1, recovery.exhausted().size());
-    assertEquals(0, recovery.exhausted().get(0).crashCount());
+    assertEquals(1, recoveryExhausted.size());
+    assertEquals(0, recoveryExhausted.get(0).crashCount());
   }
 
   @Test
   void savePreservesStoreOwnedCrashBudget() {
     JobEntity job = persist(newPendingJob());
     assertTrue(store().tryPickUpJob(job.getId(), "dead"));
-    assertEquals(1, store().resetOrphanJobsForNode("dead", 3, 100).reset());
+    assertEquals(1, store().resetOrphanJobsForNode("dead", 3, 500).reset());
     JobEntity pending = store().findById(job.getId()).orElseThrow();
     store().save(pending);
 
