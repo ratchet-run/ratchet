@@ -320,10 +320,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       authorizationPolicy.checkCancel(jobId, ownerPrincipal, currentPrincipal);
     }
 
-    return systemCancellation.cancelLoadedJob(jobId, job, true);
+    return systemCancellation.cancelLoadedJob(jobId, job);
   }
 
-  /** Cancels as the recovery system, using the same transition, event and cascade path. */
+  /** Cancels as the recovery system, holding the key like a user cancel. */
   @Transactional
   public boolean cancelJobAsSystem(UUID jobId) {
     return systemCancellation.cancel(jobId);
@@ -865,7 +865,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       JobStatus previousStatus = existing.getStatus();
       return jobTerminalStore.cancelJob(jobId) ? previousStatus : null;
     }
-    return systemCancellation.cancelLive(jobId, existing, true);
+    return systemCancellation.cancelLive(jobId, existing);
   }
 
   private void publishPausedEvent(UUID jobId, JobEntity job) {

@@ -143,6 +143,7 @@ public class JobTask implements Callable<Void> {
   private final JobStateFlusher jobStateFlusher;
   private final PayloadSerializer payloadSerializer;
   private final JobTimeoutHandler timeoutHandler;
+  private final HeldKeyReleases holdReleases;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
   private @Nullable JobAttemptControl attempt;
@@ -188,6 +189,7 @@ public class JobTask implements Callable<Void> {
     this.jobStateFlusher = null;
     this.payloadSerializer = null;
     this.timeoutHandler = null;
+    this.holdReleases = null;
     this.clock = null;
     this.callbackInvoker = null;
     this.argResolver = null;
@@ -214,6 +216,7 @@ public class JobTask implements Callable<Void> {
       AfterCommitRegistrar afterCommitRegistrar,
       JobStateFlusher jobStateFlusher,
       JobTimeoutHandler timeoutHandler,
+      HeldKeyReleases holdReleases,
       Clock clock,
       PreExecutionArgResolver argResolver,
       RatchetOptions options) {
@@ -238,6 +241,7 @@ public class JobTask implements Callable<Void> {
     this.jobStateFlusher = jobStateFlusher;
     this.payloadSerializer = payloadSerializer;
     this.timeoutHandler = timeoutHandler;
+    this.holdReleases = holdReleases;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.callbackInvoker =
         new LifecycleCallbackInvoker(
@@ -1091,12 +1095,8 @@ public class JobTask implements Callable<Void> {
   }
 
   private void releaseHeldBusinessKey(UUID jobId, @Nullable String businessKey, Long claimSeq) {
-    if (businessKey == null || claimSeq == null || Thread.currentThread().isInterrupted()) return;
-    try {
-      jobStore.releaseBusinessKeyHold(jobId, claimSeq);
-    } catch (RuntimeException e) {
-      log.warnf(e, "Could not release business-key hold for job %s", jobId);
-    }
+    if (businessKey == null || claimSeq == null) return;
+    holdReleases.release(jobId, claimSeq);
   }
 
   private void handleFailure(Throwable ex) {

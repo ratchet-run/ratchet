@@ -93,7 +93,7 @@ class DefaultJobSchedulerServiceEventTest {
   private static final RatchetOptions OPTIONS =
       RatchetOptions.builder()
           .timeout(t -> t.defaultSlaSeconds(120))
-          .node(n -> n.orphanGraceSeconds(17))
+          .node(n -> n.orphanGraceSeconds(17).orphanScanIntervalSeconds(40))
           .build();
 
   @Mock private WorkflowScheduler workflowScheduler;
@@ -672,13 +672,13 @@ class DefaultJobSchedulerServiceEventTest {
 
   @Test
   void cancelJob_runningKeyedJob_holdsKeyForTimeoutPlusGrace() {
-    // A user cancellation keeps a keyed running claim reserved for its timeout plus grace.
+    // A keyed running hold covers the timeout, grace and one orphan scan.
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     job.setTimeoutSec(30);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47))).thenReturn(true);
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(87))).thenReturn(true);
     assertTrue(service.cancelJob(JOB_ID));
-    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(87));
   }
 
   @Test
@@ -687,9 +687,9 @@ class DefaultJobSchedulerServiceEventTest {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     job.setTimeoutSec(0);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(137))).thenReturn(true);
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(177))).thenReturn(true);
     assertTrue(service.cancelJob(JOB_ID));
-    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(137));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(177));
   }
 
   @Test
@@ -704,9 +704,20 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
-  void cancelJobAsSystem_runningKeyedJob_passesNoHold() {
-    // System cancellation releases a keyed job without retaining its reservation.
+  void cancelJobAsSystem_runningKeyedJob_holdsKey() {
+    // System cancellation retains the keyed running claim.
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, holdUntil(job))).thenReturn(true);
+    assertTrue(service.cancelJobAsSystem(JOB_ID));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, holdUntil(job));
+  }
+
+  @Test
+  void cancelJobAsSystem_runningKeylessJob_passesNoHold() {
+    // A keyless system cancellation needs no hold.
+    JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
+    job.setBusinessKey(null);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobTerminalStore.cancelRunningJob(JOB_ID, null)).thenReturn(true);
     assertTrue(service.cancelJobAsSystem(JOB_ID));
@@ -715,12 +726,12 @@ class DefaultJobSchedulerServiceEventTest {
 
   @Test
   void replace_runningKeyedJob_holdsKey() {
-    // Replacement uses the same timeout-plus-grace hold as user cancellation.
+    // Replacement uses the same timeout, grace and one orphan scan hold as user cancellation.
     JobEntity job = replacementJob(JobStatus.RUNNING, JobExecutionType.SINGLE);
     job.setTimeoutSec(30);
-    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47))).thenReturn(true);
+    when(jobTerminalStore.cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(87))).thenReturn(true);
     replace();
-    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(47));
+    verify(jobTerminalStore).cancelRunningJob(JOB_ID, FIXED_NOW.plusSeconds(87));
   }
 
   @ParameterizedTest
@@ -824,7 +835,8 @@ class DefaultJobSchedulerServiceEventTest {
   private Instant holdUntil(JobEntity job) {
     return FIXED_NOW.plusSeconds(
         (job.getTimeoutSec() > 0 ? job.getTimeoutSec() : OPTIONS.timeout().defaultSlaSeconds())
-            + OPTIONS.node().orphanGraceSeconds());
+            + OPTIONS.node().orphanGraceSeconds()
+            + OPTIONS.node().orphanScanIntervalSeconds());
   }
 
   private void stubCancellationSwap(JobStatus previous, JobEntity job, boolean hold) {

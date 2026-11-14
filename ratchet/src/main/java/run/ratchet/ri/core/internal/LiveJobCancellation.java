@@ -33,7 +33,10 @@ public final class LiveJobCancellation {
 
   private LiveJobCancellation() {}
 
-  /** Computes the business key hold deadline for a job, if it has a key. */
+  /**
+   * Holds a keyed job until cancel time plus timeout, orphan grace and one orphan scan interval.
+   * The limit passes only after the attempt's own hard deadline has fired and one scan has run.
+   */
   public static @Nullable Instant keyHeldUntil(
       @Nullable JobEntity job, Instant now, RatchetOptions options) {
     if (job == null || job.getBusinessKey() == null) {
@@ -41,7 +44,9 @@ public final class LiveJobCancellation {
     }
     long timeout =
         job.getTimeoutSec() > 0 ? job.getTimeoutSec() : options.timeout().defaultSlaSeconds();
-    return now.plusSeconds(timeout).plusSeconds(options.node().orphanGraceSeconds());
+    return now.plusSeconds(timeout)
+        .plusSeconds(options.node().orphanGraceSeconds())
+        .plusSeconds(options.node().orphanScanIntervalSeconds());
   }
 
   /** Cancels a live job and returns the status it swapped from, or null if no swap won. */

@@ -86,14 +86,14 @@ public class SystemJobCancellation {
     this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
-  /** Cancels without a caller authorization check. */
+  /** Cancels without a caller authorization check, holding the key like a user cancel. */
   @Transactional
   public boolean cancel(UUID jobId) {
-    return cancelLoadedJob(jobId, jobCrudStore.findById(jobId).orElse(null), false);
+    return cancelLoadedJob(jobId, jobCrudStore.findById(jobId).orElse(null));
   }
 
-  boolean cancelLoadedJob(UUID jobId, JobEntity job, boolean holdKey) {
-    JobStatus previous = cancelLive(jobId, job, holdKey);
+  boolean cancelLoadedJob(UUID jobId, JobEntity job) {
+    JobStatus previous = cancelLive(jobId, job);
     if (previous != null) {
       publishCancelledEvent(jobId, previous, job);
       if (previous == JobStatus.WAITING && metricsCollector != null && job != null) {
@@ -120,9 +120,8 @@ public class SystemJobCancellation {
     return false;
   }
 
-  JobStatus cancelLive(UUID jobId, JobEntity job, boolean holdKey) {
-    Instant keyHeldUntil =
-        holdKey ? LiveJobCancellation.keyHeldUntil(job, effective().instant(), options) : null;
+  JobStatus cancelLive(UUID jobId, JobEntity job) {
+    Instant keyHeldUntil = LiveJobCancellation.keyHeldUntil(job, effective().instant(), options);
     JobStatus previous =
         LiveJobCancellation.cancel(
             jobId, keyHeldUntil, jobCrudStore, jobBatchStatusStore, jobTerminalStore);

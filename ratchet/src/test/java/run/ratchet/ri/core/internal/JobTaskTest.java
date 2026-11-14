@@ -50,6 +50,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -146,6 +147,9 @@ import run.ratchet.store.util.PayloadEncryptor;
 @ExtendWith(MockitoExtension.class)
 class JobTaskTest {
 
+  private final ScheduledExecutorService holdReleaseScheduler =
+      mock(ScheduledExecutorService.class);
+
   private static final String CONTINUATION_NS = "ratchet.continuation";
   private static final ThreadLocal<Runnable> CONTINUATION_PAYLOAD = new ThreadLocal<>();
 
@@ -185,6 +189,7 @@ class JobTaskTest {
             checkpointRegistrar,
             jobStateFlusher,
             null,
+            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             FIXED_CLOCK,
             null,
             RatchetOptions.builder().execution(e -> e.maxContinuations(limit)).build());
@@ -1331,6 +1336,7 @@ class JobTaskTest {
                 mock(AfterCommitRegistrar.class),
                 mock(JobStateFlusher.class),
                 null,
+                new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
                 null,
                 null,
                 RatchetOptions.builder().build()));
@@ -1382,6 +1388,7 @@ class JobTaskTest {
             checkpointRegistrar,
             jobStateFlusher,
             null,
+            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -2380,6 +2387,7 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
+            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             FIXED_CLOCK,
             null,
             RatchetOptions.defaults());
@@ -2428,6 +2436,7 @@ class JobTaskTest {
         mock(AfterCommitRegistrar.class),
         mock(JobStateFlusher.class),
         null,
+        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -3678,6 +3687,7 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
+            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -3770,6 +3780,7 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
+            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -3872,6 +3883,7 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
+            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             Clock.systemUTC(),
             resolver,
             RatchetOptions.defaults());
@@ -3991,6 +4003,7 @@ class JobTaskTest {
         checkpointRegistrar,
         jobStateFlusher,
         timeoutHandler,
+        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -4019,6 +4032,7 @@ class JobTaskTest {
         mock(AfterCommitRegistrar.class),
         mock(JobStateFlusher.class),
         null,
+        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         taskClock,
         null,
         RatchetOptions.defaults());
@@ -4243,8 +4257,8 @@ class JobTaskTest {
   }
 
   @Test
-  void interruptedWorker_skipsTheCancelReadAndTheHoldRelease() throws Exception {
-    // An interrupted superseded worker keeps its interrupt and avoids cancellation store work.
+  void interruptedWorker_handsTheHoldReleaseOff() throws Exception {
+    // An interrupted worker hands its hold release to the scheduler and keeps its interrupt.
     JobEntity job = cancelScenario(true);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     JobAttemptControl attempt = cancelAttempt();
@@ -4260,6 +4274,11 @@ class JobTaskTest {
       verify(jobStore).getJobStatus(JOB_UUID);
       verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
       Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      ArgumentCaptor<Runnable> release = ArgumentCaptor.forClass(Runnable.class);
+      verify(holdReleaseScheduler).schedule(release.capture(), eq(0L), eq(TimeUnit.MILLISECONDS));
+      Thread.interrupted();
+      release.getValue().run();
+      verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     } finally {
       Thread.interrupted();
     }

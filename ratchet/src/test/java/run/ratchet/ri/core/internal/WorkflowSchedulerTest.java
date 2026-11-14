@@ -829,7 +829,10 @@ class WorkflowSchedulerTest {
     child.setBusinessKey("branch-key");
     child.setTimeoutSec(30);
     Instant heldUntil =
-        FIXED_NOW.plusSeconds(30 + RatchetOptions.defaults().node().orphanGraceSeconds());
+        FIXED_NOW.plusSeconds(
+            30
+                + RatchetOptions.defaults().node().orphanGraceSeconds()
+                + RatchetOptions.defaults().node().orphanScanIntervalSeconds());
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
     when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt())).thenReturn(List.of());
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));

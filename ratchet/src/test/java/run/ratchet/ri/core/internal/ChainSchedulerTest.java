@@ -602,7 +602,10 @@ class ChainSchedulerTest {
     child.setBusinessKey("chain-child-key");
     child.setTimeoutSec(30);
     Instant heldUntil =
-        FIXED_NOW.plusSeconds(30 + RatchetOptions.defaults().node().orphanGraceSeconds());
+        FIXED_NOW.plusSeconds(
+            30
+                + RatchetOptions.defaults().node().orphanGraceSeconds()
+                + RatchetOptions.defaults().node().orphanScanIntervalSeconds());
     when(jobCrudStore.findDependants(eq(failed.getId()), anyInt(), anyInt()))
         .thenReturn(List.of(child));
     when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());

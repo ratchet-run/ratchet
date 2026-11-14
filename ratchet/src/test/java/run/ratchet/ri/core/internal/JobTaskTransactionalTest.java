@@ -49,6 +49,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -167,6 +168,7 @@ class JobTaskTransactionalTest {
             mock(AfterCommitRegistrar.class),
             flusher,
             timeoutHandler,
+            new HeldKeyReleases(store, () -> mock(ScheduledExecutorService.class)),
             Clock.fixed(NOW, ZoneOffset.UTC),
             null,
             RatchetOptions.defaults());
