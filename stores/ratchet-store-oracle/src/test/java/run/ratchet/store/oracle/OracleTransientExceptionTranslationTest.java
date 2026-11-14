@@ -36,6 +36,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
 
 class OracleTransientExceptionTranslationTest {
 
@@ -50,7 +51,7 @@ class OracleTransientExceptionTranslationTest {
 
   @Test
   void saveTranslatesColdUpdateDeadlock() {
-    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null};
+    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null, null};
     var writes =
         writeOperations(
             entityManager(
@@ -147,7 +148,7 @@ class OracleTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset());
+        () -> deletes.resetOrphanJobsBefore(Instant.now().minusSeconds(30), 3, 500).reset());
   }
 
   @Test
@@ -215,7 +216,7 @@ class OracleTransientExceptionTranslationTest {
         new OracleAuxiliaryOperations(throwingContext("executeUpdate"));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   @Test
@@ -254,6 +255,7 @@ class OracleTransientExceptionTranslationTest {
               }
               return switch (method.getName()) {
                 case "setParameter", "setFirstResult", "setMaxResults" -> proxy;
+                case "getResultList" -> List.of(UuidRawConverter.toBytes(JOB_ID));
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

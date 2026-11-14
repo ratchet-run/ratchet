@@ -50,7 +50,7 @@ class MysqlTransientExceptionTranslationTest {
 
   @Test
   void saveTranslatesColdUpdateDeadlock() {
-    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null};
+    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null, null};
     var writes =
         writeOperations(
             entityManager(
@@ -148,7 +148,7 @@ class MysqlTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset());
+        () -> deletes.resetOrphanJobsBefore(Instant.now().minusSeconds(30), 3, 500).reset());
   }
 
   @Test
@@ -215,7 +215,7 @@ class MysqlTransientExceptionTranslationTest {
         new MysqlAuxiliaryOperations(throwingContext("executeUpdate"));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   @Test

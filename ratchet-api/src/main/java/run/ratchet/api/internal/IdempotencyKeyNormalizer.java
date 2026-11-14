@@ -15,8 +15,19 @@
  */
 package run.ratchet.api.internal;
 
-/** Normalizes idempotency keys to the shared UUID-sized storage limit. */
+/**
+ * Normalizes idempotency keys to the UUID-sized subset supported identically by every bundled
+ * store.
+ *
+ * <p>The ASCII restriction is intentional. Oracle may count a {@code VARCHAR2(36)} in bytes, while
+ * SQL Server's {@code VARCHAR(36)} columns use the database collation's code page. Printable ASCII
+ * is one byte and round-trips unchanged in both, so two distinct keys never collapse into one
+ * stored value and the 36-character limit has the same meaning in every store.
+ */
 public final class IdempotencyKeyNormalizer {
+
+  private static final char FIRST_PRINTABLE_ASCII = 0x20;
+  private static final char LAST_PRINTABLE_ASCII = 0x7e;
 
   private IdempotencyKeyNormalizer() {}
 
@@ -32,6 +43,13 @@ public final class IdempotencyKeyNormalizer {
     if (normalized.length() > 36) {
       throw new IllegalArgumentException(
           "Idempotency key must be at most 36 characters, got " + normalized.length());
+    }
+    for (int i = 0; i < normalized.length(); i++) {
+      char current = normalized.charAt(i);
+      if (current < FIRST_PRINTABLE_ASCII || current > LAST_PRINTABLE_ASCII) {
+        throw new IllegalArgumentException(
+            "Idempotency key must contain only printable ASCII characters (U+0020-U+007E)");
+      }
     }
     return normalized;
   }

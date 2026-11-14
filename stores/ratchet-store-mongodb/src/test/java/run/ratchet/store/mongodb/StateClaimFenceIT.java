@@ -53,7 +53,7 @@ class StateClaimFenceIT extends BaseDocumentStoreIT {
               () -> {
                 assertEquals(
                     1,
-                    store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+                    store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
                 reclaim(id, claim);
                 reclaimed.set(true);
               });

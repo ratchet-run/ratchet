@@ -39,7 +39,7 @@ flyway migrate
 SELECT table_name FROM user_tables WHERE table_name LIKE 'SCHEDULER\_%' ESCAPE '\' ORDER BY table_name;
 ```
 
-You should see the same core tables as the other SQL stores: `scheduler_job`, `scheduler_job_queue`, `scheduler_business_key_reservation`, `scheduler_job_tag`, `scheduler_job_execution`, `scheduler_job_log`, `scheduler_job_archive`, `scheduler_batch`, `scheduler_batch_metrics`, `scheduler_node`, `scheduler_lock`, `scheduler_resource_limit`, `scheduler_resource_permit`, `scheduler_workflow_condition`, `scheduler_recurring_job`, and `scheduler_recurring_job_archive`, plus the `ratchet_schema_version` ledger.
+You should see the same core tables as the other SQL stores: `scheduler_job`, `scheduler_job_queue`, `scheduler_business_key_reservation`, `scheduler_job_tag`, `scheduler_job_execution`, `scheduler_job_log`, `scheduler_job_archive`, `scheduler_batch`, `scheduler_batch_metrics`, `scheduler_node`, `scheduler_lock`, `scheduler_resource_limit`, `scheduler_resource_permit`, `scheduler_resource_waiter`, `scheduler_workflow_condition`, `scheduler_recurring_job`, and `scheduler_recurring_job_archive`, plus the `ratchet_schema_version` ledger.
 
 ## Configuration
 
