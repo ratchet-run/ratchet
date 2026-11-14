@@ -37,6 +37,8 @@ For lifecycle operations such as cancel, pause, resume, retry, and signal delive
 JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset)
 ```
 
+A business-key filter searches job rows, including finished jobs. It sees recurring masters only when `types` is exactly `RECURRING`, which reads the recurring store. Other searches need the query capability and find nothing without it. To ask whether a key is held now, use [`BusinessKeyLookup.findBusinessKeyHolder`](./job-scheduler-service#business-key-lookup).
+
 Returns a page of lightweight job summaries matching the supplied filter.
 
 ```java

@@ -30,6 +30,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
@@ -51,9 +52,11 @@ import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
+import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -179,7 +182,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -203,7 +207,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         clock,
         options,
         afterCommitRegistrar,
-        batchService);
+        batchService,
+        workflowScheduler);
   }
 
   /**
@@ -234,7 +239,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -271,7 +277,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             wakeupService,
             metricsCollector,
             clock,
-            afterCommitRegistrar);
+            afterCommitRegistrar,
+            jobTerminalStore,
+            workflowScheduler,
+            effectiveOptions);
   }
 
   @Override
@@ -301,7 +310,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       authorizationPolicy.checkCancel(jobId, ownerPrincipal, currentPrincipal);
     }
 
-    return systemCancellation.cancelLoadedJob(jobId, job);
+    return systemCancellation.cancelLoadedJob(jobId, job, true);
   }
 
   /** Cancels as the recovery system, using the same transition, event and cascade path. */
@@ -350,6 +359,16 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       throw new IllegalArgumentException("decision must not be null");
     }
     return deliverSignalDecision(signalKey, decision);
+  }
+
+  @Override
+  @Transactional(
+      value = Transactional.TxType.SUPPORTS,
+      dontRollbackOn = IllegalArgumentException.class)
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    // Deliberately does not consult authorizationPolicy, matching submit().
+    String key = BusinessKeyNormalizer.normalize(businessKey);
+    return key == null ? Optional.empty() : jobCrudStore.findBusinessKeyHolder(key);
   }
 
   @Override
@@ -801,23 +820,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       JobStatus previousStatus = existing.getStatus();
       return jobTerminalStore.cancelJob(jobId) ? previousStatus : null;
     }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
-      return JobStatus.PENDING;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      return JobStatus.RUNNING;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
-      return JobStatus.PAUSED;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
-      return JobStatus.WAITING;
-    }
-    return null;
+    return systemCancellation.cancelLive(jobId, existing, true);
   }
 
   private void publishPausedEvent(UUID jobId, JobEntity job) {

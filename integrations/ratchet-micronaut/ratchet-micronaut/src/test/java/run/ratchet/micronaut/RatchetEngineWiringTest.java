@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobBuilder;
@@ -40,6 +41,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.CircuitBreakerProtectedInterceptor;
 import run.ratchet.micronaut.internal.NoTransactionOperations;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.micronaut.internal.tx.MicronautCancelStatusReader;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
@@ -62,6 +64,8 @@ import run.ratchet.ri.core.SubmissionFailureHandler;
 import run.ratchet.ri.core.SubmissionGateChecker;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
+import run.ratchet.ri.core.internal.CancelStatusReader;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
@@ -126,13 +130,26 @@ import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
+
+  @Test
+  void cancellationServicesShareOneTimeoutHandler() {
+    // The cancellation relay and executor resolve a single set of cancellation services.
+    try (var context = TestContexts.engine(Map.of())) {
+      context.start();
+      assertEquals(1, context.getBeansOfType(JobTimeoutHandler.class).size());
+      assertEquals(1, context.getBeansOfType(CancelRequestRelay.class).size());
+      assertEquals(1, context.getBeansOfType(CancelStatusReader.class).size());
+      assertInstanceOf(
+          MicronautCancelStatusReader.class, context.getBean(CancelStatusReader.class));
+    }
+  }
+
   @Test
   void partitionSweepCancelsWithoutCallingCustomScheduler() {
     JobSchedulerService custom = mock(JobSchedulerService.class);
     JobStore store = mock(JobStore.class);
     UUID parentId = incompletePartitionGeneration(store);
-    when(store.compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null))
-        .thenReturn(true);
+    when(store.cancelRunningJob(parentId, null)).thenReturn(true);
     try (var context = TestContexts.core(Map.of())) {
       context.registerSingleton(JobStore.class, store);
       context.registerSingleton(RatchetRuntime.class, mock(RatchetRuntime.class));
@@ -140,7 +157,7 @@ class RatchetEngineWiringTest {
       context.start();
       context.getBean(PartitionService.class).sweep();
       verify(custom, never()).cancelJob(parentId);
-      verify(store).compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null);
+      verify(store).cancelRunningJob(parentId, null);
     }
   }
 
@@ -246,6 +263,7 @@ class RatchetEngineWiringTest {
     try (var context = TestContexts.engine(Map.of())) {
       context.start();
       assertNotNull(context.getBean(JobSchedulerService.class));
+      assertNotNull(context.getBean(BusinessKeyLookup.class));
       assertNotNull(context.getBean(MicronautRecurringDiscovery.class));
       assertNotNull(context.getBean(RecurringAnnotationMaintenanceService.class));
       assertFalse(context.getBean(PoolRegistry.class).hasPool(ExecutorTargets.VIRTUAL));

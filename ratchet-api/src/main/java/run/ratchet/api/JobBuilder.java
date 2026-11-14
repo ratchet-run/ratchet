@@ -161,20 +161,29 @@ public interface JobBuilder {
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
    * only and do not participate in a transaction.
    *
-   * <p>A losing concurrent insert may leave the submission transaction rollback-only. No handle is
-   * returned from that failed transaction. If a custom idempotency key was supplied, conflict
-   * resolution reads the winner in a fresh transaction. If that read fails or finds no active
-   * holder, {@link RatchetTransientStoreException} is thrown; retry the same builder or keys in a
-   * fresh transaction to resolve the outcome.
+   * <p>{@link DuplicateBusinessKeyException} leaves the caller's transaction usable. Ratchet checks
+   * and reserves the business key before writing anything. The caller can catch the exception and
+   * commit its own work. This applies to an active job found up front, a recurring holder, a holder
+   * committed during the caller's transaction, and a concurrent winner. A losing submission waits
+   * until the winner's transaction ends. It then throws, or succeeds if the winner rolled back.
+   * With a custom idempotency key matching the winner's, it returns the winner's handle instead.
+   *
+   * <p>{@link DuplicateIdempotencyKeyException} and {@link RatchetTransientStoreException} still
+   * leave the transaction rollback-only. This also applies to a MySQL deadlock victim when two or
+   * more submissions wait on a winner that rolls back, and to a PostgreSQL serialization failure
+   * when the caller uses an isolation level above READ COMMITTED. Retry in a fresh transaction.
+   *
+   * <p>On MySQL and SQL Server, after the store reports a business-key conflict, the caller keeps a
+   * lock on the holder's key until its transaction ends. The holder's completion waits for that
+   * lock. Keep the caller's transaction short.
    *
    * @return a handle to the persisted job
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
-   *     key, including a reservation race using an auto-generated idempotency key
+   *     key with a different idempotency key
    * @throws DuplicateIdempotencyKeyException if a concurrent submission wins the same idempotency
    *     key; retry in a fresh transaction to obtain the original handle
-   * @throws RatchetTransientStoreException if a business-key reservation race with a custom
-   *     idempotency key cannot be resolved, or another transient store failure occurs; retry in a
-   *     fresh transaction
+   * @throws RatchetTransientStoreException if the lookup after a business-key conflict fails, or
+   *     another transient store failure occurs; retry in a fresh transaction
    * @throws PayloadTooLargeException if the task or a persisted callback/branch exceeds the
    *     configured serialized-payload limit
    */
@@ -300,15 +309,21 @@ public interface JobBuilder {
    * <p>Unlike {@link #withIdempotencyKey(String)}, multiple completed jobs may share the same key;
    * only active (PENDING/RUNNING/PAUSED/WAITING) jobs are blocked. {@link #submit()} throws {@link
    * DuplicateBusinessKeyException} while an active job holds the key, unless its idempotency key
-   * matches this builder's and the original job's handle is returned before an insert is attempted.
+   * matches this builder's custom key, in which case the original handle is returned. A RUNNING job
+   * that is cancelled keeps the key until its body ends, bounded by its timeout; see {@link
+   * JobSchedulerService#cancelJob}.
    *
-   * <p>If a concurrent insert loses the reservation race, {@code submit()} throws {@link
-   * DuplicateBusinessKeyException} when this builder uses its auto-generated idempotency key. With
-   * a custom idempotency key, a fresh-transaction lookup determines whether to throw {@link
-   * DuplicateIdempotencyKeyException} (matching key) or {@link DuplicateBusinessKeyException}
-   * (different key). If the lookup fails or finds no active holder, {@link
-   * RatchetTransientStoreException} is thrown. Retry in a fresh transaction; no handle is returned
-   * from the failed submission transaction.
+   * <p>Ratchet checks and reserves the key before writing anything. A duplicate leaves the caller's
+   * transaction usable, including a recurring holder or a holder committed after the caller's first
+   * read. The caller can catch it and commit its own work. A concurrent loser waits until the
+   * winner's transaction ends, then throws or succeeds if the winner rolled back. A matching custom
+   * idempotency key returns the winner's handle.
+   *
+   * <p>On MySQL and SQL Server, a reported store conflict leaves a lock on the holder's key until
+   * the caller's transaction ends. Holder completion waits for that lock, so keep the transaction
+   * short. See {@link #submit()} for failures that still leave it rollback-only, including
+   * idempotency conflicts, transient store failures, MySQL deadlock victims and PostgreSQL
+   * serialization failures above READ COMMITTED.
    *
    * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
    * through {@code U+007E}). The portable subset has the same byte width under Oracle's

@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.spi.JobAuthorizationPolicy;
 
@@ -76,10 +77,12 @@ import run.ratchet.spi.JobAuthorizationPolicy;
  *
  * <p>The RI verifies these contracts through its Jakarta transaction TCK tests.
  *
+ * <p>The business-key lookup is inherited from the stable {@link BusinessKeyLookup}.
+ *
  * @since 0.1
  */
 @Incubating
-public interface JobSchedulerService {
+public interface JobSchedulerService extends BusinessKeyLookup {
   /**
    * Deletes a sealed partition set. Policies may receive an archived latest batch id.
    *
@@ -163,6 +166,11 @@ public interface JobSchedulerService {
    * this method fails loud: replacing a job that does not exist throws rather than returning a
    * no-op handle.
    *
+   * <p>A live old job is cancelled as {@link #cancelJob(UUID)} cancels it: a RUNNING body is asked
+   * to stop and keeps its business key held until it ends, the chain and workflow steps that wait
+   * on the old job are cancelled, and a batch parent's batch is cancelled. The replacement has no
+   * business key, so the hold never blocks it.
+   *
    * @param jobId UUIDv7 job id of the job to replace
    * @param delay delay before the replacement job becomes eligible to run
    * @param newTask task to execute for the replacement job
@@ -179,8 +187,28 @@ public interface JobSchedulerService {
   /**
    * Cancels a job by its ID.
    *
-   * <p>If the job is PENDING, it transitions directly to CANCELED. If the job is RUNNING, it
-   * transitions to CANCELED and the executor should check status before committing results. Jobs in
+   * <p>A PENDING, PAUSED or WAITING job moves straight to CANCELED. A RUNNING job moves to CANCELED
+   * and its body is asked to stop: {@link JobContext#isCancellationRequested()} turns true right
+   * after the cancel commits when the cancel runs on the node that runs the job, and within about
+   * ten seconds otherwise. Ratchet does not interrupt the worker thread. A body that never checks
+   * runs until it returns or its timeout deadline interrupts it, and its result is discarded. A
+   * body that stops by throwing ends the attempt as CANCELED, with no retry, no DLQ entry and no
+   * {@code onFailure} callback.
+   *
+   * <p>If a RUNNING job has a business key, the key stays held until the body ends, so a new job
+   * with the same key cannot run alongside the old body. While the key is held, {@link
+   * BusinessKeyLookup#findBusinessKeyHolder} returns the cancelled job with status CANCELED and
+   * {@link JobBuilder#submit()} throws {@link DuplicateBusinessKeyException}. The hold also ends
+   * when another node's orphan scan cleans up the node that ran the body, or when the orphan scan
+   * finds it past its limit: the cancel time plus the job's timeout (or {@code
+   * ratchet.timeout.default-sla-seconds}) plus {@code ratchet.node.orphan-grace-seconds}. If the
+   * worker thread is interrupted when the body ends, the worker does not release the key, and it
+   * can stay held until that limit. A job that fails by a hard timeout does not hold its key.
+   *
+   * <p>Cancelling a job also cancels the chain and workflow steps that wait on it, and cancelling a
+   * batch parent cancels the rest of its batch. A step that has just started is cancelled as a
+   * RUNNING job and keeps its business key held until its body ends. Its body is asked to stop
+   * within about ten seconds, and no {@code JobCancelledEvent} is published for the step. Jobs in
    * terminal states (SUCCEEDED, FAILED, CANCELED) cannot be canceled.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.

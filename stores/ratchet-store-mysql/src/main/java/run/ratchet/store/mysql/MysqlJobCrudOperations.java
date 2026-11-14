@@ -17,10 +17,12 @@ package run.ratchet.store.mysql;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -101,8 +103,8 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return reads.findActiveByBusinessKey(businessKey);
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return reads.findBusinessKeyHolder(businessKey);
   }
 
   @Override
@@ -284,5 +286,20 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     return tags.countJobsByExecutionNodeForTag(tag);
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return deletes.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return deletes.deleteExpiredBusinessKeyHolds(now, limit);
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    return reads.findStatusesByIds(ids);
   }
 }

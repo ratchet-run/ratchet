@@ -2267,4 +2267,73 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
     verify(eventPublisher, never()).publish(any());
   }
+
+  @Test
+  void scheduledAttempt_receivesUserCancelUntilHandlesCancelled() {
+    // Only registered attempts receive user cancellation, until their handles are cancelled.
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7, "node-1");
+    var handles =
+        handler.scheduleTimeoutMonitoring(attempt, mock(Future.class), scheduler, Instant.EPOCH);
+    assertTrue(handler.requestUserCancel(JOB_ID));
+    assertTrue(attempt.isUserCancelRequested());
+    handles.cancel();
+    JobAttemptControl unscheduled = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 8, "node-1");
+    assertFalse(handler.requestUserCancel(JOB_ID));
+    assertFalse(unscheduled.isUserCancelRequested());
+  }
+
+  @Test
+  void requestUserCancel_reachesEveryLocalAttemptOfTheJob() {
+    // Cancellation reaches overlapping attempts of one job without touching another job.
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    JobAttemptControl first = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7, "node-1");
+    JobAttemptControl second = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 8, "node-1");
+    JobAttemptControl other =
+        handler.newAttempt(UUID.randomUUID(), 30, Instant.EPOCH, 0, 9, "node-1");
+    for (JobAttemptControl attempt : List.of(first, second, other)) {
+      handler.scheduleTimeoutMonitoring(attempt, mock(Future.class), scheduler, Instant.EPOCH);
+    }
+    assertTrue(handler.requestUserCancel(JOB_ID));
+    assertTrue(first.isUserCancelRequested());
+    assertTrue(second.isUserCancelRequested());
+    assertFalse(other.isUserCancelRequested());
+  }
+
+  @Test
+  void localAttemptsStartedBefore_returnsOlderAttemptsWithoutUserCancel() {
+    // Only older attempts without a prior user stop appear in the polling snapshot.
+    Instant cutoff = Instant.EPOCH.plusSeconds(10);
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    JobAttemptControl old = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7, "node-1");
+    JobAttemptControl canceled =
+        handler.newAttempt(UUID.randomUUID(), 30, Instant.EPOCH, 0, 8, "node-1");
+    JobAttemptControl recent =
+        handler.newAttempt(UUID.randomUUID(), 30, cutoff.plusSeconds(1), 0, 9, "node-1");
+    for (JobAttemptControl attempt : List.of(old, canceled, recent)) {
+      handler.scheduleTimeoutMonitoring(
+          attempt, mock(Future.class), scheduler, attempt.executionStartTime());
+    }
+    canceled.requestUserCancel();
+    assertEquals(List.of(old), handler.localAttemptsStartedBefore(cutoff));
+  }
+
+  @Test
+  void failedSchedule_leavesNoLocalAttempt() {
+    // A failed hard-timeout schedule cannot leave an attempt registered locally.
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> soft = mock(ScheduledFuture.class);
+    doReturn(soft)
+        .doThrow(new IllegalStateException("rejected"))
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7, "node-1");
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            handler.scheduleTimeoutMonitoring(
+                attempt, mock(Future.class), scheduler, Instant.EPOCH));
+    assertTrue(handler.localAttemptsStartedBefore(Instant.MAX).isEmpty());
+    assertFalse(handler.requestUserCancel(JOB_ID));
+  }
 }

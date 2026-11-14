@@ -33,6 +33,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
@@ -41,11 +42,14 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.RatchetRuntime;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
+import run.ratchet.ri.core.internal.CancelStatusReader;
 import run.ratchet.ri.core.internal.DefaultJobExecutorService;
 import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.JobTask;
+import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.spi.ExecutorProvider;
@@ -58,13 +62,25 @@ import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
+
+  @Test
+  void cancellationServicesShareOneTimeoutHandler() {
+    // The cancellation relay and executor resolve a single set of cancellation services.
+    runner()
+        .run(
+            context -> {
+              assertThat(context).hasSingleBean(JobTimeoutHandler.class);
+              assertThat(context).hasSingleBean(CancelRequestRelay.class);
+              assertThat(context).hasSingleBean(CancelStatusReader.class);
+            });
+  }
+
   @Test
   void partitionSweepCancelsWithoutCallingCustomScheduler() {
     JobSchedulerService custom = mock(JobSchedulerService.class);
     JobStore store = mock(JobStore.class);
     UUID parentId = incompletePartitionGeneration(store);
-    when(store.compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null))
-        .thenReturn(true);
+    when(store.cancelRunningJob(parentId, null)).thenReturn(true);
     JobAuthorizationPolicy policy = mock(JobAuthorizationPolicy.class);
     doThrow(new JobAuthorizationException(parentId, "cancel", null, "denied"))
         .when(policy)
@@ -77,8 +93,7 @@ class RatchetEngineWiringTest {
               assertThat(context).hasNotFailed();
               context.getBean(PartitionService.class).sweep();
               verify(custom, never()).cancelJob(parentId);
-              verify(store)
-                  .compareAndSwapStatus(parentId, JobStatus.RUNNING, JobStatus.CANCELED, null);
+              verify(store).cancelRunningJob(parentId, null);
             });
   }
 
@@ -171,6 +186,7 @@ class RatchetEngineWiringTest {
             context -> {
               assertThat(context).hasNotFailed();
               assertThat(context).hasSingleBean(JobSchedulerService.class);
+              assertThat(context).hasSingleBean(BusinessKeyLookup.class);
               assertThat(context).hasSingleBean(JobStateFlusher.class);
               assertThat(context).hasSingleBean(SpringRecurringDiscovery.class);
               assertThat(context.getBean(PoolRegistry.class).hasPool(ExecutorTargets.VIRTUAL))

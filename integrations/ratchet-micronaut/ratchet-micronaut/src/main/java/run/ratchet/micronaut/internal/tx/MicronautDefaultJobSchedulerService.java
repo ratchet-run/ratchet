@@ -25,6 +25,7 @@ import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -75,7 +76,8 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
       Clock clock,
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchService batchService) {
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler) {
     super(
         eventPublisher,
         jobBatchStatusStore,
@@ -99,6 +101,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
         clock,
         options,
         afterCommitRegistrar,
-        batchService);
+        batchService,
+        workflowScheduler);
   }
 }

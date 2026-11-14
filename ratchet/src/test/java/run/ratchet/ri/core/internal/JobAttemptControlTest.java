@@ -228,4 +228,23 @@ class JobAttemptControlTest {
     assertFalse(attempt.isTimeoutHandedBack());
     assertFalse(attempt.claimTimeoutForWorker());
   }
+
+  @Test
+  void requestUserCancel_setsUserAndGeneralCancelFlags() {
+    // A user stop sets both the user flag and the general cancellation flag.
+    JobAttemptControl attempt = newAttempt();
+    assertFalse(attempt.isUserCancelRequested());
+    attempt.requestUserCancel();
+    assertTrue(attempt.isUserCancelRequested());
+    assertTrue(attempt.isCancellationRequested());
+  }
+
+  @Test
+  void requestCancellation_isNotAUserCancel() {
+    // A timeout stop does not masquerade as a user cancellation.
+    JobAttemptControl attempt = newAttempt();
+    attempt.requestCancellation();
+    assertTrue(attempt.isCancellationRequested());
+    assertFalse(attempt.isUserCancelRequested());
+  }
 }

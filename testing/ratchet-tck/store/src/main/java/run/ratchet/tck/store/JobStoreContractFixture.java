@@ -15,6 +15,7 @@
  */
 package run.ratchet.tck.store;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.UUID;
@@ -177,6 +178,52 @@ public interface JobStoreContractFixture {
     return job;
   }
 
+  /**
+   * Runs work in one store transaction that nested store calls join, then commits.
+   *
+   * <p>A store whose create joins the caller's transaction must override this and {@link
+   * #supportsOwnerTransaction()}. Otherwise the business-key reservation contract skips its
+   * owner-transaction tests. This default fails when {@link #supportsOwnerTransaction()} returns
+   * true, because running the work without a shared transaction would make those tests pass without
+   * testing anything.
+   */
+  default void inOwnerTransaction(Runnable work) {
+    if (supportsOwnerTransaction()) {
+      throw new IllegalStateException(
+          "supportsOwnerTransaction() is true, so override inOwnerTransaction(Runnable) too");
+    }
+    work.run();
+  }
+
+  /**
+   * Whether the owner transaction stays open across nested store calls.
+   *
+   * <p>A store whose create joins the caller's transaction must override this and {@link
+   * #inOwnerTransaction(Runnable)}. Otherwise the business-key reservation contract skips its
+   * owner-transaction tests.
+   */
+  default boolean supportsOwnerTransaction() {
+    return false;
+  }
+
+  /**
+   * Returns the database session id used by the current owner transaction. Call inside {@link
+   * #inOwnerTransaction(Runnable)}; returns null when the fixture cannot tell.
+   */
+  default Object ownerSessionId() {
+    return null;
+  }
+
+  /**
+   * Waits until session {@code waiter} is blocked on a lock held by session {@code holder}, using
+   * ids from {@link #ownerSessionId()}. Returns false if the fixture cannot tell. Implementations
+   * must fail with {@link AssertionError} if this is not observed within the timeout. Contract
+   * tests that need this hook skip when it returns false.
+   */
+  default boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
+    return false;
+  }
+
   default JobEntity persist(JobEntity job) {
     return store().save(job);
   }
@@ -199,5 +246,10 @@ public interface JobStoreContractFixture {
   /** Returns true if the throwable represents this store's optimistic-lock failure. */
   default boolean isStaleWriteException(Throwable t) {
     return false;
+  }
+
+  /** Counts store statements executed by the supplied work when the fixture supports it. */
+  default int countStoreStatements(Runnable work) {
+    throw new TestAbortedException("fixture cannot count store statements");
   }
 }

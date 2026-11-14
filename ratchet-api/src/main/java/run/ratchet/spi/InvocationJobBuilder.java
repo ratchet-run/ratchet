@@ -117,7 +117,9 @@ public interface InvocationJobBuilder {
   /**
    * Persists the job (and any chained steps and branches) through the standard creation path.
    *
-   * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}. Business-key conflicts follow {@link
+   * JobBuilder#submit()}: the caller can catch {@link DuplicateBusinessKeyException} and commit its
+   * own work. A matching custom idempotency key returns the original handle.
    *
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
    *     key

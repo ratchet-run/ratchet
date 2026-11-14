@@ -21,6 +21,9 @@ import java.io.Serial;
  * Thrown by {@code submit()} when an active job (PENDING, RUNNING, PAUSED, or WAITING) already
  * holds the business key. Retrying will not succeed until that job reaches a terminal state.
  *
+ * <p>{@code submit()} throws this exception without marking the caller's transaction rollback-only.
+ * The caller can catch it and commit its own work.
+ *
  * <p>This is distinct from {@link DuplicateIdempotencyKeyException}, where retrying in a fresh
  * transaction returns the original job's handle.
  */

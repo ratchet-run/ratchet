@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -49,11 +50,13 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
@@ -64,6 +67,7 @@ class ChainSchedulerTest {
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobCrudStore jobCrudStore;
+  @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private TransactionSynchronizationRegistry txRegistry;
@@ -90,10 +94,16 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             null,
             new JakartaAfterCommitRegistrar(txRegistry));
-    lenient().when(jobTerminalStore.cancelJob(any(UUID.class))).thenReturn(true);
+    lenient()
+        .when(
+            jobBatchStatusStore.compareAndSwapStatus(
+                any(), any(), eq(JobStatus.CANCELED), isNull()))
+        .thenReturn(true);
   }
 
   @Test
@@ -109,10 +119,19 @@ class ChainSchedulerTest {
     when(jobCrudStore.findDependants(eq(callback.getId()), anyInt(), anyInt()))
         .thenReturn(List.of(step));
 
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            callback.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(false);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            step.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(false);
+
     scheduler.cancelChain(parent);
 
-    verify(jobTerminalStore).cancelJob(callback.getId());
-    verify(jobTerminalStore).cancelJob(step.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(callback.getId(), JobStatus.PAUSED, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(step.getId(), JobStatus.PAUSED, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -126,7 +145,9 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(root);
 
-    verify(jobTerminalStore, never()).cancelJob(child.getId());
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(child.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(child.getId()), any());
   }
 
   @Test
@@ -145,6 +166,8 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -173,6 +196,8 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -201,6 +226,8 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -242,6 +269,8 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -269,6 +298,8 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -360,7 +391,9 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobTerminalStore, never()).cancelJob(any(UUID.class));
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(any(), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(any(), any());
   }
 
   @Test
@@ -389,12 +422,15 @@ class ChainSchedulerTest {
             });
     when(jobCrudStore.findDependants(eq(second.getId()), anyInt(), anyInt()))
         .thenReturn(List.of(descendant));
-    when(jobTerminalStore.cancelJob(any(UUID.class)))
+    when(jobBatchStatusStore.compareAndSwapStatus(any(), any(), eq(JobStatus.CANCELED), isNull()))
         .thenAnswer(
             invocation -> {
               UUID id = invocation.getArgument(0);
               for (JobEntity child : List.of(first, second, descendant)) {
                 if (child.getId().equals(id)) {
+                  if (child.getStatus() != invocation.getArgument(1)) {
+                    return false;
+                  }
                   child.setStatus(JobStatus.CANCELED);
                 }
               }
@@ -403,18 +439,24 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(parent);
 
-    InOrder order = inOrder(jobCrudStore, jobTerminalStore);
+    InOrder order = inOrder(jobCrudStore, jobBatchStatusStore);
     order.verify(jobCrudStore).findDependants(parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
-    order.verify(jobTerminalStore).cancelJob(first.getId());
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(first.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
     order
         .verify(jobCrudStore)
         .findDependants(
             parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, JobCrudStore.DEFAULT_PAGE_LIMIT);
-    verify(jobTerminalStore).cancelJob(second.getId());
-    verify(jobTerminalStore).cancelJob(descendant.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(second.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(descendant.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
     for (JobEntity child : children) {
       if (child.getJobType() == JobExecutionType.BATCH_CHILD) {
-        verify(jobTerminalStore, never()).cancelJob(child.getId());
+        verify(jobBatchStatusStore, never())
+            .compareAndSwapStatus(eq(child.getId()), any(), eq(JobStatus.CANCELED), isNull());
+        verify(jobTerminalStore, never()).cancelRunningJob(eq(child.getId()), any());
         verify(jobCrudStore, never()).findDependants(eq(child.getId()), anyInt(), anyInt());
       }
     }
@@ -431,7 +473,8 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -448,7 +491,8 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -462,7 +506,9 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobTerminalStore, never()).cancelJob(child.getId());
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(child.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(child.getId()), any());
     assertEquals(JobStatus.RUNNING, child.getStatus());
   }
 
@@ -475,9 +521,17 @@ class ChainSchedulerTest {
         .thenReturn(List.of(child));
     when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());
 
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(false);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.PAUSED, JobStatus.CANCELED, null))
+        .thenReturn(false);
+
     scheduler.cancelChain(failed);
 
-    verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(child.getId(), JobStatus.WAITING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -486,6 +540,8 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -510,11 +566,65 @@ class ChainSchedulerTest {
   }
 
   @Test
+  void cancelChain_ofACanceledJobWithoutAnErrorStillPublishesChainFailed() {
+    // A user cancel leaves no error on the job, so the chain failure event uses a fixed message.
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
+    JobEntity canceled = job(JobStatus.RUNNING);
+    canceled.setJobType(JobExecutionType.SINGLE);
+    JobEntity child = pendingJob();
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+    when(jobCrudStore.findDependants(eq(canceled.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());
+
+    scheduler.cancelChain(canceled);
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    ChainFailedEvent event = (ChainFailedEvent) eventCaptor.getValue();
+    assertEquals(canceled.getId(), event.getJobId());
+    assertEquals("Job was canceled", event.getErrorMessage());
+  }
+
+  @Test
+  void cancelChain_childThatStartedSinceItWasLoadedKeepsItsKeyUntilItsBodyEnds() {
+    // A dependant claimed after it was loaded is cancelled as a running job and keeps its key.
+    JobEntity failed = pendingJob();
+    JobEntity child = pendingJob();
+    child.setBusinessKey("chain-child-key");
+    child.setTimeoutSec(30);
+    Instant heldUntil =
+        FIXED_NOW.plusSeconds(30 + RatchetOptions.defaults().node().orphanGraceSeconds());
+    when(jobCrudStore.findDependants(eq(failed.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(eq(child.getId()), anyInt(), anyInt())).thenReturn(List.of());
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            child.getId(), JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(false);
+    when(jobTerminalStore.cancelRunningJob(child.getId(), heldUntil)).thenReturn(true);
+
+    scheduler.cancelChain(failed);
+
+    verify(jobTerminalStore).cancelRunningJob(child.getId(), heldUntil);
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
+  }
+
+  @Test
   void cancelChain_chainFailedEventIsSuppressedOnRollback() {
     scheduler =
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -540,6 +650,8 @@ class ChainSchedulerTest {
         new ChainScheduler(
             jobCrudStore,
             jobTerminalStore,
+            jobBatchStatusStore,
+            RatchetOptions.defaults(),
             FIXED_CLOCK,
             eventPublisher,
             new JakartaAfterCommitRegistrar(txRegistry));
@@ -577,9 +689,13 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    InOrder order = inOrder(jobTerminalStore);
-    order.verify(jobTerminalStore).cancelJob(b.getId());
-    order.verify(jobTerminalStore).cancelJob(c.getId());
+    InOrder order = inOrder(jobBatchStatusStore);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(b.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(c.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
   }
 
   @Test
@@ -598,9 +714,14 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobTerminalStore).cancelJob(b.getId());
-    verify(jobTerminalStore, never()).cancelJob(c.getId());
-    verify(jobTerminalStore, never()).cancelJob(d.getId());
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(b.getId(), JobStatus.PENDING, JobStatus.CANCELED, null);
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(c.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(c.getId()), any());
+    verify(jobBatchStatusStore, never())
+        .compareAndSwapStatus(eq(d.getId()), any(), eq(JobStatus.CANCELED), isNull());
+    verify(jobTerminalStore, never()).cancelRunningJob(eq(d.getId()), any());
   }
 
   private AtomicReference<Synchronization> activeTransaction() {

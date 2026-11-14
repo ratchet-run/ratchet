@@ -31,6 +31,25 @@ import run.ratchet.store.schema.Table;
 class RatchetSchemaCatalogTest {
 
   @Test
+  void businessKeyReservationDeclaresHoldColumnsAndIndex() {
+    Table reservation = table("scheduler_business_key_reservation");
+    assertTrue(
+        reservation.columns().stream()
+            .map(Column::name)
+            .toList()
+            .containsAll(List.of("held_until", "held_by_node", "held_claim_seq")));
+    assertEquals(List.of("held_until"), index(reservation, "idx_bk_held_until").columns());
+    for (String name : List.of("held_until", "held_by_node", "held_claim_seq")) {
+      assertTrue(
+          reservation.columns().stream()
+              .filter(column -> column.name().equals(name))
+              .findFirst()
+              .orElseThrow()
+              .nullable());
+    }
+  }
+
+  @Test
   void resourceWaiterDeclaresOrderWithoutForeignKeys() {
     Table waiter = table("scheduler_resource_waiter");
     assertEquals(List.of("job_id"), waiter.primaryKey());
@@ -149,7 +168,7 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        20,
+        21,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "catalog version should track the combined workflow, recurring, DLQ, and node schema"
             + " revision");

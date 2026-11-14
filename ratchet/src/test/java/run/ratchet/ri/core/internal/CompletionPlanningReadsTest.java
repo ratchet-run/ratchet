@@ -40,7 +40,8 @@ class CompletionPlanningReadsTest {
       mock(TransactionalCompletionStore.class);
   private final WorkflowConditionEvaluator evaluator = mock(WorkflowConditionEvaluator.class);
   private final WorkflowScheduler scheduler =
-      new WorkflowScheduler(jobs, jobs, conditions, evaluator, Clock.systemUTC(), null, null);
+      new WorkflowScheduler(
+          jobs, jobs, jobs, null, conditions, evaluator, Clock.systemUTC(), null, null);
 
   private JobEntity job(JobExecutionType type) {
     JobEntity job = new JobEntity();

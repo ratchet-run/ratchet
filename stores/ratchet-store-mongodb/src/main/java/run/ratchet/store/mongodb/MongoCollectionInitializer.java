@@ -20,6 +20,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
+import static run.ratchet.store.mongodb.MongoFieldNames.HELD_UNTIL;
 import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.MongoCommandException;
@@ -357,6 +358,12 @@ class MongoCollectionInitializer {
     // efficient without weakening the single cross-type serialization point.
     createRequiredIndex(
         coll, Indexes.ascending(OWNER_JOB_ID), new IndexOptions().name("idx_bk_owner"));
+    createRequiredIndex(
+        coll,
+        Indexes.ascending(HELD_UNTIL),
+        new IndexOptions()
+            .name("idx_bk_held_until")
+            .partialFilterExpression(new Document(HELD_UNTIL, new Document("$exists", true))));
   }
 
   private void backfillBusinessKeyReservations() {
@@ -400,7 +407,7 @@ class MongoCollectionInitializer {
                       session,
                       eq(ID, candidate.get(ID)),
                       new Document("$inc", new Document("backfill_version", 1L)));
-              if (reservation == null) return true;
+              if (reservation == null || reservation.containsKey(HELD_UNTIL)) return true;
               String key = reservation.getString(ID);
               UUID owner = reservation.get(OWNER_JOB_ID, UUID.class);
               String table = reservation.getString(OWNER_TABLE);

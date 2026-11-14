@@ -34,6 +34,7 @@ import org.bson.BsonBinaryWriter;
 import org.bson.codecs.Codec;
 import org.bson.codecs.EncoderContext;
 import org.bson.io.BasicOutputBuffer;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -208,8 +209,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    return crud.findActiveByBusinessKey(businessKey);
+  public Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
+    return crud.findBusinessKeyHolder(businessKey);
   }
 
   @Override
@@ -1197,5 +1198,30 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public boolean deletePartitionSet(UUID setId) {
     return partitions.deletePartitionSet(setId);
+  }
+
+  @Override
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return lifecycle.cancelRunningJob(id, keyHeldUntil);
+  }
+
+  @Override
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return lifecycle.releaseBusinessKeyHold(jobId, claimSeq);
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return crud.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return crud.deleteExpiredBusinessKeyHolds(now, limit);
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    return crud.findStatusesByIds(ids);
   }
 }

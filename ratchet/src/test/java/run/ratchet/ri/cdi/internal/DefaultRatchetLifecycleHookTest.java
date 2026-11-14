@@ -43,6 +43,7 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
@@ -140,6 +141,7 @@ class DefaultRatchetLifecycleHookTest {
             mock(RecurringScheduler.class),
             mock(OrphanRecoveryTimer.class),
             mock(BatchRecoveryTimer.class),
+            mock(CancelRequestRelay.class),
             mock(JobStateFlusher.class),
             mock(DeadLetterService.class),
             mock(JobArchivingService.class),
@@ -289,6 +291,7 @@ class DefaultRatchetLifecycleHookTest {
             recurringScheduler,
             orphanRecoveryTimer,
             batchRecoveryTimer,
+            mock(CancelRequestRelay.class),
             mock(JobStateFlusher.class),
             deadLetterService,
             jobArchivingService,
@@ -307,8 +310,9 @@ class DefaultRatchetLifecycleHookTest {
     assertEquals(List.of("successful.beforeStart", "successful.afterStart"), events);
     verify(provider).getScheduledExecutor();
     verify(pollerWakeupListener).init();
-    // The start-up permit clean-up is not a scheduled service, so it still runs.
+    // The start-up permit and hold clean-ups are not scheduled services, so they still run.
     verify(orphanRecoveryTimer).cleanupOwnPermitsAtStartup(isNull());
+    verify(orphanRecoveryTimer).releaseOwnBusinessKeyHoldsAtStartup(isNull());
     verifyNoMoreInteractions(orphanRecoveryTimer);
     verifyNoInteractions(
         poller,
@@ -326,6 +330,7 @@ class DefaultRatchetLifecycleHookTest {
         mock(RecurringScheduler.class),
         mock(OrphanRecoveryTimer.class),
         mock(BatchRecoveryTimer.class),
+        mock(CancelRequestRelay.class),
         mock(JobStateFlusher.class),
         mock(DeadLetterService.class),
         mock(JobArchivingService.class),
@@ -346,6 +351,7 @@ class DefaultRatchetLifecycleHookTest {
         mock(RecurringScheduler.class),
         mock(OrphanRecoveryTimer.class),
         mock(BatchRecoveryTimer.class),
+        mock(CancelRequestRelay.class),
         mock(JobStateFlusher.class),
         mock(DeadLetterService.class),
         mock(JobArchivingService.class),

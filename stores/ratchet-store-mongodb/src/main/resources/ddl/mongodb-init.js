@@ -59,6 +59,10 @@ db.scheduler_business_key_reservation.createIndex(
   { owner_job_id: 1 },
   { name: "idx_bk_owner" }
 );
+db.scheduler_business_key_reservation.createIndex(
+  { held_until: 1 },
+  { name: "idx_bk_held_until", partialFilterExpression: { held_until: { $exists: true } } }
+);
 
 // Dashboard query indexes
 db.scheduler_job.createIndex(

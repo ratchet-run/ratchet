@@ -17,21 +17,28 @@ package run.ratchet.store.oracle;
 
 import jakarta.persistence.Query;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import org.jboss.logging.Logger;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.util.BusinessKeyReservations;
 import run.ratchet.store.util.SqlIdempotencyKeys;
+import run.ratchet.store.util.StatusClassifier;
 
 final class OracleJobReadOperations {
 
-  private static final Logger log = Logger.getLogger(OracleJobReadOperations.class);
   private static final int FIND_BY_IDS_CHUNK_SIZE = 500;
 
   // language=Oracle
@@ -141,6 +148,44 @@ final class OracleJobReadOperations {
   }
 
   @SuppressWarnings("unchecked")
+  Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    List<UUID> uniqueIds = List.copyOf(new LinkedHashSet<>(ids));
+    if (uniqueIds.size() > JobCrudStore.STATUS_READ_LIMIT) {
+      throw new IllegalArgumentException("Too many job ids");
+    }
+    if (uniqueIds.isEmpty()) {
+      return Map.of();
+    }
+    try {
+      // language=Oracle
+      String sql =
+          """
+          SELECT c.job_id, q.status, c.terminal_status
+          FROM scheduler_job c
+          LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+          WHERE c.job_id IN (%s)
+          """
+              .formatted(String.join(",", Collections.nCopies(uniqueIds.size(), "?")));
+      Query query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (UUID id : uniqueIds) {
+        query.setParameter(parameter++, UuidRawConverter.toBytes(id));
+      }
+      List<Object[]> rows = query.getResultList();
+      Map<UUID, JobStatus> result = new HashMap<>();
+      for (Object[] row : rows) {
+        String status = (String) (row[1] != null ? row[1] : row[2]);
+        if (status != null) {
+          result.put(OracleJobRowMapper.uuidOrNull(row[0]), JobStatus.valueOf(status));
+        }
+      }
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find job statuses by ids", e);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
   List<JobEntity> findByIds(List<UUID> ids) {
     try {
       if (ids.isEmpty()) {
@@ -185,46 +230,58 @@ final class OracleJobReadOperations {
   }
 
   @SuppressWarnings("unchecked")
-  Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
+  Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
     try {
       // language=Oracle
       String sql =
-          "SELECT br.owner_table, "
-              + OracleJobRowMapper.HYDRATION_SELECT
-              + " FROM scheduler_business_key_reservation br "
-              + "JOIN scheduler_job c ON c.job_id = br.owner_job_id "
-              + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-              + "WHERE br.business_key = ? FETCH FIRST 1 ROWS ONLY";
+          """
+          SELECT br.owner_job_id, br.owner_table, q.status, q.job_type, r.is_paused,
+                 br.held_until, c.job_type
+          FROM scheduler_business_key_reservation br
+          LEFT JOIN scheduler_job_queue q
+            ON br.owner_table = 'QUEUE' AND q.job_id = br.owner_job_id
+          LEFT JOIN scheduler_recurring_job r
+            ON br.owner_table = 'RECURRING' AND r.id = br.owner_job_id
+          LEFT JOIN scheduler_job c
+            ON br.held_until IS NOT NULL AND c.job_id = br.owner_job_id
+          WHERE br.business_key = ?
+          """;
       List<Object[]> rows =
           ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();
       if (rows.isEmpty()) {
         return Optional.empty();
       }
-      Object[] full = rows.get(0);
-      String ownerTable = (String) full[0];
-      Object[] hydrationRow = businessKeyHydrationRow(full);
-      JobEntity job = mapper.hydrateJobEntity(hydrationRow);
-      if (OracleBusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable)
-          && hydrationRow[OracleJobRowMapper.IDX_Q_STATUS] == null) {
-        log.errorf(
-            "bkres invariant violation: business_key=%s claims QUEUE owner job=%s but no hot row",
-            businessKey, job.getId());
-        throw new IllegalStateException(
-            "Business key reservation "
-                + businessKey
-                + " claims QUEUE owner job "
-                + job.getId()
-                + " but no hot row exists");
+      Object[] row = rows.get(0);
+      UUID id = OracleJobRowMapper.uuidOrNull(row[0]);
+      if (row[5] != null) {
+        return row[6] == null
+            ? Optional.empty()
+            : Optional.of(
+                new BusinessKeyHolder(
+                    id,
+                    JobExecutionType.valueOf((String) row[6]).toPublicType(),
+                    JobStatus.CANCELED));
       }
-      tags.hydrateTagsSingle(job);
-      return Optional.of(job);
+      if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(row[1]) && row[2] != null) {
+        JobStatus status = JobStatus.valueOf((String) row[2]);
+        if (!StatusClassifier.isLiveStatus(status)) {
+          return Optional.empty();
+        }
+        return Optional.of(
+            new BusinessKeyHolder(
+                id, JobExecutionType.valueOf((String) row[3]).toPublicType(), status));
+      }
+      if (BusinessKeyReservations.OWNER_TABLE_RECURRING.equals(row[1]) && row[4] != null) {
+        boolean paused =
+            row[4] instanceof Boolean value ? value : ((Number) row[4]).intValue() != 0;
+        return Optional.of(
+            new BusinessKeyHolder(
+                id, JobType.RECURRING, paused ? JobStatus.PAUSED : JobStatus.PENDING));
+      }
+      return Optional.empty();
     } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("find active by business key", e);
+      throw ctx.translateTransientStoreException("find business key holder", e);
     }
-  }
-
-  private static Object[] businessKeyHydrationRow(Object[] reservationAndJobRow) {
-    return Arrays.copyOfRange(reservationAndJobRow, 1, 1 + OracleJobRowMapper.HYDRATION_COL_COUNT);
   }
 
   @SuppressWarnings("unchecked")

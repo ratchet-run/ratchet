@@ -15,6 +15,9 @@
  */
 package run.ratchet.store.mongodb;
 
+import java.util.Date;
+import java.util.UUID;
+import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
@@ -27,6 +30,19 @@ class MongoActiveBusinessKeyContractTest extends AbstractActiveBusinessKeyContra
   @AfterAll
   static void closeFixture() {
     fixture.close();
+  }
+
+  @Override
+  protected void insertReservationWithoutOwner(
+      String businessKey, UUID ownerId, String ownerTable) {
+    fixture
+        .database()
+        .getCollection("scheduler_business_key_reservation")
+        .insertOne(
+            new Document("_id", businessKey)
+                .append("owner_job_id", ownerId)
+                .append("owner_table", ownerTable)
+                .append("reserved_at", new Date()));
   }
 
   @Override

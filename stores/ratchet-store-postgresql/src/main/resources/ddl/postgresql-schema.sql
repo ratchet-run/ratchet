@@ -275,14 +275,20 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
     owner_job_id uuid NOT NULL,
     owner_table TEXT NOT NULL,
     reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    held_until     TIMESTAMPTZ(6),
+    held_by_node   VARCHAR(64),
+    held_claim_seq BIGINT,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
     CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
     -- owner_job_id is polymorphic across scheduler_job (QUEUE owner) and
     -- scheduler_recurring_job (RECURRING owner); the FK is dropped at the application layer
-    -- because no single parent table exists. Cancel paths DELETE the reservation rows.
+    -- because no single parent table exists. Running cancellation may keep a hold until the body
+    -- ends; other cancel paths delete it.
 );
 
 CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);
+CREATE INDEX IF NOT EXISTS idx_bk_held_until ON scheduler_business_key_reservation (held_until)
+    WHERE held_until IS NOT NULL;
 
 -- Lookup/relationship indexes (cold).
 CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on, job_id);

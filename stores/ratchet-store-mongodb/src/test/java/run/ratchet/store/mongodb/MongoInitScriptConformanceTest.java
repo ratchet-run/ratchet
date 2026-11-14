@@ -40,6 +40,7 @@ class MongoInitScriptConformanceTest {
     "idx_job_idempotency_key",
     "idx_job_active_business_key",
     "idx_bk_owner",
+    "idx_bk_held_until",
     "idx_signal_key_status",
     "idx_signal_timeout_status",
     "idx_signal_delivery_id",

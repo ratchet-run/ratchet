@@ -80,6 +80,8 @@ jobs:
       has_spring_consumer: ${{ steps.select.outputs.has_spring_consumer }}
       spring_native: ${{ steps.select.outputs.spring_native }}
       has_spring_native: ${{ steps.select.outputs.has_spring_native }}
+      spring_micrometer: ${{ steps.select.outputs.spring_micrometer }}
+      has_spring_micrometer: ${{ steps.select.outputs.has_spring_micrometer }}
       spring_runtime: ${{ steps.select.outputs.spring_runtime }}
       has_spring_runtime: ${{ steps.select.outputs.has_spring_runtime }}
       micronaut_consumer: ${{ steps.select.outputs.micronaut_consumer }}
@@ -809,6 +811,72 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/ratchet-native-repository/run/ratchet"
 
+  # Runs the Micrometer scenario in one packaged SQL consumer; matrix rows are defined in infra/ci/affected_lanes.py.
+  spring-boot-micrometer:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_spring_micrometer == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    name: spring-boot-micrometer (Boot ${{ matrix.boot }}, ${{ matrix.mode }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.spring_micrometer) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        if: matrix.mode == 'jvm'
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: graalvm/setup-graalvm@v1
+        if: matrix.mode == 'native'
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ratchet-micrometer-repository
+          key: m2-spring-boot-micrometer-${{ runner.os }}-${{ matrix.boot }}-${{ matrix.mode }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-spring-boot-micrometer-${{ runner.os }}-${{ matrix.boot }}-${{ matrix.mode }}-
+            m2-spring-boot-micrometer-${{ runner.os }}-${{ matrix.boot }}-
+            m2-spring-boot-micrometer-${{ runner.os }}-
+      - name: Remove cached Ratchet artifacts
+        run: rm -rf "$RUNNER_TEMP/ratchet-micrometer-repository/run/ratchet"
+      - name: Stage current Spring and Micrometer artifacts
+        run: >-
+          mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-micrometer-repository"
+          -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
+          -pl :ratchet-spring-boot-starter,:ratchet-micrometer,:ratchet-store-postgresql
+          -Pgithub -am install
+      - name: Verify Micrometer scenario
+        shell: bash
+        run: |
+          set -o pipefail
+          profiles=micrometer
+          if [ "${{ matrix.mode }}" = "native" ]; then profiles=micrometer,native; fi
+          mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+            -Dmaven.repo.local="$RUNNER_TEMP/ratchet-micrometer-repository" \
+            -Dspring-boot.version=${{ matrix.boot }} -Dstore=postgresql \
+            -pl :sql-consumer -am -P "$profiles" clean verify \
+            -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false \
+            -Dit.test=SqlMicrometerIT -Dfailsafe.failIfNoSpecifiedTests=false 2>&1 | tee micrometer-build.log
+      - name: Retain Micrometer evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spring-boot-micrometer-${{ matrix.boot }}-${{ matrix.mode }}
+          path: |
+            micrometer-build.log
+            integrations/ratchet-spring-boot/consumer-tests/**/target/*.log
+            integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
+            integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
+      - name: Keep Ratchet artifacts out of the saved cache
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ratchet-micrometer-repository/run/ratchet"
+
   # Same independent-consumer pattern as spring-boot-consumer. Both lanes consume one set of
   # Ratchet jars compiled against Micronaut 4.10 on Java 17: mn4 runs it on Micronaut 4.10 and
   # Java 17, and mn5 compiles the application with Micronaut 5's processors and runs it on Java 25.
@@ -990,7 +1058,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, spring-boot-runtime, spring-boot-native, micronaut-consumer, micronaut-native, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, spring-boot-runtime, spring-boot-native, spring-boot-micrometer, micronaut-consumer, micronaut-native, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

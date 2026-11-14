@@ -21,6 +21,7 @@ import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -49,6 +51,11 @@ public class InMemoryJobStore extends run.ratchet.tck.store.clocked.InMemoryJobS
   @Inject
   public InMemoryJobStore(Clock clock) {
     super(clock);
+  }
+
+  @Override
+  public synchronized Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    return super.findStatusesByIds(ids);
   }
 
   @Override

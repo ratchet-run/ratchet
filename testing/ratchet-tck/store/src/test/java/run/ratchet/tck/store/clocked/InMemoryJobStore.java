@@ -27,11 +27,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.Nullable;
@@ -76,6 +78,9 @@ import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 @Priority(Interceptor.Priority.APPLICATION + 100)
 public class InMemoryJobStore extends ThrowingJobStoreBase {
 
+  private record BusinessKeyHold(Long claimSeq, String nodeId, Instant expiresAt) {}
+
+  private final Map<UUID, BusinessKeyHold> holds = new HashMap<>();
   private final Map<UUID, JobEntity> jobs = new HashMap<>();
   private final Map<String, UUID> idempotencyKeys = new HashMap<>();
   private final Map<UUID, List<JobExecutionEntity>> executions = new HashMap<>();
@@ -93,6 +98,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   /** Resets all stored state. Called from clocked TCK runtimes. */
   public synchronized void reset() {
     jobs.clear();
+    holds.clear();
     idempotencyKeys.clear();
     executions.clear();
   }
@@ -159,7 +165,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
+  public synchronized Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey) {
     if (businessKey == null) {
       return Optional.empty();
     }
@@ -169,7 +175,10 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
             j ->
                 j.getStatus() == JobStatus.PENDING
                     || j.getStatus() == JobStatus.RUNNING
-                    || j.getStatus() == JobStatus.WAITING)
+                    || j.getStatus() == JobStatus.WAITING
+                    || j.getStatus() == JobStatus.PAUSED
+                    || holds.containsKey(j.getId()))
+        .map(j -> new BusinessKeyHolder(j.getId(), j.getJobType().toPublicType(), j.getStatus()))
         .findFirst();
   }
 
@@ -686,5 +695,56 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return 0;
+  }
+
+  @Override
+  public synchronized boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    JobEntity job = jobs.get(id);
+    if (job == null || job.getStatus() != JobStatus.RUNNING) return false;
+    if (keyHeldUntil != null && job.getBusinessKey() != null) {
+      holds.put(id, new BusinessKeyHold(job.getClaimSeq(), job.getPickedBy(), keyHeldUntil));
+    }
+    job.setStatus(JobStatus.CANCELED);
+    return true;
+  }
+
+  @Override
+  public synchronized boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    BusinessKeyHold hold = holds.get(jobId);
+    return hold != null && Objects.equals(hold.claimSeq(), claimSeq) && holds.remove(jobId, hold);
+  }
+
+  @Override
+  public synchronized int releaseBusinessKeyHolds(List<String> nodeIds) {
+    int before = holds.size();
+    holds.values().removeIf(hold -> nodeIds.contains(hold.nodeId()));
+    return before - holds.size();
+  }
+
+  @Override
+  public synchronized int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    if (limit <= 0) return 0;
+    List<UUID> expired =
+        holds.entrySet().stream()
+            .filter(entry -> entry.getValue().expiresAt().isBefore(now))
+            .limit(limit)
+            .map(Map.Entry::getKey)
+            .toList();
+    expired.forEach(holds::remove);
+    return expired.size();
+  }
+
+  @Override
+  public synchronized Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    List<UUID> uniqueIds = List.copyOf(new LinkedHashSet<>(ids));
+    if (uniqueIds.size() > STATUS_READ_LIMIT) {
+      throw new IllegalArgumentException("Too many job ids");
+    }
+    Map<UUID, JobStatus> result = new HashMap<>();
+    for (UUID id : uniqueIds) {
+      JobEntity job = jobs.get(id);
+      if (job != null && job.getStatus() != null) result.put(id, job.getStatus());
+    }
+    return result;
   }
 }

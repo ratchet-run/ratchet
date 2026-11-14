@@ -470,7 +470,7 @@ public class ChainCompletedEvent extends AbstractJobSchedulerEvent {
 
 ### ChainFailedEvent
 
-Fired when a workflow chain fails.
+Fired when a workflow chain fails. When the step that ends the chain was cancelled, `getErrorMessage()` returns `Job was canceled`.
 
 ```java
 public class ChainFailedEvent extends AbstractJobSchedulerEvent {

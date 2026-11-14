@@ -141,6 +141,40 @@ startup rejection of an unexposed recurring method behind a JDK proxy. The migra
 only the shipped V001 schema, seeds host and Ratchet data, then launches the application twice to
 verify upgrade, checksums, data preservation, and idempotence.
 
+## Micrometer scenario
+
+The `micrometer` profile adds Actuator, `ratchet-micrometer`, and the scenario sources to the SQL
+application only, so the other scenarios keep their classpath. After startup the scenario checks
+that the `MetricsCollector` bean is the Micrometer collector, that the PENDING queue gauge counts a
+job scheduled an hour ahead, and that `ratchet.jobs.completed` records a finished job. At shutdown
+it checks that every `ratchet.queue.*` gauge has been removed.
+
+Stage the starter, Micrometer, and PostgreSQL artifacts from the repository root:
+
+```bash
+mvn -B -ntp -Dmaven.repo.local="$staged_repo" \
+  -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true \
+  -pl :ratchet-spring-boot-starter,:ratchet-micrometer,:ratchet-store-postgresql \
+  -Pgithub -am install
+
+# Packaged JVM application.
+mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+  -Dmaven.repo.local="$staged_repo" -Dspring-boot.version=3.5.16 -Dstore=postgresql \
+  -pl :sql-consumer -am -Pmicrometer clean verify \
+  -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false \
+  -Dit.test=SqlMicrometerIT -Dfailsafe.failIfNoSpecifiedTests=false
+
+# Native executable; use GraalVM 25 as described above.
+mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+  -Dmaven.repo.local="$staged_repo" -Dspring-boot.version=4.1.1 -Dstore=postgresql \
+  -pl :sql-consumer -am -Pmicrometer,native clean verify \
+  -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false \
+  -Dit.test=SqlMicrometerIT -Dfailsafe.failIfNoSpecifiedTests=false
+```
+
+CI runs this scenario on PostgreSQL with Boot 3.5.16 and 4.1.1 on the JVM,
+plus one Boot 4.1.1 native cell. Process output is written to `sql/target/micrometer.log`.
+
 ## Spring runtime failure scenarios
 
 The `runtime` profile adds real application tests for the Spring integration. It uses PostgreSQL

@@ -23,7 +23,6 @@ package run.ratchet.store.mongodb;
  * constants so a rename touches one file instead of eight.
  */
 final class MongoFieldNames {
-
   // Document identifier (MongoDB convention).
   static final String ID = "_id";
   // Job core lifecycle
@@ -53,6 +52,9 @@ final class MongoFieldNames {
   static final String OWNER_JOB_ID = "owner_job_id";
   static final String OWNER_TABLE = "owner_table";
   static final String RESERVED_AT = "reserved_at";
+  static final String HELD_UNTIL = "held_until";
+  static final String HELD_BY_NODE = "held_by_node";
+  static final String HELD_CLAIM_SEQ = "held_claim_seq";
   // Workflow linkage
   static final String DEPENDS_ON = "depends_on";
   static final String TAGS = "tags";

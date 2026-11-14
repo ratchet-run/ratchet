@@ -42,6 +42,8 @@ import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.RetryBufferManager;
 import run.ratchet.ri.core.StoreBackedStartupCoordinator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
+import run.ratchet.ri.core.internal.CancelStatusReader;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultDrainController;
 import run.ratchet.ri.core.internal.DefaultJobArchivingService;
@@ -54,6 +56,7 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobStateFlusher;
+import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
@@ -304,6 +307,7 @@ class RatchetRuntimeConfiguration {
       RecurringScheduler recurring,
       OrphanRecoveryTimer orphanRecovery,
       BatchRecoveryTimer batchRecovery,
+      CancelRequestRelay cancelRequestRelay,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetter,
       DurableTerminalEvents durableEvents,
@@ -329,6 +333,7 @@ class RatchetRuntimeConfiguration {
             recurring,
             orphanRecovery,
             batchRecovery,
+            cancelRequestRelay,
             jobStateFlusher,
             deadLetter,
             durableEvents,
@@ -378,5 +383,21 @@ class RatchetRuntimeConfiguration {
   SpringRatchetLifecycle springRatchetLifecycle(
       RatchetRuntime runtime, RuntimeContextInstallation installation) {
     return new SpringRatchetLifecycle(runtime, installation);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
+  CancelStatusReader cancelStatusReader(JobStore store) {
+    return new CancelStatusReader(store);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
+  CancelRequestRelay cancelRequestRelay(
+      JobTimeoutHandler timeoutHandler,
+      CancelStatusReader statusReader,
+      InternalEventPublisher events,
+      Clock clock) {
+    return new CancelRequestRelay(timeoutHandler, statusReader, events, clock);
   }
 }

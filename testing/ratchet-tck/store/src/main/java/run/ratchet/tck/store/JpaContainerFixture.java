@@ -38,6 +38,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
@@ -258,6 +259,12 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   @Override
   public final JobStore store() {
     return storeProxy;
+  }
+
+  /** Runs a single-value query on the current thread's transaction and returns it as a long. */
+  public final long currentSessionId(String sql) {
+    Object result = threadEm.get().createNativeQuery(sql).getSingleResult();
+    return ((Number) result).longValue();
   }
 
   /** Open a raw JDBC connection to the same container used by this fixture. */
@@ -505,5 +512,22 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
 
     @Override
     public void clusterWakeupReceived(String transport, String outcome) {}
+  }
+
+  @Override
+  public final int countStoreStatements(Runnable work) {
+    var count = new AtomicInteger();
+    observeNativeQueries(
+        (sql, event) -> {
+          if (event.completed()) {
+            count.incrementAndGet();
+          }
+        });
+    try {
+      work.run();
+      return count.get();
+    } finally {
+      observeNativeQueries((sql, event) -> {});
+    }
   }
 }

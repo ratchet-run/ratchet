@@ -21,13 +21,12 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.ACQUIRED;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.AT_CAPACITY;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.SUPERSEDED;
+import static run.ratchet.tck.store.sql.SqlRaceFailures.isConnectionFailure;
+import static run.ratchet.tck.store.sql.SqlRaceFailures.isLockFailure;
+import static run.ratchet.tck.store.sql.SqlRaceFailures.rootMessage;
 
-import java.io.IOException;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.SQLNonTransientConnectionException;
-import java.sql.SQLRecoverableException;
-import java.sql.SQLTransientConnectionException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -1205,29 +1204,6 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
             .anyMatch(waiter -> waiter.jobId().equals(first.getId())));
   }
 
-  private static boolean isLockFailure(Throwable failure) {
-    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-      if (cause instanceof SQLException sql) {
-        if (sql.getErrorCode() == 1213
-            || sql.getErrorCode() == 1205
-            || sql.getErrorCode() == 1222
-            || "40P01".equals(sql.getSQLState())) return true;
-      }
-      String message = cause.getMessage();
-      if (message != null
-          && (message.contains("ORA-00060")
-              || message.toLowerCase(Locale.ROOT).contains("lock wait timeout"))) return true;
-    }
-    return false;
-  }
-
-  /** The innermost message, which for a deadlock carries the database's own detail. */
-  private static String rootMessage(Throwable failure) {
-    Throwable root = failure;
-    while (root.getCause() != null) root = root.getCause();
-    return String.valueOf(root.getMessage()).replace('\n', ' ');
-  }
-
   /** Every message in the cause chain, so an untranslated failure still names its statement. */
   private static String chainMessage(Throwable failure) {
     var messages = new ArrayList<String>();
@@ -1293,23 +1269,5 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
   private AcquireResult acquire(
       ResourcePermitStore permits, JobEntity job, String nodeId, String resource) {
     return permits.tryAcquirePermit(resource, job.getId(), job.getClaimSeq(), nodeId);
-  }
-
-  /**
-   * A failure to reach the database: a JDBC connection exception, SQLState class 08, or an I/O
-   * error under the driver (Oracle's listener refusals, such as ORA-12516, are I/O errors).
-   */
-  private static boolean isConnectionFailure(Throwable failure) {
-    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-      if (cause instanceof SQLTransientConnectionException
-          || cause instanceof SQLNonTransientConnectionException
-          || cause instanceof SQLRecoverableException
-          || cause instanceof IOException) return true;
-      if (cause instanceof SQLException sql) {
-        String state = sql.getSQLState();
-        if (state != null && state.startsWith("08")) return true;
-      }
-    }
-    return false;
   }
 }

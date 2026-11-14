@@ -487,6 +487,16 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void schedulerBusinessKeyReservation_hasHoldExpiryIndex() {
+    assertIndex(
+        "scheduler_business_key_reservation",
+        "idx_bk_held_until",
+        new Document("held_until", 1),
+        false,
+        new Document("held_until", new Document("$exists", true)));
+  }
+
+  @Test
   void schedulerBusinessKeyReservation_hasOwnerLookupIndex() {
     assertIndex(
         "scheduler_business_key_reservation",

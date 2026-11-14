@@ -46,7 +46,11 @@ import java.util.UUID;
  * @param statuses allowed job statuses, or null for all statuses
  * @param types allowed job types, or null for all types
  * @param priorities allowed priorities, or null for all priorities
- * @param businessKey exact business key to match, or null for no business-key filter
+ * @param businessKey exact business key to match, or null for no business-key filter. Searches job
+ *     rows, including finished jobs. Recurring masters are visible only when types is exactly
+ *     RECURRING, which reads the recurring store. Other searches need the query capability and
+ *     return no matches without it. To ask whether a key is held now, use {@link
+ *     BusinessKeyLookup#findBusinessKeyHolder}.
  * @param idempotencyKey exact idempotency key to match, or null for no idempotency-key filter
  * @param tags tags that must be present according to the store's tag-match semantics, or null for
  *     no tag filter
@@ -242,6 +246,12 @@ public record JobFilter(
       return this;
     }
 
+    /**
+     * Searches job rows, including finished jobs. Recurring masters are visible only when types is
+     * exactly RECURRING, which reads the recurring store. Other searches need the query capability
+     * and return no matches without it. To ask whether a key is held now, use {@link
+     * BusinessKeyLookup#findBusinessKeyHolder}.
+     */
     public Builder businessKey(String businessKey) {
       this.businessKey = businessKey;
       return this;

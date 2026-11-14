@@ -25,16 +25,20 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.LiveJobCancellation;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 
@@ -42,6 +46,9 @@ import run.ratchet.store.spi.RecurringJobStore;
 @Vetoed
 public class SystemJobCancellation {
   private static final Logger log = Logger.getLogger(SystemJobCancellation.class);
+  private final JobTerminalStore jobTerminalStore;
+  private final WorkflowScheduler workflowScheduler;
+  private final RatchetOptions options;
   private final InternalEventPublisher eventPublisher;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobCrudStore jobCrudStore;
@@ -61,7 +68,13 @@ public class SystemJobCancellation {
       JobWakeupService wakeupService,
       MetricsCollector metricsCollector,
       Clock clock,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      JobTerminalStore jobTerminalStore,
+      WorkflowScheduler workflowScheduler,
+      RatchetOptions options) {
+    this.jobTerminalStore = jobTerminalStore;
+    this.workflowScheduler = workflowScheduler;
+    this.options = options != null ? options : RatchetOptions.defaults();
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobCrudStore = jobCrudStore;
@@ -76,45 +89,14 @@ public class SystemJobCancellation {
   /** Cancels without a caller authorization check. */
   @Transactional
   public boolean cancel(UUID jobId) {
-    return cancelLoadedJob(jobId, jobCrudStore.findById(jobId).orElse(null));
+    return cancelLoadedJob(jobId, jobCrudStore.findById(jobId).orElse(null), false);
   }
 
-  boolean cancelLoadedJob(UUID jobId, JobEntity job) {
-    // Try PENDING → CANCELED first (most common case)
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled pending job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PENDING, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try RUNNING → CANCELED. The scheduler publishes the durable state-transition event here so
-    // observers do not lose cancellation if the worker dies before it notices the status flip.
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled running job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.RUNNING, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try PAUSED → CANCELED
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled paused job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PAUSED, job);
-      cascadeCancel(job);
-      return true;
-    }
-
-    // Try WAITING → CANCELED (signal-waiting jobs can be canceled)
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
-      log.debugf("Canceled waiting job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.WAITING, job);
-      cascadeCancel(job);
-      if (metricsCollector != null && job != null) {
+  boolean cancelLoadedJob(UUID jobId, JobEntity job, boolean holdKey) {
+    JobStatus previous = cancelLive(jobId, job, holdKey);
+    if (previous != null) {
+      publishCancelledEvent(jobId, previous, job);
+      if (previous == JobStatus.WAITING && metricsCollector != null && job != null) {
         metricsCollector.signalCancelled(jobId, job.getPublicJobType(), job.getSignalKey());
       }
       return true;
@@ -136,6 +118,24 @@ public class SystemJobCancellation {
 
     log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
     return false;
+  }
+
+  JobStatus cancelLive(UUID jobId, JobEntity job, boolean holdKey) {
+    Instant keyHeldUntil =
+        holdKey ? LiveJobCancellation.keyHeldUntil(job, effective().instant(), options) : null;
+    JobStatus previous =
+        LiveJobCancellation.cancel(
+            jobId, keyHeldUntil, jobCrudStore, jobBatchStatusStore, jobTerminalStore);
+    if (previous != null) {
+      cascadeCancel(job);
+      if (job != null
+          && job.getJobType() != JobExecutionType.BATCH_CHILD
+          && job.getJobType() != JobExecutionType.BATCH_PARENT
+          && workflowScheduler != null) {
+        workflowScheduler.cancelChain(job);
+      }
+    }
+    return previous;
   }
 
   /**

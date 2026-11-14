@@ -15,12 +15,16 @@
  */
 package run.ratchet.store.spi;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
+import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 
 /** Core CRUD and primary-key lookup operations for jobs. */
@@ -31,6 +35,11 @@ public interface JobCrudStore {
 
   /**
    * Inserts a new job row and returns the persisted entity view.
+   *
+   * <p>The business-key reservation is written before the idempotency key and job rows. If the key
+   * is already held, throws {@link BusinessKeyReservationConflictException} without writing
+   * anything for the job and leaves the caller's transaction usable. A store must never throw that
+   * exception after writing anything for the job.
    *
    * <p>Transaction attribute: {@code REQUIRED}.
    */
@@ -82,16 +91,35 @@ public interface JobCrudStore {
    */
   List<JobEntity> findByIds(List<UUID> ids);
 
+  /** Largest number of ids one {@link #findStatusesByIds} call accepts. */
+  int STATUS_READ_LIMIT = 500;
+
   /**
-   * Finds the active job currently associated with a business key, if any.
+   * Reads only the status of each job that exists, for a cheap periodic check. Live jobs report
+   * their live status and ended jobs their terminal status. Ids with no job row are absent from the
+   * result; callers treat absence as unknown, never as cancelled. An empty collection returns an
+   * empty map without touching the store.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
    *
-   * @throws IllegalStateException if a reservation claims a live-queue owner but no hot row exists.
-   *     This is a store invariant violation; every store fails loud here rather than returning an
-   *     empty {@link Optional}.
+   * @param ids at most {@link #STATUS_READ_LIMIT} job ids; callers chunk larger sets
+   * @return status by job id for the jobs that exist
+   * @throws IllegalArgumentException if more than {@link #STATUS_READ_LIMIT} ids are passed
    */
-  Optional<JobEntity> findActiveByBusinessKey(String businessKey);
+  Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids);
+
+  /**
+   * Reads the business-key reservation for a QUEUE or RECURRING owner, following {@link
+   * BusinessKeyHolder}'s type and status rules. Returns empty when no reservation exists or its
+   * owner row is not visible or not live. An owner write in progress must return empty rather than
+   * throw. The caller passes an already normalised key. This core method works without optional
+   * capabilities.
+   *
+   * <p>Joins the caller's transaction when the store's writes do. Bundled SQL stores use their
+   * class-level REQUIRED boundary. The MongoDB store, whose writes commit in their own session,
+   * reads outside the caller's transaction.
+   */
+  Optional<BusinessKeyHolder> findBusinessKeyHolder(String businessKey);
 
   /** Finds a job by idempotency key. Transaction attribute: {@code SUPPORTS}. */
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);

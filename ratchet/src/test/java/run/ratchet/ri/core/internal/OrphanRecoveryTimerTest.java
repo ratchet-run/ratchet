@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -649,6 +650,7 @@ class OrphanRecoveryTimerTest {
 
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 100);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+    verify(jobBulkStore).deleteExpiredBusinessKeyHolds(FIXED_NOW, 500);
     verifyNoMoreInteractions(jobBulkStore, jobCrudStore, lifecycleFacade, callbackInvoker);
   }
 
@@ -813,5 +815,67 @@ class OrphanRecoveryTimerTest {
       logger.setLevel(originalLevel);
       logger.setUseParentHandlers(originalUseParentHandlers);
     }
+  }
+
+  @Test
+  void recoverOrphans_releasesHoldsOfStaleNodesBeforeDeletingThem() {
+    // A dead node's permits and held keys are released before its identity is deleted.
+    NodeEntity stale = new NodeEntity();
+    stale.setId("dead");
+    when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60))).thenReturn(List.of(stale));
+    timer.recoverNow();
+    InOrder order = inOrder(resourcePermitService, jobBulkStore, nodeStore);
+    order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("dead"));
+    order.verify(jobBulkStore).releaseBusinessKeyHolds(List.of("dead"));
+    order.verify(nodeStore).deleteInactiveNodesByIds(List.of("dead"));
+  }
+
+  @Test
+  void recoverOrphans_withoutStaleNodes_releasesNoHolds() {
+    // Recovery without stale nodes does not release any node's held keys.
+    timer.recoverNow();
+    verify(jobBulkStore, never()).releaseBusinessKeyHolds(any());
+  }
+
+  @Test
+  void recoverWithLease_sweepsExpiredHoldsEvenWhenRecoveryFails() {
+    // Expired holds are swept in the recovery finally block using the timer clock.
+    when(jobBulkStore.resetOrphanJobsBefore(any(), eq(3), eq(100)))
+        .thenThrow(new IllegalStateException("recovery failed"));
+    timer.recoverNow();
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+  }
+
+  @Test
+  void expiredHoldSweepFailure_isSwallowedAndStaleExecutionsStillClose() {
+    // A failed expired-hold sweep cannot prevent stale execution cleanup.
+    when(jobBulkStore.deleteExpiredBusinessKeyHolds(
+            FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT))
+        .thenThrow(new IllegalStateException("hold sweep failed"));
+    assertDoesNotThrow(timer::recoverNow);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+  }
+
+  @Test
+  void releaseOwnBusinessKeyHoldsAtStartup_releasesThisNodesHolds() {
+    // Startup cleanup releases this node's holds and returns the deleted count.
+    when(jobBulkStore.releaseBusinessKeyHolds(List.of("node-1"))).thenReturn(4);
+    assertEquals(4, timer.releaseOwnBusinessKeyHoldsAtStartup("node-1"));
+    verify(jobBulkStore).releaseBusinessKeyHolds(List.of("node-1"));
+  }
+
+  @Test
+  void releaseOwnBusinessKeyHoldsAtStartup_retriesTransientFailureThenSucceeds() {
+    // Startup cleanup retries transient failures up to the same three-try permit budget.
+    when(jobBulkStore.releaseBusinessKeyHolds(List.of("node-1")))
+        .thenThrow(new RatchetTransientStoreException("first"))
+        .thenThrow(new RatchetTransientStoreException("second"))
+        .thenReturn(2);
+    assertEquals(2, timer.releaseOwnBusinessKeyHoldsAtStartup("node-1"));
+    verify(jobBulkStore, times(3)).releaseBusinessKeyHolds(List.of("node-1"));
   }
 }

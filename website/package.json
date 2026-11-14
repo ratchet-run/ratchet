@@ -22,7 +22,7 @@
     "playwright": "^1.65.0",
     "shiki": "^4.6.0",
     "vitepress": "^1.6.0",
-    "vitepress-plugin-llms": "^1.14.0"
+    "vitepress-plugin-llms": "^1.15.0"
   },
   "engines": {
     "node": ">=20.0"
