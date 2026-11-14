@@ -1716,9 +1716,11 @@ public class JobTask implements Callable<Void> {
     if (timeoutHandler == null) {
       return false;
     }
-    boolean interrupted =
-        ex instanceof InterruptedException || ex.getCause() instanceof InterruptedException;
-    return interrupted && timeoutHandler.isWatchdogCancelled(job.getId());
+    return isInterruption(ex) && timeoutHandler.isWatchdogCancelled(job.getId());
+  }
+
+  private static boolean isInterruption(Throwable ex) {
+    return ex instanceof InterruptedException || ex.getCause() instanceof InterruptedException;
   }
 
   // Matches JobTimeoutException, TimeoutException, and InterruptedException at top level and
@@ -1727,10 +1729,9 @@ public class JobTask implements Callable<Void> {
     boolean wasTimeout =
         ex instanceof JobTimeoutException
             || ex instanceof TimeoutException
-            || ex instanceof InterruptedException
+            || isInterruption(ex)
             || ex.getCause() instanceof JobTimeoutException
-            || ex.getCause() instanceof TimeoutException
-            || ex.getCause() instanceof InterruptedException;
+            || ex.getCause() instanceof TimeoutException;
     if (wasTimeout) {
       log.errorf(ex, "Job %s was cancelled due to timeout", job.getId());
     }
@@ -1802,7 +1803,12 @@ public class JobTask implements Callable<Void> {
       if (attempt != null && !attempt.markBodyStarted()) {
         throw new InterruptedException("Attempt cancelled before its body started");
       }
-      return payloadInvoker.invoke(payload);
+      try {
+        return payloadInvoker.invoke(payload);
+      } catch (Exception ex) {
+        if (isInterruption(ex)) recordInterrupt(true);
+        throw ex;
+      }
     } catch (ClassNotFoundException cnfe) {
       log.errorf(cnfe, "Job %s target class not found: %s", job.getId(), payload.target());
       throw cnfe;
