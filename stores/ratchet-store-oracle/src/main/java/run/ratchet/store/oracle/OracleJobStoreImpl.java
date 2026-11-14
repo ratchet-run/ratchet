@@ -727,6 +727,11 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    return archives.findArchivedJob(originalJobId);
+  }
+
+  @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     return archives.findArchivedJobs(targetClass, businessKey, from, to, limit);

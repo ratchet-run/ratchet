@@ -31,6 +31,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -60,6 +61,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
       JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
       BatchStore batchStore,
+      ArchiveStore archiveStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
       RecurringJobStore recurringJobStore,
@@ -84,6 +86,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
         jobTerminalStore,
         jobCrudStore,
         batchStore,
+        archiveStore,
         tagStore,
         workflowConditionStore,
         recurringJobStore,
