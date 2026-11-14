@@ -101,33 +101,41 @@ final class MysqlJobWriteOperations {
   }
 
   JobEntity save(JobEntity job) {
-    if (job.getId() == null) {
-      saveInsert(job);
-    } else {
-      saveColdUpdate(job);
+    try {
+      if (job.getId() == null) {
+        saveInsert(job);
+      } else {
+        saveColdUpdate(job);
+      }
+      return job;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("save job", e);
     }
-    return job;
   }
 
   void bulkInsert(List<JobEntity> jobs) {
-    if (jobs.isEmpty()) {
-      return;
+    try {
+      if (jobs.isEmpty()) {
+        return;
+      }
+      Instant now = Instant.now();
+      Timestamp nowTs = Timestamp.from(now);
+
+      for (JobEntity job : jobs) {
+        assignIdIfMissing(job);
+      }
+
+      // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+      executeBusinessKeyBulkInsert(jobs, nowTs);
+      SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
+      executeColdBulkInsert(jobs, nowTs);
+      executeHotBulkInsert(jobs, nowTs);
+      executeTerminalBackfills(jobs, nowTs);
+
+      ctx.em().clear();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("bulk insert jobs", e);
     }
-    Instant now = Instant.now();
-    Timestamp nowTs = Timestamp.from(now);
-
-    for (JobEntity job : jobs) {
-      assignIdIfMissing(job);
-    }
-
-    // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
-    executeBusinessKeyBulkInsert(jobs, nowTs);
-    SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
-    executeColdBulkInsert(jobs, nowTs);
-    executeHotBulkInsert(jobs, nowTs);
-    executeTerminalBackfills(jobs, nowTs);
-
-    ctx.em().clear();
   }
 
   void saveInsert(JobEntity job) {
@@ -181,7 +189,7 @@ final class MysqlJobWriteOperations {
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
       }
-      throw e;
+      throw ctx.translateTransientStoreException("create job", e);
     }
 
     if (job.getTags() != null && !job.getTags().isEmpty()) {
