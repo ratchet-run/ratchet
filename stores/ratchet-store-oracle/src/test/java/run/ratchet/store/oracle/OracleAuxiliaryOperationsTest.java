@@ -17,13 +17,11 @@ package run.ratchet.store.oracle;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
-import java.sql.Timestamp;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -48,12 +46,7 @@ class OracleAuxiliaryOperationsTest {
     byte[] jobBytes = UuidRawConverter.toBytes(jobId);
     assertEquals("res", bound.get("lock").get(1));
     assertArrayEquals(jobBytes, (byte[]) bound.get("claim").get(1));
-    Map<Integer, Object> update = bound.get("update");
-    assertArrayEquals(
-        UuidRawConverter.toBytes(ResourcePermitEntity.idFor("res", jobId, 7L)),
-        (byte[]) update.get(3));
-    assertEquals("node-1", update.get(1));
-    assertInstanceOf(Timestamp.class, update.get(2));
+    assertEquals("res", bound.get("permits").get(1));
   }
 
   @Test
@@ -114,7 +107,7 @@ class OracleAuxiliaryOperationsTest {
     String kind =
         sql.contains("scheduler_job_queue")
             ? "claim"
-            : sql.startsWith("UPDATE scheduler_resource_permit") ? "update" : "lock";
+            : sql.contains("scheduler_resource_permit") ? "permits" : "lock";
     Map<Integer, Object> parameters = bound.computeIfAbsent(kind, ignored -> new HashMap<>());
     return (Query)
         Proxy.newProxyInstance(
@@ -127,15 +120,20 @@ class OracleAuxiliaryOperationsTest {
                   yield proxy;
                 }
                 case "getResultList" ->
-                    kind.equals("claim")
-                        ? Collections.singletonList(new Object[] {"RUNNING", 7L})
-                        : Collections.singletonList("res");
-                case "executeUpdate" -> {
-                  if (!kind.equals("update")) {
-                    throw new AssertionError("existing permit must not insert another row");
-                  }
-                  yield 1;
-                }
+                    switch (kind) {
+                      case "claim" ->
+                          Collections.singletonList(
+                              new Object[] {"RUNNING", 7L, 0, null, null, null});
+                      case "permits" ->
+                          Collections.singletonList(
+                              UuidRawConverter.toBytes(
+                                  ResourcePermitEntity.idFor(
+                                      "res",
+                                      UUID.fromString("01900000-0000-7000-8000-000000000001"),
+                                      7L)));
+                      default -> Collections.singletonList(new Object[] {1, 100});
+                    };
+                case "executeUpdate" -> throw new AssertionError("existing permit must not write");
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

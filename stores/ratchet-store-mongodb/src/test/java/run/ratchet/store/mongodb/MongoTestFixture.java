@@ -165,7 +165,8 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     return job;
   }
 
-  // Wipe every collection's contents but keep their indexes. Avoids the per-method
+  // Wipe every collection, including scheduler_resource_waiter, but keep its indexes. Avoids the
+  // per-method
   // database.drop() + initialize() cycle, which previously ran ~30 index creates against the
   // replica set for every single test method across 22 contract classes.
   @Override

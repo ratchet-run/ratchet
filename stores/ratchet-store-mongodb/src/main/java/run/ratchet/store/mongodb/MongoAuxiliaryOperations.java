@@ -15,9 +15,14 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Aggregates.group;
+import static com.mongodb.client.model.Aggregates.limit;
+import static com.mongodb.client.model.Aggregates.match;
+import static com.mongodb.client.model.Aggregates.sort;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.expr;
+import static com.mongodb.client.model.Filters.gt;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Sorts.ascending;
@@ -26,6 +31,7 @@ import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.setOnInsert;
+import static com.mongodb.client.model.Updates.unset;
 import static run.ratchet.store.mongodb.MongoFieldNames.ACTIVE_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CHILD_JOB_ID;
@@ -34,17 +40,31 @@ import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.DEFINITION_ORDER;
+import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
 import static run.ratchet.store.mongodb.MongoFieldNames.DESCRIPTION;
+import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_TARGET;
+import static run.ratchet.store.mongodb.MongoFieldNames.GENERATION;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
+import static run.ratchet.store.mongodb.MongoFieldNames.LAST_ERROR;
+import static run.ratchet.store.mongodb.MongoFieldNames.LEASE_UNTIL;
 import static run.ratchet.store.mongodb.MongoFieldNames.MAX_CONCURRENT;
 import static run.ratchet.store.mongodb.MongoFieldNames.NODE_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.PARENT_JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.PAUSED_FROM_STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
+import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 import static run.ratchet.store.mongodb.MongoFieldNames.RETRY_DELAY_MS;
+import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+import static run.ratchet.store.mongodb.MongoFieldNames.WAIT_SINCE;
 import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.ReadPreference;
@@ -66,7 +86,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
@@ -74,6 +96,8 @@ import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.ResourcePermitStore.WokenWaiter;
+import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.store.util.WorkflowConditionOrdering;
 
 /**
@@ -229,19 +253,17 @@ final class MongoAuxiliaryOperations {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
-            // Validate the resource is configured before any fast-path so an unconfigured
-            // resource fails hard even when a stray permit row already exists for
-            // (resource, jobId). The SQL stores take the resource-limit row lock first, so this
-            // keeps the IllegalArgumentException contract identical across stores.
-            if (ctx.resourceLimits().find(session, eq(ID, resource)).first() == null) {
+            // The first operation must write: even a full-pool miss serializes with wake-ups.
+            Document limit = incrementGeneration(session, resource);
+            if (limit == null) {
               throw new IllegalArgumentException("Resource is not configured: " + resource);
             }
-
-            if (ctx.jobs()
+            Document job =
+                ctx.jobs()
                     .find(
                         session, and(eq(ID, jobId), eq(STATUS, "RUNNING"), eq(CLAIM_SEQ, claimSeq)))
-                    .first()
-                == null) {
+                    .first();
+            if (job == null) {
               return AcquireResult.SUPERSEDED;
             }
             UUID permitId = ResourcePermitEntity.idFor(resource, jobId, claimSeq);
@@ -260,6 +282,23 @@ final class MongoAuxiliaryOperations {
               return AcquireResult.ACQUIRED;
             }
 
+            Instant now = Instant.now();
+            Document waiter = ctx.resourceWaiters().find(session, eq(ID, jobId)).first();
+            Document currentWaiter =
+                waiter != null && resource.equals(waiter.getString(RESOURCE_NAME)) ? waiter : null;
+            int free = limit.getInteger(MAX_CONCURRENT) - limit.getInteger(ACTIVE_COUNT, 0);
+            if (free <= 0
+                || waitersAhead(session, resource, job, currentWaiter, now, free) >= free) {
+              return parkWaiter(
+                  session,
+                  resource,
+                  job,
+                  currentWaiter,
+                  claimSeq,
+                  limit.getInteger(RETRY_DELAY_MS, DEFAULT_PERMIT_RETRY_DELAY_MS),
+                  now);
+            }
+
             Document result =
                 ctx.resourceLimits()
                     .findOneAndUpdate(
@@ -276,13 +315,22 @@ final class MongoAuxiliaryOperations {
                         new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
 
             if (result == null) {
-              // Resource exists (validated above) but is at capacity.
-              return AcquireResult.AT_CAPACITY;
+              return parkWaiter(
+                  session,
+                  resource,
+                  job,
+                  currentWaiter,
+                  claimSeq,
+                  limit.getInteger(RETRY_DELAY_MS, DEFAULT_PERMIT_RETRY_DELAY_MS),
+                  now);
             }
 
             ResourcePermitEntity permit =
                 ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId);
             ctx.resourcePermits().insertOne(session, DocumentMapper.toDocument(permit));
+            if (waiter != null) {
+              ctx.resourceWaiters().deleteOne(session, eq(ID, jobId));
+            }
             return AcquireResult.ACQUIRED;
           },
           TRANSACTION_OPTIONS);
@@ -290,6 +338,231 @@ final class MongoAuxiliaryOperations {
       throw e;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("acquire resource permit", e);
+    }
+  }
+
+  private Document incrementGeneration(ClientSession session, String resource) {
+    return ctx.resourceLimits()
+        .findOneAndUpdate(
+            session,
+            eq(ID, resource),
+            inc(GENERATION, 1L),
+            new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+  }
+
+  private List<Document> liveWaiters(
+      ClientSession session, String resource, Instant now, Document ahead, int limit) {
+    List<Bson> pipeline = new ArrayList<>();
+    Document match =
+        new Document(RESOURCE_NAME, resource)
+            .append(LEASE_UNTIL, new Document("$gt", Date.from(now)));
+    if (ahead != null) {
+      match.putAll(ahead);
+    }
+    pipeline.add(new Document("$match", match));
+    pipeline.add(
+        new Document("$sort", new Document(PRIORITY, -1).append(WAIT_SINCE, 1).append(ID, 1)));
+    pipeline.add(
+        new Document(
+            "$lookup",
+            new Document("from", "scheduler_job")
+                .append("localField", ID)
+                .append("foreignField", ID)
+                .append("as", "job")));
+    pipeline.add(new Document("$unwind", "$job"));
+    pipeline.add(
+        new Document(
+            "$match",
+            new Document("job." + STATUS, new Document("$in", List.of("PENDING", "RUNNING")))
+                .append("job." + RESOURCE_NAME, resource)));
+    pipeline.add(new Document("$limit", limit));
+    return ctx.resourceWaiters().aggregate(session, pipeline).into(new ArrayList<>());
+  }
+
+  private int waitersAhead(
+      ClientSession session,
+      String resource,
+      Document job,
+      Document waiter,
+      Instant now,
+      int free) {
+    int priority = (waiter == null ? job : waiter).getInteger(PRIORITY);
+    Date since = waiter == null ? job.getDate(SCHEDULED_TIME) : waiter.getDate(WAIT_SINCE);
+    Document ahead =
+        new Document(ID, new Document("$ne", job.get(ID)))
+            .append(
+                "$or",
+                List.of(
+                    new Document(PRIORITY, new Document("$gt", priority)),
+                    new Document(PRIORITY, priority).append(WAIT_SINCE, new Document("$lt", since)),
+                    new Document(PRIORITY, priority)
+                        .append(WAIT_SINCE, since)
+                        .append(ID, new Document("$lt", job.get(ID)))));
+    return liveWaiters(session, resource, now, ahead, free).size();
+  }
+
+  private AcquireResult parkWaiter(
+      ClientSession session,
+      String resource,
+      Document job,
+      Document waiter,
+      long claimSeq,
+      int retryDelayMs,
+      Instant now) {
+    boolean paused = false;
+    UUID batchId = job.get(DEPENDS_ON, UUID.class);
+    if ("BATCH_CHILD".equals(job.getString(JOB_TYPE)) && batchId != null) {
+      Document parent =
+          ctx.jobs()
+              .findOneAndUpdate(
+                  session,
+                  eq(ID, batchId),
+                  inc(VERSION, 1),
+                  new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+      paused = parent != null && "PAUSED".equals(parent.getString(STATUS));
+    }
+    UUID jobId = job.get(ID, UUID.class);
+    long matched =
+        ctx.jobs()
+            .updateOne(
+                session,
+                and(eq(ID, jobId), eq(STATUS, "RUNNING"), eq(CLAIM_SEQ, claimSeq)),
+                combine(
+                    set(STATUS, paused ? "PAUSED" : "PENDING"),
+                    set(PAUSED_FROM_STATUS, paused ? "PENDING" : null),
+                    set(LAST_ERROR, "Waiting for resource: " + resource),
+                    set(SCHEDULED_TIME, Date.from(now.plusMillis(retryDelayMs))),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    unset(TERMINATED_AT),
+                    set(UPDATED_AT, Date.from(now)),
+                    inc(VERSION, 1)))
+            .getMatchedCount();
+    if (matched == 0) {
+      return AcquireResult.SUPERSEDED;
+    }
+    if (!resource.equals(job.getString(RESOURCE_NAME))) {
+      return AcquireResult.AT_CAPACITY;
+    }
+    ctx.resourceWaiters()
+        .updateOne(
+            session,
+            eq(ID, jobId),
+            combine(
+                set(
+                    LEASE_UNTIL,
+                    Date.from(now.plusMillis(ResourceWaiterLease.leaseMillis(retryDelayMs)))),
+                set(RESOURCE_NAME, resource),
+                set(PRIORITY, (waiter == null ? job : waiter).getInteger(PRIORITY)),
+                set(
+                    WAIT_SINCE,
+                    waiter == null ? job.getDate(SCHEDULED_TIME) : waiter.getDate(WAIT_SINCE))),
+            new UpdateOptions().upsert(true));
+    return AcquireResult.AT_CAPACITY;
+  }
+
+  List<WokenWaiter> wakeWaiters(String resource) {
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            Document limit = incrementGeneration(session, resource);
+            if (limit == null) {
+              return List.of();
+            }
+            int max = limit.getInteger(MAX_CONCURRENT);
+            List<Document> heads = liveWaiters(session, resource, Instant.now(), null, max);
+            if (heads.isEmpty()) {
+              return List.of();
+            }
+            int free = max - limit.getInteger(ACTIVE_COUNT, 0);
+            List<WokenWaiter> result = new ArrayList<>();
+            for (Document head : heads.subList(0, Math.min(Math.max(free, 0), heads.size()))) {
+              Document job = head.get("job", Document.class);
+              if (!"PENDING".equals(job.getString(STATUS))) {
+                continue;
+              }
+              UUID id = head.get(ID, UUID.class);
+              if (ctx.jobs()
+                      .updateOne(
+                          session,
+                          and(eq(ID, id), eq(STATUS, "PENDING")),
+                          combine(
+                              set(SCHEDULED_TIME, head.getDate(WAIT_SINCE)),
+                              set(UPDATED_AT, Date.from(Instant.now())),
+                              inc(VERSION, 1)))
+                      .getMatchedCount()
+                  == 1) {
+                result.add(
+                    new WokenWaiter(
+                        id, head.getInteger(PRIORITY), job.getString(EXECUTION_TARGET)));
+              }
+            }
+            return result;
+          },
+          TRANSACTION_OPTIONS);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("wake resource waiters", e);
+    }
+  }
+
+  List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
+    try {
+      List<Bson> pipeline = new ArrayList<>();
+      if (after != null) {
+        pipeline.add(match(gt(RESOURCE_NAME, after)));
+      }
+      pipeline.add(sort(ascending(RESOURCE_NAME)));
+      pipeline.add(group("$" + RESOURCE_NAME));
+      pipeline.add(sort(ascending(ID)));
+      pipeline.add(limit(limit));
+      return ctx.resourceWaiters().aggregate(pipeline).into(new ArrayList<>()).stream()
+          .map(row -> row.getString(ID))
+          .toList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find resources with waiters", e);
+    }
+  }
+
+  int deleteStaleWaiters(int limit) {
+    if (limit <= 0) {
+      return 0;
+    }
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            List<Document> stale =
+                ctx.resourceWaiters()
+                    .aggregate(
+                        session,
+                        List.of(
+                            new Document(
+                                "$lookup",
+                                new Document("from", "scheduler_job")
+                                    .append("localField", ID)
+                                    .append("foreignField", ID)
+                                    .append("as", "job")),
+                            new Document(
+                                "$match",
+                                new Document(
+                                    "job." + STATUS,
+                                    new Document("$nin", List.of("PENDING", "RUNNING", "PAUSED")))),
+                            new Document("$limit", limit),
+                            new Document("$project", new Document(ID, 1))))
+                    .into(new ArrayList<>());
+            if (stale.isEmpty()) {
+              return 0;
+            }
+            return (int)
+                ctx.resourceWaiters()
+                    .deleteMany(session, in(ID, stale.stream().map(doc -> doc.get(ID)).toList()))
+                    .getDeletedCount();
+          },
+          TRANSACTION_OPTIONS);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete stale resource waiters", e);
     }
   }
 

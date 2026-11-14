@@ -22,6 +22,12 @@ class MysqlResourcePermitClaimRaceTest extends AbstractSqlResourcePermitClaimRac
 
   private final MysqlTestFixture fixture = new MysqlTestFixture();
 
+  /** Its save takes the job and queue rows FOR UPDATE first. */
+  @Override
+  protected boolean saveLocksTheQueueRowFirst() {
+    return true;
+  }
+
   @Override
   protected JpaContainerFixture fixture() {
     return fixture;

@@ -22,6 +22,12 @@ class OracleResourcePermitClaimRaceTest extends AbstractSqlResourcePermitClaimRa
 
   private final OracleTestFixture fixture = new OracleTestFixture();
 
+  /** Its save takes the job and queue rows FOR UPDATE first. */
+  @Override
+  protected boolean saveLocksTheQueueRowFirst() {
+    return true;
+  }
+
   @Override
   protected JpaContainerFixture fixture() {
     return fixture;

@@ -33,7 +33,8 @@ public interface ResourcePermitService {
    *
    * <p>The capacity check is atomic, but the claim check is point in time. A claim change that
    * commits after it does not stop the write, so the earlier claim can still get ACQUIRED and holds
-   * the permit until it releases it.
+   * the permit until it releases it. A capacity miss parks the claim in the store without spending
+   * an attempt; the worker must not reschedule it again.
    *
    * @return ACQUIRED, AT_CAPACITY, or SUPERSEDED when the claim did not own the job at the check
    */
@@ -52,6 +53,9 @@ public interface ResourcePermitService {
 
   void configureResource(
       String resourceName, int maxConcurrent, int retryDelayMs, String description);
+
+  /** Wakes resource waiters and removes stale waiter rows with bounded work. */
+  void sweepWaiters();
 
   /** Call periodically, e.g. during node heartbeat. */
   int cleanupOrphanedPermits(List<String> staleNodeIds);

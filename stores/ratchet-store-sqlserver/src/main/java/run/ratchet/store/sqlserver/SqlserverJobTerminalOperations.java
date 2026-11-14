@@ -199,7 +199,7 @@ final class SqlserverJobTerminalOperations {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
-    boolean paused = retryIntoPausedBatch(id);
+    boolean paused = retryIntoPausedBatch(ctx, id);
     // language=SQL Server
     String sql =
         """
@@ -226,8 +226,9 @@ final class SqlserverJobTerminalOperations {
         > 0;
   }
 
-  private boolean retryIntoPausedBatch(UUID id) {
+  static boolean retryIntoPausedBatch(SqlserverStoreContext ctx, UUID id) {
     // Lock the parent before releasing the child, serializing with batch pause/resume sweeps.
+    // language=SQL Server
     String sql =
         """
         SELECT status FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK)

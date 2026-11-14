@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -53,10 +54,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.SingletonLease;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -67,6 +70,8 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.NodeStore;
 import run.ratchet.store.spi.OrphanRecovery;
+import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.WokenWaiter;
 
 @ExtendWith(MockitoExtension.class)
 class OrphanRecoveryTimerTest {
@@ -106,6 +111,83 @@ class OrphanRecoveryTimerTest {
             60,
             120,
             FIXED_CLOCK);
+  }
+
+  @Test
+  void startupCleanupWakesAfterCommitOrImmediatelyWithoutTransaction() {
+    for (var result :
+        List.of(
+            AfterCommitRegistrar.Result.REGISTERED,
+            AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION)) {
+      ResourcePermitStore store = mock(ResourcePermitStore.class);
+      JobWakeupService wakeup = mock(JobWakeupService.class);
+      List<Runnable> callbacks = new ArrayList<>();
+      AfterCommitRegistrar registrar =
+          action -> {
+            callbacks.add(action);
+            return result;
+          };
+      when(store.cleanupOrphanedPermits(List.of("node-1"))).thenReturn(1);
+      when(store.findResourcesWithWaiters(null, 64)).thenReturn(List.of("api"));
+      when(store.wakeWaiters("api"))
+          .thenReturn(List.of(new WokenWaiter(UUID.randomUUID(), 3, "workers")));
+      var service = new DefaultResourcePermitService(store, wakeup, registrar);
+      var configured =
+          new OrphanRecoveryTimer(
+              jobBulkStore,
+              jobCrudStore,
+              nodeStore,
+              service,
+              null,
+              lifecycleFacade,
+              callbackInvoker,
+              errorSanitizer,
+              3,
+              60,
+              120,
+              FIXED_CLOCK);
+
+      assertEquals(1, configured.cleanupOwnPermitsAtStartup("node-1"));
+      if (result == AfterCommitRegistrar.Result.REGISTERED) {
+        verify(store, never()).wakeWaiters(any(String.class));
+        callbacks.forEach(Runnable::run);
+      }
+      verify(store).wakeWaiters("api");
+      verify(wakeup).notify(JobPriority.HIGH, true, "workers");
+    }
+  }
+
+  @Test
+  void sweepRunsEveryLeasedScanAndFailureDoesNotStopCleanup() {
+    SingletonLeaseService leases = mock(SingletonLeaseService.class);
+    LockStore locks = mock(LockStore.class);
+    when(leases.tryAcquire("orphanRecovery", Duration.ofSeconds(120)))
+        .thenAnswer(inv -> Optional.of(new SingletonLease(locks, "orphanRecovery", "node-1")));
+    doThrow(new RatchetTransientStoreException("sweep unavailable"))
+        .doNothing()
+        .when(resourcePermitService)
+        .sweepWaiters();
+    var configured =
+        new OrphanRecoveryTimer(
+            jobBulkStore,
+            jobCrudStore,
+            nodeStore,
+            resourcePermitService,
+            leases,
+            lifecycleFacade,
+            callbackInvoker,
+            errorSanitizer,
+            3,
+            60,
+            120,
+            FIXED_CLOCK);
+
+    configured.recoverNow();
+    configured.recoverNow();
+
+    verify(resourcePermitService, times(2)).sweepWaiters();
+    verify(jobBulkStore, times(2)).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+    verify(locks, times(2)).unlock("orphanRecovery", "node-1");
   }
 
   @Test

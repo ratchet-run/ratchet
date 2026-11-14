@@ -151,7 +151,7 @@ For efficiency, the Poller passes lightweight `JobClaimDto` objects (containing 
   </div>
   <div class="docs-diagram-step" role="listitem">
     <strong>Acquire resource permit</strong>
-    <small>Reschedules without consuming a retry if the configured resource is saturated.</small>
+    <small>Puts the job in the resource's waiting line, without using a retry, if the resource is full.</small>
   </div>
   <div class="docs-diagram-step" role="listitem">
     <strong>Validate class policy</strong>
@@ -195,7 +195,18 @@ The `ResilienceStrategy` SPI is consulted to check if the target service is avai
 
 **6. Resource Permit**
 
-If the job specifies a `resourceName`, the `ResourcePermitService` attempts to acquire a permit. If the resource is at capacity, the job is rescheduled with a configurable delay. This is not a failure; no retry is consumed. While the job waits, its `last_error` reads `Waiting for resource: <name>`.
+If the job names a resource, the `ResourcePermitService` asks the store for a permit. The job gets one when a slot is still free after the live waiters ahead of it are counted: with three free slots and one waiter ahead, it gets a permit. Otherwise the store parks the job in the same transaction. The job goes back to PENDING (PAUSED if its batch is paused), due again after the resource's `retry_delay_ms`, and it gets a row in `scheduler_resource_waiter`. Parking is not a failure and uses no retry. While the job waits, its `last_error` reads `Waiting for resource: <name>`.
+
+Waiting jobs are served in order: higher priority first, then the job that has waited longest, then job id. A job starts waiting at the due time of the attempt that first missed, and later misses keep that time. When a permit is released, the engine wakes as many of the first waiters as there are free slots. A raised limit wakes that resource's waiters the same way. Orphan recovery and the start-up permit clean-up do not know which resources they freed, so they run the waiter sweep, which wakes the waiters of up to 64 resources and moves on to the next 64 the following time. A woken job's `scheduled_time` goes back to the time it started waiting, so a job query can show an earlier due time than the one set when it last parked. The wake-up also sends the cluster wake-up hint, so a node that can run the job polls straight away. Orphan recovery also runs a sweep that wakes waiters whose wake-up was lost.
+
+The order has limits:
+
+- A waiter holds its place for a lease of `retry_delay_ms` plus the larger of `retry_delay_ms` and 10 seconds, and each re-check renews it. A waiter that no node can claim, for example because of tags, a named queue, a full pool or an open circuit breaker, stops counting when its lease ends, and later jobs can pass it. It gets its place back when it next re-checks.
+- A paused waiter does not count.
+- Priority comes first, and waiting does not raise it. A steady stream of higher-priority jobs can keep a lower-priority waiter waiting for as long as the stream lasts.
+- Jobs that have never waited and reach a free slot at the same moment race for it. In a burst submitted while the resource is idle, any of them can run first. The ones that miss then wait in order.
+- On the SQL stores, if another transaction holds a waiter's job row when the wake-up runs, the wake-up skips that waiter rather than wait for the lock. The waiter then becomes due at its own retry time, at the next wake-up or at the sweep, and its slot can stay unused until then. Waiters behind it are not woken in its place. On MongoDB the wake-up retries instead.
+- A job whose resource changes leaves the old resource's line. It joins the new resource's line at its next miss, with its due time at that attempt as its place. On the SQL stores, a park that finds the job row held by another transaction, such as a save in progress, parks the job without a place in line. The job becomes due at its retry time and gets its place at its next miss.
 
 A permit belongs to the attempt's claim. An attempt whose job is no longer RUNNING under its claim takes no permit and stops; this happens when orphan recovery or a timeout has rescheduled the job, or when the job has ended. The store checks the claim once, just before it writes the permit, so an attempt whose job is rescheduled after that check still gets its permit and keeps it until it releases it. A retry never reuses the permit of an earlier attempt of the same job. That permit counts against capacity like any other until the earlier attempt releases it or clean-up removes it. With a limit of 1, the retry waits for it and is rescheduled each time it finds the resource full. An earlier attempt releases its permit when its body ends, so if the body ignores its timeout interrupt, the retry waits as long as the body runs. Orphan recovery removes the permits of a node whose heartbeat has stopped. A starting node deletes the permits left under its own node id before it claims work. With a higher limit, the retry starts as soon as a slot is free.
 

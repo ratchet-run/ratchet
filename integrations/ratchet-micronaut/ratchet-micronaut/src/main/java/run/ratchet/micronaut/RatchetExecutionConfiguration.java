@@ -160,9 +160,13 @@ class RatchetExecutionConfiguration {
   @Singleton
   @Requires(missingBeans = ResourcePermitService.class)
   ResourcePermitService defaultResourcePermitService(
-      JobStore store, PollerScheduler pollerScheduler) {
+      JobStore store,
+      JobWakeupService jobWakeupService,
+      AfterCommitRegistrar afterCommitRegistrar) {
     return new DefaultResourcePermitService(
-        store.capability(ResourcePermitStore.class).orElse(null), pollerScheduler);
+        store.capability(ResourcePermitStore.class).orElse(null),
+        jobWakeupService,
+        afterCommitRegistrar);
   }
 
   @Singleton

@@ -54,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 19;
+  public static final int CURRENT_VERSION = 20;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -79,6 +79,7 @@ public final class RatchetSchemaCatalog {
               schedulerJobArchive(),
               schedulerWorkflowCondition(),
               schedulerResourcePermit(),
+              schedulerResourceWaiter(),
               schedulerJobProperties(),
               schedulerJobExtensionState(),
               schedulerEventOutbox()),
@@ -489,6 +490,20 @@ public final class RatchetSchemaCatalog {
                 "parent_job_id",
                 "condition_priority",
                 "definition_order"))
+        .build();
+  }
+
+  private static Table schedulerResourceWaiter() {
+    return Table.builder("scheduler_resource_waiter")
+        .column(required("job_id", UUID))
+        .column(required("resource_name", TEXT))
+        .column(required("priority", INT32))
+        .column(required("wait_since", TIMESTAMP_TZ))
+        .column(required("lease_until", TIMESTAMP_TZ))
+        .primaryKey("job_id")
+        .index(
+            Index.of(
+                "idx_resource_waiter_order", "resource_name", "priority", "wait_since", "job_id"))
         .build();
   }
 

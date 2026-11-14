@@ -21,13 +21,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.store.entity.JobEntity;
@@ -176,12 +184,102 @@ class ResourcePermitIT extends BaseRatchetIT {
   }
 
   @Test
+  void freedPermit_shouldGoToTheWaiterThatWaitedFirst() {
+    // The first waiter parks with a long retry delay. The delay is then shortened, so the second
+    // waiter re-checks often. Both wait behind the holder, and the first waited longer.
+    resourcePermitService.configureResource("order-res", 1, 30_000, "test");
+    ResourceTestJob.closeGate();
+    try {
+      JobHandle holder =
+          jobService.enqueue(ResourceTestJob::executeGated).withResource("order-res").submit();
+      awaitGatedRunning();
+
+      JobHandle first =
+          jobService.enqueue(ResourceTestJob::execute).withResource("order-res").submit();
+      awaitWaiting(first, "order-res");
+
+      resourcePermitService.configureResource("order-res", 1, 200, "test");
+      JobHandle second =
+          jobService.enqueue(ResourceTestJob::execute).withResource("order-res").submit();
+      awaitWaiting(second, "order-res");
+      assertParkedWithCheckAhead(first);
+
+      ResourceTestJob.openGate();
+      JobAssertions.assertJobCompleted(jobCrudStore, holder);
+      await()
+          .atMost(Duration.ofSeconds(60))
+          .pollInterval(Duration.ofMillis(100))
+          .until(() -> starts(first) + starts(second) > 0);
+
+      assertEquals(
+          first.id(),
+          startedJobIds(first, second).get(0),
+          "the job that waited first should take the freed permit first");
+
+      JobAssertions.assertJobCompleted(jobCrudStore, first);
+      JobAssertions.assertJobCompleted(jobCrudStore, second);
+    } finally {
+      ResourceTestJob.openGate();
+    }
+  }
+
+  @Test
+  void freedPermit_shouldStartTheWaiterWithoutWaitingOutItsRetryDelay() {
+    resourcePermitService.configureResource("wake-res", 1, 30_000, "test");
+    ResourceTestJob.closeGate();
+    try {
+      JobHandle holder =
+          jobService.enqueue(ResourceTestJob::executeGated).withResource("wake-res").submit();
+      assertWaiterStartsSoonAfterHolderFinishes("wake-res", holder);
+    } finally {
+      ResourceTestJob.openGate();
+    }
+  }
+
+  @Test
+  // The MongoDB store has no TransactionalCompletionStore, so it cannot run a @TransactionalJob.
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  void transactionalHolder_shouldStartTheWaiterWithoutWaitingOutItsRetryDelay() {
+    resourcePermitService.configureResource("tx-wake-res", 1, 30_000, "test");
+    ResourceTestJob.closeGate();
+    try {
+      JobHandle holder =
+          jobService
+              .enqueue(ResourceTestJob::executeGatedTransactional)
+              .withResource("tx-wake-res")
+              .submit();
+      assertWaiterStartsSoonAfterHolderFinishes("tx-wake-res", holder);
+    } finally {
+      ResourceTestJob.openGate();
+    }
+  }
+
+  @Test
   void jobWithUnconfiguredResource_shouldFailHard() {
     JobHandle handle =
         jobService.enqueue(ResourceTestJob::execute).withResource("missing-resource").submit();
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
     assertEquals(0, ResourceTestJob.getCompletedCount(), "Job body should not execute");
+  }
+
+  private void assertWaiterStartsSoonAfterHolderFinishes(String resource, JobHandle holder) {
+    awaitGatedRunning();
+
+    JobHandle waiter = jobService.enqueue(ResourceTestJob::execute).withResource(resource).submit();
+    awaitWaiting(waiter, resource);
+    assertParkedWithCheckAhead(waiter);
+
+    ResourceTestJob.openGate();
+    JobAssertions.assertJobCompleted(jobCrudStore, holder);
+    // The waiter's next check is about 30 seconds away. Freeing the permit should start it now.
+    await()
+        .alias("waiter starts soon after the holder frees the permit")
+        .atMost(Duration.ofSeconds(5))
+        .pollInterval(Duration.ofMillis(100))
+        .until(() -> starts(waiter) == 1);
+
+    JobAssertions.assertJobCompleted(jobCrudStore, waiter);
   }
 
   private void assertOneSucceededAttempt(JobHandle handle) {
@@ -208,5 +306,51 @@ class ResourcePermitIT extends BaseRatchetIT {
     return eventCapture.getEvents(JobStartedEvent.class).stream()
         .filter(event -> handle.id().equals(event.getJobId()))
         .count();
+  }
+
+  /** Ids of the given jobs that have started, in start order. */
+  private List<UUID> startedJobIds(JobHandle... handles) {
+    Set<UUID> ids = Arrays.stream(handles).map(JobHandle::id).collect(Collectors.toSet());
+    return eventCapture.getEvents(JobStartedEvent.class).stream()
+        .filter(event -> ids.contains(event.getJobId()))
+        .sorted(Comparator.comparing(JobStartedEvent::getTimestamp))
+        .map(JobStartedEvent::getJobId)
+        .toList();
+  }
+
+  private void awaitGatedRunning() {
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .pollInterval(Duration.ofMillis(100))
+        .until(() -> ResourceTestJob.getGatedRunning() == 1);
+  }
+
+  /**
+   * The waiter is parked and its own next check is still well ahead, so only a wake-up can start
+   * it.
+   */
+  private void assertParkedWithCheckAhead(JobHandle handle) {
+    JobEntity job = jobCrudStore.findById(handle.id()).orElseThrow();
+    assertEquals(JobStatus.PENDING, job.getStatus(), "waiter " + handle.id() + " status");
+    assertTrue(
+        job.getScheduledTime().isAfter(Instant.now().plusSeconds(10)),
+        "waiter "
+            + handle.id()
+            + " next check should be over 10 s away, was "
+            + job.getScheduledTime());
+  }
+
+  private void awaitWaiting(JobHandle handle, String resource) {
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .pollInterval(Duration.ofMillis(100))
+        .until(
+            () ->
+                ("Waiting for resource: " + resource)
+                    .equals(
+                        jobCrudStore
+                            .findById(handle.id())
+                            .map(JobEntity::getLastError)
+                            .orElse(null)));
   }
 }

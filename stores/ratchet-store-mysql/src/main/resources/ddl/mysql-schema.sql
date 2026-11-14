@@ -572,3 +572,17 @@ CREATE TABLE IF NOT EXISTS scheduler_partition (
     CONSTRAINT pk_scheduler_partition PRIMARY KEY (set_id, partition_index),
     CONSTRAINT fk_partition_set FOREIGN KEY (set_id) REFERENCES scheduler_partition_set (set_id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+-- Resource waiters deliberately have no foreign key: preserve park/terminal lock order.
+CREATE TABLE IF NOT EXISTS scheduler_resource_waiter
+(
+    job_id        BINARY(16) NOT NULL,
+    resource_name VARCHAR(100) NOT NULL,
+    priority      INT NOT NULL,
+    wait_since    DATETIME(6) NOT NULL,
+    lease_until   DATETIME(6) NOT NULL,
+    PRIMARY KEY (job_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+CREATE INDEX idx_resource_waiter_order ON scheduler_resource_waiter
+    (resource_name, priority DESC, wait_since ASC, job_id ASC);

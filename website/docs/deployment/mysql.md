@@ -53,6 +53,7 @@ You should see:
 - `scheduler_recurring_job_archive`
 - `scheduler_resource_limit`
 - `scheduler_resource_permit`
+- `scheduler_resource_waiter`
 - `scheduler_workflow_condition`
 
 ## Configuration
