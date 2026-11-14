@@ -996,14 +996,6 @@ public class JobTimeoutHandler {
       ScheduledFuture<?> hard,
       @Nullable JobAttemptControl attempt,
       Runnable untrack) {
-    public TimeoutHandles(
-        @Nullable ScheduledFuture<?> soft,
-        @Nullable ScheduledFuture<?> cancellationRequest,
-        ScheduledFuture<?> hard,
-        @Nullable JobAttemptControl attempt) {
-      this(soft, cancellationRequest, hard, attempt, () -> {});
-    }
-
     public void cancel() {
       untrack.run();
       if (soft != null) {

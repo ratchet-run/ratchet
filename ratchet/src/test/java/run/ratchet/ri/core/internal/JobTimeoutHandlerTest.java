@@ -151,11 +151,12 @@ class JobTimeoutHandlerTest {
     ScheduledFuture<?> soft = mock(ScheduledFuture.class);
     ScheduledFuture<?> request = mock(ScheduledFuture.class);
     ScheduledFuture<?> hard = mock(ScheduledFuture.class);
-    new JobTimeoutHandler.TimeoutHandles(soft, request, hard, null).cancel();
+    new JobTimeoutHandler.TimeoutHandles(soft, request, hard, null, () -> {}).cancel();
     verify(soft).cancel(false);
     verify(request).cancel(false);
     verify(hard).cancel(false);
-    assertDoesNotThrow(() -> new JobTimeoutHandler.TimeoutHandles(null, null, null, null).cancel());
+    assertDoesNotThrow(
+        () -> new JobTimeoutHandler.TimeoutHandles(null, null, null, null, () -> {}).cancel());
   }
 
   @Test
@@ -167,7 +168,7 @@ class JobTimeoutHandlerTest {
     ScheduledFuture<?> request = mock(ScheduledFuture.class);
     ScheduledFuture<?> hard = mock(ScheduledFuture.class);
 
-    new JobTimeoutHandler.TimeoutHandles(soft, request, hard, attempt).cancel();
+    new JobTimeoutHandler.TimeoutHandles(soft, request, hard, attempt, () -> {}).cancel();
 
     verify(soft).cancel(false);
     verify(request).cancel(false);
@@ -182,7 +183,7 @@ class JobTimeoutHandlerTest {
     ScheduledFuture<?> request = mock(ScheduledFuture.class);
     ScheduledFuture<?> hard = mock(ScheduledFuture.class);
 
-    new JobTimeoutHandler.TimeoutHandles(soft, request, hard, attempt).cancel();
+    new JobTimeoutHandler.TimeoutHandles(soft, request, hard, attempt, () -> {}).cancel();
 
     verify(soft).cancel(false);
     verify(request).cancel(false);

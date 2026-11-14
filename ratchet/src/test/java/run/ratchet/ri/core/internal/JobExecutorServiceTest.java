@@ -240,7 +240,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
 
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     ExecutionResult result = invokeExecute(() -> null, handlesRef);
@@ -291,7 +292,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
 
@@ -316,7 +318,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
     doAnswer(
             invocation -> {
               enteredExecute.countDown();
@@ -359,7 +362,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
     AtomicReference<Thread> runner = new AtomicReference<>();
     doAnswer(
             invocation -> {
