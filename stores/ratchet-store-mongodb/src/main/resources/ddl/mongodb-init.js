@@ -176,3 +176,9 @@ db.scheduler_partition_set.createIndex({set_key: 1}, {name: "uq_partition_set_ke
 db.scheduler_partition.createIndex({set_id: 1, partition_index: 1}, {name: "uq_partition_index", unique: true});
 db.scheduler_partition.createIndex({child_job_id: 1}, {name: "idx_partition_child"});
 db.scheduler_batch.createIndex({partition_set_id: 1}, {name: "idx_batch_partition_set"});
+
+// scheduler_resource_waiter: original wait order, with leases checked by the store.
+db.scheduler_resource_waiter.createIndex(
+  { resource_name: 1, priority: -1, wait_since: 1, _id: 1 },
+  { name: "idx_resource_waiter_order" }
+);

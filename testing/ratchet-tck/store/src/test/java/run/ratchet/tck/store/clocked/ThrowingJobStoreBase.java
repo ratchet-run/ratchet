@@ -59,6 +59,7 @@ import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -402,12 +403,6 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return fail("resetOrphanJobs");
-  }
-
-  @Override
   public int closeStaleExecutions(Instant cutoff, int limit) {
     return fail("closeStaleExecutions");
   }
@@ -732,12 +727,27 @@ public abstract class ThrowingJobStoreBase
   // ----- ResourcePermitStore -----
 
   @Override
-  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
+  public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
     return fail("tryAcquirePermit");
   }
 
   @Override
-  public void releasePermit(String resource, UUID jobId) {
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    return fail("wakeWaiters");
+  }
+
+  @Override
+  public List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
+    return fail("findResourcesWithWaiters");
+  }
+
+  @Override
+  public int deleteStaleWaiters(int limit) {
+    return fail("deleteStaleWaiters");
+  }
+
+  @Override
+  public void releasePermit(String resource, UUID jobId, long claimSeq) {
     fail("releasePermit");
   }
 

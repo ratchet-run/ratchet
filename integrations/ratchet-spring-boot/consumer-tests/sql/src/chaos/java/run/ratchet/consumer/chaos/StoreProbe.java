@@ -70,6 +70,9 @@ public final class StoreProbe {
             "select count(*) from scheduler_job_queue where status = 'RUNNING'", Integer.class);
     int permits =
         jdbc.queryForObject("select count(*) from scheduler_resource_permit", Integer.class);
+    int waiters =
+        jdbc.queryForObject("select count(*) from scheduler_resource_waiter", Integer.class);
+    if (waiters != 0) evidence.add("resource waiter rows: " + waiters);
     if (running != 0) evidence.add("RUNNING rows: " + running);
     if (permits != 0) evidence.add("resource permit rows: " + permits);
     for (String node : jdbc.queryForList("select node_id from scheduler_node", String.class))

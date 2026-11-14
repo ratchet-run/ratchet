@@ -125,6 +125,7 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 | `scheduler_lock` | Distributed lock management |
 | `scheduler_resource_limit` | Resource concurrency configuration |
 | `scheduler_resource_permit` | Active resource permits for concurrency control |
+| `scheduler_resource_waiter` | Jobs waiting for a resource permit, in order |
 | `scheduler_workflow_condition` | Workflow branching conditions |
 
 ## Configuration

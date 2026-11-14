@@ -80,6 +80,7 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
           "scheduler_job_extension_state",
           "scheduler_job_log",
           "scheduler_job_execution",
+          "scheduler_resource_waiter",
           "scheduler_resource_permit",
           "scheduler_workflow_condition",
           "scheduler_batch_metrics",

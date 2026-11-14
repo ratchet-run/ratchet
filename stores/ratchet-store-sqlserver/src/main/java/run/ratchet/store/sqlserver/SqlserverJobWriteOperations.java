@@ -122,45 +122,54 @@ final class SqlserverJobWriteOperations {
   }
 
   JobEntity save(JobEntity job) {
-    if (job.getId() == null) {
-      saveInsert(job);
-    } else {
-      saveColdUpdate(job);
+    try {
+      if (job.getId() == null) {
+        saveInsert(job);
+      } else {
+        saveColdUpdate(job);
+      }
+      return job;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("save job", e);
     }
-    return job;
   }
 
   void bulkInsert(List<JobEntity> jobs) {
-    if (jobs.isEmpty()) {
-      return;
-    }
-    Instant now = Instant.now();
-    Timestamp nowTs = Timestamp.from(now);
-
-    for (JobEntity job : jobs) {
-      assignIdIfMissing(job);
-      if (job.getCreatedAt() == null) {
-        job.setCreatedAt(now);
-      }
-      if (job.getUpdatedAt() == null) {
-        job.setUpdatedAt(now);
-      }
-    }
-
     try {
-      // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
-      executeBusinessKeyBulkInsert(jobs);
-      SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
-      executeColdBulkInsert(jobs, nowTs);
-      executeHotBulkInsert(jobs, nowTs);
-      executeTerminalBackfills(jobs, nowTs);
-    } catch (RuntimeException e) {
-      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        throw new RatchetTransientStoreException("Active business key in use", e);
+      if (jobs.isEmpty()) {
+        return;
       }
-      throw e;
-    } finally {
-      detachInsertedJobs(jobs);
+      Instant now = Instant.now();
+      Timestamp nowTs = Timestamp.from(now);
+
+      for (JobEntity job : jobs) {
+        assignIdIfMissing(job);
+        if (job.getCreatedAt() == null) {
+          job.setCreatedAt(now);
+        }
+        if (job.getUpdatedAt() == null) {
+          job.setUpdatedAt(now);
+        }
+      }
+
+      try {
+        // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+        executeBusinessKeyBulkInsert(jobs);
+        SqlIdempotencyKeys.reserve(
+            ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
+        executeColdBulkInsert(jobs, nowTs);
+        executeHotBulkInsert(jobs, nowTs);
+        executeTerminalBackfills(jobs, nowTs);
+      } catch (RuntimeException e) {
+        if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+          throw new RatchetTransientStoreException("Active business key in use", e);
+        }
+        throw e;
+      } finally {
+        detachInsertedJobs(jobs);
+      }
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("bulk insert jobs", e);
     }
   }
 
@@ -218,7 +227,7 @@ final class SqlserverJobWriteOperations {
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
       }
-      throw e;
+      throw ctx.translateTransientStoreException("create job", e);
     }
   }
 
@@ -477,6 +486,8 @@ final class SqlserverJobWriteOperations {
         .setParameter(6, job.getResourceName())
         .setParameter(7, UuidByteArrayConverter.toBytes(job.getId()))
         .executeUpdate();
+    // Under the job-row lock, keep only a waiter on the resource this save stores.
+    deleteWaiterOffResource(job.getId(), job.getResourceName());
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
@@ -513,13 +524,47 @@ final class SqlserverJobWriteOperations {
         SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
         WHERE job_id = ? AND status = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, UuidByteArrayConverter.toBytes(id))
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
+            .setParameter(3, storedStatus)
+            .executeUpdate();
+    if (updated > 0) {
+      deleteWaiterIfPresent(id);
+    }
     return true;
+  }
+
+  private void deleteWaiterOffResource(UUID id, String resource) {
+    if (resource == null) {
+      deleteWaiterIfPresent(id);
+      return;
+    }
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name <> ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .setParameter(2, resource)
+        .executeUpdate();
+  }
+
+  private void deleteWaiterIfPresent(UUID id) {
+    // Under RCSI a missing-row delete takes no gap lock.
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -725,6 +770,9 @@ final class SqlserverJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiterIfPresent(id);
+      }
     }
     return true;
   }

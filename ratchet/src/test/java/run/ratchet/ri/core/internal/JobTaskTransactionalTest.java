@@ -94,6 +94,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.TerminalOutcome;
 import run.ratchet.store.spi.TransactionalCompletionStore;
 
@@ -269,7 +270,7 @@ class JobTaskTransactionalTest {
   void interruptedOrdinarySuccessClearsStoreCallsAndPermitReleaseAndSkipsFlush() {
     job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
     job.setResourceName("limited");
-    when(permits.tryAcquire("limited", job.getId(), "node")).thenReturn(true);
+    when(permits.tryAcquire("limited", job.getId(), 7L, "node")).thenReturn(AcquireResult.ACQUIRED);
     List<Boolean> flags = new ArrayList<>();
     when(store.getJobStatus(job.getId()))
         .thenAnswer(
@@ -289,7 +290,7 @@ class JobTaskTransactionalTest {
               return null;
             })
         .when(permits)
-        .release("limited", job.getId());
+        .release("limited", job.getId(), 7L);
     JobStateStore state = mock(JobStateStore.class);
     when(store.capability(JobStateStore.class)).thenReturn(Optional.of(state));
     BODY.set(
@@ -304,7 +305,7 @@ class JobTaskTransactionalTest {
     assertTrue(Thread.currentThread().isInterrupted());
     assertTrue(flags.size() >= 4, "cancel checks, success write and permit release must run");
     assertFalse(flags.contains(true));
-    verify(permits).release("limited", job.getId());
+    verify(permits).release("limited", job.getId(), 7L);
     verify(flusher).markDirty(any(JobProgressWriter.class));
     verifyNoInteractions(state);
   }
@@ -595,6 +596,58 @@ class JobTaskTransactionalTest {
     } finally {
       CALLBACK.remove();
     }
+  }
+
+  @Test
+  void committedTransactionReleasesPermitAfterCommit() {
+    job.setResourceName("res");
+    when(permits.tryAcquire("res", job.getId(), 7L, "node")).thenReturn(AcquireResult.ACQUIRED);
+    BODY.set(
+        () -> {
+          assertTrue(JobTransaction.active());
+          verify(permits, never()).release(any(), any(), anyLong());
+          return 42;
+        });
+    doAnswer(
+            invocation -> {
+              assertFalse(JobTransaction.active());
+              return null;
+            })
+        .when(permits)
+        .release("res", job.getId(), 7L);
+
+    task.call();
+
+    InOrder order = inOrder(lifecycle, permits);
+    order
+        .verify(lifecycle)
+        .completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+    order.verify(permits).release("res", job.getId(), 7L);
+    verify(permits, times(1)).release("res", job.getId(), 7L);
+    verify(lifecycle).runFollowups(completion);
+  }
+
+  @Test
+  void rolledBackTransactionReleasesPermit() {
+    job.setResourceName("res");
+    when(permits.tryAcquire("res", job.getId(), 7L, "node")).thenReturn(AcquireResult.ACQUIRED);
+    BODY.set(
+        () -> {
+          throw new IllegalArgumentException("body");
+        });
+    doAnswer(
+            invocation -> {
+              assertFalse(JobTransaction.active());
+              return null;
+            })
+        .when(permits)
+        .release("res", job.getId(), 7L);
+
+    task.call();
+
+    verify(permits, times(1)).release("res", job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L);
   }
 
   private static final ThreadLocal<Runnable> CALLBACK = new ThreadLocal<>();

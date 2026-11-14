@@ -82,6 +82,7 @@ You should see these scheduler tables plus `ratchet_schema_version`:
 | `scheduler_lock` | Distributed locks |
 | `scheduler_resource_limit` | Resource concurrency config |
 | `scheduler_resource_permit` | Active resource permits |
+| `scheduler_resource_waiter` | Jobs waiting for a resource permit, in order |
 | `scheduler_workflow_condition` | Workflow branching conditions |
 | `ratchet_schema_version` | Applied schema migration/checksum tracking |
 
@@ -320,6 +321,7 @@ db.createCollection("scheduler_lock");
 db.createCollection("scheduler_workflow_condition");
 db.createCollection("scheduler_resource_permit");
 db.createCollection("scheduler_resource_limit");
+db.createCollection("scheduler_resource_waiter");
 
 // Key indexes
 db.scheduler_job.createIndex({ status: 1, priority: -1, scheduled_time: 1 }, { name: "idx_job_poll_composite" });
@@ -344,6 +346,7 @@ db.scheduler_job_execution.createIndex({ status: 1, started_at: 1 }, { name: "id
 db.scheduler_node.createIndex({ heartbeat_ts: 1 }, { name: "idx_node_heartbeat" });
 db.scheduler_lock.createIndex({ expires_at: 1 }, { name: "idx_lock_ttl", expireAfterSeconds: 0 });
 db.scheduler_job_log.createIndex({ job_id: 1, ts: 1 }, { name: "idx_log_job_ts" });
+db.scheduler_resource_waiter.createIndex({ resource_name: 1, priority: -1, wait_since: 1, _id: 1 }, { name: "idx_resource_waiter_order" });
 ```
 
 ### Connection Configuration

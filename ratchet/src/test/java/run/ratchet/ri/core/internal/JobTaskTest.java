@@ -31,6 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.Serializable;
@@ -40,6 +41,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -140,6 +142,7 @@ import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
 
@@ -1444,6 +1447,8 @@ class JobTaskTest {
     jobTask.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     RuntimeException auditError = new RuntimeException("audit store down");
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
         .thenThrow(auditError);
     when(validationFacade.shouldNotRetry(auditError)).thenReturn(false);
@@ -2873,7 +2878,8 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, "node-1")).thenReturn(true);
+    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, 0L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
@@ -2882,29 +2888,325 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(resourcePermitService).release("api-gateway", JOB_UUID);
+    verify(resourcePermitService).tryAcquire("api-gateway", JOB_UUID, 0L, "node-1");
+    verify(resourcePermitService).release("api-gateway", JOB_UUID, 0L);
   }
 
   @Test
   @SuppressWarnings("unchecked")
-  void call_resourcePermitUnavailable_reschedulesWithoutExecutingPayload() throws Exception {
+  void call_transientAcquireAfterCommittedPermitRunsBodyOnce() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 0L, "node-1"))
+        .thenThrow(new RatchetTransientStoreException("commit response lost"))
+        .thenReturn(AcquireResult.ACQUIRED);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(resourcePermitService, times(2)).tryAcquire("gpu", JOB_UUID, 0L, "node-1");
+    verify(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService).release("gpu", JOB_UUID, 0L);
+  }
+
+  @Test
+  void call_transientAfterCommittedParkStopsWithoutSpendingAttempt() throws Exception {
+    assertTransientThenSuperseded(JobStatus.PENDING);
+  }
+
+  @Test
+  void call_cancelledDuringAcquireRetryStopsWithoutSpendingAttempt() throws Exception {
+    assertTransientThenSuperseded(JobStatus.CANCELED);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertTransientThenSuperseded(JobStatus committedStatus) throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    initJobTaskWithDefaultStubs(job);
+    AtomicReference<JobStatus> queueStatus = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(inv -> queueStatus.get());
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 0L, "node-1"))
+        .thenAnswer(
+            inv -> {
+              queueStatus.set(committedStatus);
+              throw new RatchetTransientStoreException("response lost");
+            })
+        .thenReturn(AcquireResult.SUPERSEDED);
+    // A PENDING or CANCELED queue row rejects the existing RUNNING/claim-fenced safety net.
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(100);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L)))
+        .thenAnswer(inv -> queueStatus.get() == JobStatus.RUNNING);
+
+    jobTask.call();
+
+    verify(resourcePermitService, times(2)).tryAcquire("gpu", JOB_UUID, 0L, "node-1");
+    verifyNoInteractions(lifecycleFacade);
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_exhaustedTransientAcquireUsesExistingFailurePath() throws Exception {
+    assertAcquireFailure(false);
+  }
+
+  @Test
+  void call_interruptedAcquireBackoffStopsAndRestoresInterrupt() throws Exception {
+    try {
+      assertAcquireFailure(true);
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  private void assertAcquireFailure(boolean interrupt) throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    var failure = new RatchetTransientStoreException("deadlock");
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 0L, "node-1"))
+        .thenAnswer(
+            inv -> {
+              if (interrupt) {
+                Thread.currentThread().interrupt();
+              }
+              throw failure;
+            });
+    List<Boolean> flags = new ArrayList<>();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return 1;
+            });
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return true;
+            });
+
+    jobTask.call();
+
+    verify(resourcePermitService, times(interrupt ? 1 : JobTask.PERMIT_ACQUIRE_TRIES))
+        .tryAcquire("gpu", JOB_UUID, 0L, "node-1");
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    // The failure path's store writes run with the interrupt flag clear.
+    Assertions.assertEquals(List.of(false, false), flags);
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_releaseUsesSameClaimAsAcquire() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("api-gateway");
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(resourcePermitService).tryAcquire("api-gateway", JOB_UUID, 7L, "node-1");
+    verify(resourcePermitService).release("api-gateway", JOB_UUID, 7L);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_resourcePermitUnavailable_storeAlreadyParkedWithoutExecutingPayload() throws Exception {
     JobEntity job = createTestJob();
     job.setResourceName("gpu");
     job.setAttempts(2);
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, "node-1")).thenReturn(false);
-    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(0L)))
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 0L, "node-1"))
+        .thenReturn(AcquireResult.AT_CAPACITY);
+    jobTask.call();
+
+    verify(resourcePermitService, never()).getRetryDelay(anyString());
+    verify(jobStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), anyLong());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_acquiresPermitBeforeRecordingStart() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("api-gateway");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, 0L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    InOrder order = inOrder(resourcePermitService, observabilityFacade);
+    order.verify(resourcePermitService).tryAcquire("api-gateway", JOB_UUID, 0L, "node-1");
+    order.verify(observabilityFacade).recordJobStart(job);
+    order.verify(observabilityFacade).startExecution(JOB_UUID, 1, "node-1");
+    order.verify(observabilityFacade).publishEvent(any(JobStartedEvent.class));
+    order.verify(observabilityFacade).startExecutionScope(job);
+    order.verify(resourcePermitService).release("api-gateway", JOB_UUID, 0L);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_executionHistoryWriteFailsAfterPermit_releasesPermit() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setClaimSeq(7L);
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
+    RuntimeException auditError = new RuntimeException("audit store down");
+    when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
+        .thenThrow(auditError);
+    when(validationFacade.shouldNotRetry(auditError)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+
+    jobTask.call();
+
+    InOrder order = inOrder(resourcePermitService, observabilityFacade, lifecycleFacade);
+    order.verify(resourcePermitService).tryAcquire("gpu", JOB_UUID, 7L, "node-1");
+    order.verify(observabilityFacade).startExecution(JOB_UUID, 1, "node-1");
+    order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobStartedEvent.class));
+  }
+
+  @Test
+  void call_unconfiguredResource_failsAttemptWithoutRecordingStart() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("missing");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    IllegalArgumentException unconfigured =
+        new IllegalArgumentException("Resource is not configured: missing");
+    when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1"))
+        .thenThrow(unconfigured);
+    when(validationFacade.shouldNotRetry(unconfigured)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(resourcePermitService).tryAcquire("missing", JOB_UUID, 0L, "node-1");
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_serviceUnavailable_takesNoPermitAndRecordsNoAttempt() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    initJobTaskWithDefaultStubs(job);
+    String serviceName = JobTaskTest.class.getSimpleName() + ".testJobMethod";
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(serviceName)).thenReturn(false);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(0), eq(0L)))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(jobStore)
-        .scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(0L));
+        .scheduleJobRetry(
+            eq(JOB_UUID),
+            eq("Circuit breaker OPEN for service: " + serviceName),
+            any(),
+            eq(0),
+            eq(0L));
+    verify(resourcePermitService, never())
+        .tryAcquire(anyString(), any(UUID.class), anyLong(), anyString());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_canceledBeforeStart_takesNoPermitAndRecordsNoAttempt() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).cancelChain(job);
+    verify(resilienceStrategy, never()).isServiceAvailable(anyString());
+    verify(resourcePermitService, never())
+        .tryAcquire(anyString(), any(UUID.class), anyLong(), anyString());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_supersededPermit_rejectedRescheduleDoesNotExecuteOrRelease() throws Exception {
+    assertSupersededPermit(false);
+  }
+
+  @Test
+  void call_supersededPermit_successfulRescheduleUsesAttemptClaim() throws Exception {
+    assertSupersededPermit(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertSupersededPermit(boolean rescheduled) throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setClaimSeq(7L);
+    job.setAttempts(2);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.SUPERSEDED);
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
+        .thenReturn(rescheduled);
+
+    jobTask.call();
+
+    verify(jobStore)
+        .scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(7L));
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
-    verify(resourcePermitService, never()).release(anyString(), any(UUID.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    // The superseded attempt never ran its body; the claim that replaced it records its own.
+    verifyNoAttemptRecorded();
   }
 
   @Test
@@ -3754,10 +4056,22 @@ class JobTaskTest {
   private void initJobTaskWithDefaultStubs(JobTask task, JobEntity job) {
     task.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
-    when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
+    // Lenient: a job that stops at a pre-execution gate records no attempt and never calls these.
+    lenient()
+        .when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
         .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
-    when(observabilityFacade.startExecutionScope(any(JobEntity.class)))
+    lenient()
+        .when(observabilityFacade.startExecutionScope(any(JobEntity.class)))
         .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
+  }
+
+  /** A job that stops at a pre-execution gate never ran its body, so it records no attempt. */
+  private void verifyNoAttemptRecorded() {
+    verify(observabilityFacade, never()).recordJobStart(any());
+    verify(observabilityFacade, never()).startExecution(any(), anyInt(), any());
+    verify(observabilityFacade, never()).saveExecution(any());
+    verify(observabilityFacade, never()).publishEvent(any(JobStartedEvent.class));
+    verify(observabilityFacade, never()).startExecutionScope(any());
   }
 
   private JobTask newJobTaskWithTimeoutHandler(JobTimeoutHandler timeoutHandler) {
