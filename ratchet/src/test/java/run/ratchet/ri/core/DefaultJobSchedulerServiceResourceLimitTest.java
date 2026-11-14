@@ -148,6 +148,7 @@ class DefaultJobSchedulerServiceResourceLimitTest {
         null,
         null,
         null,
+        null,
         Clock.systemUTC(),
         null,
         new JakartaAfterCommitRegistrar(),

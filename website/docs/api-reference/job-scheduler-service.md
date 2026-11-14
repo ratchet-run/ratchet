@@ -546,6 +546,48 @@ void inspect(String key) {
 
 `JobQueryService.findJobs` searches job rows, including finished jobs. It sees recurring masters only when the filter's `types` is exactly `RECURRING`, which reads the recurring store. Other searches need the query capability and find nothing without it. Use this lookup to ask whether a key is held now.
 
+## Idempotency key lookup
+
+### findIdempotencyKeyHolder
+
+```java
+Optional<IdempotencyKeyHolder> findIdempotencyKeyHolder(String idempotencyKey)
+```
+
+Reads the same ledger that `submit()` checks. The stable `IdempotencyKeyLookup` interface can also be injected directly. An unused key returns empty. Null or blank keys return empty; keys are trimmed, and more than 36 characters throws `IllegalArgumentException`, matching `withIdempotencyKey`.
+
+The holder contains `id()`, `retention()`, `type()` and `status()`:
+
+| Retention | What the holder reports |
+| --- | --- |
+| `LIVE` | The job still has a live row. `type()` is its public type and `status()` its current status. |
+| `ARCHIVED` | Only an archive row remains. `type()` is its public type and `status()` its terminal final status. |
+| `PURGED` | No row remains, only the ledger entry. `type()` and `status()` are null. |
+
+`PURGED` also covers a deleted job on a store without archive support. In every state, a resubmit under the same key returns the original id and runs nothing. `findJobs` with `JobFilter.idempotencyKey` searches live jobs only.
+
+For a failed job, submit a replacement under a new key derived from the holder's id. A UUID hash keeps the replacement key within 36 characters:
+
+```java
+scheduler.findIdempotencyKeyHolder(key).ifPresent(holder -> {
+    if (holder.retention() == IdempotencyKeyHolder.Retention.PURGED) {
+        // The key is spent. Only holder.id() remains.
+        return;
+    }
+    if (holder.status() == JobStatus.FAILED) {
+        String replacementKey = UUID.nameUUIDFromBytes(
+            ("retry:" + holder.id()).getBytes(StandardCharsets.UTF_8)).toString();
+        scheduler.enqueue(() -> reportService.generateDailyReport())
+            .withIdempotencyKey(replacementKey)
+            .submit();
+    }
+});
+```
+
+This is a point-in-time read, not a lock; a later submit can still race. No per-job authorization check is performed, matching `submit()`. Found, missing, and invalid-key results do not mark a caller transaction rollback-only. Store failures can.
+
+SQL stores join the caller transaction and see its own uncommitted submissions. MongoDB reads committed data and does not join it. On MySQL REPEATABLE READ, the first plain read fixes the snapshot; later commits and state changes may be invisible. Read outside a transaction or use READ COMMITTED for the latest state.
+
 ## Event listener management
 
 ### addEventListener

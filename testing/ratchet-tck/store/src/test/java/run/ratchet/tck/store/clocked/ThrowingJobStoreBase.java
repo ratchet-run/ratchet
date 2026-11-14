@@ -575,6 +575,11 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public Optional<ArchivedJobEntity> findArchivedJob(UUID originalJobId) {
+    return fail("findArchivedJob");
+  }
+
+  @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     return fail("findArchivedJobs");

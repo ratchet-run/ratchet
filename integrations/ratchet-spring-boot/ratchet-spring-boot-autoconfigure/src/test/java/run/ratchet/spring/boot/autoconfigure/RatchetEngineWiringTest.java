@@ -35,6 +35,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.IdempotencyKeyLookup;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
@@ -173,6 +174,7 @@ class RatchetEngineWiringTest {
               assertThat(context).hasNotFailed();
               assertThat(context).hasSingleBean(JobSchedulerService.class);
               assertThat(context).hasSingleBean(BusinessKeyLookup.class);
+              assertThat(context).hasSingleBean(IdempotencyKeyLookup.class);
               assertThat(context).hasSingleBean(JobStateFlusher.class);
               assertThat(context).hasSingleBean(SpringRecurringDiscovery.class);
               assertThat(context.getBean(PoolRegistry.class).hasPool(ExecutorTargets.VIRTUAL))

@@ -34,6 +34,13 @@ class ApiIncubatingContractTest {
   }
 
   @Test
+  void idempotencyKeyLookupIsStable() {
+    assertFalse(IdempotencyKeyLookup.class.isAnnotationPresent(Incubating.class));
+    assertFalse(IdempotencyKeyHolder.class.isAnnotationPresent(Incubating.class));
+    assertTrue(IdempotencyKeyLookup.class.isAssignableFrom(JobSchedulerService.class));
+  }
+
+  @Test
   void jobBuilderFamilyIsIncubating() {
     // The fluent builder family is uniformly incubating at the type level rather than a mix of
     // stable types with incubating methods, so the whole builder surface may evolve together.

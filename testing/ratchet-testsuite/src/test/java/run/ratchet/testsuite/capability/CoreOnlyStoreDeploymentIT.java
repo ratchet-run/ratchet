@@ -33,6 +33,9 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.BusinessKeyLookup;
+import run.ratchet.api.IdempotencyKeyHolder;
+import run.ratchet.api.IdempotencyKeyHolder.Retention;
+import run.ratchet.api.IdempotencyKeyLookup;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
@@ -77,6 +80,7 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
   @Inject private JobCrudStore jobCrudStore;
   @Inject private JobSchedulerService scheduler;
   @Inject private BusinessKeyLookup businessKeys;
+  @Inject private IdempotencyKeyLookup idempotencyKeys;
 
   @Inject private Instance<RecurringJobStore> recurringStore;
   @Inject private Instance<BatchStore> batchStore;
@@ -140,6 +144,24 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
 
     assertNotNull(handle);
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
+  }
+
+  @Test
+  void idempotencyKeyLookupWorksWithoutCapabilities() {
+    String key = UUID.randomUUID().toString();
+    JobHandle handle =
+        scheduler
+            .schedule(Duration.ofHours(1), SimpleJob::execute)
+            .withIdempotencyKey(key)
+            .submit();
+    try {
+      var expected =
+          new IdempotencyKeyHolder(handle.id(), Retention.LIVE, JobType.SINGLE, JobStatus.PENDING);
+      assertEquals(expected, scheduler.findIdempotencyKeyHolder(key).orElseThrow());
+      assertEquals(expected, idempotencyKeys.findIdempotencyKeyHolder(key).orElseThrow());
+    } finally {
+      scheduler.cancelJob(handle.id());
+    }
   }
 
   @Test

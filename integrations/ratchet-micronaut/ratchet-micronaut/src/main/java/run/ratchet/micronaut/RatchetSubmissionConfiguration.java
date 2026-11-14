@@ -63,6 +63,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
@@ -284,6 +285,7 @@ class RatchetSubmissionConfiguration {
             store,
             store,
             store.capability(BatchStore.class).orElse(null),
+            store.capability(ArchiveStore.class).orElse(null),
             store,
             store.capability(WorkflowConditionStore.class).orElse(null),
             store.capability(RecurringJobStore.class).orElse(null),
