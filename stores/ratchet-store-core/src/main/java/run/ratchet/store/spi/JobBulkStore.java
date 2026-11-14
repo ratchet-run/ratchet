@@ -32,7 +32,14 @@ import run.ratchet.store.entity.JobEntity;
 @Incubating
 public interface JobBulkStore {
 
-  /** Inserts jobs in bulk. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Inserts jobs in bulk. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>As with {@link JobCrudStore#create}, a job created in a terminal state does not reserve its
+   * business key. A store whose writes wait on uncommitted keys must write the business-key
+   * reservations before the idempotency keys and job rows, as create does. Otherwise a bulk insert
+   * and a create that share both keys can deadlock.
+   */
   void bulkInsert(List<JobEntity> jobs);
 
   /** Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}. */

@@ -39,7 +39,6 @@ import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.entity.JobEntity;
@@ -596,12 +595,13 @@ public abstract class AbstractRecurringJobStoreContract {
   void concurrentQueueAndRecurringCreate_exactlyOneOwnsBusinessKey() {
     String key = "tck-cross-type-race-" + UUID.randomUUID();
     AtomicInteger successes = new AtomicInteger();
+    JobEntity queueJob = queueJobWithBusinessKey(key);
 
     List<Throwable> results =
         ConcurrentTestRunner.runAll(
             Duration.ofSeconds(15),
             () -> {
-              jobFixture().persist(queueJobWithBusinessKey(key));
+              jobFixture().persist(queueJob);
               successes.incrementAndGet();
             },
             () -> {
@@ -617,12 +617,11 @@ public abstract class AbstractRecurringJobStoreContract {
         1L,
         results.stream().filter(Objects::nonNull).count(),
         "the losing cross-type create must report one duplicate-key failure");
+    // Read the queue job's own row. The holder lookup reads the reservation, which names one owner,
+    // so it cannot see a queue job that stayed active after the recurring master took the key.
+    // The store sets the id before it writes, so a failed create still leaves it on the entity.
     boolean queueOwns =
-        jobFixture()
-            .store()
-            .findBusinessKeyHolder(key)
-            .filter(holder -> holder.type() != JobType.RECURRING)
-            .isPresent();
+        queueJob.getId() != null && jobFixture().store().findById(queueJob.getId()).isPresent();
     boolean recurringOwns = recurringStore().findRecurringByBusinessKey(key).isPresent();
     assertTrue(queueOwns ^ recurringOwns, "exactly one active owner must remain durable");
   }

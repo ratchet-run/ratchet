@@ -120,10 +120,12 @@ final class MysqlJobWriteOperations {
       assignIdIfMissing(job);
     }
 
+    // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+    executeBusinessKeyBulkInsert(jobs, nowTs);
     SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
     executeColdBulkInsert(jobs, nowTs);
     executeHotBulkInsert(jobs, nowTs);
-    executeBusinessKeyBulkInsert(jobs, nowTs);
+    executeTerminalBackfills(jobs, nowTs);
 
     ctx.em().clear();
   }
@@ -344,7 +346,10 @@ final class MysqlJobWriteOperations {
 
   private void executeHotBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
     List<JobEntity> hotJobs =
-        jobs.stream().filter(job -> job.getJobType() != JobExecutionType.RECURRING).toList();
+        jobs.stream()
+            .filter(job -> job.getJobType() != JobExecutionType.RECURRING)
+            .filter(job -> !bornTerminal(job))
+            .toList();
     for (int start = 0; start < hotJobs.size(); start += MAX_BULK_INSERT_ROWS) {
       List<JobEntity> chunk =
           hotJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, hotJobs.size()));
@@ -359,8 +364,21 @@ final class MysqlJobWriteOperations {
     }
   }
 
+  private void executeTerminalBackfills(List<JobEntity> jobs, Timestamp nowTs) {
+    for (JobEntity job : jobs) {
+      if (bornTerminal(job)) {
+        executeColdTerminalBackfill(job, nowTs);
+        job.setTerminalStatus(job.getStatus());
+      }
+    }
+  }
+
   private void executeBusinessKeyBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
-    List<JobEntity> keyedJobs = jobs.stream().filter(job -> job.getBusinessKey() != null).toList();
+    List<JobEntity> keyedJobs =
+        jobs.stream()
+            .filter(job -> job.getBusinessKey() != null)
+            .filter(job -> !bornTerminal(job))
+            .toList();
     for (int start = 0; start < keyedJobs.size(); start += MAX_BULK_INSERT_ROWS) {
       List<JobEntity> chunk =
           keyedJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, keyedJobs.size()));
@@ -374,6 +392,10 @@ final class MysqlJobWriteOperations {
       }
       query.executeUpdate();
     }
+  }
+
+  private static boolean bornTerminal(JobEntity job) {
+    return job.getStatus() != null && MysqlJobRowMapper.isTerminalStatus(job.getStatus());
   }
 
   private static String repeatValues(String values, int count) {
