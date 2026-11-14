@@ -307,7 +307,8 @@ final class MysqlAuxiliaryOperations
       ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId);
       ctx.em().persist(permit);
       if (claim[4] != null) {
-        deleteWaiter(jobId);
+        // The claim may have moved to another resource and parked there since the claim read.
+        deleteWaiter(resource, jobId);
       }
       return AcquireResult.ACQUIRED;
     } catch (IllegalArgumentException e) {
@@ -431,15 +432,16 @@ final class MysqlAuxiliaryOperations
     return AcquireResult.AT_CAPACITY;
   }
 
-  private int deleteWaiter(UUID jobId) {
+  private int deleteWaiter(String resource, UUID jobId) {
     // language=MySQL
     String sql =
         """
-        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name = ?
         """;
     return ctx.em()
         .createNativeQuery(sql)
         .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+        .setParameter(2, resource)
         .executeUpdate();
   }
 

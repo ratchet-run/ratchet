@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.sqlserver;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -125,8 +126,17 @@ class SqlserverAuxiliaryOperationsTest {
     assertEquals(
         AcquireResult.ACQUIRED, sequence.operations().tryAcquirePermit("res", JOB, 7, "node"));
     assertEquals(7, sequence.sql.size());
+    assertArrayEquals(
+        UuidByteArrayConverter.toBytes(JOB), (byte[]) sequence.parameters.get(6).get(1));
+    assertEquals("res", sequence.parameters.get(6).get(2));
+    assertEquals(2, sequence.parameters.get(6).size());
     assertTrue(
-        sequence.sql.get(6).contains("DELETE FROM scheduler_resource_waiter WHERE job_id = ?"));
+        sequence
+            .sql
+            .get(6)
+            .strip()
+            .equals(
+                "DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name = ?"));
     sequence.assertConsumed();
   }
 

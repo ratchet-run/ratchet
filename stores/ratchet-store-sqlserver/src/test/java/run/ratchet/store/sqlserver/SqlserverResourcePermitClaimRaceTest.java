@@ -22,6 +22,15 @@ class SqlserverResourcePermitClaimRaceTest extends AbstractSqlResourcePermitClai
 
   private final SqlserverTestFixture fixture = new SqlserverTestFixture();
 
+  /**
+   * The resource read binds an NVARCHAR parameter to the VARCHAR key, so it scans the limit table
+   * under HOLDLOCK and range-locks every resource row until the acquire commits.
+   */
+  @Override
+  protected boolean resourceLockBlocksOtherResources() {
+    return true;
+  }
+
   @Override
   protected JpaContainerFixture fixture() {
     return fixture;

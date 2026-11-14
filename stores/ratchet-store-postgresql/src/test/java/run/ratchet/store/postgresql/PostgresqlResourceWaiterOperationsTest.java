@@ -180,6 +180,29 @@ class PostgresqlResourceWaiterOperationsTest {
     }
   }
 
+  @Test
+  void successfulAcquireDeletesOnlyItsResourceWaiter() {
+    UUID jobId = UUID.randomUUID();
+    var sequence =
+        new NativeSequence(
+            List.<Object[]>of(new Object[] {1, 1000}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res"}),
+            List.of(),
+            List.of(),
+            1,
+            1);
+    assertEquals(
+        AcquireResult.ACQUIRED, sequence.operations().tryAcquirePermit("res", jobId, 7L, "node"));
+    assertEquals(6, sequence.sql.size());
+    assertEquals(
+        "DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name = ?",
+        sequence.sql.get(5).strip());
+    assertEquals(jobId, sequence.parameters.get(5).get(1));
+    assertEquals("res", sequence.parameters.get(5).get(2));
+    assertEquals(2, sequence.parameters.get(5).size());
+    sequence.assertConsumed();
+  }
+
   private static final Timestamp DUE = Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"));
 
   private static final class NativeSequence {

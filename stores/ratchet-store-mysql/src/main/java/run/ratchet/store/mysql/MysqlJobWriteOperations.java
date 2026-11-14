@@ -207,13 +207,14 @@ final class MysqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
-    // A resource change or a reschedule leaves the waiting line. Check before this save writes the
-    // queue row: after that, a plain read returns this transaction's own row version.
+    // A resource change or a reschedule leaves the waiting line. A park writes a waiter row only
+    // while the job names its resource, so a job stored with no resource has none to delete.
     if (row != null
+        && row[9] != null
         && (!Objects.equals(row[9], job.getResourceName())
             || (row[0] != null
                 && !Objects.equals(RowValues.instantOrNull(row[1]), job.getScheduledTime())))) {
-      deleteWaiterIfPresent(job.getId(), row);
+      deleteWaiter(job.getId());
     }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
@@ -428,40 +429,30 @@ final class MysqlJobWriteOperations {
     return true;
   }
 
-  private void deleteWaiterIfPresent(UUID id, Object[] snapshot) {
-    // A missing-row DELETE takes a gap lock at REPEATABLE READ; avoid it with a plain read.
+  private void deleteWaiter(UUID id) {
+    // A plain read can miss a waiter parked after this transaction's read view. Deleting a missing
+    // key takes a gap lock that blocks other parks. Write the key first so the delete finds a row
+    // and both statements lock only this job's key.
     // language=MySQL
-    String exists =
+    String insert =
         """
-        SELECT q.status, q.claim_seq, w.job_id FROM scheduler_job c
-        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        LEFT JOIN scheduler_resource_waiter w ON w.job_id = c.job_id
-        WHERE c.job_id = ?
+        INSERT INTO scheduler_resource_waiter (job_id, resource_name, priority, wait_since, lease_until)
+        VALUES (?, '', 0, NOW(3), NOW(3))
+        ON DUPLICATE KEY UPDATE job_id = job_id
         """;
-    List<?> rows =
-        ctx.em()
-            .createNativeQuery(exists)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .getResultList();
-    Object[] visible = rows.isEmpty() ? null : (Object[]) rows.get(0);
-    Long visibleClaim =
-        visible == null || visible[1] == null ? null : ((Number) visible[1]).longValue();
-    Long lockedClaim = snapshot[10] == null ? null : ((Number) snapshot[10]).longValue();
-    // Every park changes status or claim_seq, so matching values make the waiter view current.
-    if (visible == null
-        || visible[2] != null
-        || !Objects.equals(visible[0], snapshot[0])
-        || !Objects.equals(visibleClaim, lockedClaim)) {
-      // language=MySQL
-      String delete =
-          """
-          DELETE FROM scheduler_resource_waiter WHERE job_id = ?
-          """;
-      ctx.em()
-          .createNativeQuery(delete)
-          .setParameter(1, UuidByteArrayConverter.toBytes(id))
-          .executeUpdate();
-    }
+    ctx.em()
+        .createNativeQuery(insert)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
+    // language=MySQL
+    String delete =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(delete)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -564,7 +555,7 @@ final class MysqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status, c.resource_name, q.claim_seq
+               c.terminal_status, c.resource_name
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
