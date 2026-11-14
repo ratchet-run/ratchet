@@ -138,7 +138,7 @@ class SqlserverExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobsForNode("node", 3, 100).reset());
+        () -> deletes.resetOrphanJobsForNode("node", 3, 500).reset());
   }
 
   @Test
@@ -229,7 +229,7 @@ class SqlserverExceptionTranslationTest {
             new SqlserverStoreContext(entityManager(queryThrowingOnExecute())));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   private static EntityManager entityManager(Query... queries) {

@@ -64,6 +64,7 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.TerminalOutcome;
 import run.ratchet.store.util.IsolationCheck;
 import run.ratchet.store.util.SqlEventOutbox;
@@ -358,26 +359,20 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobs(
-      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
-    return jobs.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
-  }
-
-  @Override
   public int closeStaleExecutions(Instant cutoff, int limit) {
     return jobs.closeStaleExecutions(cutoff, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsBefore(
-      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
-    return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public OrphanRecovery resetOrphanJobsBefore(Instant cutoff, int maxCrashRedeliveries, int limit) {
+    return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, limit);
   }
 
   @Override
-  public OrphanRecovery resetOrphanJobsForNode(
-      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
-    return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, limit);
   }
 
   @Override
@@ -851,13 +846,30 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
-    return auxiliary.tryAcquirePermit(resource, jobId, nodeId);
+  public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
+    return auxiliary.tryAcquirePermit(resource, jobId, claimSeq, nodeId);
   }
 
   @Override
-  public void releasePermit(String resource, UUID jobId) {
-    auxiliary.releasePermit(resource, jobId);
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    return auxiliary.wakeWaiters(resource);
+  }
+
+  @Override
+  public List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
+    return auxiliary.findResourcesWithWaiters(after, limit);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public int deleteStaleWaiters(int limit) {
+    return auxiliary.deleteStaleWaiters(limit);
+  }
+
+  @Override
+  public void releasePermit(String resource, UUID jobId, long claimSeq) {
+    auxiliary.releasePermit(resource, jobId, claimSeq);
   }
 
   @Override

@@ -16,7 +16,6 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.inject.Inject;
-import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -88,6 +87,7 @@ import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.PartitionStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.TerminalOutcome;
 import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.util.EncryptionTarget;
@@ -446,60 +446,13 @@ public class JobTask implements Callable<Void> {
         log.debugf("Job %s created by system (no user context)", jobId);
       }
 
-      observabilityFacade.recordJobStart(jobEntity);
-
-      int attemptNumber = jobEntity.getAttempts() + 1;
-      try {
-        currentExecution = observabilityFacade.startExecution(jobId, attemptNumber, nodeId);
-      } catch (Throwable executionRecordError) {
-        // The execution-history write is durable state, not a metric. When it fails before the
-        // payload runs, fail the job through normal failure handling so it reaches a terminal
-        // state (or a policy-driven retry) instead of stranding in RUNNING until orphan recovery.
-        log.errorf(
-            executionRecordError,
-            "Job %s execution-history start write failed; failing the job",
-            jobId);
-        handleFailureSafely(executionRecordError);
-        return null;
-      }
-
-      Instant start = effective().instant();
-      observabilityFacade.publishEvent(
-          new JobStartedEvent(
-              jobEntity.getId(),
-              jobEntity.getBusinessKey(),
-              jobEntity.getRecurringMasterId(),
-              jobEntity.getPublicJobType(),
-              jobEntity.getPriority(),
-              jobEntity.getPickedBy(),
-              start));
-
-      if (log.isDebugEnabled()) {
-        log.debugv(
-            "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
-            jobId,
-            jobEntity.getJobType(),
-            jobEntity.getPriority(),
-            jobEntity.getAttempts() + 1,
-            jobEntity.getMaxRetries() + 1,
-            jobEntity.getPayload().target(),
-            jobEntity.getPayload().method());
-      }
-
       Object jobResult;
       permitAcquired = false;
       String resilienceServiceName = target.serviceName();
       try {
-        currentScope = observabilityFacade.startExecutionScope(jobEntity);
-        if (transactional && jobStore.capability(TransactionalCompletionStore.class).isEmpty()) {
-          UnsupportedOperationException failure =
-              new UnsupportedOperationException(
-                  "@TransactionalJob requires a store advertising TransactionalCompletionStore");
-          handleNonRetryableFailure(failure, job.getAttempts(), sanitizeError(failure));
-          return null;
-        }
+        // Gates that defer or stop the job record no execution row, start event, metric or span.
         if (wasJobCanceledDuringExecution()) {
-          handleCanceledDuringExecution(start);
+          handleCanceledDuringExecution(effective().instant());
           return null;
         }
 
@@ -512,6 +465,55 @@ public class JobTask implements Callable<Void> {
         }
 
         if (!tryAcquireResourcePermit()) {
+          return null;
+        }
+
+        observabilityFacade.recordJobStart(jobEntity);
+
+        int attemptNumber = jobEntity.getAttempts() + 1;
+        try {
+          currentExecution = observabilityFacade.startExecution(jobId, attemptNumber, nodeId);
+        } catch (Throwable executionRecordError) {
+          // The execution-history write is durable state, not a metric. When it fails before the
+          // payload runs, fail the job through normal failure handling so it reaches a terminal
+          // state (or a policy-driven retry) instead of stranding in RUNNING until orphan recovery.
+          log.errorf(
+              executionRecordError,
+              "Job %s execution-history start write failed; failing the job",
+              jobId);
+          handleFailureSafely(executionRecordError);
+          return null;
+        }
+
+        Instant start = effective().instant();
+        observabilityFacade.publishEvent(
+            new JobStartedEvent(
+                jobEntity.getId(),
+                jobEntity.getBusinessKey(),
+                jobEntity.getRecurringMasterId(),
+                jobEntity.getPublicJobType(),
+                jobEntity.getPriority(),
+                jobEntity.getPickedBy(),
+                start));
+
+        if (log.isDebugEnabled()) {
+          log.debugv(
+              "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
+              jobId,
+              jobEntity.getJobType(),
+              jobEntity.getPriority(),
+              jobEntity.getAttempts() + 1,
+              jobEntity.getMaxRetries() + 1,
+              jobEntity.getPayload().target(),
+              jobEntity.getPayload().method());
+        }
+
+        currentScope = observabilityFacade.startExecutionScope(jobEntity);
+        if (transactional && jobStore.capability(TransactionalCompletionStore.class).isEmpty()) {
+          UnsupportedOperationException failure =
+              new UnsupportedOperationException(
+                  "@TransactionalJob requires a store advertising TransactionalCompletionStore");
+          handleNonRetryableFailure(failure, job.getAttempts(), sanitizeError(failure));
           return null;
         }
 
@@ -888,6 +890,33 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  // Retry short lock conflicts without charging a job attempt.
+  static final int PERMIT_ACQUIRE_TRIES = 3;
+  private static final int PERMIT_BACKOFF_MIN_MS = 20;
+  private static final int PERMIT_BACKOFF_MAX_MS = 100;
+
+  private AcquireResult acquireResourcePermit(String resourceName, long claimSeq) {
+    // call() has no transaction: each store REQUIRED call starts a fresh transaction.
+    for (int attempt = 1; ; attempt++) {
+      try {
+        return resourcePermitService.tryAcquire(
+            resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId());
+      } catch (RatchetTransientStoreException failure) {
+        if (attempt == PERMIT_ACQUIRE_TRIES) {
+          throw failure;
+        }
+        try {
+          Thread.sleep(
+              ThreadLocalRandom.current()
+                  .nextInt(PERMIT_BACKOFF_MIN_MS, PERMIT_BACKOFF_MAX_MS + 1));
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw failure;
+        }
+      }
+    }
+  }
+
   private boolean tryAcquireResourcePermit() {
     String resourceName = job.getResourceName();
     if (resourceName == null) {
@@ -895,25 +924,59 @@ public class JobTask implements Callable<Void> {
     }
 
     try {
-      boolean acquired =
-          resourcePermitService.tryAcquire(resourceName, job.getId(), nodeIdProvider.getNodeId());
-
-      if (!acquired) {
-        return rescheduleForResource(resourceName, false);
+      long claimSeq = expectedClaimSeq();
+      AcquireResult result;
+      try {
+        result = acquireResourcePermit(resourceName, claimSeq);
+      } catch (RatchetTransientStoreException e) {
+        // An interrupted backoff keeps the existing failure path; only exhausted tries reschedule.
+        if (Thread.currentThread().isInterrupted()) {
+          throw e;
+        }
+        int retryDelay = resourcePermitService.getRetryDelay(resourceName);
+        if (!jobStore.scheduleJobRetry(
+            job.getId(),
+            "Permit check failed transiently for resource: " + resourceName,
+            effective().instant().plusMillis(retryDelay),
+            job.getAttempts(),
+            claimSeq)) {
+          warnRejectedOwnerWrite();
+        }
+        log.warnf(
+            e,
+            "Permit check failed transiently for job %s, resource '%s'",
+            job.getId(),
+            resourceName);
+        return false;
       }
 
-      permitAcquired = true;
-      log.infof("Job %s acquired permit for resource '%s'", job.getId(), resourceName);
-      return true;
+      if (result == AcquireResult.ACQUIRED) {
+        permitAcquired = true;
+        log.infof("Job %s acquired permit for resource '%s'", job.getId(), resourceName);
+        return true;
+      }
 
-    } catch (RatchetTransientStoreException e) {
-      // tryAcquire runs outside our transaction, so its store transaction has already rolled back.
-      log.warnf(
-          e,
-          "Permit check failed transiently for job %s, resource '%s'",
+      if (result == AcquireResult.AT_CAPACITY) {
+        log.debugf("Job %s parked waiting for resource '%s'", job.getId(), resourceName);
+        return false;
+      }
+      // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
+      // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
+      int retryDelay = resourcePermitService.getRetryDelay(resourceName);
+      if (!jobStore.scheduleJobRetry(
           job.getId(),
-          resourceName);
-      return rescheduleForResource(resourceName, true);
+          "Waiting for resource: " + resourceName,
+          effective().instant().plusMillis(retryDelay),
+          job.getAttempts(),
+          claimSeq)) {
+        warnRejectedOwnerWrite();
+        return false;
+      }
+
+      log.warnf(
+          "Store reported job %s claim %s superseded but its reschedule succeeded",
+          job.getId(), claimSeq);
+      return false;
     } catch (IllegalArgumentException e) {
       log.errorf(e, "Job %s references unconfigured resource: %s", job.getId(), resourceName);
       handleFailure(e);
@@ -921,45 +984,11 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private boolean rescheduleForResource(String resourceName, boolean transientFailure) {
-    int retryDelay = resourcePermitService.getRetryDelay(resourceName);
-    Instant newScheduledTime = effective().instant().plusMillis(retryDelay);
-
-    if (currentExecution != null) {
-      ResourceCapacityException capacityFailure =
-          new ResourceCapacityException(
-              transientFailure
-                  ? "Resource '" + resourceName + "' permit check failed transiently - rescheduling"
-                  : "Resource '" + resourceName + "' at capacity - rescheduling");
-      currentExecution.markFailed(
-          capacityFailure.getClass().getName(), sanitizeError(capacityFailure));
-      observabilityFacade.saveExecution(currentExecution);
-    }
-
-    if (!jobStore.scheduleJobRetry(
-        job.getId(),
-        transientFailure
-            ? "Permit check failed transiently for resource: " + resourceName
-            : "Waiting for resource: " + resourceName,
-        newScheduledTime,
-        job.getAttempts(),
-        expectedClaimSeq())) {
-      warnRejectedOwnerWrite();
-      return false;
-    }
-
-    log.infof(
-        "Job %s waiting for resource '%s' - rescheduled for %sms",
-        job.getId(), resourceName, retryDelay);
-
-    return false;
-  }
-
   private void releaseResourcePermit() {
     String resourceName = job.getResourceName();
     if (resourceName != null) {
       try {
-        resourcePermitService.release(resourceName, job.getId());
+        resourcePermitService.release(resourceName, job.getId(), expectedClaimSeq());
         log.infof("Job %s released permit for resource '%s'", job.getId(), resourceName);
       } catch (Exception e) {
         log.warnf(e, "Permit release error for job %s", job.getId());
@@ -968,9 +997,9 @@ public class JobTask implements Callable<Void> {
   }
 
   /**
-   * Reschedules a job when the circuit breaker is open, without counting it as a retry attempt.
-   * Uses the same pattern as resource permit unavailability — the job goes back to PENDING with a
-   * delay matching the circuit breaker's typical OPEN-to-HALF_OPEN transition window.
+   * Reschedules a job when the circuit breaker is open, without counting it as a retry attempt. The
+   * job goes back to PENDING with a delay matching the circuit breaker's typical OPEN-to-HALF_OPEN
+   * transition window.
    */
   private void rescheduleForCircuitBreaker(JobEntity jobEntity, String serviceName) {
     rescheduleForCircuitBreaker(
@@ -1869,15 +1898,6 @@ public class JobTask implements Callable<Void> {
       throw new IllegalStateException("JobTask clock was not initialized");
     }
     return clock;
-  }
-
-  private static class ResourceCapacityException extends RuntimeException {
-
-    @Serial private static final long serialVersionUID = 2983760024642099243L;
-
-    ResourceCapacityException(String message) {
-      super(message);
-    }
   }
 
   private String sanitizeError(Throwable failure) {

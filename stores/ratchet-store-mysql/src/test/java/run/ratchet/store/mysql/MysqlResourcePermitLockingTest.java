@@ -40,6 +40,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 class MysqlResourcePermitLockingTest {
   private final MysqlTestFixture fixture = new MysqlTestFixture();
@@ -81,6 +83,15 @@ class MysqlResourcePermitLockingTest {
               store.create(fixture.newPendingJob()).getId());
       store.configureResource("r-a", 3, 100, "test");
       store.configureResource("r-b", 3, 100, "test");
+      em.flush();
+      for (UUID id : ids) {
+        em.createNativeQuery(
+                """
+                UPDATE scheduler_job_queue SET status = 'RUNNING', claim_seq = 7 WHERE job_id = ?
+                """)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
+      }
       em.getTransaction().commit();
       return ids;
     } finally {
@@ -102,15 +113,15 @@ class MysqlResourcePermitLockingTest {
     try {
       var first = workers.submit(() -> acquireAfterBothRead("r-a", ids.get(0), readers));
       var second = workers.submit(() -> acquireAfterBothRead("r-b", ids.get(1), readers));
-      assertTrue(first.get(10, TimeUnit.SECONDS));
-      assertTrue(second.get(10, TimeUnit.SECONDS));
+      assertEquals(AcquireResult.ACQUIRED, first.get(10, TimeUnit.SECONDS));
+      assertEquals(AcquireResult.ACQUIRED, second.get(10, TimeUnit.SECONDS));
     } finally {
       workers.shutdownNow();
       assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
     }
   }
 
-  private boolean acquireAfterBothRead(String resource, UUID id, CountDownLatch readers) {
+  private AcquireResult acquireAfterBothRead(String resource, UUID id, CountDownLatch readers) {
     var em = emf.createEntityManager();
     try {
       begin(em);
@@ -118,15 +129,15 @@ class MysqlResourcePermitLockingTest {
       var observed =
           observe(
               em,
-              sql -> sql.contains("SELECT job_id FROM scheduler_resource_permit"),
+              sql -> sql.contains("SELECT id FROM scheduler_resource_permit"),
               () -> {
                 readers.countDown();
                 await(readers);
               },
               true);
-      boolean acquired =
+      AcquireResult acquired =
           new MysqlAuxiliaryOperations(new MysqlStoreContext(observed, null))
-              .tryAcquirePermit(resource, id, "live");
+              .tryAcquirePermit(resource, id, 7L, "live");
       em.getTransaction().commit();
       return acquired;
     } finally {
@@ -141,7 +152,8 @@ class MysqlResourcePermitLockingTest {
     var seed = emf.createEntityManager();
     try {
       begin(seed);
-      assertTrue(store(seed).tryAcquirePermit("r-a", ids.get(0), "stale"));
+      assertEquals(
+          AcquireResult.ACQUIRED, store(seed).tryAcquirePermit("r-a", ids.get(0), 7L, "stale"));
       seed.getTransaction().commit();
     } finally {
       if (seed.getTransaction().isActive()) seed.getTransaction().rollback();
@@ -152,7 +164,8 @@ class MysqlResourcePermitLockingTest {
     var locking = new CountDownLatch(1);
     try {
       begin(holder);
-      assertTrue(store(holder).tryAcquirePermit("r-a", ids.get(1), "live"));
+      assertEquals(
+          AcquireResult.ACQUIRED, store(holder).tryAcquirePermit("r-a", ids.get(1), 7L, "live"));
       var cleanup =
           workers.submit(
               () -> {
@@ -203,11 +216,14 @@ class MysqlResourcePermitLockingTest {
     var workers = Executors.newSingleThreadExecutor();
     try {
       begin(holder);
-      assertTrue(store(holder).tryAcquirePermit("r-a", ids.get(0), "old"));
+      assertEquals(
+          AcquireResult.ACQUIRED, store(holder).tryAcquirePermit("r-a", ids.get(0), 7L, "old"));
       holder.getTransaction().commit();
       begin(holder);
       if (deleteFirst) assertEquals(1, store(holder).deleteJobsByIds(List.of(ids.get(0))));
-      else assertTrue(store(holder).tryAcquirePermit("r-a", ids.get(1), "live"));
+      else
+        assertEquals(
+            AcquireResult.ACQUIRED, store(holder).tryAcquirePermit("r-a", ids.get(1), 7L, "live"));
       var started = new CountDownLatch(1);
       var other =
           workers.submit(
@@ -217,7 +233,9 @@ class MysqlResourcePermitLockingTest {
                   begin(em);
                   started.countDown();
                   if (deleteFirst)
-                    assertTrue(store(em).tryAcquirePermit("r-a", ids.get(1), "live"));
+                    assertEquals(
+                        AcquireResult.ACQUIRED,
+                        store(em).tryAcquirePermit("r-a", ids.get(1), 7L, "live"));
                   else assertEquals(1, store(em).deleteJobsByIds(List.of(ids.get(0))));
                   em.getTransaction().commit();
                   return true;

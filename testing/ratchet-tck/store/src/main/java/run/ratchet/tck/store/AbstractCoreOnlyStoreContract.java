@@ -19,7 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -111,7 +110,8 @@ public abstract class AbstractCoreOnlyStoreContract {
     job.setPickedAt(Instant.now().minusSeconds(45));
     fixture.store().save(job);
 
-    int reset = fixture.store().resetOrphanJobs(Duration.ofSeconds(15), 3, 100).reset();
+    int reset =
+        fixture.store().resetOrphanJobsBefore(Instant.now().minusSeconds(15), 3, 500).reset();
 
     assertTrue(reset >= 1, "a job picked 45s ago with a 15s grace should be reclaimed");
     assertEquals(

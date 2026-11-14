@@ -52,6 +52,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 /** Real claim transactions must not fence concurrent enqueue at MySQL's default isolation. */
 class MysqlRepeatableReadClaimTest {
@@ -205,15 +206,25 @@ class MysqlRepeatableReadClaimTest {
   void firstReadAfterEarlierAcquireCannotExceedResourceCapacity() {
     var permits = fixture.store().capability(ResourcePermitStore.class).orElseThrow();
     permits.configureResource("capacity-one", 1, 100, "test");
-    var winner = fixture.store().create(fixture.newPendingJob()).getId();
-    var loser = fixture.store().create(fixture.newPendingJob()).getId();
+    var winnerJob = fixture.newPendingJob();
+    winnerJob.setResourceName("capacity-one");
+    var winner = fixture.store().create(winnerJob).getId();
+    var loserJob = fixture.newPendingJob();
+    loserJob.setResourceName("capacity-one");
+    var loser = fixture.store().create(loserJob).getId();
+    fixture.store().claimNextBatch(2, "node-1");
+    long winnerClaim = fixture.store().findById(winner).orElseThrow().getClaimSeq();
+    long loserClaim = fixture.store().findById(loser).orElseThrow().getClaimSeq();
     var em = emf.createEntityManager();
     try {
       var store = store(em);
       em.getTransaction().begin();
-      assertTrue(permits.tryAcquirePermit("capacity-one", winner, "other-node"));
-      assertFalse(
-          store.tryAcquirePermit("capacity-one", loser, "stale-node"),
+      assertEquals(
+          AcquireResult.ACQUIRED,
+          permits.tryAcquirePermit("capacity-one", winner, winnerClaim, "other-node"));
+      assertEquals(
+          AcquireResult.AT_CAPACITY,
+          store.tryAcquirePermit("capacity-one", loser, loserClaim, "stale-node"),
           "The first consistent read after the limit lock must see the committed permit");
     } finally {
       if (em.getTransaction().isActive()) em.getTransaction().rollback();

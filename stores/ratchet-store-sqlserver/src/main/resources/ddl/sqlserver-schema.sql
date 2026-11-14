@@ -547,3 +547,17 @@ CREATE TABLE scheduler_partition (
 CREATE INDEX idx_partition_child ON scheduler_partition (child_job_id);
 
 CREATE INDEX idx_batch_partition_set ON scheduler_batch (partition_set_id);
+
+-- Resource waiters deliberately have no foreign key: preserve park/terminal lock order.
+CREATE TABLE scheduler_resource_waiter
+(
+    job_id        BINARY(16) NOT NULL,
+    resource_name VARCHAR(100) NOT NULL,
+    priority      INT NOT NULL,
+    wait_since    DATETIME2(6) NOT NULL,
+    lease_until   DATETIME2(6) NOT NULL,
+    CONSTRAINT pk_scheduler_resource_waiter PRIMARY KEY (job_id)
+);
+
+CREATE INDEX idx_resource_waiter_order ON scheduler_resource_waiter
+    (resource_name, priority DESC, wait_since ASC, job_id ASC);
