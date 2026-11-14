@@ -79,6 +79,11 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     return false;
   }
 
+  /** Whether an acquire's resource lock also holds every other resource until it commits. */
+  protected boolean resourceLockBlocksOtherResources() {
+    return false;
+  }
+
   @BeforeEach
   @AfterEach
   void clean() {
@@ -228,6 +233,77 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     assertEquals(JobStatus.RUNNING, job.getStatus());
     assertEquals(current.get().getClaimSeq(), job.getClaimSeq());
     assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
+  }
+
+  /** Pins preservation of a newer claim's waiter when a stale acquire succeeds elsewhere. */
+  @Test
+  void staleAcquireKeepsTheWaiterANewerClaimParkedOnAnotherResource() throws Exception {
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    assumeFalse(
+        resourceLockBlocksOtherResources(),
+        "a park on res-b waits for the stale acquire to commit");
+    permits.configureResource("res-a", 1, 0, null);
+    permits.configureResource("res-b", 1, 60_000, null);
+    var holderA = claimNewJob("res-a", "holder");
+    assertEquals(ACQUIRED, acquire(permits, holderA, "holder", "res-a"));
+    var holderB = claimNewJob("res-b", "holder");
+    assertEquals(ACQUIRED, acquire(permits, holderB, "holder", "res-b"));
+    var waiter = claimNewJob("res-a", "node-a");
+    assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-a"));
+    permits.releasePermit("res-a", holderA.getId(), holderA.getClaimSeq());
+    var claims = store.claimNextBatch(1, "node-a");
+    assertEquals(1, claims.size());
+    assertEquals(waiter.getId(), claims.get(0).getId());
+    var old = claims.get(0);
+    var caller = Thread.currentThread();
+    var fired = new AtomicBoolean();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && isClaimRead(sql)
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            assertTrue(
+                                store.scheduleJobRetry(
+                                    old.getId(),
+                                    "moved",
+                                    Instant.now().minusSeconds(5),
+                                    old.getAttempts(),
+                                    old.getClaimSeq()));
+                            var moved = store.findById(old.getId()).orElseThrow();
+                            moved.setResourceName("res-b");
+                            store.save(moved);
+                            var newer = store.claimNextBatch(1, "node-b");
+                            assertEquals(1, newer.size());
+                            assertEquals(old.getId(), newer.get(0).getId());
+                            assertTrue(newer.get(0).getClaimSeq() > old.getClaimSeq());
+                            assertEquals(
+                                AT_CAPACITY, acquire(permits, newer.get(0), "node-b", "res-b"));
+                          }));
+                }
+              });
+      assertEquals(ACQUIRED, acquire(permits, old, "node-a", "res-a"));
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+    assertTrue(fired.get(), "the job moved and parked on res-b after the claim read");
+    assertEquals(
+        List.of("res-b"),
+        permits.findResourcesWithWaiters(null, 10),
+        "the stale acquire on res-a removed the waiter the newer claim wrote on res-b");
+    var stored = store.findById(old.getId()).orElseThrow();
+    assertEquals("res-b", stored.getResourceName());
+    assertEquals(JobStatus.PENDING, stored.getStatus());
   }
 
   @Test
@@ -453,6 +529,60 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
+  /** Pins removal of a newer resource's waiter when a save writes back an older resource. */
+  @Test
+  void saveThatWritesBackAnOlderResourceRemovesAWaiterOnTheNewerOne() throws Exception {
+    assumeFalse(saveLocksTheQueueRowFirst(), "save locks the job row before it reads the resource");
+    var permits = fixture().resourcePermitStore();
+    var store = fixture().store();
+    permits.configureResource("res-a", 1, 60_000, null);
+    permits.configureResource("res-b", 1, 60_000, null);
+    var holderB = claimNewJob("res-b", "holder");
+    assertEquals(ACQUIRED, acquire(permits, holderB, "holder", "res-b"));
+    var job = fixture().newPendingJob();
+    job.setResourceName("res-a");
+    var created = store.create(job);
+    var stale = store.findById(created.getId()).orElseThrow();
+    var caller = Thread.currentThread();
+    var fired = new AtomicBoolean();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.contains("SELECT Q.STATUS, Q.SCHEDULED_TIME, Q.ATTEMPTS")
+                    && fired.compareAndSet(false, true)) {
+                  awaitFuture(
+                      executor.submit(
+                          () -> {
+                            var moved = store.findById(created.getId()).orElseThrow();
+                            moved.setResourceName("res-b");
+                            store.save(moved);
+                            var claims = store.claimNextBatch(1, "node-b");
+                            assertEquals(1, claims.size());
+                            assertEquals(created.getId(), claims.get(0).getId());
+                            assertEquals(
+                                AT_CAPACITY, acquire(permits, claims.get(0), "node-b", "res-b"));
+                          }));
+                }
+              });
+      store.save(stale);
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+    assertTrue(fired.get(), "the job moved and parked on res-b after the save read it");
+    assertEquals("res-a", store.findById(created.getId()).orElseThrow().getResourceName());
+    assertTrue(
+        permits.findResourcesWithWaiters(null, 10).isEmpty(),
+        "a waiter on res-b stayed after the save moved the job back to res-a");
+  }
+
   /** Pins skipping a waiter whose job moves after wake reads its old resource line. */
   @Test
   void wakeSkipsAWaiterWhoseJobMovesToAnotherResourceAfterTheLineIsRead() throws Exception {
@@ -514,6 +644,17 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
   /** Pins waiter removal by a reschedule in a transaction with an earlier read view. */
   @Test
   void rescheduleInATransactionThatReadEarlierStillRemovesTheWaiter() throws Exception {
+    rescheduleInATransactionThatReadEarlier(false);
+  }
+
+  /** Pins waiter removal by a reschedule after an earlier save in the same transaction. */
+  @Test
+  void rescheduleAfterAnEarlierSaveInTheSameTransactionStillRemovesTheWaiter() throws Exception {
+    rescheduleInATransactionThatReadEarlier(true);
+  }
+
+  private void rescheduleInATransactionThatReadEarlier(boolean saveLastErrorFirst)
+      throws Exception {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
     permits.configureResource("res-view", 1, 60_000, null);
@@ -536,6 +677,11 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                           parked.set(store.findById(waiter.getId()).orElseThrow());
                         }));
                 var entity = parked.get();
+                if (saveLastErrorFirst) {
+                  // First save writes the queue row; the second's plain read returns our own row.
+                  entity.setLastError("checked by the operator");
+                  store.save(entity);
+                }
                 entity.setScheduledTime(userTime);
                 store.save(entity);
               });
@@ -736,6 +882,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     var reservedJob = fixture().newPendingJob();
     reservedJob.setResourceName("res-race");
     reservedJob.setTags(List.of("reserved"));
+    // A new waiter's wait_since is its due time, so this puts it ahead of every worker job.
+    reservedJob.setScheduledTime(Instant.now().minusSeconds(3600));
     var reserved = store.create(reservedJob);
     var reservedClaims =
         store.claimNextBatch(1, "reserved", new NodeTagFilter(List.of("reserved"), List.of()));
