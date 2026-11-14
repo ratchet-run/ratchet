@@ -498,11 +498,11 @@ Reads the same ledger that `submit()` checks. The stable `IdempotencyKeyLookup` 
 
 The holder contains `id()`, `retention()`, `type()` and `status()`:
 
-| Retention | Remaining data |
+| Retention | What the holder reports |
 | --- | --- |
-| `LIVE` | The live row, public type, and current status |
-| `ARCHIVED` | The archive row, public type, and terminal final status |
-| `PURGED` | Only the ledger id; type and status are null |
+| `LIVE` | The job still has a live row. `type()` is its public type and `status()` its current status. |
+| `ARCHIVED` | Only an archive row remains. `type()` is its public type and `status()` its terminal final status. |
+| `PURGED` | No row remains, only the ledger entry. `type()` and `status()` are null. |
 
 `PURGED` also covers a deleted job on a store without archive support. In every state, a resubmit under the same key returns the original id and runs nothing. `findJobs` with `JobFilter.idempotencyKey` searches live jobs only.
 

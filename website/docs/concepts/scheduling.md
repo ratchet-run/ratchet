@@ -180,7 +180,7 @@ scheduler.enqueue(() -> processWebhook(payload))
     .submit();
 ```
 
-The ledger keeps idempotency keys after archive and purge. Use [`findIdempotencyKeyHolder`](../api-reference/job-scheduler-service#idempotency-key-lookup) to read the retained job or the spent key's original id.
+The ledger keeps idempotency keys after archive and purge. Use [`findIdempotencyKeyHolder`](../api-reference/job-scheduler-service#idempotency-key-lookup) to read a spent key's original job id and whether that job is live, archived or purged. While a row remains, it also reports the job's type and status.
 
 The idempotency key is enforced by a UNIQUE constraint in the database. Submitting a duplicate key returns the original job's handle. If a racing insert throws `DuplicateIdempotencyKeyException`, retry in a fresh transaction to get that handle.
 
