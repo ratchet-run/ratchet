@@ -67,6 +67,7 @@ class MysqlTransientExceptionTranslationTest {
     AtomicInteger statements = new AtomicInteger();
     AtomicInteger coldUpdates = new AtomicInteger();
     AtomicInteger versionBindings = new AtomicInteger();
+    AtomicInteger resourceBindings = new AtomicInteger();
     EntityManager em =
         (EntityManager)
             Proxy.newProxyInstance(
@@ -78,13 +79,15 @@ class MysqlTransientExceptionTranslationTest {
                   }
                   int statement = statements.getAndIncrement();
                   String sql = (String) args[0];
-                  if (statement == 1) {
-                    assertTrue(sql.contains("WHERE job_id = ? AND status = ? AND version = ?"));
+                  if (statement == 0) {
+                    assertTrue(sql.contains("SELECT job_id FROM scheduler_job_queue"));
                   } else if (statement == 2) {
+                    assertTrue(sql.contains("WHERE job_id = ? AND status = ? AND version = ?"));
+                  } else if (statement == 3) {
                     assertTrue(sql.contains("UPDATE scheduler_job"));
                     assertTrue(sql.contains("SET params = "));
                   } else {
-                    assertEquals(0, statement);
+                    assertEquals(1, statement);
                   }
                   return Proxy.newProxyInstance(
                       Query.class.getClassLoader(),
@@ -92,19 +95,26 @@ class MysqlTransientExceptionTranslationTest {
                       (query, queryMethod, parameters) -> {
                         switch (queryMethod.getName()) {
                           case "setParameter":
-                            if (statement == 1 && Integer.valueOf(4).equals(parameters[0])) {
+                            if (statement == 2 && Integer.valueOf(4).equals(parameters[0])) {
                               assertEquals(7, parameters[1]);
                               versionBindings.incrementAndGet();
                             }
+                            if (statement == 3 && Integer.valueOf(6).equals(parameters[0])) {
+                              assertEquals("changed-resource", parameters[1]);
+                              resourceBindings.incrementAndGet();
+                            }
                             return query;
                           case "getResultList":
-                            assertEquals(0, statement);
+                            if (statement == 0) {
+                              return List.of(JOB_ID);
+                            }
+                            assertEquals(1, statement);
                             return Collections.singletonList(snapshot);
                           case "executeUpdate":
-                            if (statement == 1) {
+                            if (statement == 2) {
                               return hotUpdateCount;
                             }
-                            assertEquals(2, statement);
+                            assertEquals(3, statement);
                             coldUpdates.incrementAndGet();
                             return 1;
                           default:
@@ -119,12 +129,13 @@ class MysqlTransientExceptionTranslationTest {
     if (hotUpdateCount == 0) {
       var failure = assertThrows(RatchetOptimisticLockException.class, () -> writes.save(job));
       assertEquals("Concurrent modification on job " + JOB_ID, failure.getMessage());
-      assertEquals(2, statements.get());
+      assertEquals(3, statements.get());
       assertEquals(0, coldUpdates.get());
     } else {
       writes.save(job);
-      assertEquals(3, statements.get());
+      assertEquals(4, statements.get());
       assertEquals(1, coldUpdates.get());
+      assertEquals(1, resourceBindings.get());
       assertEquals(4, job.getRowVersion());
     }
     assertEquals(1, versionBindings.get());
@@ -133,7 +144,8 @@ class MysqlTransientExceptionTranslationTest {
 
   @Test
   void saveTranslatesSnapshotDeadlock() {
-    var writes = writeOperations(entityManager(queryThrowingOnResults()));
+    var writes =
+        writeOperations(entityManager(queryReturning(List.of(JOB_ID)), queryThrowingOnResults()));
 
     assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
   }
@@ -144,7 +156,9 @@ class MysqlTransientExceptionTranslationTest {
     var writes =
         writeOperations(
             entityManager(
-                queryReturning(Collections.singletonList(snapshot)), queryThrowingOnExecute()));
+                queryReturning(List.of(JOB_ID)),
+                queryReturning(Collections.singletonList(snapshot)),
+                queryThrowingOnExecute()));
 
     assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
   }
@@ -170,7 +184,8 @@ class MysqlTransientExceptionTranslationTest {
 
   @Test
   void saveMissingJobLeavesIllegalStateExceptionUnchanged() {
-    var writes = writeOperations(entityManager(queryReturning(List.of())));
+    var writes =
+        writeOperations(entityManager(queryReturning(List.of()), queryReturning(List.of())));
 
     assertThrows(IllegalStateException.class, () -> writes.save(existingJob()));
   }

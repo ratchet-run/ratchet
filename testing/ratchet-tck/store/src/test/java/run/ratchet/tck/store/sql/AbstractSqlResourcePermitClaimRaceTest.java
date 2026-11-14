@@ -482,6 +482,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     running.setResourceName("res-b");
     var caller = Thread.currentThread();
     var fired = new AtomicBoolean();
+    var saveStarted = new CountDownLatch(1);
     var saveReachedTheJobRow = new CountDownLatch(1);
     var saveReachedBeforeCommit = new AtomicBoolean();
     var save = new AtomicReference<Future<?>>();
@@ -491,6 +492,12 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
           .observeNativeQueries(
               (sql, event) -> {
                 String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() != caller
+                    && !event.completed()
+                    && normalized.trim().startsWith("SELECT")
+                    && normalized.contains("SCHEDULER_JOB_QUEUE")) {
+                  saveStarted.countDown();
+                }
                 if (Thread.currentThread() != caller
                     && !event.completed()
                     && event.operation().equals("executeUpdate")
@@ -504,6 +511,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                     && fired.compareAndSet(false, true)) {
                   save.set(executor.submit(() -> store.save(running)));
                   try {
+                    if (!saveStarted.await(10, TimeUnit.SECONDS)) {
+                      throw new IllegalStateException("save did not start its queue-row lock");
+                    }
                     saveReachedBeforeCommit.set(saveReachedTheJobRow.await(1, TimeUnit.SECONDS));
                   } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -514,7 +524,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
       assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-a"));
       assertTrue(fired.get());
       awaitFuture(save.get());
-      // save() locks the job row in its first read, so it cannot write while the park is open.
+      assertEquals(0, saveReachedTheJobRow.getCount());
+      // save() locks the queue row first, which the park holds, so it waits for the park to commit.
       assertFalse(saveReachedBeforeCommit.get(), "the save wrote the job row mid-park");
       assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
       assertEquals("res-b", store.findById(waiter.getId()).orElseThrow().getResourceName());
@@ -1002,8 +1013,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                       if (isConnectionFailure(failure)) {
                         connectionFailures.add(failure);
                       } else if (isLockFailure(failure)) {
-                        // A save does not translate a deadlock, so it escapes on its first attempt
-                        // with no method name. Its statement text still shows a waiter-row failure.
+                        // A lock failure can escape without a recorded method name. Its statement
+                        // text can still identify a waiter-row failure.
                         String method = lastLockFailure.get();
                         String key = method == null ? "unknown" : method;
                         var counts =

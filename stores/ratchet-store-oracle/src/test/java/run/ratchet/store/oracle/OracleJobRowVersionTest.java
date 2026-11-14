@@ -25,6 +25,7 @@ import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ class OracleJobRowVersionTest {
     job.setScheduledTime(SCHEDULED.plusSeconds(60));
     assertThrows(RatchetOptimisticLockException.class, () -> fixture.writes.save(job));
     assertEquals(0, fixture.updates.get());
-    assertEquals(1, fixture.queries.get());
+    assertEquals(2, fixture.queries.get());
     assertEquals(2, job.getRowVersion());
   }
 
@@ -54,7 +55,7 @@ class OracleJobRowVersionTest {
     job.setStatus(JobStatus.CANCELED);
     assertThrows(RatchetOptimisticLockException.class, () -> fixture.writes.save(job));
     assertEquals(0, fixture.updates.get());
-    assertEquals(1, fixture.queries.get());
+    assertEquals(2, fixture.queries.get());
   }
 
   @Test
@@ -66,7 +67,7 @@ class OracleJobRowVersionTest {
         "save() needs a job loaded from the store; rowVersion is null for job " + ID,
         failure.getMessage());
     assertEquals(0, fixture.updates.get());
-    assertEquals(1, fixture.queries.get());
+    assertEquals(2, fixture.queries.get());
   }
 
   @Test
@@ -129,6 +130,8 @@ class OracleJobRowVersionTest {
                     int statement = queries.getAndIncrement();
                     String sql = (String) args[0];
                     if (statement == 0) {
+                      assertTrue(sql.contains("SELECT job_id FROM scheduler_job_queue"));
+                    } else if (statement == 1) {
                       assertTrue(sql.contains("c.row_version"));
                     } else {
                       assertTrue(sql.contains("row_version = row_version + 1"));
@@ -140,12 +143,15 @@ class OracleJobRowVersionTest {
                         (query, queryMethod, parameters) -> {
                           return switch (queryMethod.getName()) {
                             case "setParameter" -> {
-                              if (statement == 1 && Integer.valueOf(8).equals(parameters[0])) {
+                              if (statement == 2 && Integer.valueOf(8).equals(parameters[0])) {
                                 assertEquals(3, parameters[1]);
                               }
                               yield query;
                             }
-                            case "getResultList" -> Collections.singletonList(snapshot);
+                            case "getResultList" ->
+                                statement == 0
+                                    ? (terminal ? List.of() : List.of(ID))
+                                    : Collections.singletonList(snapshot);
                             case "executeUpdate" -> {
                               updates.incrementAndGet();
                               yield updateCount;

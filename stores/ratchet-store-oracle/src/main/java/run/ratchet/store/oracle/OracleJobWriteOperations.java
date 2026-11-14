@@ -233,7 +233,19 @@ final class OracleJobWriteOperations {
         .executeUpdate();
   }
 
+  // Save locks the queue row before the job row, like the CAS cancel gate and job completion,
+  // so racing either operation waits instead of deadlocking.
+  private void lockQueueRow(UUID id) {
+    // language=Oracle
+    String sql =
+        """
+        SELECT job_id FROM scheduler_job_queue WHERE job_id = ? FOR UPDATE
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, UuidRawConverter.toBytes(id)).getResultList();
+  }
+
   private void saveColdUpdate(JobEntity job) {
+    lockQueueRow(job.getId());
     Object[] row = snapshotHotRow(job.getId());
     if (row == null) {
       throw new IllegalStateException("save() called on missing job id=" + job.getId());
