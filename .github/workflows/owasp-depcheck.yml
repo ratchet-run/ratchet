@@ -82,7 +82,10 @@ jobs:
             docker rm -f "$scanner_container"
             trap - EXIT
           fi
-          update_args=(--data /data --updateonly --disableRetireJs)
+          # NVD often answers 503 in bursts. The client retries each request with this delay
+          # between attempts, so space the retries out enough to outlast a burst.
+          update_args=(--data /data --updateonly --disableRetireJs
+            --nvdApiDelay 10000 --nvdMaxRetryCount 60)
           if [[ -n "${NVD_API_KEY:-}" ]]; then
             update_args+=(--nvdApiKey "$NVD_API_KEY")
           fi
