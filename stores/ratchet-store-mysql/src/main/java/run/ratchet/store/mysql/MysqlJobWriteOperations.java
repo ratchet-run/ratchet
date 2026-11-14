@@ -210,8 +210,10 @@ final class MysqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
-    // A resource change or a reschedule leaves the waiting line.
+    // A resource change or a reschedule leaves the waiting line. A park writes a waiter row only
+    // while the job names its resource, so a job stored with no resource has none to delete.
     if (row != null
+        && row[9] != null
         && (!Objects.equals(row[9], job.getResourceName())
             || (row[0] != null
                 && !Objects.equals(RowValues.instantOrNull(row[1]), job.getScheduledTime())))) {
