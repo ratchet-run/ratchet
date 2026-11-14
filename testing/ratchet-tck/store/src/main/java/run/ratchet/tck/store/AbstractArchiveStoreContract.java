@@ -98,22 +98,52 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void findArchivedJob_readsOriginalIdUntilPurged() {
+  void findArchivedJob_returnsNewestRowForOriginalIdUntilPurged() throws InterruptedException {
     var archives = archiveStore();
     assertTrue(archives.findArchivedJob(UUID.randomUUID()).isEmpty());
-    var job = persist(newPendingJob());
-    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store()
-        .markJobSucceeded(
-            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
-    var completed = store().findById(job.getId()).orElseThrow();
-    archives.archiveAndDeleteJobsBatch(List.of(completed), "lookup-test", "tck");
-    var archived = archives.findArchivedJob(job.getId()).orElseThrow();
-    assertEquals(job.getId(), archived.getOriginalJobId());
-    assertEquals(completed.getStatus(), archived.getFinalStatus());
-    assertEquals(completed.getJobType(), archived.getJobType());
-    assertEquals(1, archives.purgeArchivedJobs(archived.getArchivedAt().plusSeconds(1)));
-    assertTrue(archives.findArchivedJob(job.getId()).isEmpty());
+    var other = completeJob(persist(newPendingJob()));
+    var first = completeJob(persist(newPendingJob()));
+    UUID originalId = first.getId();
+
+    assertEquals(1, archives.archiveAndDeleteJobsBatch(List.of(first), "lookup-test", "tck"));
+    var older = archives.findArchivedJob(originalId).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, older.getFinalStatus());
+    waitPast(older.getArchivedAt());
+
+    // A job re-created under the same id gives that original id a second, newer archive row.
+    var again = newPendingJob();
+    again.setId(originalId);
+    var second = failJob(store().create(again));
+    assertEquals(1, archives.archiveAndDeleteJobsBatch(List.of(second), "lookup-test", "tck"));
+    var newer = archives.findArchivedJob(originalId).orElseThrow();
+    assertEquals(
+        JobStatus.FAILED,
+        newer.getFinalStatus(),
+        "findArchivedJob should return the newest archive row for the original id");
+    assertTrue(newer.getArchivedAt().isAfter(older.getArchivedAt()));
+    assertEquals(originalId, newer.getOriginalJobId());
+    assertEquals(second.getJobType(), newer.getJobType());
+    waitPast(newer.getArchivedAt());
+
+    // Another job's row is now the newest overall, so the lookup must still filter by id.
+    assertEquals(1, archives.archiveAndDeleteJobsBatch(List.of(other), "lookup-test", "tck"));
+    assertEquals(newer.getId(), archives.findArchivedJob(originalId).orElseThrow().getId());
+    var otherRow = archives.findArchivedJob(other.getId()).orElseThrow();
+    assertEquals(other.getId(), otherRow.getOriginalJobId());
+    assertTrue(
+        archives.findArchivedJob(UUID.randomUUID()).isEmpty(),
+        "an unknown original id should find nothing while archive rows exist");
+
+    assertEquals(3, archives.purgeArchivedJobs(otherRow.getArchivedAt().plusSeconds(1)));
+    assertTrue(archives.findArchivedJob(originalId).isEmpty());
+    assertTrue(archives.findArchivedJob(other.getId()).isEmpty());
+  }
+
+  /** Waits until the clock is past a stored archive timestamp by more than a millisecond. */
+  private static void waitPast(Instant archivedAt) throws InterruptedException {
+    while (!Instant.now().isAfter(archivedAt.plusMillis(1))) {
+      Thread.sleep(1);
+    }
   }
 
   @Test
