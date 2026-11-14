@@ -494,7 +494,7 @@ void inspect(String key) {
 Optional<IdempotencyKeyHolder> findIdempotencyKeyHolder(String idempotencyKey)
 ```
 
-Reads the same ledger that `submit()` checks. The stable `IdempotencyKeyLookup` interface can also be injected directly. An unused key returns empty. Null or blank keys return empty; keys are trimmed, and more than 36 characters throws `IllegalArgumentException`, matching `withIdempotencyKey`.
+Reads the same ledger that `submit()` checks. The stable `IdempotencyKeyLookup` interface can also be injected directly. An unused key returns empty. Null or blank keys return empty; keys are trimmed, and more than 36 characters or a character outside printable ASCII (`U+0020` through `U+007E`) throws `IllegalArgumentException`, matching `withIdempotencyKey`.
 
 The holder contains `id()`, `retention()`, `type()` and `status()`:
 

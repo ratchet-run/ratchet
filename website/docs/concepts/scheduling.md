@@ -195,8 +195,8 @@ scheduler.enqueue(() -> syncUser(userId))
 
 Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED, WAITING). Submitting another job with the same business key throws `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state and frees the key for reuse.
 
-For consistent behavior across stores, business keys are limited to 255 printable ASCII characters
-after trimming. Ratchet rejects longer or non-ASCII keys before persistence.
+For consistent behavior across stores, idempotency keys are limited to 36 and business keys to 255
+printable ASCII characters after trimming. Ratchet rejects longer or non-ASCII keys before persistence.
 
 | Mechanism | Scope | Lifetime | Use Case |
 |-----------|-------|----------|----------|
@@ -295,7 +295,7 @@ scheduler.enqueue(() -> paymentService.charge(paymentId))
     .submit();
 ```
 
-When a job with a resource runs, it attempts to acquire a permit from the `ResourcePermitService`. If no permits are available (resource at capacity), the job is rescheduled with a delay -- without counting as a retry attempt. This is distinct from retry logic: the job isn't failing, it's waiting for capacity.
+When a job with a resource runs, it asks the `ResourcePermitService` for a permit. If the resource is full, the job joins the resource's waiting line and is rescheduled without using a retry. This is distinct from retry logic: the job isn't failing, it's waiting for capacity. A wait is not recorded as an attempt, so it writes no execution row and publishes no `JobStartedEvent`. Waiting jobs get free permits in order of priority, then of waiting time. A released permit makes the next waiter due at once and sends a wake-up hint. Other nodes get the hint only when a `ClusterCoordinator` is configured; without one they find the job at their next poll. A waiter whose job row another transaction holds is skipped, and a wake-up that fails is left to the orphan-recovery sweep or the waiter's own re-check. See [Resource Permit](./execution-model.md#step-details) for the limits of that order.
 
 Batch builders can apply a resource to every child with `withResource`. The resource permit count caps how many children run at once without lowering pool-wide concurrency. All jobs using that resource share the same permits. The parent, progress hooks, and workflow branches do not acquire them.
 

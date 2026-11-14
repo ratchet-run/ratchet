@@ -120,10 +120,12 @@ final class MysqlJobWriteOperations {
       assignIdIfMissing(job);
     }
 
+    // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+    executeBusinessKeyBulkInsert(jobs, nowTs);
     SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
     executeColdBulkInsert(jobs, nowTs);
     executeHotBulkInsert(jobs, nowTs);
-    executeBusinessKeyBulkInsert(jobs, nowTs);
+    executeTerminalBackfills(jobs, nowTs);
 
     ctx.em().clear();
   }
@@ -237,6 +239,15 @@ final class MysqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
+    // A resource change or a reschedule leaves the waiting line. A park writes a waiter row only
+    // while the job names its resource, so a job stored with no resource has none to delete.
+    if (row != null
+        && row[9] != null
+        && (!Objects.equals(row[9], job.getResourceName())
+            || (row[0] != null
+                && !Objects.equals(RowValues.instantOrNull(row[1]), job.getScheduledTime())))) {
+      deleteWaiter(job.getId());
+    }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
@@ -374,7 +385,10 @@ final class MysqlJobWriteOperations {
 
   private void executeHotBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
     List<JobEntity> hotJobs =
-        jobs.stream().filter(job -> job.getJobType() != JobExecutionType.RECURRING).toList();
+        jobs.stream()
+            .filter(job -> job.getJobType() != JobExecutionType.RECURRING)
+            .filter(job -> !bornTerminal(job))
+            .toList();
     for (int start = 0; start < hotJobs.size(); start += MAX_BULK_INSERT_ROWS) {
       List<JobEntity> chunk =
           hotJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, hotJobs.size()));
@@ -389,8 +403,21 @@ final class MysqlJobWriteOperations {
     }
   }
 
+  private void executeTerminalBackfills(List<JobEntity> jobs, Timestamp nowTs) {
+    for (JobEntity job : jobs) {
+      if (bornTerminal(job)) {
+        executeColdTerminalBackfill(job, nowTs);
+        job.setTerminalStatus(job.getStatus());
+      }
+    }
+  }
+
   private void executeBusinessKeyBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
-    List<JobEntity> keyedJobs = jobs.stream().filter(job -> job.getBusinessKey() != null).toList();
+    List<JobEntity> keyedJobs =
+        jobs.stream()
+            .filter(job -> job.getBusinessKey() != null)
+            .filter(job -> !bornTerminal(job))
+            .toList();
     for (int start = 0; start < keyedJobs.size(); start += MAX_BULK_INSERT_ROWS) {
       List<JobEntity> chunk =
           keyedJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, keyedJobs.size()));
@@ -404,6 +431,10 @@ final class MysqlJobWriteOperations {
       }
       query.executeUpdate();
     }
+  }
+
+  private static boolean bornTerminal(JobEntity job) {
+    return job.getStatus() != null && MysqlJobRowMapper.isTerminalStatus(job.getStatus());
   }
 
   private static String repeatValues(String values, int count) {
@@ -448,6 +479,32 @@ final class MysqlJobWriteOperations {
         .setParameter(3, storedStatus)
         .executeUpdate();
     return true;
+  }
+
+  private void deleteWaiter(UUID id) {
+    // A plain read can miss a waiter parked after this transaction's read view. Deleting a missing
+    // key takes a gap lock that blocks other parks. Write the key first so the delete finds a row
+    // and both statements lock only this job's key.
+    // language=MySQL
+    String insert =
+        """
+        INSERT INTO scheduler_resource_waiter (job_id, resource_name, priority, wait_since, lease_until)
+        VALUES (?, '', 0, NOW(3), NOW(3))
+        ON DUPLICATE KEY UPDATE job_id = job_id
+        """;
+    ctx.em()
+        .createNativeQuery(insert)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
+    // language=MySQL
+    String delete =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(delete)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -550,7 +607,7 @@ final class MysqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
+               c.terminal_status, c.resource_name
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?

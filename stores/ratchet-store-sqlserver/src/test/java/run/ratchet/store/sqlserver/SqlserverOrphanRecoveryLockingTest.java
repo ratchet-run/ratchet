@@ -105,7 +105,7 @@ class SqlserverOrphanRecoveryLockingTest {
 
       var scanStore = store(scan);
       scan.getTransaction().begin();
-      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 500);
       assertEquals(1, recovery.reset());
 
       var heartbeatStore = store(heartbeat);
@@ -137,11 +137,11 @@ class SqlserverOrphanRecoveryLockingTest {
   }
 
   @Test
-  void periodicScanRecoversOrphansAcrossPages() {
+  void periodicScanRecoversOrphansPageByPage() {
     fixture.cleanupStore();
     emf = newFactory();
     Instant cutoff = Instant.now().minusSeconds(60);
-    int count = SqlserverJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE + 1;
+    int count = 501;
     var seed = emf.createEntityManager();
     var scan = emf.createEntityManager();
     try {
@@ -153,22 +153,36 @@ class SqlserverOrphanRecoveryLockingTest {
       }
       seed.getTransaction().commit();
 
+      // Each page commits on its own, and another session sees its result before the next page.
       var scanStore = store(scan);
       scan.getTransaction().begin();
-      assertEquals(count, scanStore.resetOrphanJobsBefore(cutoff, 3, 100).reset());
-      assertEquals(
-          0,
-          ((Number)
-                  scan.createNativeQuery(
-                          """
-                          SELECT COUNT(*) FROM scheduler_job_queue
-                          WHERE picked_by = 'dead' AND status = 'RUNNING'
-                          """)
-                      .getSingleResult())
-              .intValue());
+      assertEquals(500, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
       scan.getTransaction().commit();
+      assertEquals(count - 500, runningCount(seed, "dead"));
+
+      scan.getTransaction().begin();
+      assertEquals(count - 500, scanStore.resetOrphanJobsBefore(cutoff, 3, 500).reset());
+      scan.getTransaction().commit();
+      assertEquals(0, runningCount(seed, "dead"));
     } finally {
       closeSessions(List.of(scan, seed));
+    }
+  }
+
+  private static int runningCount(EntityManager em, String owner) {
+    em.getTransaction().begin();
+    try {
+      return ((Number)
+              em.createNativeQuery(
+                      """
+                      SELECT COUNT(*) FROM scheduler_job_queue
+                      WHERE picked_by = ? AND status = 'RUNNING'
+                      """)
+                  .setParameter(1, owner)
+                  .getSingleResult())
+          .intValue();
+    } finally {
+      em.getTransaction().commit();
     }
   }
 
@@ -214,8 +228,8 @@ class SqlserverOrphanRecoveryLockingTest {
       // Before this fix the scan waited on the locked healthy row until the lock timeout.
       var recovery =
           startup
-              ? scanStore.resetOrphanJobsForNode("dead", 3, 100)
-              : scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+              ? scanStore.resetOrphanJobsForNode("dead", 3, 500)
+              : scanStore.resetOrphanJobsBefore(cutoff, 3, 500);
       assertEquals(1, recovery.reset());
       scan.getTransaction().commit();
       if (exclusive) holder.getTransaction().rollback();

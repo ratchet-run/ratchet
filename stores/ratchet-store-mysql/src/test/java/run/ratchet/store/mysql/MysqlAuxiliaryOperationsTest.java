@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -22,12 +23,22 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.ResourceLimitEntity;
+import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 class MysqlAuxiliaryOperationsTest {
 
@@ -35,9 +46,19 @@ class MysqlAuxiliaryOperationsTest {
   void tryAcquirePermit_sameJobExistingPermitIsIdempotent() {
     UUID jobId = UUID.fromString("01900000-0000-7000-8000-000000000001");
     MysqlAuxiliaryOperations operations =
-        new MysqlAuxiliaryOperations(entityManagerWithExistingPermit(jobId));
+        new MysqlAuxiliaryOperations(entityManagerWithExistingPermit(jobId, 0L));
 
-    assertTrue(operations.tryAcquirePermit("res", jobId, "node-1"));
+    assertEquals(AcquireResult.ACQUIRED, operations.tryAcquirePermit("res", jobId, 0L, "node-1"));
+  }
+
+  @Test
+  void tryAcquirePermit_olderClaimCountsAgainstCapacity() {
+    UUID jobId = UUID.fromString("01900000-0000-7000-8000-000000000001");
+    MysqlAuxiliaryOperations operations =
+        new MysqlAuxiliaryOperations(entityManagerWithExistingPermit(jobId, 1L));
+
+    assertEquals(
+        AcquireResult.AT_CAPACITY, operations.tryAcquirePermit("res", jobId, 1L, "node-1"));
   }
 
   @Test
@@ -47,6 +68,170 @@ class MysqlAuxiliaryOperationsTest {
 
     assertEquals(
         ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS, operations.getPermitRetryDelay("missing"));
+  }
+
+  @Test
+  void wakeWithoutLiveWaitersStopsBeforePermitCount() {
+    var sequence = new NativeSequence(List.<Object[]>of(new Object[] {2, 1000}), List.of());
+    assertTrue(sequence.operations().wakeWaiters("res").isEmpty());
+    assertEquals(2, sequence.sql.size());
+    sequence.assertConsumed();
+  }
+
+  @Test
+  void runningHeadDoesNotLockQueueRows() {
+    var sequence =
+        new NativeSequence(
+            List.<Object[]>of(new Object[] {1, 1000}),
+            List.<Object[]>of(new Object[] {UUID.randomUUID(), "RUNNING", 2, null, DUE, DUE}),
+            0);
+    assertTrue(sequence.operations().wakeWaiters("res").isEmpty());
+    assertEquals(3, sequence.sql.size());
+    assertTrue(sequence.sql.get(2).contains("SELECT COUNT(*)"));
+    assertTrue(!sequence.sql.get(2).contains("FOR UPDATE"));
+    sequence.assertConsumed();
+  }
+
+  @Test
+  void wakeUpdatesOnlyTheHeadReturnedBySkipLocked() {
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    byte[] firstBytes = UuidByteArrayConverter.toBytes(first);
+    byte[] secondBytes = UuidByteArrayConverter.toBytes(second);
+    var sequence =
+        new NativeSequence(
+            List.<Object[]>of(new Object[] {2, 1000}),
+            List.of(
+                new Object[] {firstBytes, "PENDING", 4, "target", DUE, DUE},
+                new Object[] {secondBytes, "PENDING", 3, null, DUE, DUE}),
+            0,
+            List.<Object[]>of(new Object[] {secondBytes, DUE, "res"}),
+            1);
+    var result = sequence.operations().wakeWaiters("res");
+    assertEquals(List.of(second), result.stream().map(w -> w.jobId()).toList());
+    assertEquals(5, sequence.sql.size());
+    assertTrue(
+        sequence.sql.get(3).contains("IN (?, ?) AND q.status = 'PENDING' FOR UPDATE SKIP LOCKED"));
+    assertTrue(Arrays.equals(firstBytes, (byte[]) sequence.parameters.get(3).get(1)));
+    assertTrue(Arrays.equals(secondBytes, (byte[]) sequence.parameters.get(3).get(2)));
+    assertTrue(Arrays.equals(secondBytes, (byte[]) sequence.parameters.get(4).get(2)));
+    sequence.assertConsumed();
+  }
+
+  @Test
+  void wakeReturnsUpdatedHeadsInWaiterOrder() {
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    var sequence =
+        new NativeSequence(
+            List.<Object[]>of(new Object[] {2, 1000}),
+            List.of(
+                new Object[] {first, "PENDING", 4, "target", DUE, DUE},
+                new Object[] {second, "PENDING", 3, null, DUE, DUE}),
+            0,
+            List.<Object[]>of(new Object[] {second, DUE, "res"}, new Object[] {first, DUE, "res"}),
+            1,
+            1);
+    assertEquals(
+        List.of(first, second),
+        sequence.operations().wakeWaiters("res").stream().map(w -> w.jobId()).toList());
+    assertEquals(6, sequence.sql.size());
+    sequence.assertConsumed();
+  }
+
+  @Test
+  void parkWithoutCurrentResourceWritesNoWaiter() {
+    for (List<String> resources : List.of(List.of("other"), List.<String>of())) {
+      var sequence =
+          new NativeSequence(
+              List.<Object[]>of(new Object[] {1, 1000}),
+              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null}),
+              List.of(UUID.randomUUID()),
+              List.of(),
+              1,
+              resources);
+      assertEquals(
+          AcquireResult.AT_CAPACITY,
+          sequence.operations().tryAcquirePermit("res", UUID.randomUUID(), 7L, "node"));
+      assertTrue(
+          sequence.sql.stream()
+              .noneMatch(
+                  sql ->
+                      sql.startsWith("INSERT INTO scheduler_resource_waiter")
+                          || sql.startsWith("UPDATE scheduler_resource_waiter")));
+      sequence.assertConsumed();
+    }
+  }
+
+  @Test
+  void successfulAcquireDeletesOnlyItsResourceWaiter() {
+    UUID jobId = UUID.randomUUID();
+    var sequence =
+        new NativeSequence(
+            List.<Object[]>of(new Object[] {1, 1000}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res"}),
+            List.of(),
+            List.of(),
+            1);
+    assertEquals(
+        AcquireResult.ACQUIRED, sequence.operations().tryAcquirePermit("res", jobId, 7L, "node"));
+    assertEquals(5, sequence.sql.size());
+    assertEquals(
+        "DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name = ?",
+        sequence.sql.get(4).strip());
+    assertArrayEquals(
+        UuidByteArrayConverter.toBytes(jobId), (byte[]) sequence.parameters.get(4).get(1));
+    assertEquals("res", sequence.parameters.get(4).get(2));
+    assertEquals(2, sequence.parameters.get(4).size());
+    sequence.assertConsumed();
+  }
+
+  private static final Timestamp DUE = Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"));
+
+  private static final class NativeSequence {
+    private final Deque<Object> replies = new ArrayDeque<>();
+    private final List<String> sql = new ArrayList<>();
+    private final List<Map<Integer, Object>> parameters = new ArrayList<>();
+
+    NativeSequence(Object... replies) {
+      this.replies.addAll(Arrays.asList(replies));
+    }
+
+    MysqlAuxiliaryOperations operations() {
+      EntityManager em =
+          (EntityManager)
+              Proxy.newProxyInstance(
+                  EntityManager.class.getClassLoader(),
+                  new Class<?>[] {EntityManager.class},
+                  (proxy, method, args) -> {
+                    if ("persist".equals(method.getName())) return null;
+                    if (!"createNativeQuery".equals(method.getName())) {
+                      throw new UnsupportedOperationException(method.getName());
+                    }
+                    sql.add((String) args[0]);
+                    Map<Integer, Object> binds = new HashMap<>();
+                    parameters.add(binds);
+                    return Proxy.newProxyInstance(
+                        Query.class.getClassLoader(),
+                        new Class<?>[] {Query.class},
+                        (query, operation, values) ->
+                            switch (operation.getName()) {
+                              case "setParameter" -> {
+                                binds.put((Integer) values[0], values[1]);
+                                yield query;
+                              }
+                              case "getResultList", "getSingleResult", "executeUpdate" ->
+                                  replies.removeFirst();
+                              default ->
+                                  throw new UnsupportedOperationException(operation.getName());
+                            });
+                  });
+      return new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+    }
+
+    void assertConsumed() {
+      assertTrue(replies.isEmpty());
+    }
   }
 
   private static EntityManager entityManagerWithNoResult() {
@@ -74,7 +259,8 @@ class MysqlAuxiliaryOperationsTest {
             });
   }
 
-  private static MysqlStoreContext entityManagerWithExistingPermit(UUID expectedJobId) {
+  private static MysqlStoreContext entityManagerWithExistingPermit(
+      UUID expectedJobId, long claimSeq) {
     EntityManager em =
         (EntityManager)
             Proxy.newProxyInstance(
@@ -83,8 +269,7 @@ class MysqlAuxiliaryOperationsTest {
                 (proxy, method, args) -> {
                   return switch (method.getName()) {
                     case "createNativeQuery" ->
-                        queryReturningExistingPermit(
-                            expectedJobId, ((String) args[0]).contains("max_concurrent"));
+                        queryReturningExistingPermit(expectedJobId, claimSeq, (String) args[0]);
                     case "persist" ->
                         throw new AssertionError("existing permit must not insert another row");
                     default -> throw new UnsupportedOperationException(method.getName());
@@ -93,7 +278,7 @@ class MysqlAuxiliaryOperationsTest {
     return new MysqlStoreContext(em, null);
   }
 
-  private static Query queryReturningExistingPermit(UUID expectedJobId, boolean limit) {
+  private static Query queryReturningExistingPermit(UUID expectedJobId, long claimSeq, String sql) {
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
@@ -101,10 +286,28 @@ class MysqlAuxiliaryOperationsTest {
             (proxy, method, args) -> {
               return switch (method.getName()) {
                 case "setParameter" -> proxy;
+                case "executeUpdate" -> 1;
                 case "getResultList" ->
-                    limit
-                        ? List.of(2)
-                        : Collections.singletonList(UuidByteArrayConverter.toBytes(expectedJobId));
+                    sql.contains("SELECT status FROM scheduler_job_queue")
+                        ? List.of()
+                        : sql.contains("scheduler_job_queue")
+                            ? Collections.singletonList(
+                                new Object[] {
+                                  "RUNNING",
+                                  claimSeq,
+                                  2,
+                                  Timestamp.from(Instant.now()),
+                                  null,
+                                  null,
+                                  null
+                                })
+                            : sql.startsWith("SELECT resource_name FROM scheduler_job")
+                                ? List.of("res")
+                                : sql.contains("max_concurrent")
+                                    ? Collections.singletonList(new Object[] {1, 1000})
+                                    : Collections.singletonList(
+                                        UuidByteArrayConverter.toBytes(
+                                            ResourcePermitEntity.idFor("res", expectedJobId, 0L)));
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

@@ -139,11 +139,12 @@ final class PostgresqlJobWriteOperations {
     }
 
     try {
+      // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+      executeBusinessKeyBulkInsert(jobs);
       SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> id, false);
       executeColdBulkInsert(jobs, nowTs);
       executeHotBulkInsert(jobs, nowTs);
       executeTerminalBackfills(jobs, nowTs);
-      executeBusinessKeyBulkInsert(jobs);
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException("Active business key in use", e);
@@ -493,6 +494,8 @@ final class PostgresqlJobWriteOperations {
         .setParameter(6, job.getResourceName())
         .setParameter(7, job.getId())
         .executeUpdate();
+    // Under the job-row lock, keep only a waiter on the resource this save stores.
+    deleteWaiterOffResource(job.getId(), job.getResourceName());
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
@@ -529,13 +532,39 @@ final class PostgresqlJobWriteOperations {
         SET scheduled_time = ?, updated_at = statement_timestamp()
         WHERE job_id = ? AND status = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, id)
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, id)
+            .setParameter(3, storedStatus)
+            .executeUpdate();
+    if (updated > 0) {
+      deleteWaiter(id);
+    }
     return true;
+  }
+
+  private void deleteWaiterOffResource(UUID id, String resource) {
+    if (resource == null) {
+      deleteWaiter(id);
+      return;
+    }
+    // language=PostgreSQL
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name <> ?
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, id).setParameter(2, resource).executeUpdate();
+  }
+
+  private void deleteWaiter(UUID id) {
+    // language=PostgreSQL
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -737,6 +766,9 @@ final class PostgresqlJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiter(id);
+      }
     }
     return true;
   }

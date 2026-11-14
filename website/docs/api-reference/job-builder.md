@@ -169,7 +169,7 @@ Overrides the auto-generated idempotency key. By default, a UUID is generated at
 When submissions race on the same key, the loser waits until the winner's transaction ends and returns the original handle if it commits. If the winner rolls back, submission can proceed. The caller's transaction stays usable. If the winner commits but the original job cannot be looked up, the loser throws `DuplicateIdempotencyKeyException` instead, and the caller's transaction still stays usable. On MySQL the wait is bounded by `innodb_lock_wait_timeout`. With the MongoDB store, the winner's job write commits in its own transaction, so rolling back the winner's caller transaction does not release the key, and the loser returns the original handle. Task execution remains at least once.
 
 **Parameters:**
-- `key` -- the idempotency key. If null or blank, keeps the auto-generated UUID.
+- `key` -- the idempotency key. If null or blank, keeps the auto-generated UUID. After trimming, it must contain at most 36 printable ASCII characters (`U+0020` through `U+007E`). Any other key throws `IllegalArgumentException` from this method. Hash a longer or non-ASCII natural key to a 36-character value first.
 
 **Difference from `withBusinessKey`:**
 - `idempotencyKey` is UNIQUE globally -- once used, that key is consumed forever.

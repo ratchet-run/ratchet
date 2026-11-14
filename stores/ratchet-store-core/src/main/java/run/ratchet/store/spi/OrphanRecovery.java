@@ -17,5 +17,22 @@ package run.ratchet.store.spi;
 
 import java.util.List;
 
-/** Result of charged orphan recovery. */
-public record OrphanRecovery(int reset, List<ExhaustedOrphan> exhausted) {}
+/**
+ * Result of a bounded orphan recovery page.
+ *
+ * @param scanned candidate rows read
+ * @param reset rows reset to PENDING
+ * @param released rows whose owner was cleared (startup page only, else zero)
+ * @param exhausted rows at or above the crash budget deferred for the engine to fail, oldest claim
+ *     first (periodic page only, else empty)
+ */
+public record OrphanRecovery(
+    int scanned, int reset, int released, List<ExhaustedOrphan> exhausted) {
+  public OrphanRecovery {
+    exhausted = List.copyOf(exhausted);
+  }
+
+  public static OrphanRecovery none() {
+    return new OrphanRecovery(0, 0, 0, List.of());
+  }
+}

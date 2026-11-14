@@ -59,7 +59,7 @@ JobHandle handle = scheduler.enqueueBatch("Import Users")
 
 The key belongs to the batch parent. A later submission with the same key returns the original handle. It writes no parent, children, progress hook or branches, even after job history is purged. Children and branch jobs keep generated keys. Single jobs and batches share the key namespace.
 
-Keys are trimmed. A key longer than 36 characters after trimming throws `IllegalArgumentException` from `withIdempotencyKey`. Null, or a key that is empty after trimming, keeps the generated key.
+Keys are trimmed. After trimming, a key longer than 36 characters, or one with a character outside printable ASCII (`U+0020` through `U+007E`), throws `IllegalArgumentException` from `withIdempotencyKey`. Null, or a key that is empty after trimming, keeps the generated key.
 
 Streaming batches support the same method before `start()`. If the key already belongs to a job when `start()` checks it, `start()` returns the original handle and closes the stream without reading it. A submission that loses a race on the key may already have read items (see below). `start()` closes the stream whether it returns or throws. Both invocation builders support it too.
 

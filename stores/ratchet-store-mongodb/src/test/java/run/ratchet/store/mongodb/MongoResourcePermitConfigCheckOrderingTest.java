@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.eq;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.AfterAll;
@@ -23,7 +25,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
-import run.ratchet.store.id.UuidV7Factory;
 
 /**
  * Mongo-specific regression for the {@code tryAcquirePermit} config-check ordering. A stray permit
@@ -52,13 +53,12 @@ class MongoResourcePermitConfigCheckOrderingTest {
   }
 
   @Test
-  void tryAcquirePermit_strayPermitForUnconfiguredResource_stillFailsHard() {
+  void generationIncrement_strayPermitForUnconfiguredResource_doesNotUpsertLimit() {
     JobEntity job = fixture.store().save(fixture.newPendingJob());
     String resource = "never-configured";
 
     // Insert a stray permit directly: no SPI call can create a permit for an unconfigured resource.
-    ResourcePermitEntity stray = ResourcePermitEntity.create(resource, job.getId(), "node-1");
-    stray.setId(UuidV7Factory.create());
+    ResourcePermitEntity stray = ResourcePermitEntity.create(resource, job.getId(), 0L, "node-1");
     fixture
         .database()
         .getCollection("scheduler_resource_permit")
@@ -66,7 +66,13 @@ class MongoResourcePermitConfigCheckOrderingTest {
 
     assertThrows(
         IllegalArgumentException.class,
-        () -> fixture.resourcePermitStore().tryAcquirePermit(resource, job.getId(), "node-1"),
+        () -> fixture.resourcePermitStore().tryAcquirePermit(resource, job.getId(), 0L, "node-1"),
         "an unconfigured resource must fail hard even when a stray permit row already exists");
+    assertEquals(
+        0,
+        fixture
+            .database()
+            .getCollection("scheduler_resource_limit")
+            .countDocuments(eq("_id", resource)));
   }
 }

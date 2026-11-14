@@ -52,6 +52,14 @@ class DefaultJobBuilderTest {
   }
 
   @Test
+  void withIdempotencyKeyRejectsNonAsciiKeyAndKeepsPreviousKey() {
+    DefaultJobBuilder builder = newBuilder();
+    builder.withIdempotencyKey("delivery-42");
+    assertThrows(IllegalArgumentException.class, () -> builder.withIdempotencyKey("delivery-é"));
+    assertEquals("delivery-42", builder.idempotencyKey());
+  }
+
+  @Test
   void withBusinessKeyAcceptsMaximumPortableKeyWithoutTruncation() {
     DefaultJobBuilder builder = newBuilder();
     String key = "k".repeat(255);
