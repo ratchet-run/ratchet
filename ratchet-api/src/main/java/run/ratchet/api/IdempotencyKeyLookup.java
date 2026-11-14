@@ -26,7 +26,8 @@ public interface IdempotencyKeyLookup {
    * from live storage first, then from the archive when the store has that capability.
    *
    * <p>Key handling matches {@link JobBuilder#withIdempotencyKey}. Null or blank keys return empty.
-   * The key is trimmed. More than 36 characters throws {@link IllegalArgumentException}.
+   * The key is trimmed. More than 36 characters, or a character outside printable ASCII ({@code
+   * U+0020} through {@code U+007E}), throws {@link IllegalArgumentException}.
    *
    * <p>Returns empty when the key has never been used. Otherwise {@link IdempotencyKeyHolder}
    * reports LIVE, ARCHIVED, or PURGED. A resubmit still returns the original id and runs nothing.
@@ -55,7 +56,8 @@ public interface IdempotencyKeyLookup {
    *
    * @param idempotencyKey the idempotency key to inspect
    * @return the holder, or empty when the ledger has no entry
-   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters
+   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters or contains a
+   *     character outside printable ASCII
    */
   Optional<IdempotencyKeyHolder> findIdempotencyKeyHolder(String idempotencyKey);
 }

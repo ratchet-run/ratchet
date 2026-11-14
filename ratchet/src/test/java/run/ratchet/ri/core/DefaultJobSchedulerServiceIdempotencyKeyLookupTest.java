@@ -121,6 +121,8 @@ class DefaultJobSchedulerServiceIdempotencyKeyLookupTest {
   void invalidKeysDoNotReadStore() {
     assertThrows(
         IllegalArgumentException.class, () -> service.findIdempotencyKeyHolder("x".repeat(37)));
+    assertThrows(
+        IllegalArgumentException.class, () -> service.findIdempotencyKeyHolder("delivery-é"));
     verifyNoInteractions(jobCrudStore, archiveStore, authorizationPolicy);
   }
 
