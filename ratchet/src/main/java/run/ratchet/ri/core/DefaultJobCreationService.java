@@ -353,10 +353,7 @@ public class DefaultJobCreationService
     try {
       return submitPrepared(builder);
     } catch (OwnLimitCheckFailure own) {
-      for (Throwable suppressed : own.getSuppressed()) {
-        own.failure.addSuppressed(suppressed);
-      }
-      throw own.failure;
+      throw ownLimitFailure(own);
     } catch (ResourceNotConfiguredException nested) {
       throw nestedLimitFailure(nested);
     } finally {
@@ -383,6 +380,10 @@ public class DefaultJobCreationService
       }
     }
 
+    String resourceName = builder.resourceName();
+    requireResourcePermitCapability(resourceName, "Job declares resource");
+    requireResourceLimit(resourceName);
+
     JobPayload payload = payload(builder.task());
     List<JobPayload> chainPayloads = state.chainTasks().stream().map(this::payload).toList();
     List<BranchPayloads> branches = prepareWorkflowBranches(builder.workflowBranches(), null);
@@ -395,9 +396,6 @@ public class DefaultJobCreationService
       throw new UnsupportedOperationException(
           "Signal-waiting job creation requires a store advertising the SignalStore capability");
     }
-    String resourceName = builder.resourceName();
-    requireResourcePermitCapability(resourceName, "Job declares resource");
-    requireResourceLimit(resourceName);
     Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
@@ -540,10 +538,7 @@ public class DefaultJobCreationService
     try {
       return submitPrepared(builder);
     } catch (OwnLimitCheckFailure own) {
-      for (Throwable suppressed : own.getSuppressed()) {
-        own.failure.addSuppressed(suppressed);
-      }
-      throw own.failure;
+      throw ownLimitFailure(own);
     } catch (ResourceNotConfiguredException nested) {
       throw nestedLimitFailure(nested);
     } finally {
@@ -853,10 +848,12 @@ public class DefaultJobCreationService
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the streaming batch submission. A missing resource limit is thrown
-   *     before any write and leaves the caller's transaction usable. A missing limit raised by
-   *     other work inside the submission, such as a nested submit from a stream, is rethrown as
-   *     {@link IllegalStateException} with the original as its cause, so the transaction rolls
-   *     back.
+   *     before any write and leaves the caller's transaction usable. If closing the stream fails
+   *     after that check, the submit throws {@link IllegalStateException} with the missing-limit
+   *     exception as its cause and the close failure suppressed on it, and the transaction rolls
+   *     back, because the close handler may have written. A missing limit raised by other work
+   *     inside the submission, such as a nested submit from a stream, is rethrown as {@link
+   *     IllegalStateException} with the original as its cause, so the transaction rolls back.
    */
   @Override
   @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
@@ -867,10 +864,7 @@ public class DefaultJobCreationService
     try {
       return submitPrepared(builder);
     } catch (OwnLimitCheckFailure own) {
-      for (Throwable suppressed : own.getSuppressed()) {
-        own.failure.addSuppressed(suppressed);
-      }
-      throw own.failure;
+      throw ownLimitFailure(own);
     } catch (ResourceNotConfiguredException nested) {
       throw nestedLimitFailure(nested);
     } finally {
@@ -883,7 +877,9 @@ public class DefaultJobCreationService
     // start() owns the caller's stream and closes it on every path, including a failed check, a
     // duplicate key and a failed insert. A null stream (fromStream() never called) is skipped. If
     // the submit failed, a close() failure is added to it as suppressed; after a normal return, a
-    // close() failure propagates, as with any try-with-resources.
+    // close() failure propagates, as with any try-with-resources. A close failure after a failed
+    // own limit check turns the failure into an IllegalStateException so the transaction rolls
+    // back.
     try (Stream<T> stream = builder.stream()) {
       requireBatchCapability();
       requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
@@ -1208,6 +1204,23 @@ public class DefaultJobCreationService
       super(null, failure, true, false);
       this.failure = failure;
     }
+  }
+
+  private static RuntimeException ownLimitFailure(OwnLimitCheckFailure own) {
+    Throwable[] suppressed = own.getSuppressed();
+    for (Throwable failure : suppressed) {
+      own.failure.addSuppressed(failure);
+    }
+    if (suppressed.length == 0) {
+      return own.failure;
+    }
+    return new IllegalStateException(
+        "Resource '"
+            + own.failure.resourceName()
+            + "' has no limit, and closing the submission's stream also failed (see the exceptions"
+            + " suppressed on the cause). Code that ran while the stream closed may have written, so"
+            + " the submission's transaction rolls back.",
+        own.failure);
   }
 
   private static IllegalStateException nestedLimitFailure(ResourceNotConfiguredException nested) {

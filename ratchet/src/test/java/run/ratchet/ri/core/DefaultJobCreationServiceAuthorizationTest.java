@@ -17,6 +17,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -1155,7 +1156,9 @@ class DefaultJobCreationServiceAuthorizationTest {
     ResourceNotConfiguredException exception =
         assertThrows(ResourceNotConfiguredException.class, builder::start);
 
+    assertEquals(ResourceNotConfiguredException.class, exception.getClass());
     assertEquals("missing", exception.resourceName());
+    assertEquals(0, exception.getSuppressed().length);
     assertTrue(closed.get(), "start() closes the caller's stream on a failed check");
     verify(jobCrudStore, never()).create(any());
     verify(jobCrudStore, never()).save(any());
@@ -1188,7 +1191,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
-  void streamingBatchSubmit_ownMissingLimitPreservesCloseFailure() {
+  void streamingBatchSubmit_ownMissingLimitWithFailingCloseRollsBack() {
     when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
     IllegalStateException closeFailure = new IllegalStateException("close failed");
     DefaultStreamingBatchBuilder<String> builder =
@@ -1202,13 +1205,42 @@ class DefaultJobCreationServiceAuthorizationTest {
     builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
     builder.withResource("missing");
 
-    ResourceNotConfiguredException exception =
-        assertThrows(ResourceNotConfiguredException.class, builder::start);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
 
-    assertEquals(ResourceNotConfiguredException.class, exception.getClass());
-    assertEquals("missing", exception.resourceName());
-    assertEquals(1, exception.getSuppressed().length);
-    assertSame(closeFailure, exception.getSuppressed()[0]);
+    assertNotSame(closeFailure, exception);
+    assertEquals(ResourceNotConfiguredException.class, exception.getCause().getClass());
+    ResourceNotConfiguredException cause = (ResourceNotConfiguredException) exception.getCause();
+    assertEquals("missing", cause.resourceName());
+    assertEquals(1, cause.getSuppressed().length);
+    assertSame(closeFailure, cause.getSuppressed()[0]);
+    verify(jobCrudStore, never()).create(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_ownMissingLimitThenNestedMissingLimitInCloseRollsBack() {
+    when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(
+        Stream.of("one")
+            .onClose(
+                () -> {
+                  throw nested;
+                }));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing");
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
+
+    assertNotSame(nested, exception.getCause());
+    assertEquals(ResourceNotConfiguredException.class, exception.getCause().getClass());
+    ResourceNotConfiguredException cause = (ResourceNotConfiguredException) exception.getCause();
+    assertEquals("missing", cause.resourceName());
+    assertEquals(1, cause.getSuppressed().length);
+    assertSame(nested, cause.getSuppressed()[0]);
     verify(jobCrudStore, never()).create(any());
     verify(batchStore, never()).saveBatch(any());
     verify(jobBulkStore, never()).bulkInsert(any());

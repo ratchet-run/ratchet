@@ -17,11 +17,14 @@ package run.ratchet.testsuite.resource;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import java.time.Instant;
@@ -32,13 +35,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
+import org.junit.jupiter.api.function.Executable;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
@@ -48,12 +55,14 @@ import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
+import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.testsuite.app.BatchItemProcessor;
 import run.ratchet.testsuite.app.ResourceTestJob;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestTransactionRunner;
 import run.ratchet.testsuite.observer.EventCapture;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
@@ -70,7 +79,11 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   @Inject private UserTransaction utx;
 
+  @Inject private TestTransactionRunner txRunner;
+
   @Inject private JobStore jobStore;
+
+  @Inject private BatchStore batchStore;
 
   @Inject private EventCapture eventCapture;
 
@@ -320,30 +333,67 @@ class ResourcePermitIT extends BaseRatchetIT {
   @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
   void nestedMissingLimitAfterTheBatchWrites_shouldCommitNothing() {
     String key = UUID.randomUUID().toString();
+    AtomicReference<UUID> parentId = new AtomicReference<>();
 
     RuntimeException failure =
-        assertThrows(RuntimeException.class, () -> startStreamWithNestedMissingLimit(key));
+        assertThrows(
+            RuntimeException.class, () -> startStreamWithNestedMissingLimit(key, 1, parentId));
 
     assertTrue(causedBy(failure, ResourceNotConfiguredException.class), failure.toString());
+    UUID parent = parentId.get();
+    assertNotNull(parent, "the first chunk is written before the nested submit fails");
+    assertTrue(jobCrudStore.findById(parent).isEmpty(), "the parent job must not commit");
+    assertTrue(batchStore.findBatchById(parent).isEmpty(), "the batch row must not commit");
     assertTrue(
         jobCrudStore.findOriginalJobIdByIdempotencyKey(key).isEmpty(),
-        "the parent and batch written before the failure must not commit");
+        "the idempotency key must not commit");
   }
 
   @Test
-  void nestedMissingLimitAfterTheBatchWrites_shouldMarkTheCallerTransactionRollbackOnly()
-      throws Exception {
-    utx.begin();
-    try {
-      RuntimeException failure =
-          assertThrows(
-              RuntimeException.class,
-              () -> startStreamWithNestedMissingLimit(UUID.randomUUID().toString()));
-      assertTrue(causedBy(failure, ResourceNotConfiguredException.class), failure.toString());
-      assertEquals(Status.STATUS_MARKED_ROLLBACK, utx.getStatus());
-    } finally {
-      utx.rollback();
-    }
+  void nestedMissingLimitAfterTheBatchWrites_shouldMarkTheCallerTransactionRollbackOnly() {
+    // Two items per chunk, so no child is written. MongoDB keeps its writes after the rollback,
+    // and a lone child there would run under a batch whose total is never set.
+    CallerOutcome outcome =
+        inCallerTransaction(
+            () ->
+                startStreamWithNestedMissingLimit(
+                    UUID.randomUUID().toString(), 2, new AtomicReference<>()));
+
+    assertTrue(
+        causedBy(outcome.failure(), ResourceNotConfiguredException.class),
+        outcome.failure().toString());
+    assertEquals(Status.STATUS_MARKED_ROLLBACK, outcome.status());
+  }
+
+  @Test
+  // MongoDB writes commit in their own session, so a JTA rollback cannot undo them.
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  void ownMissingLimitThenFailingCloseHandler_shouldCommitNothing() {
+    String closeKey = UUID.randomUUID().toString();
+    AtomicReference<JobHandle> closeSubmit = new AtomicReference<>();
+
+    RuntimeException failure =
+        assertThrows(
+            RuntimeException.class, () -> startStreamWithFailingClose(closeKey, closeSubmit));
+
+    assertNotNull(closeSubmit.get(), "the close handler submits a job before it fails");
+    assertTrue(
+        jobCrudStore.findOriginalJobIdByIdempotencyKey(closeKey).isEmpty(),
+        "the job the close handler submitted must not commit");
+    assertOwnAndCloseFailures(failure);
+  }
+
+  @Test
+  void ownMissingLimitThenFailingCloseHandler_shouldMarkTheCallerTransactionRollbackOnly() {
+    AtomicReference<JobHandle> closeSubmit = new AtomicReference<>();
+
+    CallerOutcome outcome =
+        inCallerTransaction(
+            () -> startStreamWithFailingClose(UUID.randomUUID().toString(), closeSubmit));
+
+    assertNotNull(closeSubmit.get(), "the close handler submits a job before it fails");
+    assertEquals(Status.STATUS_MARKED_ROLLBACK, outcome.status());
+    assertOwnAndCloseFailures(outcome.failure());
   }
 
   @Test
@@ -360,9 +410,11 @@ class ResourcePermitIT extends BaseRatchetIT {
 
   /**
    * Starts a two-item streaming batch. The second item is read after the parent and batch rows are
-   * written, and reading it submits a job that names a resource with no limit.
+   * written, and reading it submits a job that names a resource with no limit. With a chunk size of
+   * one, the first chunk is written too, and its progress report saves the parent id first.
    */
-  private JobHandle startStreamWithNestedMissingLimit(String key) {
+  private JobHandle startStreamWithNestedMissingLimit(
+      String key, int chunkSize, AtomicReference<UUID> parentId) {
     Stream<String> items =
         Stream.of("nested-1", "nested-2")
             .peek(
@@ -379,8 +431,83 @@ class ResourcePermitIT extends BaseRatchetIT {
         .withIdempotencyKey(key)
         .fromStream(items)
         .process(BatchItemProcessor::process)
-        .withChunkSize(2)
+        .withChunkSize(chunkSize)
+        .onProgress(progress -> parentId.set(progress.batchId()))
         .start();
+  }
+
+  /**
+   * Starts a streaming batch whose child resource has no limit, so its own check fails before the
+   * stream is read. Closing the stream then submits a delayed job, saved to {@code closeSubmit},
+   * and a job that names a second resource with no limit.
+   */
+  private JobHandle startStreamWithFailingClose(
+      String closeKey, AtomicReference<JobHandle> closeSubmit) {
+    Stream<String> items =
+        Stream.of("close-1")
+            .onClose(
+                () -> {
+                  closeSubmit.set(
+                      jobService
+                          .schedule(Duration.ofHours(1), ResourceTestJob::execute)
+                          .withIdempotencyKey(closeKey)
+                          .submit());
+                  jobService
+                      .enqueue(ResourceTestJob::execute)
+                      .withResource("close-nested-missing")
+                      .submit();
+                });
+    return jobService
+        .<String>streamingBatch("close-missing-limit")
+        .fromStream(items)
+        .process(BatchItemProcessor::process)
+        .withResource("close-outer-missing")
+        .start();
+  }
+
+  /** The submit's own missing limit is the cause, and the close handler's failure stays on it. */
+  private static void assertOwnAndCloseFailures(RuntimeException failure) {
+    assertInstanceOf(IllegalStateException.class, failure, failure.toString());
+    ResourceNotConfiguredException own =
+        assertInstanceOf(ResourceNotConfiguredException.class, failure.getCause());
+    assertEquals("close-outer-missing", own.resourceName());
+    assertTrue(
+        Arrays.stream(own.getSuppressed())
+            .anyMatch(
+                suppressed ->
+                    suppressed instanceof ResourceNotConfiguredException nested
+                        && nested.resourceName().equals("close-nested-missing")),
+        Arrays.toString(own.getSuppressed()));
+  }
+
+  /** How the submit failed, and the caller transaction's status right after the failure. */
+  private record CallerOutcome(RuntimeException failure, int status) {}
+
+  /**
+   * Runs the submit in a caller transaction that is rolled back afterwards. The transaction comes
+   * from an interceptor, not a bare UserTransaction. On GlassFish and Payara, a submit that calls
+   * the scheduler again from inside itself (here, from its own stream) leaves the request unable to
+   * call UserTransaction methods: the {@code @Transactional} interceptor keeps the state it
+   * restores in one field per bean, and the nested call overwrites it.
+   */
+  private CallerOutcome inCallerTransaction(Executable submit) {
+    AtomicReference<CallerOutcome> outcome = new AtomicReference<>();
+    txRunner.runRollbackOnly(
+        () -> {
+          RuntimeException failure = assertThrows(RuntimeException.class, submit);
+          outcome.set(new CallerOutcome(failure, transactionStatus()));
+        });
+    return outcome.get();
+  }
+
+  private static int transactionStatus() {
+    try {
+      TransactionSynchronizationRegistry registry =
+          InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
+      return registry.getTransactionStatus();
+    } catch (NamingException e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   private static boolean causedBy(Throwable failure, Class<? extends Throwable> type) {

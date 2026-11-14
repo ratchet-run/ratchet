@@ -226,7 +226,10 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * ResourceNotConfiguredException}, before it writes anything, if the resource has no limit. If
    * reading the stream submits another job that names a resource with no limit, {@code start()}
    * throws {@link IllegalStateException} with that exception as its cause, and the submission's
-   * transaction rolls back.
+   * transaction rolls back. The same happens if this resource has no limit and the stream's close
+   * handler then fails: the cause is this resource's {@code ResourceNotConfiguredException}, with
+   * the close failure suppressed on it. A caller that catches only {@code
+   * ResourceNotConfiguredException} does not see these two cases.
    *
    * @param resourceName if null or blank, no resource limiting is applied (the name is trimmed
    *     otherwise)
