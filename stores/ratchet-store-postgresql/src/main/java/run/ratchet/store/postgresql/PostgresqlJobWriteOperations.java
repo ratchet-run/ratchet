@@ -113,45 +113,53 @@ final class PostgresqlJobWriteOperations {
   }
 
   JobEntity save(JobEntity job) {
-    if (job.getId() == null) {
-      saveInsert(job);
-    } else {
-      saveColdUpdate(job);
+    try {
+      if (job.getId() == null) {
+        saveInsert(job);
+      } else {
+        saveColdUpdate(job);
+      }
+      return job;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("save job", e);
     }
-    return job;
   }
 
   void bulkInsert(List<JobEntity> jobs) {
-    if (jobs.isEmpty()) {
-      return;
-    }
-    Instant now = Instant.now();
-    Timestamp nowTs = Timestamp.from(now);
-
-    for (JobEntity job : jobs) {
-      assignIdIfMissing(job);
-      if (job.getCreatedAt() == null) {
-        job.setCreatedAt(now);
-      }
-      if (job.getUpdatedAt() == null) {
-        job.setUpdatedAt(now);
-      }
-    }
-
     try {
-      // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
-      executeBusinessKeyBulkInsert(jobs);
-      SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> id, false);
-      executeColdBulkInsert(jobs, nowTs);
-      executeHotBulkInsert(jobs, nowTs);
-      executeTerminalBackfills(jobs, nowTs);
-    } catch (RuntimeException e) {
-      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        throw new RatchetTransientStoreException("Active business key in use", e);
+      if (jobs.isEmpty()) {
+        return;
       }
-      throw e;
-    } finally {
-      detachInsertedJobs(jobs);
+      Instant now = Instant.now();
+      Timestamp nowTs = Timestamp.from(now);
+
+      for (JobEntity job : jobs) {
+        assignIdIfMissing(job);
+        if (job.getCreatedAt() == null) {
+          job.setCreatedAt(now);
+        }
+        if (job.getUpdatedAt() == null) {
+          job.setUpdatedAt(now);
+        }
+      }
+
+      try {
+        // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+        executeBusinessKeyBulkInsert(jobs);
+        SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> id, false);
+        executeColdBulkInsert(jobs, nowTs);
+        executeHotBulkInsert(jobs, nowTs);
+        executeTerminalBackfills(jobs, nowTs);
+      } catch (RuntimeException e) {
+        if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+          throw new RatchetTransientStoreException("Active business key in use", e);
+        }
+        throw e;
+      } finally {
+        detachInsertedJobs(jobs);
+      }
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("bulk insert jobs", e);
     }
   }
 
@@ -208,7 +216,7 @@ final class PostgresqlJobWriteOperations {
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
       }
-      throw e;
+      throw ctx.translateTransientStoreException("create job", e);
     }
   }
 

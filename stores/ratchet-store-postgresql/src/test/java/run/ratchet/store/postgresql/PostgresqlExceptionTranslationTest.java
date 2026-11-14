@@ -42,6 +42,64 @@ class PostgresqlExceptionTranslationTest {
   private static final UUID JOB_ID = UUID.fromString("019ae3d1-3f82-7e18-9f09-a9f000000031");
 
   @Test
+  void saveTranslatesSnapshotDeadlock() {
+    var writes = writeOperations(entityManager(queryThrowingOnResults()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
+  }
+
+  @Test
+  void saveTranslatesColdUpdateDeadlock() {
+    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null};
+    var writes =
+        writeOperations(
+            entityManager(
+                queryReturning(Collections.singletonList(snapshot)), queryThrowingOnExecute()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
+  }
+
+  @Test
+  void saveInsertTranslatesFirstWriteDeadlock() {
+    // Cold and hot INSERTs are prepared before the idempotency reservation writes first.
+    var writes =
+        writeOperations(
+            entityManager(
+                queryReturningUpdate(1), queryReturningUpdate(1), queryThrowingOnExecute()));
+
+    assertThrows(RatchetTransientStoreException.class, () -> writes.saveInsert(existingJob()));
+  }
+
+  @Test
+  void bulkInsertTranslatesFirstWriteDeadlock() {
+    var writes = writeOperations(entityManager(queryThrowingOnExecute()));
+
+    assertThrows(
+        RatchetTransientStoreException.class, () -> writes.bulkInsert(List.of(existingJob())));
+  }
+
+  @Test
+  void saveMissingJobLeavesIllegalStateExceptionUnchanged() {
+    var writes = writeOperations(entityManager(queryReturning(List.of())));
+
+    assertThrows(IllegalStateException.class, () -> writes.save(existingJob()));
+  }
+
+  private static JobEntity existingJob() {
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setVersion(0);
+    return job;
+  }
+
+  private static PostgresqlJobWriteOperations writeOperations(EntityManager em) {
+    var ctx = new PostgresqlStoreContext(em);
+    return new PostgresqlJobWriteOperations(
+        ctx, new PostgresqlBusinessKeyReservations(ctx), new PostgresqlTagOperations(ctx));
+  }
+
+  @Test
   void archiveJobTranslatesInsertDeadlock() {
     EntityManager em =
         entityManager(
@@ -242,6 +300,9 @@ class PostgresqlExceptionTranslationTest {
             (proxy, method, args) -> {
               if ("createNativeQuery".equals(method.getName())) {
                 return queries[nextQuery.getAndIncrement()];
+              }
+              if ("contains".equals(method.getName())) {
+                return false;
               }
               throw new UnsupportedOperationException(method.getName());
             });
