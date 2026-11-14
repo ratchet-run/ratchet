@@ -474,8 +474,10 @@ public class DefaultJobExecutorService implements JobExecutorService {
       for (TrackingFutureTask task : activeFutures) {
         if (task.attempt != null) {
           task.attempt.revoke();
+          task.attempt.cancelExecution(task);
+        } else {
+          task.cancel(true);
         }
-        task.cancel(true);
       }
     }
 
