@@ -341,7 +341,9 @@ public class DefaultJobCreationService
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the submission. Duplicate business and idempotency keys leave the
    *     caller's transaction usable. An idempotency race resolves the original handle in a new
-   *     transaction when the conflict-resolution helper is available.
+   *     transaction when the conflict-resolution helper is available. If that lookup fails after a
+   *     business-key conflict, submission throws RatchetTransientStoreException and the caller's
+   *     transaction becomes rollback-only.
    */
   @Override
   @Transactional(

@@ -23,6 +23,7 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /**
  * Fluent builder for jobs created from pre-resolved {@link JobInvocation}s — the invocation-typed
@@ -123,6 +124,8 @@ public interface InvocationJobBuilder {
    *
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
    *     key
+   * @throws RatchetTransientStoreException if the lookup after a business-key conflict fails, or
+   *     another transient store failure occurs; retry in a fresh transaction
    */
   JobHandle submit();
 }
