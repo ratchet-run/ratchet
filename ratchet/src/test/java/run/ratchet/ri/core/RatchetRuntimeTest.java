@@ -289,6 +289,42 @@ class RatchetRuntimeTest {
   }
 
   @Test
+  void shutdown_keepsTheCancelRelayRunningWhileTheCoordinatorDrains() {
+    // Cancels from other nodes still reach running bodies during the shutdown drain.
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    when(executors.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
+    CancelRequestRelay relay = mock(CancelRequestRelay.class);
+    JobExecutionCoordinator coordinator = mock(JobExecutionCoordinator.class);
+    RatchetRuntime runtime =
+        new RatchetRuntime(
+            mock(Poller.class),
+            mock(RecurringScheduler.class),
+            mock(OrphanRecoveryTimer.class),
+            mock(BatchRecoveryTimer.class),
+            relay,
+            mock(JobStateFlusher.class),
+            mock(DeadLetterService.class),
+            null,
+            mock(JobArchivingService.class),
+            mock(LogPurgeTimer.class),
+            mock(PollerWakeupListener.class),
+            executors,
+            () -> "node-1",
+            mock(DrainController.class),
+            RatchetOptions.defaults(),
+            coordinator,
+            mock(ClusterCoordinator.class),
+            List::of,
+            hook -> {},
+            () -> {});
+    runtime.start();
+    runtime.onShutdown();
+    var order = inOrder(coordinator, relay);
+    order.verify(coordinator).shutdown(any());
+    order.verify(relay).stop();
+  }
+
+  @Test
   void start_releasesOwnHoldsRightAfterOwnPermits() {
     // Startup releases this node's held keys immediately after its permits, before polling.
     OrphanRecoveryTimer recovery = mock(OrphanRecoveryTimer.class);

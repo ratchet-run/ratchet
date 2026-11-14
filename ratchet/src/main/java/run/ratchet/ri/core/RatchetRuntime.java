@@ -278,13 +278,14 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     stopService("recurring scheduler", recurringScheduler::stop);
     stopService("orphan recovery timer", orphanRecoveryTimer::stop);
     stopService("batch recovery timer", batchRecoveryTimer::stop);
-    if (cancelRequestRelay != null) stopService("cancel request relay", cancelRequestRelay::stop);
     stopService("dead letter service", deadLetterService::stop);
     stopService("job archiving service", jobArchivingService::stop);
     stopService("log purge timer", logPurgeTimer::stop);
     // Stop background resubmission before resetting RUNNING jobs to PENDING.
     stopService(
         "job execution coordinator", () -> jobExecutionCoordinator.shutdown(shutdownTimeout));
+    // The relay keeps passing cancels from other nodes to bodies that run during the drain.
+    if (cancelRequestRelay != null) stopService("cancel request relay", cancelRequestRelay::stop);
     stopService("checkpoint flusher", jobStateFlusher::stop);
     if (durable != null) stopService("durable terminal events", durable::stop);
     // Heartbeat until the claims are released. A draining node that stops heartbeating looks dead,
