@@ -120,10 +120,11 @@ final class MysqlJobWriteOperations {
       assignIdIfMissing(job);
     }
 
+    // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+    executeBusinessKeyBulkInsert(jobs, nowTs);
     SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
     executeColdBulkInsert(jobs, nowTs);
     executeHotBulkInsert(jobs, nowTs);
-    executeBusinessKeyBulkInsert(jobs, nowTs);
 
     ctx.em().clear();
   }

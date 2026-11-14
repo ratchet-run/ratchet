@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -42,6 +44,7 @@ import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.RecurringJobDefinition;
 
 /**
@@ -275,6 +278,177 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
       assertOwner(key, probe);
     } finally {
       commitHolder.countDown();
+      workers.shutdownNow();
+      assertTrue(workers.awaitTermination(30, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void bulkReservationIsHeldWhileIdempotencyWriteWaits() throws Exception {
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
+    String idempotencyKey = UUID.randomUUID().toString();
+    String key = uniqueKey();
+    JobEntity holder = jobWithBusinessKey(null);
+    holder.setIdempotencyKey(idempotencyKey);
+    JobEntity duplicate = jobWithBusinessKey(key);
+    duplicate.setIdempotencyKey(idempotencyKey);
+    duplicate.setId(UuidV7Factory.create());
+    JobEntity probe = jobWithBusinessKey(key);
+    var holderSession = new AtomicReference<Object>();
+    var duplicateSession = new AtomicReference<Object>();
+    var probeSession = new AtomicReference<Object>();
+    var holderWritten = new CountDownLatch(1);
+    var commitHolder = new CountDownLatch(1);
+    var duplicateStarted = new CountDownLatch(1);
+    var probeStarted = new CountDownLatch(1);
+    var workers = Executors.newFixedThreadPool(3);
+    try {
+      var holding =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        create(holder);
+                        holderSession.set(ownerSessionId());
+                        holderWritten.countDown();
+                        await(commitHolder);
+                      }));
+      assertTrue(holderWritten.await(30, TimeUnit.SECONDS), "Holder did not write its key");
+      var duplicating =
+          workers.submit(
+              () ->
+                  assertThrows(
+                      RuntimeException.class,
+                      () ->
+                          inOwnerTransaction(
+                              () -> {
+                                duplicateSession.set(ownerSessionId());
+                                duplicateStarted.countDown();
+                                store().bulkInsert(List.of(duplicate));
+                              })));
+      assertTrue(duplicateStarted.await(30, TimeUnit.SECONDS), "Duplicate did not start");
+      assumeTrue(
+          observeBlocked(duplicateSession.get(), holderSession.get()), NEEDS_LOCK_WAIT_HOOKS);
+      var probing =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        probeSession.set(ownerSessionId());
+                        probeStarted.countDown();
+                        create(probe);
+                      }));
+      assertTrue(probeStarted.await(30, TimeUnit.SECONDS), "Probe did not start");
+      // The duplicate is still waiting on the idempotency key, so it can block the probe only if
+      // bulkInsert reserved the business key before it wrote the idempotency key.
+      assertTrue(
+          observeBlocked(probeSession.get(), duplicateSession.get()),
+          "Probe must be blocked by the bulk insert's business-key reservation");
+      commitHolder.countDown();
+      holding.get(30, TimeUnit.SECONDS);
+      duplicating.get(30, TimeUnit.SECONDS);
+      probing.get(30, TimeUnit.SECONDS);
+
+      assertTrue(store().findById(holder.getId()).isPresent());
+      assertTrue(store().findById(duplicate.getId()).isEmpty());
+      assertOwner(key, probe);
+    } finally {
+      commitHolder.countDown();
+      workers.shutdownNow();
+      assertTrue(workers.awaitTermination(30, TimeUnit.SECONDS));
+    }
+  }
+
+  /**
+   * A create and a bulk insert that share both keys must not deadlock. A gate holds the bulk job's
+   * id, so the bulk insert stops after its key writes until the create waits on it. The create must
+   * then see the business-key conflict.
+   */
+  @Test
+  void createAndBulkInsertOnBothKeys_createSeesConflict() throws Exception {
+    assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
+    String key = uniqueKey();
+    String idempotencyKey = UUID.randomUUID().toString();
+    JobEntity gate = jobWithBusinessKey(null);
+    gate.setId(UuidV7Factory.create());
+    JobEntity bulk = jobWithBusinessKey(key);
+    bulk.setId(gate.getId());
+    bulk.setIdempotencyKey(idempotencyKey);
+    JobEntity single = jobWithBusinessKey(key);
+    single.setId(UuidV7Factory.create());
+    single.setIdempotencyKey(idempotencyKey);
+    var gateSession = new AtomicReference<Object>();
+    var bulkSession = new AtomicReference<Object>();
+    var singleSession = new AtomicReference<Object>();
+    var gateWritten = new CountDownLatch(1);
+    var releaseGate = new CountDownLatch(1);
+    var bulkStarted = new CountDownLatch(1);
+    var singleStarted = new CountDownLatch(1);
+    var conflict = new AtomicBoolean();
+    var rollbackMarker = new RuntimeException("Roll back the gate");
+    var workers = Executors.newFixedThreadPool(3);
+    try {
+      var gating =
+          workers.submit(
+              () -> {
+                try {
+                  inOwnerTransaction(
+                      () -> {
+                        create(gate);
+                        gateSession.set(ownerSessionId());
+                        gateWritten.countDown();
+                        await(releaseGate);
+                        throw rollbackMarker;
+                      });
+                } catch (RuntimeException e) {
+                  if (e != rollbackMarker) {
+                    throw e;
+                  }
+                }
+              });
+      assertTrue(gateWritten.await(30, TimeUnit.SECONDS), "Gate did not write its job");
+      var inserting =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        bulkSession.set(ownerSessionId());
+                        bulkStarted.countDown();
+                        store().bulkInsert(List.of(bulk));
+                      }));
+      assertTrue(bulkStarted.await(30, TimeUnit.SECONDS), "Bulk insert did not start");
+      assumeTrue(observeBlocked(bulkSession.get(), gateSession.get()), NEEDS_LOCK_WAIT_HOOKS);
+      // The bulk insert is waiting on the gate's job row, after its key writes.
+      var creating =
+          workers.submit(
+              () ->
+                  inOwnerTransaction(
+                      () -> {
+                        singleSession.set(ownerSessionId());
+                        singleStarted.countDown();
+                        try {
+                          create(single);
+                        } catch (BusinessKeyReservationConflictException e) {
+                          conflict.set(true);
+                        }
+                      }));
+      assertTrue(singleStarted.await(30, TimeUnit.SECONDS), "Create did not start");
+      assertTrue(
+          observeBlocked(singleSession.get(), bulkSession.get()),
+          "The create must wait for the bulk insert's key writes");
+      releaseGate.countDown();
+      gating.get(30, TimeUnit.SECONDS);
+      inserting.get(30, TimeUnit.SECONDS);
+      creating.get(30, TimeUnit.SECONDS);
+
+      assertTrue(conflict.get(), "The create must see the bulk job's business key");
+      assertTrue(store().findById(bulk.getId()).isPresent());
+      assertTrue(store().findById(single.getId()).isEmpty());
+      assertEquals(
+          Optional.of(bulk.getId()), store().findOriginalJobIdByIdempotencyKey(idempotencyKey));
+      assertOwner(key, bulk);
+    } finally {
+      releaseGate.countDown();
       workers.shutdownNow();
       assertTrue(workers.awaitTermination(30, TimeUnit.SECONDS));
     }

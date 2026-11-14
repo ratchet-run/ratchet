@@ -694,7 +694,9 @@ A store advertises each of these by implementing the interface; the engine probe
 
 For a job that has a business key and is not created in a terminal state, `JobCrudStore.create()` must reserve the key before writing the idempotency key or job rows. A job created in a terminal state does not reserve its key, so it can be created while another job holds that key. A held key must raise `BusinessKeyReservationConflictException` without writing anything for the losing job. The caller's transaction must remain usable. Never raise this exception after writing job data.
 
-`AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners and holders committed after the caller's first read.
+If a write in your store waits for a key that another transaction has written but not committed, `JobBulkStore.bulkInsert()` must write keys in the same order: business-key reservations first, then idempotency keys, then job rows. Otherwise a bulk insert and a create that share both keys can deadlock.
+
+`AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners, holders committed after the caller's first read and the key order of bulk inserts.
 
 ### Claim-fenced job state
 
