@@ -351,6 +351,19 @@ class JobTaskTest {
   }
 
   @Test
+  void cancelThatWinsTheContinuationWrite_endsCanceled() throws Exception {
+    // A cancel that commits after the post-body check but before the reschedule ends canceled.
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
+        .thenReturn(StateWriteResult.UPDATED);
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenReturn(JobStatus.RUNNING, JobStatus.RUNNING, JobStatus.CANCELED);
+    jobTask.call();
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+  }
+
+  @Test
   void supersededPrecheckSkipsCounter() throws Exception {
     AtomicReference<JobAttemptControl> attempt = new AtomicReference<>();
     var scenario =
@@ -4361,6 +4374,47 @@ class JobTaskTest {
     verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(0), eq(7L));
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void canceledKeyedJobWhoseSignalPayloadFails_releasesItsHold() throws Exception {
+    // A cancel that wins while the signal payload fails to load still frees the claim's held key.
+    JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
+    job.setBusinessKey("held");
+    job.setSignalPayloadType(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION);
+    job.setSignalOutcome("UNKNOWN");
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt = cancelAttempt();
+    attempt.requestUserCancel();
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+
+    jobTask.call();
+
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+  }
+
+  @Test
+  void retryThatLosesItsWriteToACancel_endsCanceled() throws Exception {
+    // A cancel that commits between the attempt increment and the retry write ends canceled.
+    JobEntity job = cancelScenario(true);
+    jobTask.attach(cancelAttempt());
+    RuntimeException error = new IllegalStateException("retry me");
+    failBody(() -> error);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, error)).thenReturn(true);
+    when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+
+    jobTask.call();
+
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade, atLeastOnce()).saveExecution(execution.capture());
+    Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getValue().getStatus());
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
   }
 
   @Test

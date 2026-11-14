@@ -280,6 +280,7 @@ public class JobTask implements Callable<Void> {
       } else {
         log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
       }
+      releaseHoldIfAttemptEnded(jobId, claim != null ? claim.businessKey() : null);
       JobMdcContext.clear();
       return null;
     }
@@ -294,7 +295,7 @@ public class JobTask implements Callable<Void> {
       log.infof(
           "Job %s claim no longer owned by this node (status=%s, pickedBy=%s) - skipping execution",
           jobId, jobEntity.getStatus(), jobEntity.getPickedBy());
-      releaseHeldBusinessKey(jobEntity, claim.claimSeq());
+      releaseHeldBusinessKey(jobId, jobEntity.getBusinessKey(), claim.claimSeq());
       JobMdcContext.clear();
       return null;
     }
@@ -329,6 +330,7 @@ public class JobTask implements Callable<Void> {
         log.infof(
             "Job %s not started: batch %s is closed (parent %s)",
             jobId, jobEntity.getDependsOn(), parentState.description());
+        releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
         JobMdcContext.clear();
         return null;
       }
@@ -353,6 +355,7 @@ public class JobTask implements Callable<Void> {
         log.errorf(
             releaseFailure, "Job %s could not release claim after batch check failed", jobId);
       }
+      releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
       JobMdcContext.clear();
       return null;
     }
@@ -376,6 +379,7 @@ public class JobTask implements Callable<Void> {
       } else {
         handleFailureSafely(e);
       }
+      releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
       JobMdcContext.clear();
       return null;
     }
@@ -583,9 +587,7 @@ public class JobTask implements Callable<Void> {
         if (permitAcquired) {
           releaseResourcePermit();
         }
-        if (cancelHandled || (attempt != null && attempt.isSuperseded())) {
-          releaseHeldBusinessKey(job, expectedClaimSeq());
-        }
+        releaseHoldIfAttemptEnded(jobId, job.getBusinessKey());
         log.debugf("Job %s execution complete - cleaning up context", jobId);
         currentScope.close();
       }
@@ -1078,14 +1080,22 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private void releaseHeldBusinessKey(JobEntity entity, Long claimSeq) {
-    if (entity.getBusinessKey() == null
-        || claimSeq == null
-        || Thread.currentThread().isInterrupted()) return;
+  /**
+   * Releases this claim's held business key once a cancel or a lost fenced write ended the attempt,
+   * including on the exits before the body runs.
+   */
+  private void releaseHoldIfAttemptEnded(UUID jobId, @Nullable String businessKey) {
+    if (businessKey != null && (cancelHandled || (attempt != null && attempt.isSuperseded()))) {
+      releaseHeldBusinessKey(jobId, businessKey, expectedClaimSeq());
+    }
+  }
+
+  private void releaseHeldBusinessKey(UUID jobId, @Nullable String businessKey, Long claimSeq) {
+    if (businessKey == null || claimSeq == null || Thread.currentThread().isInterrupted()) return;
     try {
-      jobStore.releaseBusinessKeyHold(entity.getId(), claimSeq);
+      jobStore.releaseBusinessKeyHold(jobId, claimSeq);
     } catch (RuntimeException e) {
-      log.warnf(e, "Could not release business-key hold for job %s", entity.getId());
+      log.warnf(e, "Could not release business-key hold for job %s", jobId);
     }
   }
 
@@ -1369,6 +1379,11 @@ public class JobTask implements Callable<Void> {
       log.infof(
           "Job %s continuing (%d/%d) in %d ms",
           job.getId(), count + 1, maxContinuations, delay.toMillis());
+    } else if (jobWasCanceled()) {
+      // A cancel committed after the post-body check, so the continuation write missed.
+      markAttemptSuperseded();
+      handleCanceledDuringExecution(start);
+      return;
     } else {
       warnRejectedOwnerWrite();
       saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
@@ -1916,6 +1931,10 @@ public class JobTask implements Callable<Void> {
           job.getMaxRetries(),
           ex.getClass().getName(),
           ex.getMessage());
+    } else if (jobWasCanceled()) {
+      // A cancel committed after the attempt increment. The saved FAILED record becomes CANCELED.
+      markAttemptSuperseded();
+      handleCanceledDuringExecution(cancelStart());
     } else {
       warnRejectedOwnerWrite();
     }
