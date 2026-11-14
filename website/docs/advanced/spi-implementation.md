@@ -1023,3 +1023,13 @@ public class MySpi implements SomeRatchetSpi {
 | `ClusterCoordinator` | `NoOpClusterCoordinator` | `@ApplicationScoped` | ratchet |
 | `ErrorSanitizer` | `DefaultErrorSanitizer` | Produced by `RatchetProducer` | ratchet |
 | `JobStore` | MySQL / PostgreSQL / Oracle / SQL Server / MongoDB | `@ApplicationScoped` | ratchet-store-* |
+
+Single-job `JobCrudStore.create()` must also reserve its idempotency key without a raising
+insert. A held key throws `DuplicateIdempotencyKeyException`, writes no job data, and releases
+any business-key reservation made by that call. The caller's transaction stays usable. Exempt
+both reservation exceptions from transaction rollback. Keep the lock order: business key,
+idempotency key, cold row, hot row. Bulk child inserts retain their ordinary insert behavior.
+
+`AbstractIdempotencyKeyReservationContract` verifies held-key cleanup, a subsequent committed
+write in the caller's transaction, and concurrent winner commit and rollback outcomes. SQL
+subclasses must delegate the owner-transaction and lock-wait hooks as for the business-key contract.

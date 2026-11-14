@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -98,6 +99,91 @@ class PartitionServiceTest {
     when(jobs.findById(parent.getId())).thenReturn(Optional.of(parent));
     when(store.findPartitionSet("set")).thenReturn(Optional.of(set));
     when(sanitizer.sanitize(any())).thenReturn("safe");
+  }
+
+  @Test
+  void submissionSealingAndReloadUseFreshTransaction() {
+    parent.setStatus(JobStatus.FAILED);
+    when(jobs.findById(set.getLatestBatchId())).thenReturn(Optional.of(parent));
+    when(store.countUnfinishedBatchChildren(set.getLatestBatchId())).thenReturn(0L);
+    var transactions = mock(BatchCompletionTransaction.class);
+    when(transactions.complete(any())).thenAnswer(call -> call.<Supplier<?>>getArgument(0).get());
+    var submissionService =
+        spy(
+            new PartitionService(
+                store,
+                jobs,
+                states,
+                batches,
+                sanitizer,
+                serializer,
+                Clock.fixed(now, ZoneOffset.UTC),
+                RatchetOptions.builder().build(),
+                transactions,
+                policy,
+                null));
+    var refreshed = new PartitionSetEntity();
+    refreshed.setSetId(set.getSetId());
+    refreshed.setLatestGeneration(1);
+    refreshed.setSealedGeneration(1);
+    var row = new PartitionEntity();
+    row.setPartitionIndex(0);
+    doReturn(true).when(submissionService).trySeal(set);
+    when(store.findPartitionSetById(set.getSetId())).thenReturn(Optional.of(refreshed));
+    when(store.findPartitions(set.getSetId(), -1, 500)).thenReturn(List.of(row));
+
+    var snapshot = submissionService.sealForSubmission(set);
+
+    verify(transactions).complete(any());
+    verify(transactions, never()).required(any());
+    assertSame(refreshed, snapshot.set());
+    assertEquals(List.of(row), snapshot.rows());
+    var order = inOrder(jobs, store, transactions, submissionService);
+    order.verify(jobs).findById(set.getLatestBatchId());
+    order.verify(store).countUnfinishedBatchChildren(set.getLatestBatchId());
+    order.verify(transactions).complete(any());
+    order.verify(submissionService).trySeal(set);
+    order.verify(store).findPartitionSetById(set.getSetId());
+    order.verify(store).findPartitions(set.getSetId(), -1, 500);
+    order.verify(store).findPartitions(set.getSetId(), 0, 500);
+  }
+
+  @Test
+  void submissionSealingSkipsFreshTransactionForNonTerminalParent() {
+    parent.setStatus(JobStatus.PENDING);
+    assertSubmissionSealingSkipsFreshTransaction();
+    verify(store, never()).countUnfinishedBatchChildren(any());
+  }
+
+  @Test
+  void submissionSealingSkipsFreshTransactionForUnfinishedChildren() {
+    when(store.countUnfinishedBatchChildren(set.getLatestBatchId())).thenReturn(1L);
+    assertSubmissionSealingSkipsFreshTransaction();
+  }
+
+  private void assertSubmissionSealingSkipsFreshTransaction() {
+    var transactions = mock(BatchCompletionTransaction.class);
+    var submissionService =
+        new PartitionService(
+            store,
+            jobs,
+            states,
+            batches,
+            sanitizer,
+            serializer,
+            Clock.fixed(now, ZoneOffset.UTC),
+            RatchetOptions.builder().build(),
+            transactions,
+            policy,
+            null);
+
+    var snapshot = submissionService.sealForSubmission(set);
+
+    assertSame(set, snapshot.set());
+    assertTrue(snapshot.rows().isEmpty());
+    verifyNoInteractions(transactions);
+    verify(store, never()).findPartitionSetById(any());
+    verify(store, never()).markSealed(any(), anyInt());
   }
 
   private PartitionEntity row(int index, JobStatus status, boolean exists) {

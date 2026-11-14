@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
@@ -30,7 +32,11 @@ import jakarta.transaction.SystemException;
 import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import java.time.ZoneOffset;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +49,7 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.ri.security.PermitAllJobAuthorizationPolicy;
 import run.ratchet.tck.api.TckJobs;
 
 /**
@@ -51,7 +58,7 @@ import run.ratchet.tck.api.TckJobs;
  * exception and commits.
  */
 @QuarkusTest
-@TestProfile(QuarkusRatchetTckProfile.class)
+@TestProfile(QuarkusBusinessKeyCallerTransactionTest.RaceProfile.class)
 class QuarkusBusinessKeyCallerTransactionTest {
   private static final Duration LATER = Duration.ofHours(1);
 
@@ -138,6 +145,74 @@ class QuarkusBusinessKeyCallerTransactionTest {
                     .items()
                     .size(),
                 "the loser's job rows must not survive without a reservation: " + outcome));
+  }
+
+  @Test
+  void idempotencyInsertCollisionReturnsOriginalAndCommitsCallerWrite() throws Exception {
+    JobSchedulerService scheduler = runtime.scheduler();
+    RacePolicy policy = CDI.current().select(RacePolicy.class).get();
+    var worker = Executors.newSingleThreadExecutor();
+    var original = new AtomicReference<JobHandle>();
+    String key = UUID.randomUUID().toString();
+    String businessKey = uniqueKey();
+    try {
+      utx.begin();
+      JobHandle ownWrite = scheduler.schedule(LATER, TckJobs::noop).submit();
+      policy.setBeforeCreate(
+          () -> {
+            try {
+              original.set(
+                  worker
+                      .submit(
+                          () ->
+                              scheduler
+                                  .schedule(LATER, TckJobs::noop)
+                                  .withIdempotencyKey(key)
+                                  .submit())
+                      .get(30, TimeUnit.SECONDS));
+            } catch (Exception failure) {
+              throw new IllegalStateException("Winner did not commit", failure);
+            }
+          });
+      JobHandle replay =
+          scheduler
+              .schedule(LATER, TckJobs::noop)
+              .withIdempotencyKey(key)
+              .withBusinessKey(businessKey)
+              .submit();
+      assertEquals(original.get().id(), replay.id());
+      Outcome outcome = commitCallerTransaction();
+      assertEquals("STATUS_ACTIVE", outcome.statusAfterCatch());
+      assertNull(outcome.commitFailure());
+      assertTrue(queries.getJobDetail(ownWrite.id()).isPresent());
+      assertTrue(scheduler.findBusinessKeyHolder(businessKey).isEmpty());
+    } finally {
+      policy.setBeforeCreate(null);
+      worker.shutdownNow();
+    }
+  }
+
+  public static class RaceProfile extends QuarkusRatchetTckProfile {
+    @Override
+    public Set<Class<?>> getEnabledAlternatives() {
+      return Set.of(RacePolicy.class);
+    }
+  }
+
+  @Alternative
+  @ApplicationScoped
+  public static class RacePolicy extends PermitAllJobAuthorizationPolicy {
+    private final AtomicReference<Runnable> beforeCreate = new AtomicReference<>();
+
+    public void setBeforeCreate(Runnable action) {
+      beforeCreate.set(action);
+    }
+
+    @Override
+    public void checkCreate(UUID id, String principal) {
+      Runnable action = beforeCreate.getAndSet(null);
+      if (action != null) action.run();
+    }
   }
 
   private Outcome commitCallerTransaction() throws SystemException {

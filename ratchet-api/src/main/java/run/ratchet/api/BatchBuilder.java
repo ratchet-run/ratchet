@@ -77,9 +77,10 @@ public interface BatchBuilder {
    * is a single job if one used it first, and writes no parent, children, progress hook or
    * branches.
    *
-   * <p>If two submissions race on the same key, the loser's {@link #submit()} may throw. A retry in
-   * a new transaction returns the original handle, even after job history is purged. Task execution
-   * remains at least once.
+   * <p>If two submissions race on the same key, the loser waits until the winner's transaction
+   * ends, then returns the original handle if the winner commits. The caller's transaction stays
+   * usable. If the winner rolls back, submission can proceed. On MySQL the wait is bounded by
+   * {@code innodb_lock_wait_timeout}. Task execution remains at least once.
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder

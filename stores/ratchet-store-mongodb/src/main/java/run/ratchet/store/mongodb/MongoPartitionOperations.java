@@ -87,6 +87,7 @@ final class MongoPartitionOperations implements PartitionStore {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
+            MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(write.parent()));
             PartitionSetEntity set = write.set();
             if (write.expectedVersion() == null) {
               try {
@@ -94,7 +95,7 @@ final class MongoPartitionOperations implements PartitionStore {
               } catch (MongoWriteException ex) {
                 if (ex.getError().getCode() == 11000
                     && ex.getError().getMessage().contains("uq_partition_set_key"))
-                  throw new DuplicateSetKey(ex);
+                  throw new GenerationNotCreated(ex);
                 throw ex;
               }
               for (PartitionEntity row : write.rows()) rows().insertOne(session, rowDocument(row));
@@ -111,7 +112,7 @@ final class MongoPartitionOperations implements PartitionStore {
                               set("updated_at", Date.from(set.getUpdatedAt())),
                               inc("version", 1)))
                       .getMatchedCount();
-              if (changed == 0) return false;
+              if (changed == 0) throw new GenerationNotCreated(null);
               for (PartitionEntity row : write.rows()) {
                 rows()
                     .updateOne(
@@ -127,18 +128,18 @@ final class MongoPartitionOperations implements PartitionStore {
                             set("checkpoint_json", row.getCheckpoint())));
               }
             }
-            jobs.create(session, write.parent());
+            jobs.create(session, write.parent(), true);
             batches.saveBatch(session, write.batch());
             return true;
           },
           TRANSACTION_OPTIONS);
-    } catch (DuplicateSetKey ex) {
+    } catch (GenerationNotCreated ex) {
       return false;
     }
   }
 
-  private static final class DuplicateSetKey extends RuntimeException {
-    DuplicateSetKey(Throwable cause) {
+  private static final class GenerationNotCreated extends RuntimeException {
+    GenerationNotCreated(Throwable cause) {
       super(cause);
     }
   }

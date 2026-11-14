@@ -82,6 +82,7 @@ public enum ConformanceLevel {
           "AbstractJobBulkStoreContract",
           "AbstractActiveBusinessKeyContract",
           "AbstractBusinessKeyReservationContract",
+          "AbstractIdempotencyKeyReservationContract",
           "AbstractDualWriteInvariantContract"),
       List.of(
           "AbstractArchiveStoreContract",

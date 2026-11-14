@@ -166,6 +166,8 @@ JobBuilder withIdempotencyKey(String key)
 
 Overrides the auto-generated idempotency key. By default, a UUID is generated at builder creation time. A custom idempotency key is **globally unique** -- once used, that key is consumed forever, preventing duplicate job creation.
 
+When submissions race on the same key, the loser waits until the winner's transaction ends and returns the original handle if it commits. If the winner rolls back, submission can proceed. The caller's transaction stays usable. On MySQL the wait is bounded by `innodb_lock_wait_timeout`. Task execution remains at least once.
+
 **Parameters:**
 - `key` -- the idempotency key. If null or blank, keeps the auto-generated UUID.
 
@@ -192,7 +194,7 @@ Use [`findBusinessKeyHolder`](./job-scheduler-service#business-key-lookup) to in
 
 Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
 
-`DuplicateIdempotencyKeyException` and `RatchetTransientStoreException` still leave the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
+`DuplicateIdempotencyKeyException` leaves the caller transaction usable; it escapes submission only when the original handle cannot be resolved. `RatchetTransientStoreException` leaves the transaction rollback-only. If the lookup after a business-key conflict fails, Ratchet throws `RatchetTransientStoreException`; retry in a fresh transaction. A MySQL deadlock victim when two or more submissions wait on a winner that rolls back also needs a fresh transaction. So does a PostgreSQL serialization failure when the caller runs above READ COMMITTED.
 
 On MySQL and SQL Server, after the store reports the conflict, the caller keeps a lock on the holder's key until its transaction ends. The holder's completion waits for that lock. Keep the caller's transaction short.
 

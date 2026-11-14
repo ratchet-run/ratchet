@@ -22,6 +22,7 @@ import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 
@@ -38,6 +39,10 @@ public interface JobCrudStore {
    * is already held, throws {@link BusinessKeyReservationConflictException} without writing
    * anything for the job and leaves the caller's transaction usable. A store must never throw that
    * exception after writing anything for the job.
+   *
+   * <p>If the idempotency key is already in the permanent ledger, throw {@link
+   * DuplicateIdempotencyKeyException} without writing anything for the job. Release any
+   * business-key reservation made in this call and leave the caller's transaction usable.
    *
    * <p>Transaction attribute: {@code REQUIRED}.
    */

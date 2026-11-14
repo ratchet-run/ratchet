@@ -27,11 +27,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.KeyRange;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -61,6 +63,7 @@ class PartitionSubmissionTest {
   private final List<KeyRange> ranges = List.of(new KeyRange(0, 10), new KeyRange(10, 20));
   private WorkflowConditionStore conditions = mock(WorkflowConditionStore.class);
   private final BatchService batchService = mock(BatchService.class);
+  private final BatchCompletionTransaction conflicts = mock(BatchCompletionTransaction.class);
   private DefaultJobCreationService service;
 
   public static void process(KeyRange range) {}
@@ -93,11 +96,50 @@ class PartitionSubmissionTest {
             true,
             null,
             new JakartaAfterCommitRegistrar(),
-            new DefaultErrorSanitizer());
+            new DefaultErrorSanitizer(),
+            conflicts);
     when(partitionService.store()).thenReturn(partitions);
     when(partitionService.maxPartitions()).thenReturn(10000);
     service.configurePartitions(partitionService);
+    when(partitionService.sealForSubmission(any()))
+        .thenAnswer(
+            call -> new PartitionService.SubmissionSnapshot(call.getArgument(0), List.of()));
     when(partitions.createOrAdvance(any())).thenReturn(true);
+  }
+
+  @Test
+  void parentKeyRace_resolvesOriginalWithoutBranchesOrChildren() {
+    UUID original = UUID.randomUUID();
+    var conflict = new DuplicateIdempotencyKeyException("partition-race");
+    when(jobs.findOriginalJobIdByIdempotencyKey("partition-race"))
+        .thenReturn(Optional.empty(), Optional.of(original));
+    when(conflicts.complete(any())).thenAnswer(call -> call.<Supplier<?>>getArgument(0).get());
+    when(partitions.createOrAdvance(any())).thenThrow(conflict);
+    var builder = builder();
+    builder.withIdempotencyKey("partition-race");
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+
+    assertEquals(original, builder.submit().id());
+
+    verify(conflicts).complete(any());
+    verifyNoInteractions(bulk, conditions, batchService);
+    verify(jobs, never()).create(any());
+  }
+
+  @Test
+  void parentKeyRace_absentOriginalRethrowsWithoutBranchesOrChildren() {
+    var conflict = new DuplicateIdempotencyKeyException("partition-race");
+    when(conflicts.complete(any())).thenAnswer(call -> call.<Supplier<?>>getArgument(0).get());
+    when(partitions.createOrAdvance(any())).thenThrow(conflict);
+    var builder = builder();
+    builder.withIdempotencyKey("partition-race");
+    builder.thenOnBatchSuccess(PartitionSubmissionTest::callback);
+
+    assertSame(conflict, assertThrows(DuplicateIdempotencyKeyException.class, builder::submit));
+
+    verify(conflicts).complete(any());
+    verifyNoInteractions(bulk, conditions, batchService);
+    verify(jobs, never()).create(any());
   }
 
   private DefaultBatchBuilder builder() {
@@ -247,16 +289,16 @@ class PartitionSubmissionTest {
     doAnswer(
             ignored -> {
               set.setSealedGeneration(1);
-              return true;
+              return new PartitionService.SubmissionSnapshot(set, postSeal);
             })
         .when(partitionService)
-        .trySeal(set);
+        .sealForSubmission(set);
     builder().submit();
     var write = submitted();
     assertEquals(2, write.set().getLatestGeneration());
     assertEquals(1, write.rows().size());
     assertEquals(1, write.rows().get(0).getPartitionIndex());
-    verify(partitionService).trySeal(set);
+    verify(partitionService).sealForSubmission(set);
   }
 
   @Test

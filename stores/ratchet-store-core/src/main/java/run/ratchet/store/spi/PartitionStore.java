@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.dto.PartitionGenerationWrite;
 import run.ratchet.store.entity.PartitionEntity;
 import run.ratchet.store.entity.PartitionSetEntity;
@@ -34,9 +35,14 @@ public interface PartitionStore {
   Optional<PartitionSetEntity> findPartitionSetById(UUID setId);
 
   /**
-   * Atomically creates or advances the set, partition rows, parent job and batch. A duplicate key
-   * or stale version returns false without writing. SQL joins the caller transaction; MongoDB uses
-   * one ClientSession transaction. Transaction attribute: {@code REQUIRED}.
+   * Atomically creates or advances the set, partition rows, parent job and batch. A duplicate set
+   * key or stale version returns false. SQL callers must then roll back, including the parent key
+   * reservation. SQL joins the caller transaction; MongoDB aborts its own ClientSession transaction
+   * when the generation cannot be created. Transaction attribute: {@code REQUIRED}, exempting
+   * {@link DuplicateIdempotencyKeyException} from rollback.
+   *
+   * @throws DuplicateIdempotencyKeyException if the parent's idempotency key is held, without
+   *     writing anything or making the caller's transaction unusable
    */
   boolean createOrAdvance(PartitionGenerationWrite write);
 

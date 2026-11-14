@@ -63,7 +63,7 @@ Keys are trimmed. A key longer than 36 characters after trimming throws `Illegal
 
 Streaming batches support the same method before `start()`. On a duplicate, the stream is closed without being read. `start()` closes the stream whether it returns or throws. Both invocation builders support it too.
 
-If two submissions race on the same key, the loser may throw. Retry in a new transaction to get the original handle. Execution remains at least once.
+If two batch submissions of any kind, including partitioned batches, race on the same key, the loser waits until the winner's transaction ends, then returns the original handle if it commits. If it rolls back, submission can proceed. The caller's transaction stays usable. A streaming loser closes the stream. It may already have read items, because payloads are validated before the parent is created. On MySQL the wait is bounded by `innodb_lock_wait_timeout`. Execution remains at least once.
 
 With the MongoDB store, the writes of a submission do not join the caller's transaction. If `submit()` or `start()` throws after the parent was written, the parent and its key stay. A retry with the same key then returns that parent's handle and writes nothing, so a batch that was only partly written stays that way. A single job keeps its key the same way when its tags, chain steps or branches fail to save.
 

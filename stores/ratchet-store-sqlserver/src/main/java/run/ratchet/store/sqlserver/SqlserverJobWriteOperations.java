@@ -164,6 +164,10 @@ final class SqlserverJobWriteOperations {
   }
 
   void saveInsert(JobEntity job) {
+    saveInsert(job, false);
+  }
+
+  void saveInsert(JobEntity job, boolean idempotencyKeyReserved) {
     assignIdIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
@@ -196,8 +200,14 @@ final class SqlserverJobWriteOperations {
           throw new BusinessKeyReservationConflictException(job.getBusinessKey());
         }
       }
-      SqlIdempotencyKeys.reserve(
-          ctx, List.of(job), nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
+      // Ordinary creation: business-key reservation, idempotency key, cold row, hot row.
+      // Partition creation has already reserved the ledger key before partition metadata.
+      if (!idempotencyKeyReserved && !tryReserveIdempotencyKey(job, nowTs)) {
+        if (hasBkey && !bornTerminal) {
+          reservations.deleteReservationByOwner(job.getId());
+        }
+        throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey());
+      }
       coldInsert.executeUpdate();
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
@@ -211,7 +221,8 @@ final class SqlserverJobWriteOperations {
         tags.insertTags(job.getId(), job.getTags());
       }
     } catch (RuntimeException e) {
-      if (e instanceof BusinessKeyReservationConflictException) {
+      if (e instanceof BusinessKeyReservationConflictException
+          || e instanceof DuplicateIdempotencyKeyException) {
         throw e;
       }
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
@@ -219,6 +230,35 @@ final class SqlserverJobWriteOperations {
       }
       throw e;
     }
+  }
+
+  boolean tryReserveIdempotencyKey(JobEntity job, Timestamp nowTs) {
+    // NOCOUNT and XACT_ABORT are scoped to sp_executesql/sp_prepexec. A session with
+    // XACT_ABORT ON retains it; a caught duplicate leaves the transaction usable.
+    String sql =
+        """
+        SET NOCOUNT ON;
+        SET XACT_ABORT OFF;
+        BEGIN TRY
+          INSERT INTO scheduler_idempotency_key
+            (idempotency_key, original_job_id, reserved_at)
+          VALUES (?, ?, ?);
+          SELECT 1;
+        END TRY
+        BEGIN CATCH
+          IF ERROR_NUMBER() IN (2601, 2627) AND XACT_STATE() <> -1 SELECT 0;
+          ELSE THROW;
+        END CATCH
+        """;
+    Number inserted =
+        (Number)
+            ctx.em()
+                .createNativeQuery(sql)
+                .setParameter(1, job.getIdempotencyKey())
+                .setParameter(2, UuidByteArrayConverter.toBytes(job.getId()))
+                .setParameter(3, nowTs)
+                .getSingleResult();
+    return inserted.intValue() == 1;
   }
 
   private void executeColdTerminalBackfill(JobEntity job, Timestamp nowTs) {

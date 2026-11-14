@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.sqlserver;
 
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -24,6 +25,7 @@ import java.util.UUID;
 import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ClaimState;
@@ -57,6 +59,16 @@ final class SqlserverJobCrudOperations implements JobCrudStore, JobBulkStore, Jo
   public JobEntity create(JobEntity job) {
     writes.saveInsert(job);
     return job;
+  }
+
+  void reservePartitionParentKey(JobEntity parent) {
+    if (!writes.tryReserveIdempotencyKey(parent, Timestamp.from(Instant.now()))) {
+      throw new DuplicateIdempotencyKeyException(parent.getIdempotencyKey());
+    }
+  }
+
+  void createWithReservedIdempotencyKey(JobEntity parent) {
+    writes.saveInsert(parent, true);
   }
 
   @Override
