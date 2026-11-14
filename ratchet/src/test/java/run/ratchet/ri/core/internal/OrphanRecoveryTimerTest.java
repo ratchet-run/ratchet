@@ -816,6 +816,9 @@ class OrphanRecoveryTimerTest {
 
   @Test
   void stopsAtPageCap() {
+    NodeEntity stale = new NodeEntity();
+    stale.setId("dead");
+    when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60))).thenReturn(List.of(stale));
     when(jobBulkStore.resetOrphanJobsBefore(
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenReturn(new OrphanRecovery(500, 500, 0, List.of()));
@@ -825,12 +828,19 @@ class OrphanRecoveryTimerTest {
     }
     verify(jobBulkStore, times(OrphanRecoveryTimer.MAX_ORPHAN_PAGES_PER_SCAN))
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    // A scan stopped by the page cap still releases dead nodes' holds and sweeps expired ones.
+    verify(jobBulkStore).releaseBusinessKeyHolds(List.of("dead"));
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
   }
 
   @Test
   void stopsAtBudgetAndRunsFinally() {
     MutableClock clock = new MutableClock();
     timer = timerWithClock(clock);
+    NodeEntity stale = new NodeEntity();
+    stale.setId("dead");
+    when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60))).thenReturn(List.of(stale));
     when(jobBulkStore.resetOrphanJobsBefore(
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenAnswer(
@@ -845,6 +855,11 @@ class OrphanRecoveryTimerTest {
     verify(jobBulkStore, times(2))
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(resourcePermitService).sweepWaiters();
+    // A scan stopped by the time budget still releases dead nodes' holds and sweeps expired ones.
+    verify(jobBulkStore).releaseBusinessKeyHolds(List.of("dead"));
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(
+            any(Instant.class), eq(OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT));
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
   }
 
@@ -913,6 +928,8 @@ class OrphanRecoveryTimerTest {
     timer.recoverNow();
     verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
     verifyNoMoreInteractions(jobBulkStore);
   }
@@ -926,6 +943,8 @@ class OrphanRecoveryTimerTest {
     verify(lifecycleFacade, never()).completeFailure(missing, JobStatus.RUNNING, false);
     verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
     verifyNoMoreInteractions(jobBulkStore);
   }
@@ -939,6 +958,8 @@ class OrphanRecoveryTimerTest {
     timer.recoverNow();
     verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
     verifyNoMoreInteractions(jobBulkStore);
   }
@@ -1231,7 +1252,7 @@ class OrphanRecoveryTimerTest {
   @Test
   void recoverWithLease_sweepsExpiredHoldsEvenWhenRecoveryFails() {
     // Expired holds are swept in the recovery finally block using the timer clock.
-    when(jobBulkStore.resetOrphanJobsBefore(any(), eq(3), eq(100)))
+    when(jobBulkStore.resetOrphanJobsBefore(any(), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenThrow(new IllegalStateException("recovery failed"));
     timer.recoverNow();
     verify(jobBulkStore)
