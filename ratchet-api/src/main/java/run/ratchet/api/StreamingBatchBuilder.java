@@ -223,7 +223,10 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * already added. It does not apply to the no-op batch parent, progress hooks, or workflow branch
    * jobs. {@code start()} throws {@link UnsupportedOperationException} if a resource is set and the
    * store does not advertise the {@code ResourcePermitStore} capability, and {@link
-   * ResourceNotConfiguredException}, before it writes anything, if the resource has no limit.
+   * ResourceNotConfiguredException}, before it writes anything, if the resource has no limit. If
+   * reading the stream submits another job that names a resource with no limit, {@code start()}
+   * throws {@link IllegalStateException} with that exception as its cause, and the submission's
+   * transaction rolls back.
    *
    * @param resourceName if null or blank, no resource limiting is applied (the name is trimmed
    *     otherwise)

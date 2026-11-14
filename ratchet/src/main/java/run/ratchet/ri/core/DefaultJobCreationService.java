@@ -341,7 +341,9 @@ public class DefaultJobCreationService
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the submission. A duplicate business key does not mark the
    *     caller's transaction rollback-only. A missing resource limit is thrown before any write and
-   *     leaves the caller's transaction usable.
+   *     leaves the caller's transaction usable. A missing limit raised by other work inside the
+   *     submission, such as a nested submit from a stream, is rethrown as {@link
+   *     IllegalStateException} with the original as its cause, so the transaction rolls back.
    */
   @Override
   @Transactional(
@@ -350,6 +352,13 @@ public class DefaultJobCreationService
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
+    } catch (OwnLimitCheckFailure own) {
+      for (Throwable suppressed : own.getSuppressed()) {
+        own.failure.addSuppressed(suppressed);
+      }
+      throw own.failure;
+    } catch (ResourceNotConfiguredException nested) {
+      throw nestedLimitFailure(nested);
     } finally {
       JOB_PAYLOAD_CONVERTER.endPreparationScope();
     }
@@ -520,7 +529,9 @@ public class DefaultJobCreationService
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the batch submission. A missing resource limit is thrown before
-   *     any write and leaves the caller's transaction usable.
+   *     any write and leaves the caller's transaction usable. A missing limit raised by other work
+   *     inside the submission, such as a nested submit from a stream, is rethrown as {@link
+   *     IllegalStateException} with the original as its cause, so the transaction rolls back.
    */
   @Override
   @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
@@ -528,6 +539,13 @@ public class DefaultJobCreationService
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
+    } catch (OwnLimitCheckFailure own) {
+      for (Throwable suppressed : own.getSuppressed()) {
+        own.failure.addSuppressed(suppressed);
+      }
+      throw own.failure;
+    } catch (ResourceNotConfiguredException nested) {
+      throw nestedLimitFailure(nested);
     } finally {
       JOB_PAYLOAD_CONVERTER.endPreparationScope();
     }
@@ -835,7 +853,10 @@ public class DefaultJobCreationService
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the streaming batch submission. A missing resource limit is thrown
-   *     before any write and leaves the caller's transaction usable.
+   *     before any write and leaves the caller's transaction usable. A missing limit raised by
+   *     other work inside the submission, such as a nested submit from a stream, is rethrown as
+   *     {@link IllegalStateException} with the original as its cause, so the transaction rolls
+   *     back.
    */
   @Override
   @Transactional(dontRollbackOn = ResourceNotConfiguredException.class)
@@ -845,6 +866,13 @@ public class DefaultJobCreationService
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
+    } catch (OwnLimitCheckFailure own) {
+      for (Throwable suppressed : own.getSuppressed()) {
+        own.failure.addSuppressed(suppressed);
+      }
+      throw own.failure;
+    } catch (ResourceNotConfiguredException nested) {
+      throw nestedLimitFailure(nested);
     } finally {
       JOB_PAYLOAD_CONVERTER.endPreparationScope();
     }
@@ -1173,9 +1201,27 @@ public class DefaultJobCreationService
         && Objects.equals(existing.misfirePolicy(), replacement.misfirePolicy());
   }
 
+  private static final class OwnLimitCheckFailure extends RuntimeException {
+    private final ResourceNotConfiguredException failure;
+
+    private OwnLimitCheckFailure(ResourceNotConfiguredException failure) {
+      super(null, failure, true, false);
+      this.failure = failure;
+    }
+  }
+
+  private static IllegalStateException nestedLimitFailure(ResourceNotConfiguredException nested) {
+    return new IllegalStateException(
+        "Resource '"
+            + nested.resourceName()
+            + "' has no limit. The failure came from work inside this submission, not from its own"
+            + " limit check, so the submission's transaction rolls back.",
+        nested);
+  }
+
   private void requireResourceLimit(String resourceName) {
     if (resourceName != null && resourcePermitStore.findResourceLimit(resourceName).isEmpty()) {
-      throw new ResourceNotConfiguredException(resourceName);
+      throw new OwnLimitCheckFailure(new ResourceNotConfiguredException(resourceName));
     }
   }
 

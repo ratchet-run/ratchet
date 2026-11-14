@@ -503,7 +503,7 @@ Transaction attribute: SUPPORTS.
 
 ### ResourceNotConfiguredException
 
-`submit()` throws `run.ratchet.api.exception.ResourceNotConfiguredException` when a job or batch names a resource with no limit. It extends `IllegalArgumentException`, carries the name in `resourceName()`, and leaves the caller's transaction usable. A job whose limit is deleted after submit fails with the same exception when it is claimed, without using a retry.
+`submit()` throws `run.ratchet.api.exception.ResourceNotConfiguredException` when a job or batch names a resource with no limit. It extends `IllegalArgumentException`, carries the name in `resourceName()`, and leaves the caller's transaction usable. That applies only to the submit's own check. If code that runs inside a submit, such as a stream that submits other jobs, hits a resource with no limit, the submit throws `IllegalStateException` with that exception as its cause, and its transaction rolls back. A job whose limit is deleted after submit fails with the same exception when it is claimed, without using a retry.
 
 ## Business key lookup
 

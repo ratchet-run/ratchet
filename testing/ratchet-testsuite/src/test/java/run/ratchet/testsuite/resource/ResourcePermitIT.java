@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,7 @@ import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.testsuite.app.BatchItemProcessor;
 import run.ratchet.testsuite.app.ResourceTestJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.observer.EventCapture;
@@ -79,7 +81,11 @@ class ResourcePermitIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(ResourceTestJob.class, TestJobService.class, EventCapture.class)
+        .addClasses(
+            ResourceTestJob.class,
+            TestJobService.class,
+            EventCapture.class,
+            BatchItemProcessor.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -310,6 +316,37 @@ class ResourcePermitIT extends BaseRatchetIT {
   }
 
   @Test
+  // MongoDB writes commit in their own session, so a JTA rollback cannot undo them.
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  void nestedMissingLimitAfterTheBatchWrites_shouldCommitNothing() {
+    String key = UUID.randomUUID().toString();
+
+    RuntimeException failure =
+        assertThrows(RuntimeException.class, () -> startStreamWithNestedMissingLimit(key));
+
+    assertTrue(causedBy(failure, ResourceNotConfiguredException.class), failure.toString());
+    assertTrue(
+        jobCrudStore.findOriginalJobIdByIdempotencyKey(key).isEmpty(),
+        "the parent and batch written before the failure must not commit");
+  }
+
+  @Test
+  void nestedMissingLimitAfterTheBatchWrites_shouldMarkTheCallerTransactionRollbackOnly()
+      throws Exception {
+    utx.begin();
+    try {
+      RuntimeException failure =
+          assertThrows(
+              RuntimeException.class,
+              () -> startStreamWithNestedMissingLimit(UUID.randomUUID().toString()));
+      assertTrue(causedBy(failure, ResourceNotConfiguredException.class), failure.toString());
+      assertEquals(Status.STATUS_MARKED_ROLLBACK, utx.getStatus());
+    } finally {
+      utx.rollback();
+    }
+  }
+
+  @Test
   void setResourceLimit_shouldBeReadBackByFindAndList() {
     scheduler.setResourceLimit(
         ResourceLimit.of(" read-back ", 2)
@@ -319,6 +356,40 @@ class ResourcePermitIT extends BaseRatchetIT {
     ResourceLimit expected = new ResourceLimit("read-back", 2, Duration.ofMillis(750), "Read back");
     assertEquals(Optional.of(expected), scheduler.findResourceLimit("read-back"));
     assertTrue(scheduler.listResourceLimits().contains(expected), "list contains " + expected);
+  }
+
+  /**
+   * Starts a two-item streaming batch. The second item is read after the parent and batch rows are
+   * written, and reading it submits a job that names a resource with no limit.
+   */
+  private JobHandle startStreamWithNestedMissingLimit(String key) {
+    Stream<String> items =
+        Stream.of("nested-1", "nested-2")
+            .peek(
+                item -> {
+                  if (item.equals("nested-2")) {
+                    jobService
+                        .enqueue(ResourceTestJob::execute)
+                        .withResource("nested-missing")
+                        .submit();
+                  }
+                });
+    return jobService
+        .<String>streamingBatch("nested-missing-limit")
+        .withIdempotencyKey(key)
+        .fromStream(items)
+        .process(BatchItemProcessor::process)
+        .withChunkSize(2)
+        .start();
+  }
+
+  private static boolean causedBy(Throwable failure, Class<? extends Throwable> type) {
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      if (type.isInstance(cause)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void setLimit(String resource, int maxConcurrent, long retryDelayMs) {

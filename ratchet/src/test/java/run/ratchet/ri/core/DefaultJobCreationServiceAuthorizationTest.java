@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -25,6 +26,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -1009,6 +1011,26 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
+  void submit_nestedMissingLimitBeforeAnyWriteRollsBack() {
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    doThrow(nested).when(authorizationPolicy).checkCreate(any(), any());
+
+    IllegalStateException exception =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                service.submit(
+                    DefaultJobBuilder.create(
+                        service,
+                        DefaultJobCreationServiceAuthorizationTest::noopTask,
+                        Duration.ZERO)));
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore, never()).create(any());
+    verify(jobCrudStore, never()).save(any());
+  }
+
+  @Test
   void submit_resourceWithALimitReadsItOnceAndKeepsTheResourceOnTheJob() {
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(savedEntity());
@@ -1093,6 +1115,21 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
+  void batchSubmit_nestedMissingLimitForChildRollsBack() {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    doNothing().doThrow(nested).when(authorizationPolicy).checkCreate(any(), any());
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("resource", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::submit);
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(authorizationPolicy, times(2)).checkCreate(any(), any());
+  }
+
+  @Test
   void batchSubmit_duplicateIdempotencyKeyReturnsTheExistingBatchWithoutReadingTheLimit() {
     UUID existing = UUID.randomUUID();
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey("batch-1"))
@@ -1122,6 +1159,57 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertTrue(closed.get(), "start() closes the caller's stream on a failed check");
     verify(jobCrudStore, never()).create(any());
     verify(jobCrudStore, never()).save(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_nestedMissingLimitAfterParentWriteRollsBack() {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(
+        Stream.of("one", "two")
+            .peek(
+                item -> {
+                  if (item.equals("two")) {
+                    throw nested;
+                  }
+                }));
+    builder.withChunkSize(2);
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(batchStore).saveBatch(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_ownMissingLimitPreservesCloseFailure() {
+    when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
+    IllegalStateException closeFailure = new IllegalStateException("close failed");
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(
+        Stream.of("one")
+            .onClose(
+                () -> {
+                  throw closeFailure;
+                }));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing");
+
+    ResourceNotConfiguredException exception =
+        assertThrows(ResourceNotConfiguredException.class, builder::start);
+
+    assertEquals(ResourceNotConfiguredException.class, exception.getClass());
+    assertEquals("missing", exception.resourceName());
+    assertEquals(1, exception.getSuppressed().length);
+    assertSame(closeFailure, exception.getSuppressed()[0]);
+    verify(jobCrudStore, never()).create(any());
     verify(batchStore, never()).saveBatch(any());
     verify(jobBulkStore, never()).bulkInsert(any());
   }
