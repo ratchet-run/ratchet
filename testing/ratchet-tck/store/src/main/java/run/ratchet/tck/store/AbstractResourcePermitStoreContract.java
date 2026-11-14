@@ -229,7 +229,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     var first = claimNewJob("res-reclaim", "dead-node");
     assertEquals(ACQUIRED, acquire("res-reclaim", first, "dead-node"));
 
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
     var retry = reclaim(first, "live-node");
     assertEquals(
         AT_CAPACITY,
@@ -339,7 +339,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   void tryAcquirePermit_rejectsAttemptWhoseJobWasReset() {
     resourcePermitStore().configureResource("res-stale", 1, 1000, "stale acquire");
     var stalled = claimNewJob("res-stale", "node-a");
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
 
     assertEquals(
         SUPERSEDED,
