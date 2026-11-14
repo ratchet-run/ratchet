@@ -24,6 +24,7 @@ import jakarta.enterprise.concurrent.ManagedExecutorService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
 import jakarta.transaction.UserTransaction;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -31,6 +32,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
@@ -145,6 +147,8 @@ class IdempotencyKeyCallerTransactionIT extends BaseRatchetIT {
     CountDownLatch submitted = new CountDownLatch(1);
     CountDownLatch release = new CountDownLatch(1);
     CountDownLatch attempting = new CountDownLatch(1);
+    AtomicLong winnerSession = new AtomicLong();
+    AtomicLong loserSession = new AtomicLong();
     ManagedExecutorService executor =
         InitialContext.doLookup("java:comp/DefaultManagedExecutorService");
     Future<JobHandle> winner = null;
@@ -158,6 +162,7 @@ class IdempotencyKeyCallerTransactionIT extends BaseRatchetIT {
                   var builder = jobService.schedule(LATER, SimpleJob::execute);
                   builder.withIdempotencyKey(idempotencyKey);
                   JobHandle handle = builder.submit();
+                  winnerSession.set(currentSessionId());
                   submitted.countDown();
                   assertTrue(release.await(90, TimeUnit.SECONDS), "Winner was not released");
                   if (rollbackWinner) utx.rollback();
@@ -174,6 +179,7 @@ class IdempotencyKeyCallerTransactionIT extends BaseRatchetIT {
                 try {
                   utx.begin();
                   JobHandle ownWrite = jobService.schedule(LATER, SimpleJob::execute).submit();
+                  loserSession.set(currentSessionId());
                   attempting.countDown();
                   JobHandle handle;
                   if (partitionedLoser) {
@@ -211,7 +217,7 @@ class IdempotencyKeyCallerTransactionIT extends BaseRatchetIT {
                 }
               });
       assertTrue(attempting.await(30, TimeUnit.SECONDS), "Loser did not attempt submit");
-      awaitBlockedSession();
+      awaitBlockedSession(loserSession.get(), winnerSession.get());
       Future<RaceOutcome> waitingLoser = loser;
       assertThrows(TimeoutException.class, () -> waitingLoser.get(500, TimeUnit.MILLISECONDS));
       release.countDown();
@@ -241,26 +247,53 @@ class IdempotencyKeyCallerTransactionIT extends BaseRatchetIT {
     return InitialContext.doLookup("java:jboss/datasources/RatchetDS");
   }
 
-  private static void awaitBlockedSession() throws NamingException {
+  private static long currentSessionId() throws NamingException, SQLException {
     String query =
         switch (System.getProperty("ratchet.test.db.type")) {
-          // JdbcContainerExtension grants the test user PROCESS, which INNODB_TRX needs.
+          case "mysql" -> "SELECT CONNECTION_ID()";
+          case "postgresql" -> "SELECT pg_backend_pid()";
+          case "sqlserver" -> "SELECT @@SPID";
+          case "oracle" -> "SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'SID')) FROM dual";
+          default -> throw new AssertionError("Unsupported database for session identification");
+        };
+    try (var connection = dataSource().getConnection();
+        var statement = connection.createStatement();
+        var rows = statement.executeQuery(query)) {
+      assertTrue(rows.next());
+      return rows.getLong(1);
+    }
+  }
+
+  private static void awaitBlockedSession(long waiter, long holder) throws NamingException {
+    String query =
+        switch (System.getProperty("ratchet.test.db.type")) {
+          // JdbcContainerExtension grants access to the MySQL and Oracle lock-wait views.
           case "mysql" ->
-              "SELECT COUNT(*) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT'";
-          case "postgresql" -> "SELECT COUNT(*) FROM pg_locks WHERE NOT granted";
+              """
+              SELECT COUNT(*)
+              FROM performance_schema.data_lock_waits w
+              JOIN information_schema.INNODB_TRX r ON r.trx_id = w.REQUESTING_ENGINE_TRANSACTION_ID
+              JOIN information_schema.INNODB_TRX b ON b.trx_id = w.BLOCKING_ENGINE_TRANSACTION_ID
+              WHERE r.trx_mysql_thread_id = ? AND b.trx_mysql_thread_id = ?
+              """;
+          case "postgresql" ->
+              """
+              SELECT COUNT(*) FROM unnest(pg_blocking_pids(CAST(? AS integer))) AS b(pid)
+              WHERE b.pid = CAST(? AS integer)
+              """;
           case "sqlserver" ->
-              "SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0";
-          // The Oracle test user cannot read v$session; the 500 ms check stands alone there.
-          case "oracle" -> null;
+              """
+              SELECT COUNT(*) FROM sys.dm_exec_requests
+              WHERE session_id = ? AND blocking_session_id = ?
+              """;
+          case "oracle" -> "SELECT COUNT(*) FROM v$session WHERE sid = ? AND blocking_session = ?";
           default -> throw new AssertionError("Unsupported database for lock-wait observation");
         };
-    if (query == null) {
-      return;
-    }
     DataSource dataSource = dataSource();
     assertTrue(
-        JdbcLockWait.awaitBlockedSession(dataSource::getConnection, query, Duration.ofSeconds(30)),
-        "Loser did not block on the key");
+        JdbcLockWait.awaitBlockedSession(
+            dataSource::getConnection, query, Duration.ofSeconds(30), waiter, holder),
+        "Loser did not block on the winner");
   }
 
   private record RaceOutcome(JobHandle ownWrite, JobHandle handle) {}

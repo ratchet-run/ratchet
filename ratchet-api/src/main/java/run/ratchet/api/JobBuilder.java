@@ -320,9 +320,8 @@ public interface JobBuilder {
    *
    * <p>On MySQL and SQL Server, a reported store conflict leaves a lock on the holder's key until
    * the caller's transaction ends. Holder completion waits for that lock, so keep the transaction
-   * short. See {@link #submit()} for failures that still leave it rollback-only, including
-   * idempotency conflicts, transient store failures, MySQL deadlock victims and PostgreSQL
-   * serialization failures above READ COMMITTED.
+   * short. See {@link #submit()} for failures that still leave it rollback-only: transient store
+   * failures, MySQL deadlock victims and PostgreSQL serialization failures above READ COMMITTED.
    *
    * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
    * through {@code U+007E}). The portable subset has the same byte width under Oracle's

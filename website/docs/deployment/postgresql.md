@@ -160,8 +160,11 @@ When `submit()` finds an active owner with a different idempotency key, it throw
 `ON CONFLICT ... DO NOTHING`, so a held key leaves the caller's transaction usable. A lost
 idempotency race resolves the permanent ledger in a new transaction and returns the original
 handle. If that lookup cannot resolve the original, `DuplicateIdempotencyKeyException` escapes
-without marking the caller rollback-only. Partitioned-batch generation creation has its own
-transaction boundary and does not resolve an insertion race to the original handle. See
+without marking the caller rollback-only. A partitioned batch reserves its parent's idempotency
+key first, so a duplicate or lost race on that key also returns the original handle. Two
+submissions of the same partition set with different idempotency keys race on the set row
+instead. The loser throws `IllegalStateException` and its transaction becomes rollback-only, so
+retry it in a fresh transaction. See
 [Active business key violation](../troubleshooting/common-issues.md#active-business-key-violation).
 
 ### Generated columns

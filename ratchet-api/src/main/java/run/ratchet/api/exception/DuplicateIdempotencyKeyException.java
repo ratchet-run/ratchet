@@ -31,10 +31,22 @@ public class DuplicateIdempotencyKeyException extends RuntimeException {
 
   private final String idempotencyKey;
 
+  /**
+   * Creates the exception without a cause, for a store that detects the reservation without a
+   * database error.
+   *
+   * @param idempotencyKey the idempotency key that is already reserved
+   */
   public DuplicateIdempotencyKeyException(String idempotencyKey) {
     this(idempotencyKey, null);
   }
 
+  /**
+   * Creates the exception with the database error that reported the reservation.
+   *
+   * @param idempotencyKey the idempotency key that is already reserved
+   * @param cause the underlying store error, or {@code null}
+   */
   public DuplicateIdempotencyKeyException(String idempotencyKey, Throwable cause) {
     super("Idempotency key already in use: " + idempotencyKey, cause);
     this.idempotencyKey = idempotencyKey;
