@@ -90,6 +90,7 @@ class DefaultJobSchedulerServiceBusinessKeyLookupTest {
             jobTerminalStore,
             jobCrudStore,
             batchStore,
+            null,
             tagStore,
             workflowConditionStore,
             recurringJobStore,
