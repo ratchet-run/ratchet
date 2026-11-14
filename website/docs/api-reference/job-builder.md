@@ -166,7 +166,7 @@ JobBuilder withIdempotencyKey(String key)
 
 Overrides the auto-generated idempotency key. By default, a UUID is generated at builder creation time. A custom idempotency key is **globally unique** -- once used, that key is consumed forever, preventing duplicate job creation.
 
-When submissions race on the same key, the loser waits until the winner's transaction ends and returns the original handle if it commits. If the winner rolls back, submission can proceed. The caller's transaction stays usable. On MySQL the wait is bounded by `innodb_lock_wait_timeout`. With the MongoDB store, the winner's job write commits in its own transaction, so rolling back the winner's caller transaction does not release the key, and the loser returns the original handle. Task execution remains at least once.
+When submissions race on the same key, the loser waits until the winner's transaction ends and returns the original handle if it commits. If the winner rolls back, submission can proceed. The caller's transaction stays usable. If the winner commits but the original job cannot be looked up, the loser throws `DuplicateIdempotencyKeyException` instead, and the caller's transaction still stays usable. On MySQL the wait is bounded by `innodb_lock_wait_timeout`. With the MongoDB store, the winner's job write commits in its own transaction, so rolling back the winner's caller transaction does not release the key, and the loser returns the original handle. Task execution remains at least once.
 
 **Parameters:**
 - `key` -- the idempotency key. If null or blank, keeps the auto-generated UUID.

@@ -286,8 +286,12 @@ public interface JobBuilder {
    *
    * <p>When two submissions race on the same key, the loser waits until the winner's transaction
    * ends, then returns the original handle if the winner commits. The caller's transaction stays
-   * usable. If the winner rolls back, submission can proceed. On MySQL the wait is bounded by
-   * {@code innodb_lock_wait_timeout}. Task execution remains at least once.
+   * usable. If the winner rolls back, submission can proceed. If the winner commits but the
+   * original job cannot be looked up, the loser throws {@link DuplicateIdempotencyKeyException}
+   * instead, and the caller's transaction still stays usable. On MySQL the wait is bounded by
+   * {@code innodb_lock_wait_timeout}. With the MongoDB store, the winner's job write commits in its
+   * own transaction, so rolling back the winner's caller transaction does not release the key, and
+   * the loser returns the original handle. Task execution remains at least once.
    *
    * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column, so it must be at most 36
    * characters. This method trims the key and checks its length as soon as it is called, so a
