@@ -18,6 +18,7 @@ package run.ratchet.store.mysql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -28,7 +29,7 @@ import run.ratchet.store.util.BusinessKeyReservations;
 
 final class MysqlBusinessKeyReservations {
 
-  private static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
+  static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
 
   // The scheduler_business_key_reservation.business_key column width, which is also the API's
   // business-key limit. INSERT IGNORE would truncate a longer key instead of failing.
@@ -100,6 +101,33 @@ final class MysqlBusinessKeyReservations {
         .createNativeQuery(sql)
         .setParameter(1, UuidByteArrayConverter.toBytes(ownerJobId))
         .executeUpdate();
+  }
+
+  // A locking read sees holds committed since the InnoDB REPEATABLE READ snapshot.
+  List<UUID> heldOwners(List<UUID> ids) {
+    List<UUID> held = new ArrayList<>();
+    for (int start = 0; start < ids.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          ids.subList(start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ids.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT owner_job_id FROM scheduler_business_key_reservation
+                  WHERE owner_job_id IN (%s) AND held_until IS NOT NULL
+                  FOR UPDATE
+                  """
+                      .formatted(placeholders));
+      int parameter = 1;
+      for (UUID id : chunk) {
+        query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
+      }
+      for (Object row : query.getResultList()) {
+        held.add(MysqlJobRowMapper.uuidOrNull(row));
+      }
+    }
+    return held;
   }
 
   void deleteReservationsByOwners(List<UUID> ownerJobIds) {

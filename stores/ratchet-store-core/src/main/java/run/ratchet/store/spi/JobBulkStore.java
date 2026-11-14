@@ -42,7 +42,16 @@ public interface JobBulkStore {
    */
   void bulkInsert(List<JobEntity> jobs);
 
-  /** Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>Skips a job whose business key is held after a running cancel, and leaves that job and its
+   * hold in place. Lock the queue rows and then the job rows before checking the holds, as {@link
+   * JobCrudStore#delete} does.
+   *
+   * @param ids the jobs to delete
+   * @return the number of jobs deleted, which excludes skipped held jobs
+   */
   int deleteJobsByIds(List<UUID> ids);
 
   /** Deletes old DLQ rows. Transaction attribute: {@code REQUIRED}. */

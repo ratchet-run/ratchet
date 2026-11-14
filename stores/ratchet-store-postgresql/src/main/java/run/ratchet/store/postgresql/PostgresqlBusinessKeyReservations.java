@@ -18,6 +18,7 @@ package run.ratchet.store.postgresql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -32,7 +33,7 @@ final class PostgresqlBusinessKeyReservations {
   static final String OWNER_TABLE_QUEUE = BusinessKeyReservations.OWNER_TABLE_QUEUE;
   static final String OWNER_TABLE_RECURRING = BusinessKeyReservations.OWNER_TABLE_RECURRING;
 
-  private static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
+  static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
 
   private final PostgresqlStoreContext ctx;
 
@@ -106,6 +107,31 @@ final class PostgresqlBusinessKeyReservations {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete business key reservation", e);
     }
+  }
+
+  List<UUID> heldOwners(List<UUID> ids) {
+    List<UUID> held = new ArrayList<>();
+    for (int start = 0; start < ids.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          ids.subList(start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ids.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT owner_job_id FROM scheduler_business_key_reservation
+                  WHERE owner_job_id IN (%s) AND held_until IS NOT NULL
+                  """
+                      .formatted(placeholders));
+      int parameter = 1;
+      for (UUID id : chunk) {
+        query.setParameter(parameter++, id);
+      }
+      for (Object row : query.getResultList()) {
+        held.add(PostgresqlJobRowMapper.uuidOrNull(row));
+      }
+    }
+    return held;
   }
 
   void deleteReservationsByOwners(List<UUID> ownerJobIds) {

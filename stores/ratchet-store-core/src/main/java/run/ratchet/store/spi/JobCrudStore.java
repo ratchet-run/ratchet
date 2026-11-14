@@ -65,7 +65,19 @@ public interface JobCrudStore {
    */
   Optional<JobEntity> findByIdLatest(UUID id);
 
-  /** Deletes a job row by primary key. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Deletes a job row by primary key. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>A job whose business key is held after a running cancel (see {@link
+   * JobTerminalStore#cancelRunningJob}) cannot be deleted. The call then throws and writes nothing,
+   * so the hold ends only through {@link JobTerminalStore#releaseBusinessKeyHold}, {@link
+   * JobBulkStore#releaseBusinessKeyHolds} or {@link JobBulkStore#deleteExpiredBusinessKeyHolds}.
+   * Check the hold in this transaction after locking the job's queue row and then its job row, the
+   * order {@code cancelRunningJob} uses, so a delete and a cancel of the same job cannot both win.
+   *
+   * @param id the job to delete
+   * @throws IllegalStateException if the job's business key is held
+   */
   void delete(UUID id);
 
   /**

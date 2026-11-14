@@ -16,7 +16,12 @@
 package run.ratchet.store.mysql;
 
 import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
+import static run.ratchet.store.mysql.MysqlBusinessKeyReservations.DELETE_RESERVATIONS_CHUNK_SIZE;
 
+import jakarta.persistence.Query;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
@@ -26,10 +31,12 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 final class MysqlJobRecurringAndResetOperations {
 
   private final MysqlStoreContext ctx;
+  private final MysqlBusinessKeyReservations reservations;
 
   MysqlJobRecurringAndResetOperations(
       MysqlStoreContext ctx, MysqlBusinessKeyReservations reservations) {
     this.ctx = ctx;
+    this.reservations = reservations;
   }
 
   boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
@@ -84,60 +91,90 @@ final class MysqlJobRecurringAndResetOperations {
   }
 
   int cancelJobsByTag(String tag) {
-    // language=MySQL
-    String coldSql =
+    return ctx.timedStoreOperation(
+        "cancel_jobs_by_tag",
+        () -> doCancelJobsByTag(tag),
+        cancelled -> cancelled > 0 ? "updated" : "miss");
+  }
+
+  private int doCancelJobsByTag(String tag) {
+    String candidatesSql =
         """
-        UPDATE scheduler_job j
-          JOIN scheduler_job_tag t ON t.job_id = j.job_id
-          JOIN scheduler_job_queue q ON q.job_id = j.job_id
-        SET j.terminal_status = 'CANCELED',
-            j.terminated_at = NOW(3)
-        WHERE t.tag = ?
-          AND j.job_type <> 'RECURRING'
-          AND j.terminal_status IS NULL
+        SELECT q.job_id FROM scheduler_job_queue q
+        JOIN scheduler_job j ON j.job_id = q.job_id
+        JOIN scheduler_job_tag t ON t.job_id = q.job_id
+        WHERE t.tag = ? AND j.job_type <> 'RECURRING' AND j.terminal_status IS NULL
           AND q.status IN ('PENDING','PAUSED','WAITING')
+        ORDER BY q.job_id
         """;
-    int cancelled =
-        ctx.timedStoreOperation(
-            "cancel_jobs_by_tag",
-            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
-            updated -> updated > 0 ? "updated" : "miss");
-    if (cancelled == 0) {
-      return 0;
+    List<UUID> candidates = new ArrayList<>();
+    for (Object row :
+        ctx.em().createNativeQuery(candidatesSql).setParameter(1, tag).getResultList()) {
+      candidates.add(MysqlJobRowMapper.uuidOrNull(row));
     }
-    // language=MySQL
-    String hotSql =
-        """
-        DELETE q FROM scheduler_job_queue q
-        WHERE q.status IN ('PENDING','PAUSED','WAITING')
-          AND q.job_id IN (
-            SELECT j.job_id FROM scheduler_job j
-              JOIN scheduler_job_tag t ON t.job_id = j.job_id
-            WHERE t.tag = ?
-              AND j.job_type <> 'RECURRING'
-              AND j.terminal_status = 'CANCELED'
-          )
-        """;
-    ctx.timedStoreOperation(
-        "cancel_jobs_by_tag_hot_delete",
-        () -> ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate(),
-        deleted -> deleted > 0 ? "updated" : "miss");
-    // language=MySQL
-    String reservationsSql =
-        """
-        DELETE r FROM scheduler_business_key_reservation r
-        WHERE r.owner_job_id IN (
-          SELECT j.job_id FROM scheduler_job j
-            JOIN scheduler_job_tag t ON t.job_id = j.job_id
-          WHERE t.tag = ?
-            AND j.job_type <> 'RECURRING'
-            AND j.terminal_status = 'CANCELED'
-        )
-        """;
+    // Lock queue rows first so a poller cannot claim them between the cold update and hot delete.
+    // Every queue chunk is locked before any job or reservation is changed.
+    List<UUID> ids = new ArrayList<>();
+    for (int start = 0; start < candidates.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          candidates.subList(
+              start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, candidates.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      String lockSql =
+          """
+          SELECT job_id FROM scheduler_job_queue FORCE INDEX (PRIMARY)
+          WHERE job_id IN (%s) AND status IN ('PENDING','PAUSED','WAITING')
+          ORDER BY job_id FOR UPDATE
+          """
+              .formatted(placeholders);
+      for (Object row : bindIds(lockSql, chunk).getResultList()) {
+        ids.add(MysqlJobRowMapper.uuidOrNull(row));
+      }
+    }
+    int cancelled = 0;
+    for (int start = 0; start < ids.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          ids.subList(start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ids.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      String coldSql =
+          """
+          UPDATE scheduler_job SET terminal_status = 'CANCELED', terminated_at = NOW(3)
+          WHERE job_id IN (%s) AND terminal_status IS NULL
+          """
+              .formatted(placeholders);
+      int updated = bindIds(coldSql, chunk).executeUpdate();
+      String hotSql =
+          "DELETE FROM scheduler_job_queue WHERE job_id IN (%s)".formatted(placeholders);
+      int deleted =
+          ctx.timedStoreOperation(
+              "cancel_jobs_by_tag_hot_delete",
+              () -> bindIds(hotSql, chunk).executeUpdate(),
+              count -> count > 0 ? "updated" : "miss");
+      if (updated != deleted) {
+        throw new IllegalStateException(
+            "cancel-by-tag canceled "
+                + updated
+                + " cold rows but removed "
+                + deleted
+                + " hot rows for tag "
+                + tag);
+      }
+      cancelled += updated;
+    }
     ctx.timedStoreOperation(
         "cancel_jobs_by_tag_reservations",
-        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
-        deleted -> deleted > 0 ? "updated" : "miss");
+        () -> {
+          reservations.deleteReservationsByOwners(ids);
+          return ids.size();
+        },
+        count -> count > 0 ? "updated" : "miss");
     return cancelled;
+  }
+
+  private Query bindIds(String sql, List<UUID> ids) {
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
+    return query;
   }
 }

@@ -41,7 +41,7 @@ final class OracleJobLifecycleOperations
       OracleJobQueryOperations query) {
     this.transitions = new OracleJobStatusTransitions(ctx);
     this.terminals = new OracleJobTerminalOperations(ctx, reservations, batches);
-    this.recurring = new OracleJobRecurringAndResetOperations(ctx);
+    this.recurring = new OracleJobRecurringAndResetOperations(ctx, reservations);
     this.query = query;
   }
 

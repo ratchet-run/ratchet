@@ -178,7 +178,9 @@ public interface JobTerminalStore {
    * keyHeldUntil} the reservation is deleted, as every other cancel does. A held key makes a new
    * reservation for it fail with {@link BusinessKeyReservationConflictException} until {@link
    * #releaseBusinessKeyHold}, {@link JobBulkStore#releaseBusinessKeyHolds} or {@link
-   * JobBulkStore#deleteExpiredBusinessKeyHolds} removes it.
+   * JobBulkStore#deleteExpiredBusinessKeyHolds} removes it. No other write removes a hold: {@link
+   * JobCrudStore#delete} refuses a held job, {@link JobBulkStore#deleteJobsByIds} skips it,
+   * archival leaves it alone, and {@link JobBatchStatusStore#cancelJobsByTag} keeps it.
    *
    * @param id job to cancel
    * @param keyHeldUntil when the hold expires, or null for no hold

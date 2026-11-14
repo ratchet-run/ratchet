@@ -133,6 +133,24 @@ final class MongoBusinessKeyReservations {
     ctx.businessKeyReservations().deleteOne(session, eq(OWNER_JOB_ID, ownerJobId));
   }
 
+  List<UUID> heldOwners(ClientSession session, List<UUID> ids) {
+    List<UUID> held = new ArrayList<>();
+    for (Document doc :
+        ctx.businessKeyReservations()
+            .find(session, and(in(OWNER_JOB_ID, ids), exists(HELD_UNTIL, true)))) {
+      held.add(doc.get(OWNER_JOB_ID, UUID.class));
+    }
+    return held;
+  }
+
+  List<UUID> heldOwners() {
+    List<UUID> held = new ArrayList<>();
+    for (Document doc : ctx.businessKeyReservations().find(exists(HELD_UNTIL, true))) {
+      held.add(doc.get(OWNER_JOB_ID, UUID.class));
+    }
+    return held;
+  }
+
   void releaseByOwners(ClientSession session, List<UUID> ownerJobIds) {
     if (!ownerJobIds.isEmpty()) {
       ctx.businessKeyReservations().deleteMany(session, in(OWNER_JOB_ID, ownerJobIds));

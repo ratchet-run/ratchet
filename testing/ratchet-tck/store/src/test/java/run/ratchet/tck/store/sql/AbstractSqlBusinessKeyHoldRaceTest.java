@@ -38,10 +38,13 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.BiConsumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.dto.JobCompletionPlan;
@@ -369,6 +372,32 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
                 .committed());
   }
 
+  @Test
+  void deleteAndCancelRunningJobKeepOneOutcome() throws Exception {
+    // Delete and running cancel leave either no job or a canceled owner with its hold.
+    var store = fixture().store();
+    assertOneWinnerPerJobAgainstCancel(
+        "delete-race",
+        (index, job, now) -> {
+          try {
+            store.delete(job.getId());
+            return true;
+          } catch (IllegalStateException expected) {
+            return false;
+          }
+        },
+        (job, deleted) -> {
+          if (deleted) {
+            assertTrue(store.findById(job.getId()).isEmpty());
+          } else {
+            assertEquals(JobStatus.CANCELED, store.findById(job.getId()).orElseThrow().getStatus());
+            assertEquals(
+                new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+                store.findBusinessKeyHolder(job.getBusinessKey()).orElseThrow());
+          }
+        });
+  }
+
   /** A terminal write that one thread races against a running cancel of the same job. */
   @FunctionalInterface
   private interface TerminalWrite {
@@ -376,6 +405,12 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
   }
 
   private void assertOneWinnerPerJobAgainstCancel(String keyPrefix, TerminalWrite terminalWrite)
+      throws Exception {
+    assertOneWinnerPerJobAgainstCancel(keyPrefix, terminalWrite, (job, won) -> {});
+  }
+
+  private void assertOneWinnerPerJobAgainstCancel(
+      String keyPrefix, TerminalWrite terminalWrite, BiConsumer<JobEntity, Boolean> check)
       throws Exception {
     var store = fixture().store();
     String node = keyPrefix + "-node";
@@ -437,6 +472,7 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
         for (int i = 0; i < jobs.size(); i++) {
           assertTrue(
               terminalWins[i] ^ cancelWins[i], "exactly one winner for " + jobs.get(i).getId());
+          check.accept(jobs.get(i), terminalWins[i]);
         }
       }
     } finally {

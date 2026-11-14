@@ -277,6 +277,10 @@ final class MongoJobCrudOperations {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {
+            if (!reservations.heldOwners(session, List.of(id)).isEmpty()) {
+              throw new IllegalStateException(
+                  "Job " + id + " cannot be deleted while its business key is held");
+            }
             reservations.releaseByOwner(session, id);
             ctx.jobs().deleteOne(session, eq(ID, id));
             return true;
@@ -745,8 +749,11 @@ final class MongoJobCrudOperations {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
-            reservations.releaseByOwners(session, ids);
-            DeleteResult result = ctx.jobs().deleteMany(session, in(ID, ids));
+            List<UUID> held = reservations.heldOwners(session, ids);
+            List<UUID> deletable = ids.stream().filter(id -> !held.contains(id)).toList();
+            if (deletable.isEmpty()) return 0;
+            reservations.releaseByOwners(session, deletable);
+            DeleteResult result = ctx.jobs().deleteMany(session, in(ID, deletable));
             return (int) result.getDeletedCount();
           },
           TRANSACTION_OPTIONS);

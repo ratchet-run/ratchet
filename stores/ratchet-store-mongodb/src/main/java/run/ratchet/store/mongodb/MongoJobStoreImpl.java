@@ -160,7 +160,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.query = new MongoJobQueryOperations(ctx);
     this.lifecycle = new MongoJobLifecycleOperations(ctx, batches, reservations, query);
     this.nodeLocks = new MongoNodeLockOperations(ctx);
-    this.archives = new MongoArchiveOperations(ctx, true, true);
+    this.archives = new MongoArchiveOperations(ctx, true, true, reservations);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
     this.signals = new MongoSignalOperations(ctx);
     this.recurringJobs = new MongoRecurringJobOperations(ctx, reservations, crud);
