@@ -105,6 +105,9 @@ The Spring Boot consumer lane has one row that compiles Ratchet on Java 21 and
 runs the consumer on Java 17, matching how releases are built. Pull requests keep
 that row as its own group, so it runs whenever the PostgreSQL consumer rows are selected.
 
+The `spring_micrometer` lane is never reduced. It keeps both Boot JVM cells and
+the Boot 4.1.1 native cell whenever selected.
+
 Run locally from the repository root with a newline-separated list of changed
 repository-relative paths, or select the full matrix:
 
