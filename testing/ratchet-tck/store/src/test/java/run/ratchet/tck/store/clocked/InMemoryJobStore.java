@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobClaimDto;
@@ -655,6 +656,21 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   public synchronized AcquireResult tryAcquirePermit(
       String resource, UUID jobId, long claimSeq, String nodeId) {
     return AcquireResult.ACQUIRED;
+  }
+
+  @Override
+  public synchronized List<WokenWaiter> wakeWaiters(String resource) {
+    return List.of();
+  }
+
+  @Override
+  public synchronized List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
+    return List.of();
+  }
+
+  @Override
+  public synchronized int deleteStaleWaiters(int limit) {
+    return 0;
   }
 
   @Override

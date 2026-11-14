@@ -212,6 +212,10 @@ final class OracleJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
+    // A job whose resource changes leaves the old resource's waiting line.
+    if (row != null && !Objects.equals(row[9], job.getResourceName())) {
+      deleteWaiter(job.getId());
+    }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
@@ -416,13 +420,26 @@ final class OracleJobWriteOperations {
         SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
         WHERE job_id = ? AND status = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, UuidRawConverter.toBytes(id))
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, UuidRawConverter.toBytes(id))
+            .setParameter(3, storedStatus)
+            .executeUpdate();
+    if (updated > 0) {
+      deleteWaiter(id);
+    }
     return true;
+  }
+
+  private void deleteWaiter(UUID id) {
+    // language=Oracle
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, UuidRawConverter.toBytes(id)).executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -526,7 +543,7 @@ final class OracleJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
+               c.terminal_status, c.resource_name
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
@@ -631,6 +648,9 @@ final class OracleJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiter(id);
+      }
     }
     return true;
   }

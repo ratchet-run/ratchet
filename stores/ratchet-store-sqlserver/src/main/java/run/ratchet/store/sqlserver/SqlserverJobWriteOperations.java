@@ -479,6 +479,8 @@ final class SqlserverJobWriteOperations {
         .setParameter(6, job.getResourceName())
         .setParameter(7, UuidByteArrayConverter.toBytes(job.getId()))
         .executeUpdate();
+    // Under the job-row lock, keep only a waiter on the resource this save stores.
+    deleteWaiterOffResource(job.getId(), job.getResourceName());
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
@@ -515,13 +517,47 @@ final class SqlserverJobWriteOperations {
         SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
         WHERE job_id = ? AND status = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, UuidByteArrayConverter.toBytes(id))
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
+            .setParameter(3, storedStatus)
+            .executeUpdate();
+    if (updated > 0) {
+      deleteWaiterIfPresent(id);
+    }
     return true;
+  }
+
+  private void deleteWaiterOffResource(UUID id, String resource) {
+    if (resource == null) {
+      deleteWaiterIfPresent(id);
+      return;
+    }
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name <> ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .setParameter(2, resource)
+        .executeUpdate();
+  }
+
+  private void deleteWaiterIfPresent(UUID id) {
+    // Under RCSI a missing-row delete takes no gap lock.
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -727,6 +763,9 @@ final class SqlserverJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiterIfPresent(id);
+      }
     }
     return true;
   }

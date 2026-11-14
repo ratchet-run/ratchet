@@ -213,6 +213,7 @@ class MongoCollectionInitializer {
     createWorkflowConditionIndexes();
     createResourceLimitIndexes();
     createResourcePermitIndexes();
+    createResourceWaiterIndexes();
     createJobPropertiesIndexes();
     createJobExtensionStateIndexes();
     createRequiredIndex(
@@ -664,6 +665,17 @@ class MongoCollectionInitializer {
             Indexes.ascending(DEFINITION_ORDER)),
         "idx_wfc_evaluation_order");
     createIndex(coll, Indexes.ascending(CHILD_JOB_ID), "idx_wfc_child");
+  }
+
+  private void createResourceWaiterIndexes() {
+    var coll = database.getCollection("scheduler_resource_waiter");
+    createRequiredIndex(
+        coll,
+        Indexes.compoundIndex(
+            Indexes.ascending(RESOURCE_NAME),
+            Indexes.descending(PRIORITY),
+            Indexes.ascending(WAIT_SINCE, ID)),
+        new IndexOptions().name("idx_resource_waiter_order"));
   }
 
   private void createResourceLimitIndexes() {}

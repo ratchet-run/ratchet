@@ -210,6 +210,15 @@ final class MysqlJobWriteOperations {
 
   private void saveColdUpdate(JobEntity job) {
     Object[] row = snapshotHotRow(job.getId());
+    // A resource change or a reschedule leaves the waiting line. A park writes a waiter row only
+    // while the job names its resource, so a job stored with no resource has none to delete.
+    if (row != null
+        && row[9] != null
+        && (!Objects.equals(row[9], job.getResourceName())
+            || (row[0] != null
+                && !Objects.equals(RowValues.instantOrNull(row[1]), job.getScheduledTime())))) {
+      deleteWaiter(job.getId());
+    }
     if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
@@ -423,6 +432,32 @@ final class MysqlJobWriteOperations {
     return true;
   }
 
+  private void deleteWaiter(UUID id) {
+    // A plain read can miss a waiter parked after this transaction's read view. Deleting a missing
+    // key takes a gap lock that blocks other parks. Write the key first so the delete finds a row
+    // and both statements lock only this job's key.
+    // language=MySQL
+    String insert =
+        """
+        INSERT INTO scheduler_resource_waiter (job_id, resource_name, priority, wait_since, lease_until)
+        VALUES (?, '', 0, NOW(3), NOW(3))
+        ON DUPLICATE KEY UPDATE job_id = job_id
+        """;
+    ctx.em()
+        .createNativeQuery(insert)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
+    // language=MySQL
+    String delete =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(delete)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
+  }
+
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
     UUID id = incoming.getId();
     JobStatus status = incoming.getStatus() != null ? incoming.getStatus() : JobStatus.PENDING;
@@ -523,7 +558,7 @@ final class MysqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
+               c.terminal_status, c.resource_name
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?

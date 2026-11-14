@@ -841,6 +841,21 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    return auxiliary.wakeWaiters(resource);
+  }
+
+  @Override
+  public List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
+    return auxiliary.findResourcesWithWaiters(after, limit);
+  }
+
+  @Override
+  public int deleteStaleWaiters(int limit) {
+    return auxiliary.deleteStaleWaiters(limit);
+  }
+
+  @Override
   public void releasePermit(String resource, UUID jobId, long claimSeq) {
     auxiliary.releasePermit(resource, jobId, claimSeq);
   }

@@ -62,6 +62,7 @@ class SqlStoreContractTest {
     "scheduler_job_tag",
     "scheduler_job_log",
     "scheduler_job_execution",
+    "scheduler_resource_waiter",
     "scheduler_resource_permit",
     "scheduler_workflow_condition",
     "scheduler_batch_metrics",

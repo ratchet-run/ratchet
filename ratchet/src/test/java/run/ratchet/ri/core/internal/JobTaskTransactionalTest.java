@@ -69,6 +69,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.TransactionalJob;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.ri.core.JobTransaction;
+import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.TransactionalCompletion;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
@@ -89,6 +90,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.TerminalOutcome;
 import run.ratchet.store.spi.TransactionalCompletionStore;
 
@@ -96,6 +98,7 @@ class JobTaskTransactionalTest {
   private static final Instant NOW = Instant.parse("2026-11-13T12:00:00Z");
   private static final ThreadLocal<Callable<Object>> BODY = new ThreadLocal<>();
   private final JobStore store = mock(JobStore.class);
+  private final ResourcePermitService permits = mock(ResourcePermitService.class);
   private final TransactionalCompletionStore transactions =
       mock(TransactionalCompletionStore.class);
   private final PostExecutionHandler lifecycle = mock(PostExecutionHandler.class);
@@ -146,7 +149,7 @@ class JobTaskTransactionalTest {
     task =
         new JobTask(
             store,
-            null,
+            permits,
             lifecycle,
             () -> "node",
             observer,
@@ -289,6 +292,58 @@ class JobTaskTransactionalTest {
     } finally {
       CALLBACK.remove();
     }
+  }
+
+  @Test
+  void committedTransactionReleasesPermitAfterCommit() {
+    job.setResourceName("res");
+    when(permits.tryAcquire("res", job.getId(), 7L, "node")).thenReturn(AcquireResult.ACQUIRED);
+    BODY.set(
+        () -> {
+          assertTrue(JobTransaction.active());
+          verify(permits, never()).release(any(), any(), anyLong());
+          return 42;
+        });
+    doAnswer(
+            invocation -> {
+              assertFalse(JobTransaction.active());
+              return null;
+            })
+        .when(permits)
+        .release("res", job.getId(), 7L);
+
+    task.call();
+
+    InOrder order = inOrder(lifecycle, permits);
+    order
+        .verify(lifecycle)
+        .completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+    order.verify(permits).release("res", job.getId(), 7L);
+    verify(permits, times(1)).release("res", job.getId(), 7L);
+    verify(lifecycle).runFollowups(completion);
+  }
+
+  @Test
+  void rolledBackTransactionReleasesPermit() {
+    job.setResourceName("res");
+    when(permits.tryAcquire("res", job.getId(), 7L, "node")).thenReturn(AcquireResult.ACQUIRED);
+    BODY.set(
+        () -> {
+          throw new IllegalArgumentException("body");
+        });
+    doAnswer(
+            invocation -> {
+              assertFalse(JobTransaction.active());
+              return null;
+            })
+        .when(permits)
+        .release("res", job.getId(), 7L);
+
+    task.call();
+
+    verify(permits, times(1)).release("res", job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L);
   }
 
   private static final ThreadLocal<Runnable> CALLBACK = new ThreadLocal<>();

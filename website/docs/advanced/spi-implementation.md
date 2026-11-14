@@ -679,7 +679,7 @@ A store advertises each of these by implementing the interface; the engine probe
 | `BatchStore` | Batch progress tracking and metrics | `saveBatch()`, `incrementCompletedAtomic()`, `markBatchCompleteIfReady()` |
 | `WorkflowConditionStore` | Workflow branch conditions | `saveCondition()`, `findConditionsByParentJobId()` |
 | `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
-| `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
+| `ResourcePermitStore` | Resource permits and their waiting line | `tryAcquirePermit()`, `releasePermit()`, `wakeWaiters()` |
 | `EventOutboxStore` | Durable terminal delivery | `findEventsCreatedBefore()`, `deleteEvents()` (at most 500 IDs); insert `JobCompletionPlan.outboxEvents()` atomically only when completion wins |
 | `TransactionalCompletionStore` | Completion in an existing SQL transaction | `terminalOutcome()`, `requireJoinedTransaction()`, and current planning reads (SQL stores only) |
 | `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
@@ -712,8 +712,8 @@ that claim:
   resource at capacity, the newer claim waits. If a slot is still free, the newer claim gets its
   own permit, and both attempts hold one at the same time.
 - A repeat call by the same claim returns `ACQUIRED` and uses no more capacity.
-- Otherwise insert a permit for the claim when the resource has capacity (`ACQUIRED`), or return
-  `AT_CAPACITY`. Count every permit of the resource, including one that an older claim of the
+- Otherwise insert a permit for the claim when the resource has capacity (`ACQUIRED`), or park
+  the job and return `AT_CAPACITY` (see [Resource waiters](#resource-waiters)). Count every permit of the resource, including one that an older claim of the
   same job still holds. A retry never reuses its earlier attempt's permit. When the resource is
   full, the retry waits until that permit is released or cleaned up. When a slot is free, the
   retry takes it, and the job holds two permits until the older one goes.
@@ -725,6 +725,58 @@ claim, so the permit table needs no claim column. Do not add a unique key on res
 a job can hold one permit per claim. The capacity check and the insert must be atomic against
 other acquires of the same resource. The SQL stores lock the resource-limit row, and the MongoDB
 store increments a counter on it.
+
+### Resource waiters
+
+`ResourcePermitStore` also keeps the waiting line in `scheduler_resource_waiter` (a MongoDB
+collection of the same name). Each row holds the job id, resource, priority, `wait_since` and
+`lease_until`, with the index `(resource_name, priority DESC, wait_since ASC, job_id ASC)`. The
+table has no foreign key. A waiter row belongs to the job's current `resource_name`: a park writes
+it and a wake-up acts on it only while the job row still names that resource. The SQL stores
+check this under a job-row lock taken without waiting, and a save that changes the resource takes
+the same lock. MongoDB relies on the write conflict on the job document.
+
+- `tryAcquirePermit` gives the permit only if a slot is still free after it counts the live
+  waiters ahead of the caller. When it gives the permit, it deletes the caller's waiter row for
+  that resource; a row the job has since written for another resource stays. A waiter is live
+  while its lease is current and its job is PENDING or RUNNING. The order is priority, then
+  `wait_since`, then job id. A caller with no waiter row uses its own priority, `scheduled_time`
+  and id.
+- On a miss, `tryAcquirePermit` parks the job in the same transaction and returns `AT_CAPACITY`.
+  The park is fenced on RUNNING and the claim. It makes the job PENDING (or PAUSED in a paused
+  batch), due at now plus `retry_delay_ms`, sets `last_error` and leaves attempts unchanged. It
+  inserts the waiter row, or renews the lease of an existing row and keeps its `wait_since`. A
+  row left from another resource is replaced with the job's own priority and due time. Use
+  `ResourceWaiterLease.leaseMillis` for the lease. If the fence fails, return `SUPERSEDED` and
+  write no waiter row. If the job row is locked, or no longer names the resource, the job still
+  parks but gets no waiter row. The engine makes no write of its own after `AT_CAPACITY`.
+- `wakeWaiters` runs in its own transaction after the release or clean-up commits. It takes the
+  resource lock first, reads up to `max_concurrent` live heads, counts the permits, and sets
+  `scheduled_time = wait_since` on the PENDING heads within the free slots. It returns them so the
+  engine can send wake-up hints. It never waits on a job row that another transaction holds. The
+  SQL stores skip that head and do not wake a later waiter in its place. They also skip a head
+  whose job's `scheduled_time` changed after they read the line, so a user reschedule that commits
+  in between is kept, and a head whose job no longer names the resource. MongoDB retries the
+  wake-up on a write conflict.
+- `findResourcesWithWaiters(after, limit)` and `deleteStaleWaiters(limit)` serve the periodic
+  sweep. The first returns distinct resource names that have waiter rows, in ascending order and
+  after `after` (from the first name when it is null); the engine passes the last name it saw, so
+  successive sweeps page through every resource. The second deletes waiter rows whose job is gone
+  or no longer PENDING, RUNNING or PAUSED. It must keep a row that a park renewed after the sweep
+  selected it; the SQL stores fence the delete on the `lease_until` they read. A delete can still
+  land after an acquire read the row and before its park renews it, so a park whose renew updates
+  nothing inserts the row again, with the priority and `wait_since` the acquire counted with. With
+  no waiters, the sweep costs one indexed read.
+- A user reschedule that changes `scheduled_time` deletes the waiter row, and so does a save that
+  changes the job's resource. Compare with the resource stored when the save holds the job-row
+  lock, not with an earlier unlocked read. Engine reschedules keep it.
+- `releasePermit`, `releaseAllPermits`, `configureResource` and `cleanupOrphanedPermits` do not
+  wake anyone. After they commit, the engine calls `wakeWaiters` for the released or configured
+  resource, or runs the sweep when it does not know the resource.
+
+The SQL stores lock the resource-limit row first. The MongoDB store increments a generation
+counter on the resource document before it reads anything, so two acquires or wake-ups on one
+resource always conflict and one of them retries.
 
 ### Current claim
 
@@ -970,7 +1022,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobAnalyticsStoreContract` | Analytics/aggregation queries |
 | `AbstractTagStoreContract` | Tag-based job queries |
 | `AbstractWorkflowConditionStoreContract` | Workflow condition evaluation |
-| `AbstractResourcePermitStoreContract` | Permit acquire and release |
+| `AbstractResourcePermitStoreContract` | Permit acquire and release, waiting order, park and wake-up |
 | `AbstractDualWriteInvariantContract` | Cross-store invariants for dual hot/cold write paths |
 
 Run every required contract and every conditional contract that applies to the store. The generated

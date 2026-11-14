@@ -732,6 +732,21 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public List<WokenWaiter> wakeWaiters(String resource) {
+    return fail("wakeWaiters");
+  }
+
+  @Override
+  public List<String> findResourcesWithWaiters(@Nullable String after, int limit) {
+    return fail("findResourcesWithWaiters");
+  }
+
+  @Override
+  public int deleteStaleWaiters(int limit) {
+    return fail("deleteStaleWaiters");
+  }
+
+  @Override
   public void releasePermit(String resource, UUID jobId, long claimSeq) {
     fail("releasePermit");
   }

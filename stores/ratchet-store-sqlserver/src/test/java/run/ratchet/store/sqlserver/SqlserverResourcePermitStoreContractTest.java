@@ -65,7 +65,7 @@ class SqlserverResourcePermitStoreContractTest extends AbstractResourcePermitSto
     assertTrue(
         method.contains("INSERT INTO scheduler_resource_permit")
             && method.contains(") < max_concurrent")
-            && !method.contains("String countSql"),
+            && method.contains("countPermits(resource)"),
         "tryAcquirePermit must gate permit insertion with the capacity check");
   }
 }

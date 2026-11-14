@@ -49,6 +49,7 @@ class MongoInitScriptConformanceTest {
     "uq_partition_set_key",
     "uq_partition_index",
     "idx_partition_child",
+    "idx_resource_waiter_order",
   };
 
   private static String readInitScript() throws IOException {
@@ -57,6 +58,16 @@ class MongoInitScriptConformanceTest {
       assertNotNull(in, "ddl/mongodb-init.js must be on the classpath");
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);
     }
+  }
+
+  @Test
+  void initScript_resourceWaitersUseOriginalWaitOrder() throws IOException {
+    String script = readInitScript();
+    int name = script.indexOf("\"idx_resource_waiter_order\"");
+    assertTrue(name >= 0);
+    String block =
+        script.substring(script.lastIndexOf("createIndex", name), script.indexOf(';', name));
+    assertTrue(block.contains("resource_name: 1, priority: -1, wait_since: 1, _id: 1"));
   }
 
   @Test

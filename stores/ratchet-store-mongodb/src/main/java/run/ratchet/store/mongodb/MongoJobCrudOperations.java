@@ -53,6 +53,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.QUEUE_WAIT_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.RECURRING_MASTER_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STARTED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
@@ -197,7 +198,11 @@ final class MongoJobCrudOperations {
               Document current =
                   ctx.jobs()
                       .find(session, eq(ID, job.getId()))
-                      .projection(new Document(CRASH_COUNT, 1).append(CLAIM_SEQ, 1))
+                      .projection(
+                          new Document(CRASH_COUNT, 1)
+                              .append(CLAIM_SEQ, 1)
+                              .append(SCHEDULED_TIME, 1)
+                              .append(RESOURCE_NAME, 1))
                       .first();
               doc.put(CRASH_COUNT, current == null ? 0 : current.getInteger(CRASH_COUNT, 0));
               // Whole-document saves must preserve the store-owned claim sequence.
@@ -220,6 +225,12 @@ final class MongoJobCrudOperations {
                         + " (expectedVersion="
                         + expectedVersion
                         + ")");
+              }
+              if (current != null
+                  && (!Objects.equals(current.getDate(SCHEDULED_TIME), doc.getDate(SCHEDULED_TIME))
+                      || !Objects.equals(
+                          current.getString(RESOURCE_NAME), doc.getString(RESOURCE_NAME)))) {
+                ctx.resourceWaiters().deleteOne(session, eq(ID, job.getId()));
               }
               return true;
             },

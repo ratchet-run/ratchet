@@ -60,6 +60,7 @@ operation is idempotent and safe to run on every boot.
 | `scheduler_workflow_condition` | Workflow branch conditions |
 | `scheduler_resource_limit` | Resource concurrency configuration |
 | `scheduler_resource_permit` | Resource permit tracking for rate limiting |
+| `scheduler_resource_waiter` | Jobs waiting for a resource permit, in order |
 
 ## Key Indexes
 
@@ -96,6 +97,15 @@ transaction.
 | `idx_execution_job_id` | `job_id` | Execution history lookup |
 | `idx_execution_status_started` | `status`, `started_at` | Stale execution cleanup |
 | `idx_execution_node_started` | `node_id`, `started_at` | Per-node execution queries |
+
+### scheduler_resource_waiter
+
+| Index | Fields | Notes |
+|-------|--------|-------|
+| `idx_resource_waiter_order` | `resource_name`, `priority` DESC, `wait_since`, `_id` | Order of the jobs waiting for a resource permit |
+
+The resource-limit document also carries a `generation` counter. Every permit acquire and waiter
+wake-up increments it first, so two of them on the same resource always conflict and one retries.
 
 ## How It Differs from SQL Stores
 

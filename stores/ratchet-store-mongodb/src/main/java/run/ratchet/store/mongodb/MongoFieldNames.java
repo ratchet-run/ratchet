@@ -152,5 +152,10 @@ final class MongoFieldNames {
   static final String SIGNAL_DELIVERED_BY = "signal_delivered_by";
   static final String SIGNAL_DELIVERY_ID = "signal_delivery_id";
 
+  // Resource waiter serialization and original order.
+  static final String GENERATION = "generation";
+  static final String WAIT_SINCE = "wait_since";
+  static final String LEASE_UNTIL = "lease_until";
+
   private MongoFieldNames() {}
 }

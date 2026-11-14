@@ -234,7 +234,7 @@ final class OracleJobTerminalOperations {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
-    boolean paused = retryIntoPausedBatch(id);
+    boolean paused = retryIntoPausedBatch(ctx, id);
     // language=Oracle
     String sql =
         """
@@ -266,8 +266,9 @@ final class OracleJobTerminalOperations {
         > 0;
   }
 
-  private boolean retryIntoPausedBatch(UUID id) {
+  static boolean retryIntoPausedBatch(OracleStoreContext ctx, UUID id) {
     // Lock the parent before releasing the child, serializing with batch pause/resume sweeps.
+    // language=Oracle
     String sql =
         """
         SELECT status FROM scheduler_job_queue

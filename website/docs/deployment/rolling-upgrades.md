@@ -49,6 +49,16 @@ the columns and builds the index online, so writes continue. `scheduler_batch` h
 batch, so this is usually quick, but on an installation that keeps many batches, run it in a quiet
 window. MongoDB creates the new collections and indexes when the store starts.
 
+SQL stores also gain a migration that adds the `scheduler_resource_waiter` table
+(`V017__resource_waiter.sql` on MySQL, `V015__resource_waiter.sql` on PostgreSQL, Oracle and SQL
+Server). The table holds the jobs waiting for a resource permit, so they are served in order and a
+released permit wakes them on any node. MongoDB creates the collection and its index when the store
+starts. With `ratchet.schema.auto-migrate=false` on Spring Boot or Micronaut, a MongoDB node only
+validates the schema, so create the `scheduler_resource_waiter` collection and its
+`idx_resource_waiter_order` index before you start it. The store JAR's `ddl/mongodb-init.js` creates
+both. During a rolling upgrade, nodes still on the older version ignore the waiting line, so the
+order holds only once every node runs the new version.
+
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.
 

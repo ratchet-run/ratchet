@@ -18,6 +18,7 @@ package run.ratchet.testsuite.app;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.api.TransactionalJob;
 
 public class ResourceTestJob {
 
@@ -56,6 +57,12 @@ public class ResourceTestJob {
     } finally {
       GATED_RUNNING.decrementAndGet();
     }
+  }
+
+  /** {@link #executeGated()} inside the job's transaction, completed by the store in it. */
+  @TransactionalJob
+  public static void executeGatedTransactional() throws InterruptedException {
+    executeGated();
   }
 
   public static void closeGate() {

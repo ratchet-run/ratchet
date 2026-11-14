@@ -15,72 +15,219 @@
  */
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
 import run.ratchet.ri.core.internal.DefaultResourcePermitService;
+import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Result;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.ResourcePermitStore.WokenWaiter;
 
-@ExtendWith(MockitoExtension.class)
 class ResourcePermitServiceTest {
+  private final ResourcePermitStore store = mock(ResourcePermitStore.class);
+  private final JobWakeupService wakeup = mock(JobWakeupService.class);
+  private final UUID jobId = UUID.randomUUID();
 
-  @Mock private ResourcePermitStore resourcePermitStore;
-  @Mock private PollerScheduler pollerScheduler;
+  private static class Registrar implements AfterCommitRegistrar {
+    private final List<Runnable> callbacks = new ArrayList<>();
+    private final Result result;
 
-  @Test
-  void release_wakesPollerWhenStoreReleaseFails() {
-    DefaultResourcePermitService service =
-        new DefaultResourcePermitService(resourcePermitStore, pollerScheduler);
-    UUID jobId = new UUID(0L, 1L);
-    doThrow(new RuntimeException("store unavailable"))
-        .when(resourcePermitStore)
-        .releasePermit("api", jobId, 0L);
+    Registrar(Result result) {
+      this.result = result;
+    }
 
-    assertThrows(RuntimeException.class, () -> service.release("api", jobId, 0L));
+    @Override
+    public Result registerAfterCommit(Runnable callback) {
+      callbacks.add(callback);
+      return result;
+    }
 
-    verify(pollerScheduler).wakeup();
+    void commit() {
+      callbacks.forEach(Runnable::run);
+    }
   }
 
   @Test
-  void releaseAll_wakesPollerWhenStoreReleaseFails() {
-    DefaultResourcePermitService service =
-        new DefaultResourcePermitService(resourcePermitStore, pollerScheduler);
-    UUID jobId = new UUID(0L, 2L);
-    doThrow(new RuntimeException("store unavailable"))
-        .when(resourcePermitStore)
-        .releaseAllPermits(jobId);
-
-    assertThrows(RuntimeException.class, () -> service.releaseAll(jobId));
-
-    verify(pollerScheduler).wakeup();
+  void mutationsWakeOnlyAfterCommitOrImmediatelyWithoutTransaction() {
+    for (Result result : List.of(Result.REGISTERED, Result.NO_ACTIVE_TRANSACTION)) {
+      List<Consumer<DefaultResourcePermitService>> mutations =
+          List.of(
+              service -> service.release("api", jobId, 7L),
+              service -> service.releaseAll(jobId),
+              service -> service.configureResource("api", 10, 100, null),
+              service -> service.cleanupOrphanedPermits(List.of("stale")));
+      for (var mutation : mutations) {
+        reset(store, wakeup);
+        when(store.cleanupOrphanedPermits(List.of("stale"))).thenReturn(1);
+        when(store.findResourcesWithWaiters(null, 64)).thenReturn(List.of("api"));
+        when(store.wakeWaiters("api"))
+            .thenReturn(
+                List.of(
+                    new WokenWaiter(jobId, JobPriority.HIGH.persistedCode(), "workers"),
+                    new WokenWaiter(UUID.randomUUID(), JobPriority.NORMAL.persistedCode(), null)));
+        Registrar registrar = new Registrar(result);
+        var service = new DefaultResourcePermitService(store, wakeup, registrar);
+        mutation.accept(service);
+        if (result == Result.REGISTERED) {
+          verify(store, never()).wakeWaiters(anyString());
+          verifyNoInteractions(wakeup);
+          registrar.commit();
+        }
+        verify(store).wakeWaiters("api");
+        verify(wakeup).notify(JobPriority.HIGH, true, "workers");
+        verify(wakeup).notify(JobPriority.NORMAL, true, null);
+      }
+    }
   }
 
   @Test
-  void acquireAndRelease_passClaimToStore() {
-    DefaultResourcePermitService service =
-        new DefaultResourcePermitService(resourcePermitStore, pollerScheduler);
-    UUID jobId = UUID.randomUUID();
-    when(resourcePermitStore.tryAcquirePermit("api", jobId, 7L, "node"))
-        .thenReturn(AcquireResult.SUPERSEDED);
+  void rollbackOrRegistrationFailureSkipsWake() {
+    for (Result result : List.of(Result.ROLLBACK_ONLY, Result.REGISTRATION_FAILED)) {
+      var service = new DefaultResourcePermitService(store, wakeup, new Registrar(result));
+      service.release("api", jobId, 7L);
+    }
+    verify(store, never()).wakeWaiters(anyString());
+    verifyNoInteractions(wakeup);
+  }
+
+  @Test
+  void wakeFailureDoesNotFailRelease() {
+    when(store.wakeWaiters("api")).thenThrow(new IllegalStateException("unavailable"));
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+    assertDoesNotThrow(() -> service.release("api", jobId, 7L));
+  }
+
+  @Test
+  void nonemptySweepDeletesStaleWaitersAfterWaking() {
+    when(store.findResourcesWithWaiters(null, 64)).thenReturn(List.of("api", "gpu"));
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+    service.sweepWaiters();
+    verify(store).wakeWaiters("api");
+    verify(store).wakeWaiters("gpu");
+    verify(store).deleteStaleWaiters(500);
+  }
+
+  @Test
+  void failedReleaseDoesNotWake() {
+    doThrow(new IllegalStateException("release failed"))
+        .when(store)
+        .releasePermit("api", jobId, 7L);
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+    assertThrows(IllegalStateException.class, () -> service.release("api", jobId, 7L));
+    verify(store, never()).wakeWaiters(anyString());
+    verifyNoInteractions(wakeup);
+  }
+
+  @Test
+  void fullSweepPageAdvancesCursorAndShortPageResetsIt() {
+    List<String> fullPage =
+        IntStream.range(0, 64).mapToObj(i -> "resource-%02d".formatted(i)).toList();
+    when(store.findResourcesWithWaiters(null, 64)).thenReturn(fullPage, List.of());
+    when(store.findResourcesWithWaiters("resource-63", 64)).thenReturn(List.of("resource-64"));
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+
+    service.sweepWaiters();
+    service.sweepWaiters();
+    service.sweepWaiters();
+
+    var order = inOrder(store);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    for (String resource : fullPage) {
+      order.verify(store).wakeWaiters(resource);
+    }
+    order.verify(store).deleteStaleWaiters(500);
+    order.verify(store).findResourcesWithWaiters("resource-63", 64);
+    order.verify(store).wakeWaiters("resource-64");
+    order.verify(store).deleteStaleWaiters(500);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    verifyNoMoreInteractions(store);
+  }
+
+  @Test
+  void emptyPageAfterFullPageResetsCursor() {
+    List<String> fullPage =
+        IntStream.range(0, 64).mapToObj(i -> "resource-%02d".formatted(i)).toList();
+    when(store.findResourcesWithWaiters(null, 64)).thenReturn(fullPage, List.of());
+    when(store.findResourcesWithWaiters("resource-63", 64)).thenReturn(List.of());
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+
+    service.sweepWaiters();
+    service.sweepWaiters();
+    service.sweepWaiters();
+
+    var order = inOrder(store);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    for (String resource : fullPage) {
+      order.verify(store).wakeWaiters(resource);
+    }
+    order.verify(store).deleteStaleWaiters(500);
+    order.verify(store).findResourcesWithWaiters("resource-63", 64);
+    order.verify(store).findResourcesWithWaiters(null, 64);
+    verifyNoMoreInteractions(store);
+  }
+
+  @Test
+  void emptySweepMakesOnlyOneRead() {
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
+    service.sweepWaiters();
+    verify(store).findResourcesWithWaiters(null, 64);
+    verifyNoMoreInteractions(store);
+    verifyNoInteractions(wakeup);
+  }
+
+  @Test
+  void acquirePassesClaimToStore() {
+    when(store.tryAcquirePermit("api", jobId, 7L, "node")).thenReturn(AcquireResult.SUPERSEDED);
+    var service =
+        new DefaultResourcePermitService(
+            store, wakeup, new Registrar(Result.NO_ACTIVE_TRANSACTION));
     assertEquals(AcquireResult.SUPERSEDED, service.tryAcquire("api", jobId, 7L, "node"));
-    verify(resourcePermitStore).tryAcquirePermit("api", jobId, 7L, "node");
-    service.release("api", jobId, 7L);
-    verify(resourcePermitStore).releasePermit("api", jobId, 7L);
   }
 
   @Test
-  void missingStore_grantsPermit() {
-    DefaultResourcePermitService service =
-        new DefaultResourcePermitService((ResourcePermitStore) null, pollerScheduler);
-    assertEquals(AcquireResult.ACQUIRED, service.tryAcquire("api", UUID.randomUUID(), 7L, "node"));
+  void absentStoreDisablesAllWork() {
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    var service = new DefaultResourcePermitService((ResourcePermitStore) null, wakeup, registrar);
+    assertEquals(AcquireResult.ACQUIRED, service.tryAcquire("api", jobId, 7L, "node"));
+    assertEquals(5000, service.getRetryDelay("api"));
+    service.release("api", jobId, 7L);
+    service.releaseAll(jobId);
+    service.configureResource("api", 10, 100, null);
+    assertEquals(0, service.cleanupOrphanedPermits(List.of("node")));
+    service.sweepWaiters();
+    verifyNoInteractions(store, wakeup, registrar);
   }
 }
