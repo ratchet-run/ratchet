@@ -59,7 +59,7 @@ class MysqlTransientExceptionTranslationTest {
     job.setRowVersion(3);
     job.setScheduledTime(storedTime.plusSeconds(60));
     job.setResourceName("changed-resource");
-    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null, 3};
+    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null, null, 3};
     AtomicInteger statements = new AtomicInteger();
     AtomicInteger coldUpdates = new AtomicInteger();
     AtomicInteger versionBindings = new AtomicInteger();
@@ -176,7 +176,7 @@ class MysqlTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset());
+        () -> deletes.resetOrphanJobsBefore(Instant.now().minusSeconds(30), 3, 500).reset());
   }
 
   @Test
@@ -243,7 +243,7 @@ class MysqlTransientExceptionTranslationTest {
         new MysqlAuxiliaryOperations(throwingContext("executeUpdate"));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   @Test

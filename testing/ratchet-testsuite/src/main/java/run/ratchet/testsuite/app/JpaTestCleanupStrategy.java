@@ -46,6 +46,7 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
           "scheduler_workflow_condition",
           "scheduler_job_log",
           "scheduler_job_execution",
+          "scheduler_resource_waiter",
           "scheduler_resource_permit",
           "scheduler_job_tag",
           "scheduler_batch_metrics",

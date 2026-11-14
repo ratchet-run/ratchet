@@ -89,6 +89,9 @@ final class OracleJobWriteOperations {
 
   private static final String BKRES_INSERT_VALUES = "(?, ?, ?, ?)";
 
+  private static final int IDX_HOT_RESOURCE_NAME = 9;
+  private static final int IDX_HOT_ROW_VERSION = 10;
+
   private final OracleStoreContext ctx;
   private final OracleBusinessKeyReservations reservations;
   private final OracleTagOperations tags;
@@ -122,13 +125,15 @@ final class OracleJobWriteOperations {
       assignIdIfMissing(job);
     }
 
+    // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+    executeBusinessKeyBulkInsert(jobs, nowTs);
     SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidRawConverter.toBytes(id), true);
     executeColdBulkInsert(jobs, nowTs);
     executeHotBulkInsert(jobs, nowTs);
-    executeBusinessKeyBulkInsert(jobs, nowTs);
+    executeTerminalBackfills(jobs, nowTs);
 
     ctx.em().clear();
-    jobs.forEach(job -> job.setRowVersion(0));
+    jobs.forEach(job -> job.setRowVersion(bornTerminal(job) ? 1 : 0));
     jobs.forEach(
         job -> {
           if (job.getVersion() == null) {
@@ -229,8 +234,12 @@ final class OracleJobWriteOperations {
       throw new IllegalArgumentException(
           "save() needs a job loaded from the store; rowVersion is null for job " + job.getId());
     }
-    if (job.getRowVersion() != ((Number) row[9]).intValue()) {
+    if (job.getRowVersion() != ((Number) row[IDX_HOT_ROW_VERSION]).intValue()) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    // A job whose resource changes leaves the old resource's waiting line.
+    if (!Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())) {
+      deleteWaiter(job.getId());
     }
     if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
       guardAgainstHotMutation(job, row);
@@ -267,12 +276,12 @@ final class OracleJobWriteOperations {
             .setParameter(5, UuidRawConverter.toBytes(job.getSupersededBy()))
             .setParameter(6, job.getResourceName())
             .setParameter(7, UuidRawConverter.toBytes(job.getId()))
-            .setParameter(8, ((Number) row[9]).intValue())
+            .setParameter(8, ((Number) row[IDX_HOT_ROW_VERSION]).intValue())
             .executeUpdate();
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
-    job.setRowVersion(((Number) row[9]).intValue() + 1);
+    job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
   }
 
   private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
@@ -373,7 +382,10 @@ final class OracleJobWriteOperations {
 
   private void executeHotBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
     List<JobEntity> hotJobs =
-        jobs.stream().filter(job -> job.getJobType() != JobExecutionType.RECURRING).toList();
+        jobs.stream()
+            .filter(job -> job.getJobType() != JobExecutionType.RECURRING)
+            .filter(job -> !bornTerminal(job))
+            .toList();
     for (int start = 0; start < hotJobs.size(); start += MAX_BULK_INSERT_ROWS) {
       List<JobEntity> chunk =
           hotJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, hotJobs.size()));
@@ -388,8 +400,21 @@ final class OracleJobWriteOperations {
     }
   }
 
+  private void executeTerminalBackfills(List<JobEntity> jobs, Timestamp nowTs) {
+    for (JobEntity job : jobs) {
+      if (bornTerminal(job)) {
+        executeColdTerminalBackfill(job, nowTs);
+        job.setTerminalStatus(job.getStatus());
+      }
+    }
+  }
+
   private void executeBusinessKeyBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
-    List<JobEntity> keyedJobs = jobs.stream().filter(job -> job.getBusinessKey() != null).toList();
+    List<JobEntity> keyedJobs =
+        jobs.stream()
+            .filter(job -> job.getBusinessKey() != null)
+            .filter(job -> !bornTerminal(job))
+            .toList();
     for (int start = 0; start < keyedJobs.size(); start += MAX_BULK_INSERT_ROWS) {
       List<JobEntity> chunk =
           keyedJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, keyedJobs.size()));
@@ -403,6 +428,10 @@ final class OracleJobWriteOperations {
       }
       query.executeUpdate();
     }
+  }
+
+  private static boolean bornTerminal(JobEntity job) {
+    return job.getStatus() != null && OracleJobRowMapper.isTerminalStatus(job.getStatus());
   }
 
   private static String repeatValues(String values, int count) {
@@ -451,7 +480,17 @@ final class OracleJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    deleteWaiter(id);
     return true;
+  }
+
+  private void deleteWaiter(UUID id) {
+    // language=Oracle
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, UuidRawConverter.toBytes(id)).executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -555,7 +594,7 @@ final class OracleJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status, c.row_version
+               c.terminal_status, c.resource_name, c.row_version
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
@@ -657,6 +696,9 @@ final class OracleJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiter(id);
+      }
     }
     return true;
   }

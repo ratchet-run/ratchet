@@ -30,7 +30,11 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.testsuite.app.ResourceTestJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
@@ -48,6 +52,8 @@ class BatchResourcePermitIT extends BaseRatchetIT {
   @Inject private JobCrudStore jobCrudStore;
 
   @Inject private ResourcePermitService resourcePermitService;
+
+  @Inject private JobStore jobStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -99,5 +105,20 @@ class BatchResourcePermitIT extends BaseRatchetIT {
             + PERMITS
             + " (permit limit) but was "
             + ResourceTestJob.getMaxConcurrentSeen());
+
+    // A child that waited for a permit records only the attempt that ran.
+    JobAuditStore audit = jobStore.capability(JobAuditStore.class).orElseThrow();
+    for (JobEntity child : children) {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(200))
+          .untilAsserted(
+              () -> {
+                List<JobExecutionEntity> executions =
+                    audit.findExecutionsByJobId(child.getId(), 100, 0);
+                assertEquals(1, executions.size(), "executions of child " + child.getId());
+                assertEquals(ExecutionStatus.SUCCEEDED, executions.get(0).getStatus());
+              });
+    }
   }
 }

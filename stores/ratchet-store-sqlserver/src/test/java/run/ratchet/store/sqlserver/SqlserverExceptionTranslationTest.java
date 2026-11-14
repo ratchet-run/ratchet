@@ -75,9 +75,12 @@ class SqlserverExceptionTranslationTest {
                   if (!"createNativeQuery".equals(method.getName())) {
                     throw new UnsupportedOperationException(method.getName());
                   }
-                  int statement = statements.getAndIncrement();
                   String sql = (String) args[0];
-                  if (statement == 1) {
+                  boolean waiterCleanup = sql.contains("DELETE FROM scheduler_resource_waiter");
+                  int statement = waiterCleanup ? -1 : statements.getAndIncrement();
+                  if (waiterCleanup) {
+                    assertTrue(sql.contains("WHERE job_id = ?"));
+                  } else if (statement == 1) {
                     assertTrue(sql.contains("WHERE job_id = ? AND status = ? AND version = ?"));
                   } else if (statement == 2) {
                     assertTrue(sql.contains("UPDATE scheduler_job"));
@@ -100,6 +103,9 @@ class SqlserverExceptionTranslationTest {
                             assertEquals(0, statement);
                             return Collections.singletonList(snapshot);
                           case "executeUpdate":
+                            if (waiterCleanup) {
+                              return 1;
+                            }
                             if (statement == 1) {
                               return hotUpdateCount;
                             }
@@ -227,7 +233,7 @@ class SqlserverExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobsForNode("node", 3, 100).reset());
+        () -> deletes.resetOrphanJobsForNode("node", 3, 500).reset());
   }
 
   @Test
@@ -318,7 +324,7 @@ class SqlserverExceptionTranslationTest {
             new SqlserverStoreContext(entityManager(queryThrowingOnExecute())));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   private static EntityManager entityManager(Query... queries) {

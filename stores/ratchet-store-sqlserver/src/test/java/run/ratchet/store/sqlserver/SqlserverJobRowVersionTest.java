@@ -125,9 +125,12 @@ class SqlserverJobRowVersionTest {
                     if (!method.getName().equals("createNativeQuery")) {
                       throw new UnsupportedOperationException(method.getName());
                     }
-                    int statement = queries.getAndIncrement();
                     String sql = (String) args[0];
-                    if (statement == 0) {
+                    boolean waiterCleanup = sql.contains("DELETE FROM scheduler_resource_waiter");
+                    int statement = waiterCleanup ? -1 : queries.getAndIncrement();
+                    if (waiterCleanup) {
+                      assertTrue(sql.contains("WHERE job_id = ?"));
+                    } else if (statement == 0) {
                       assertTrue(sql.contains("c.row_version"));
                     } else {
                       assertTrue(sql.contains("row_version = row_version + 1"));
@@ -146,8 +149,10 @@ class SqlserverJobRowVersionTest {
                             }
                             case "getResultList" -> Collections.singletonList(snapshot);
                             case "executeUpdate" -> {
-                              updates.incrementAndGet();
-                              yield updateCount;
+                              if (!waiterCleanup) {
+                                updates.incrementAndGet();
+                              }
+                              yield waiterCleanup ? 1 : updateCount;
                             }
                             default ->
                                 throw new UnsupportedOperationException(queryMethod.getName());

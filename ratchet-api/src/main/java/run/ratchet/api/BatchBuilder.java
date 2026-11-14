@@ -70,8 +70,9 @@ public interface BatchBuilder {
   /**
    * Sets the idempotency key of the batch parent to deduplicate batch submissions.
    *
-   * <p>The key is trimmed and must be at most 36 characters. Null or blank keeps the generated key.
-   * Children and branch jobs keep generated keys. The key namespace is shared with single jobs.
+   * <p>The key is trimmed and must contain at most 36 printable ASCII characters ({@code U+0020}
+   * through {@code U+007E}). Null or blank keeps the generated key. Children and branch jobs keep
+   * generated keys. The key namespace is shared with single jobs.
    *
    * <p>A later submission with the same key returns the handle of the job that holds the key, which
    * is a single job if one used it first, and writes no parent, children, progress hook or
@@ -83,7 +84,8 @@ public interface BatchBuilder {
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
-   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters
+   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters or contains a
+   *     character outside printable ASCII
    */
   BatchBuilder withIdempotencyKey(String key);
 

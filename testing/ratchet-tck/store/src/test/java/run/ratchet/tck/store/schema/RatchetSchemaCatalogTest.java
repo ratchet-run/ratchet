@@ -31,6 +31,16 @@ import run.ratchet.store.schema.Table;
 class RatchetSchemaCatalogTest {
 
   @Test
+  void resourceWaiterDeclaresOrderWithoutForeignKeys() {
+    Table waiter = table("scheduler_resource_waiter");
+    assertEquals(List.of("job_id"), waiter.primaryKey());
+    assertTrue(waiter.foreignKeys().isEmpty());
+    assertEquals(
+        List.of("resource_name", "priority", "wait_since", "job_id"),
+        index(waiter, "idx_resource_waiter_order").columns());
+  }
+
+  @Test
   void partitionSchemaIncludesDurableRowsAndCascadeWithoutJobForeignKey() {
     Table partitions = table("scheduler_partition");
     assertEquals(List.of("set_id", "partition_index"), partitions.primaryKey());

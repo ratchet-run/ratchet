@@ -27,6 +27,7 @@ import java.sql.SQLTransientException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
 
 class OracleTransientExceptionTranslationTest {
 
@@ -59,7 +61,7 @@ class OracleTransientExceptionTranslationTest {
     job.setRowVersion(3);
     job.setScheduledTime(storedTime.plusSeconds(60));
     job.setResourceName("changed-resource");
-    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null, 3};
+    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null, null, 3};
     AtomicInteger statements = new AtomicInteger();
     AtomicInteger coldUpdates = new AtomicInteger();
     AtomicInteger versionBindings = new AtomicInteger();
@@ -72,9 +74,12 @@ class OracleTransientExceptionTranslationTest {
                   if (!"createNativeQuery".equals(method.getName())) {
                     throw new UnsupportedOperationException(method.getName());
                   }
-                  int statement = statements.getAndIncrement();
                   String sql = (String) args[0];
-                  if (statement == 1) {
+                  boolean waiterCleanup = sql.contains("DELETE FROM scheduler_resource_waiter");
+                  int statement = waiterCleanup ? -1 : statements.getAndIncrement();
+                  if (waiterCleanup) {
+                    assertTrue(sql.contains("WHERE job_id = ?"));
+                  } else if (statement == 1) {
                     assertTrue(sql.contains("WHERE job_id = ? AND status = ? AND version = ?"));
                   } else if (statement == 2) {
                     assertTrue(sql.contains("UPDATE scheduler_job"));
@@ -97,6 +102,9 @@ class OracleTransientExceptionTranslationTest {
                             assertEquals(0, statement);
                             return Collections.singletonList(snapshot);
                           case "executeUpdate":
+                            if (waiterCleanup) {
+                              return 1;
+                            }
                             if (statement == 1) {
                               return hotUpdateCount;
                             }
@@ -175,7 +183,7 @@ class OracleTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset());
+        () -> deletes.resetOrphanJobsBefore(Instant.now().minusSeconds(30), 3, 500).reset());
   }
 
   @Test
@@ -243,7 +251,7 @@ class OracleTransientExceptionTranslationTest {
         new OracleAuxiliaryOperations(throwingContext("executeUpdate"));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID, 0L));
   }
 
   @Test
@@ -282,6 +290,7 @@ class OracleTransientExceptionTranslationTest {
               }
               return switch (method.getName()) {
                 case "setParameter", "setFirstResult", "setMaxResults" -> proxy;
+                case "getResultList" -> List.of(UuidRawConverter.toBytes(JOB_ID));
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

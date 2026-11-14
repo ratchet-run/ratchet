@@ -149,11 +149,12 @@ final class SqlserverJobWriteOperations {
     }
 
     try {
+      // Business keys go first, as in saveInsert, so both paths lock shared keys in one order.
+      executeBusinessKeyBulkInsert(jobs);
       SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
       executeColdBulkInsert(jobs, nowTs);
       executeHotBulkInsert(jobs, nowTs);
       executeTerminalBackfills(jobs, nowTs);
-      executeBusinessKeyBulkInsert(jobs);
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException("Active business key in use", e);
@@ -509,6 +510,8 @@ final class SqlserverJobWriteOperations {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
     job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
+    // Under the job-row lock, keep only a waiter on the resource this save stores.
+    deleteWaiterOffResource(job.getId(), job.getResourceName());
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
@@ -556,7 +559,38 @@ final class SqlserverJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    deleteWaiterIfPresent(id);
     return true;
+  }
+
+  private void deleteWaiterOffResource(UUID id, String resource) {
+    if (resource == null) {
+      deleteWaiterIfPresent(id);
+      return;
+    }
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name <> ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .setParameter(2, resource)
+        .executeUpdate();
+  }
+
+  private void deleteWaiterIfPresent(UUID id) {
+    // Under RCSI a missing-row delete takes no gap lock.
+    // language=SQL Server
+    String sql =
+        """
+        DELETE FROM scheduler_resource_waiter WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
@@ -759,6 +793,9 @@ final class SqlserverJobWriteOperations {
       terminalizeViaSave(incoming, storedVersion);
     } else {
       updateHotLiveViaVersion(incoming, storedVersion);
+      if (!Objects.equals(incoming.getScheduledTime(), storedSched)) {
+        deleteWaiterIfPresent(id);
+      }
     }
     return true;
   }

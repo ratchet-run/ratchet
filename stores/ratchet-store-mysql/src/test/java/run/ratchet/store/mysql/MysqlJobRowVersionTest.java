@@ -114,6 +114,7 @@ class MysqlJobRowVersionTest {
         null,
         7,
         terminal ? "CANCELED" : null,
+        null,
         3
       };
       EntityManager em =
