@@ -495,14 +495,19 @@ final class PostgresqlJobWriteOperations {
         """
         UPDATE scheduler_job_queue
         SET scheduled_time = ?, updated_at = statement_timestamp()
-        WHERE job_id = ? AND status = ?
+        WHERE job_id = ? AND status = ? AND version = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, id)
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, id)
+            .setParameter(3, storedStatus)
+            .setParameter(4, ((Number) row[IDX_HOT_VERSION]).intValue())
+            .executeUpdate();
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
     return true;
   }
 

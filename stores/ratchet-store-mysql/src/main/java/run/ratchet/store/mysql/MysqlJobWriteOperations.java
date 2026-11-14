@@ -406,14 +406,19 @@ final class MysqlJobWriteOperations {
         """
         UPDATE scheduler_job_queue
         SET scheduled_time = ?, updated_at = NOW(3)
-        WHERE job_id = ? AND status = ?
+        WHERE job_id = ? AND status = ? AND version = ?
         """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, UuidByteArrayConverter.toBytes(id))
-        .setParameter(3, storedStatus)
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
+            .setParameter(3, storedStatus)
+            .setParameter(4, ((Number) row[7]).intValue())
+            .executeUpdate();
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
     return true;
   }
 

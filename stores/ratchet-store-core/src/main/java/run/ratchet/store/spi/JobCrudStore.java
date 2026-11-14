@@ -46,9 +46,18 @@ public interface JobCrudStore {
   /**
    * Updates an existing job row and returns the persisted entity view.
    *
-   * <p>A save persists every changed field, including when scheduling or status fields change in
-   * the same call as {@code params}, the callback payloads, {@code dependsOn}, {@code supersededBy}
-   * or {@code resourceName}.
+   * <p>A save persists the scheduling and status fields ({@code scheduledTime}, {@code status},
+   * {@code attempts}, {@code pickedBy}, {@code pickedAt}, {@code pausedFromStatus}, {@code
+   * lastError}), {@code params}, the callback payloads, {@code dependsOn}, {@code supersededBy} and
+   * {@code resourceName}, including when several of them change in one call. The store manages the
+   * version and the update time.
+   *
+   * <p>Job shape is fixed at creation: {@code jobType}, {@code priority}, {@code businessKey},
+   * {@code timeoutSec}, {@code maxRetries}, {@code backoffPolicy}, {@code backoffParamMs}, {@code
+   * cronExpr}, {@code zoneId}, {@code payload}, {@code idempotencyKey}, {@code callerPrincipal},
+   * {@code traceContext}, {@code recurringMasterId}, {@code executionTarget}, {@code
+   * encryptedPayload} and {@code encryptionKeyId}. Callers must not change these fields through
+   * {@code save()}.
    *
    * <p>Transaction attribute: {@code REQUIRED}.
    */

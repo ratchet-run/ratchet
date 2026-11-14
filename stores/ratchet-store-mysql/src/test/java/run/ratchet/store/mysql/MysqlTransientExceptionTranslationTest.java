@@ -15,8 +15,10 @@
  */
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -24,9 +26,12 @@ import java.lang.reflect.Proxy;
 import java.sql.SQLTransientException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -34,6 +39,91 @@ import run.ratchet.store.entity.JobEntity;
 class MysqlTransientExceptionTranslationTest {
 
   private static final UUID JOB_ID = UUID.fromString("01900000-0000-7000-8000-000000000001");
+
+  @Test
+  void scheduledTimeSaveRejectsConcurrentModificationBeforeColdUpdate() {
+    assertScheduledTimeSave(0);
+  }
+
+  @Test
+  void scheduledTimeSaveAlsoUpdatesColdRow() {
+    assertScheduledTimeSave(1);
+  }
+
+  private static void assertScheduledTimeSave(int hotUpdateCount) {
+    Instant storedTime = Instant.parse("2026-11-14T00:00:00Z");
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setStatus(JobStatus.PENDING);
+    job.setVersion(7);
+    job.setScheduledTime(storedTime.plusSeconds(60));
+    job.setResourceName("changed-resource");
+    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null};
+    AtomicInteger statements = new AtomicInteger();
+    AtomicInteger coldUpdates = new AtomicInteger();
+    AtomicInteger versionBindings = new AtomicInteger();
+    EntityManager em =
+        (EntityManager)
+            Proxy.newProxyInstance(
+                EntityManager.class.getClassLoader(),
+                new Class<?>[] {EntityManager.class},
+                (proxy, method, args) -> {
+                  if (!"createNativeQuery".equals(method.getName())) {
+                    throw new UnsupportedOperationException(method.getName());
+                  }
+                  int statement = statements.getAndIncrement();
+                  String sql = (String) args[0];
+                  if (statement == 1) {
+                    assertTrue(sql.contains("WHERE job_id = ? AND status = ? AND version = ?"));
+                  } else if (statement == 2) {
+                    assertTrue(sql.contains("UPDATE scheduler_job"));
+                    assertTrue(sql.contains("SET params = "));
+                  } else {
+                    assertEquals(0, statement);
+                  }
+                  return Proxy.newProxyInstance(
+                      Query.class.getClassLoader(),
+                      new Class<?>[] {Query.class},
+                      (query, queryMethod, parameters) -> {
+                        switch (queryMethod.getName()) {
+                          case "setParameter":
+                            if (statement == 1 && Integer.valueOf(4).equals(parameters[0])) {
+                              assertEquals(7, parameters[1]);
+                              versionBindings.incrementAndGet();
+                            }
+                            return query;
+                          case "getResultList":
+                            assertEquals(0, statement);
+                            return Collections.singletonList(snapshot);
+                          case "executeUpdate":
+                            if (statement == 1) {
+                              return hotUpdateCount;
+                            }
+                            assertEquals(2, statement);
+                            coldUpdates.incrementAndGet();
+                            return 1;
+                          default:
+                            throw new UnsupportedOperationException(queryMethod.getName());
+                        }
+                      });
+                });
+    var ctx = new MysqlStoreContext(em, null);
+    var writes =
+        new MysqlJobWriteOperations(
+            ctx, new MysqlBusinessKeyReservations(ctx), new MysqlTagOperations(ctx));
+    if (hotUpdateCount == 0) {
+      var failure = assertThrows(RatchetOptimisticLockException.class, () -> writes.save(job));
+      assertEquals("Concurrent modification on job " + JOB_ID, failure.getMessage());
+      assertEquals(2, statements.get());
+      assertEquals(0, coldUpdates.get());
+    } else {
+      writes.save(job);
+      assertEquals(3, statements.get());
+      assertEquals(1, coldUpdates.get());
+    }
+    assertEquals(1, versionBindings.get());
+    assertEquals(7, job.getVersion());
+  }
 
   @Test
   void archiveJobTranslatesTransientReadFailure() {
