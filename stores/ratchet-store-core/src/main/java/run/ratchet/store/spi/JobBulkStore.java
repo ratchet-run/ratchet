@@ -35,9 +35,10 @@ public interface JobBulkStore {
   /**
    * Inserts jobs in bulk. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>A store whose writes wait on uncommitted keys must write the business-key reservations
-   * before the idempotency keys and job rows, as {@link JobCrudStore#create} does. Otherwise a bulk
-   * insert and a create that share both keys can deadlock.
+   * <p>As with {@link JobCrudStore#create}, a job created in a terminal state does not reserve its
+   * business key. A store whose writes wait on uncommitted keys must write the business-key
+   * reservations before the idempotency keys and job rows, as create does. Otherwise a bulk insert
+   * and a create that share both keys can deadlock.
    */
   void bulkInsert(List<JobEntity> jobs);
 

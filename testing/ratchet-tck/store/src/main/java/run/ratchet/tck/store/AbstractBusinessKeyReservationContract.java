@@ -148,6 +148,21 @@ public abstract class AbstractBusinessKeyReservationContract implements JobStore
   }
 
   @Test
+  void terminalBulkInsert_leavesBusinessKeyFree() {
+    String key = uniqueKey();
+    JobEntity terminal = jobWithBusinessKey(key);
+    terminal.setId(UuidV7Factory.create());
+    terminal.setStatus(JobStatus.SUCCEEDED);
+
+    store().bulkInsert(List.of(terminal));
+
+    assertEquals(JobStatus.SUCCEEDED, store().findById(terminal.getId()).orElseThrow().getStatus());
+    // A job created in a terminal state does not reserve its key, so a live job can take it.
+    JobEntity live = create(jobWithBusinessKey(key));
+    assertOwner(key, live);
+  }
+
+  @Test
   void lateCommittedHolder_conflictLeavesOwnerTransactionUsable() throws Exception {
     assumeTrue(supportsOwnerTransaction(), NEEDS_OWNER_TRANSACTION);
     String key = uniqueKey();
