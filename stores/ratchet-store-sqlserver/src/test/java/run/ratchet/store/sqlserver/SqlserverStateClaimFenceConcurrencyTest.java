@@ -50,6 +50,11 @@ class SqlserverStateClaimFenceConcurrencyTest {
   }
 
   @Test
+  void writesRaceRunningCancel() {
+    exercise("running-cancel");
+  }
+
+  @Test
   void writesRaceTerminalFailure() {
     exercise("failure");
   }
@@ -101,6 +106,7 @@ class SqlserverStateClaimFenceConcurrencyTest {
                 () -> {
                   switch (transition) {
                     case "cancel" -> tx(emf, store -> store.cancelJob(id));
+                    case "running-cancel" -> tx(emf, store -> store.cancelRunningJob(id, null));
                     case "failure" ->
                         tx(emf, store -> store.markJobFailedTerminal(id, "timeout", 1, claim));
                     default -> {

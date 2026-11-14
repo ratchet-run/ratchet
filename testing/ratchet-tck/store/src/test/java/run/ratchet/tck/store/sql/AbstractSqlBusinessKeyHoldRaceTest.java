@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
+import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.tck.store.JpaContainerFixture;
 
@@ -316,6 +318,132 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
       fixture().observeTransientFailures((method, failure) -> {});
     }
     assertTrue(lockFailures.isEmpty(), "sweep lock failures: " + lockFailures);
+  }
+
+  @Test
+  void cancelRunningJobAndDirectTerminalWritesDoNotDeadlock() throws Exception {
+    // Direct terminal writes lock the queue row first, as a running cancel does, so they cannot
+    // deadlock with it, and exactly one of the two wins each job.
+    var store = fixture().store();
+    assertOneWinnerPerJobAgainstCancel(
+        "terminal-race",
+        (index, job, now) ->
+            switch (index % 4) {
+              case 0 -> store.markJobSucceeded(job.getId(), null, null, now, now, 0L, 0L);
+              case 1 -> store.markJobSucceededMinimal(job.getId(), now, now, 0L, 0L);
+              case 2 ->
+                  store.markJobFailedTerminal(
+                      job.getId(), "race failure", job.getAttempts(), job.getClaimSeq());
+              default ->
+                  store.compareAndSwapStatus(
+                      job.getId(), JobStatus.RUNNING, JobStatus.FAILED, "race failure");
+            });
+  }
+
+  @Test
+  void cancelRunningJobAndCommitCompletionDoNotDeadlock() throws Exception {
+    // The engine's completion locks the queue row first too, so it cannot deadlock with a cancel.
+    var store = fixture().store();
+    assertOneWinnerPerJobAgainstCancel(
+        "completion-race",
+        (index, job, now) ->
+            store
+                .commitCompletion(
+                    new JobCompletionPlan(
+                        job.getId(),
+                        JobStatus.RUNNING,
+                        JobStatus.SUCCEEDED,
+                        null,
+                        null,
+                        null,
+                        job.getAttempts(),
+                        now,
+                        now,
+                        0L,
+                        0L,
+                        null,
+                        null,
+                        List.of(),
+                        job.getClaimSeq(),
+                        List.of()))
+                .committed());
+  }
+
+  /** A terminal write that one thread races against a running cancel of the same job. */
+  @FunctionalInterface
+  private interface TerminalWrite {
+    boolean write(int index, JobEntity job, Instant now);
+  }
+
+  private void assertOneWinnerPerJobAgainstCancel(String keyPrefix, TerminalWrite terminalWrite)
+      throws Exception {
+    var store = fixture().store();
+    String node = keyPrefix + "-node";
+    var lockFailures = new ConcurrentHashMap<String, AtomicInteger>();
+    fixture()
+        .observeTransientFailures(
+            (method, failure) -> {
+              if (isLockFailure(failure)) {
+                lockFailures
+                    .computeIfAbsent(method, ignored -> new AtomicInteger())
+                    .incrementAndGet();
+              }
+            });
+    var executor = Executors.newFixedThreadPool(2);
+    try {
+      for (int round = 0; round < 60 && lockFailures.isEmpty(); round++) {
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+          var job = fixture().newPendingJob();
+          job.setBusinessKey(keyPrefix + "-" + round + "-" + (char) ('a' + i));
+          ids.add(store.create(job).getId());
+        }
+        List<JobEntity> claimed = new ArrayList<>();
+        for (int tries = 0; claimed.size() < ids.size() && tries < 20; tries++) {
+          claimed.addAll(store.claimNextBatch(ids.size(), node));
+        }
+        assertEquals(ids.size(), claimed.size());
+        // Both threads walk the jobs in the same order, so they meet on the same row.
+        List<JobEntity> jobs =
+            ids.stream()
+                .map(id -> claimed.stream().filter(j -> id.equals(j.getId())).findFirst())
+                .map(Optional::orElseThrow)
+                .toList();
+        Instant now = Instant.now();
+        var barrier = new CyclicBarrier(2);
+        boolean[] terminalWins = new boolean[jobs.size()];
+        boolean[] cancelWins = new boolean[jobs.size()];
+        Future<?> terminal =
+            executor.submit(
+                () -> {
+                  barrier.await();
+                  for (int i = 0; i < jobs.size(); i++) {
+                    terminalWins[i] = terminalWrite.write(i, jobs.get(i), now);
+                  }
+                  return null;
+                });
+        Future<?> cancel =
+            executor.submit(
+                () -> {
+                  barrier.await();
+                  for (int i = 0; i < jobs.size(); i++) {
+                    cancelWins[i] =
+                        store.cancelRunningJob(jobs.get(i).getId(), Instant.now().plusSeconds(30));
+                  }
+                  return null;
+                });
+        terminal.get(60, TimeUnit.SECONDS);
+        cancel.get(60, TimeUnit.SECONDS);
+        for (int i = 0; i < jobs.size(); i++) {
+          assertTrue(
+              terminalWins[i] ^ cancelWins[i], "exactly one winner for " + jobs.get(i).getId());
+        }
+      }
+    } finally {
+      executor.shutdownNow();
+      fixture().observeTransientFailures((method, failure) -> {});
+    }
+    assertTrue(lockFailures.isEmpty(), keyPrefix + " lock failures: " + lockFailures);
   }
 
   private void claim(String node, ConcurrentLinkedQueue<JobEntity> claimed) {

@@ -674,6 +674,11 @@ final class PostgresqlJobTerminalOperations {
       Integer totalAttempts,
       JobStatus expectedStatus,
       @Nullable Long expectedClaimSeq) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, expectedStatus) == null) {
+      return false;
+    }
+
     String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
     // language=PostgreSQL
     String updateColdSql =
@@ -754,6 +759,11 @@ final class PostgresqlJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=PostgreSQL
     String sql =
         """
@@ -788,6 +798,11 @@ final class PostgresqlJobTerminalOperations {
 
   private boolean doMarkTerminalSuccessMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=PostgreSQL
     String sql =
         """

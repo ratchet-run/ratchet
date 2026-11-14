@@ -349,6 +349,14 @@ final class MysqlJobTerminalOperations {
         "cancel_job",
         () -> {
           try {
+            // Match the queue-then-job lock order of cancelRunningJob and the fenced state writes.
+            if (ctx.em()
+                .createNativeQuery("SELECT 1 FROM scheduler_job_queue WHERE job_id = ? FOR UPDATE")
+                .setParameter(1, UuidByteArrayConverter.toBytes(id))
+                .getResultList()
+                .isEmpty()) {
+              return false;
+            }
             return doCancelJob(id);
           } catch (RuntimeException e) {
             throw ctx.translateTransientStoreException("cancel job", e);
@@ -729,6 +737,11 @@ final class MysqlJobTerminalOperations {
       Integer totalAttempts,
       JobStatus expectedStatus,
       @Nullable Long expectedClaimSeq) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, expectedStatus) == null) {
+      return false;
+    }
+
     String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
     // language=MySQL
     String updateColdSql =
@@ -802,6 +815,11 @@ final class MysqlJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=MySQL
     String sql =
         """
@@ -836,6 +854,11 @@ final class MysqlJobTerminalOperations {
 
   private boolean doMarkTerminalSuccessMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=MySQL
     String sql =
         """

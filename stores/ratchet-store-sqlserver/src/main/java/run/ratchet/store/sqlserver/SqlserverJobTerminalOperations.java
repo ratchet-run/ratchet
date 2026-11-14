@@ -708,6 +708,11 @@ final class SqlserverJobTerminalOperations {
       Integer totalAttempts,
       JobStatus expectedStatus,
       @Nullable Long expectedClaimSeq) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, expectedStatus) == null) {
+      return false;
+    }
+
     String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
     // language=SQL Server
     String updateColdSql =
@@ -787,6 +792,11 @@ final class SqlserverJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=SQL Server
     String sql =
         """
@@ -821,6 +831,11 @@ final class SqlserverJobTerminalOperations {
 
   private boolean doMarkTerminalSuccessMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=SQL Server
     String sql =
         """

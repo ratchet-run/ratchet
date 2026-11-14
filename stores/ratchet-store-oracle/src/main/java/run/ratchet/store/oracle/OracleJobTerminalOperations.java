@@ -761,6 +761,11 @@ final class OracleJobTerminalOperations {
       Integer totalAttempts,
       JobStatus expectedStatus,
       @Nullable Long expectedClaimSeq) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, expectedStatus) == null) {
+      return false;
+    }
+
     // total_attempts: either a caller-supplied count (bind) or the queue row's attempts (subquery).
     String attemptsExpression =
         totalAttempts == null
@@ -825,6 +830,11 @@ final class OracleJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=Oracle
     String sql =
         """
@@ -860,6 +870,11 @@ final class OracleJobTerminalOperations {
 
   private boolean doMarkTerminalSuccessMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=Oracle
     String sql =
         """
