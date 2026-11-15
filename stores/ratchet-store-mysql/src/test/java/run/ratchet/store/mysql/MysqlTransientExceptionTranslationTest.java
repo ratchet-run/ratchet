@@ -406,6 +406,10 @@ class MysqlTransientExceptionTranslationTest {
           RatchetTransientStoreException.class,
           () -> auxiliary.cleanupOrphanedPermits(List.of("stale")),
           failingSql);
+      assertThrows(
+          RatchetTransientStoreException.class,
+          () -> auxiliary.cleanupPermitsOfMissingNodes(Instant.EPOCH),
+          failingSql);
     }
   }
 

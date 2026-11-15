@@ -26,6 +26,7 @@ import jakarta.persistence.Persistence;
 import jakarta.persistence.Query;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
@@ -146,8 +147,9 @@ class MysqlResourcePermitLockingTest {
     }
   }
 
-  @Test
-  void cleanupWaitsForAcquireThenDeletesOnlyStalePermit() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void cleanupWaitsForAcquireThenDeletesOnlyStalePermit(boolean missingNode) throws Exception {
     var ids = seed();
     var seed = emf.createEntityManager();
     try {
@@ -178,9 +180,12 @@ class MysqlResourcePermitLockingTest {
                           sql -> sql.contains("FROM scheduler_resource_limit"),
                           locking::countDown,
                           false);
+                  var operations =
+                      new MysqlAuxiliaryOperations(new MysqlStoreContext(observed, null));
                   int deleted =
-                      new MysqlAuxiliaryOperations(new MysqlStoreContext(observed, null))
-                          .cleanupOrphanedPermits(List.of("stale"));
+                      missingNode
+                          ? operations.cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60))
+                          : operations.cleanupOrphanedPermits(List.of("stale"));
                   em.getTransaction().commit();
                   return deleted;
                 } finally {

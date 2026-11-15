@@ -302,6 +302,38 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   }
 
   @Test
+  void missingNodeCleanupReleasesOldPermitAndCapacity() {
+    resourcePermitStore().configureResource("missing-node", 1, 1000, null);
+    var first = claimNewJob("missing-node", "missing");
+    assertEquals(ACQUIRED, acquire("missing-node", first, "missing"));
+    assertTrue(
+        resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60)) >= 1);
+    var second = claimNewJob("missing-node", "other");
+    assertEquals(ACQUIRED, acquire("missing-node", second, "other"));
+  }
+
+  @Test
+  void missingNodeCleanupKeepsPermitOfExistingNode() {
+    resourcePermitStore().configureResource("existing-node", 1, 1000, null);
+    store().upsertHeartbeat("existing", Instant.now().minusSeconds(3600));
+    var first = claimNewJob("existing-node", "existing");
+    assertEquals(ACQUIRED, acquire("existing-node", first, "existing"));
+    resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60));
+    var second = claimNewJob("existing-node", "other");
+    assertEquals(AT_CAPACITY, acquire("existing-node", second, "other"));
+  }
+
+  @Test
+  void missingNodeCleanupKeepsRecentPermit() {
+    resourcePermitStore().configureResource("recent-node", 1, 1000, null);
+    var first = claimNewJob("recent-node", "missing");
+    assertEquals(ACQUIRED, acquire("recent-node", first, "missing"));
+    resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().minusSeconds(60));
+    var second = claimNewJob("recent-node", "other");
+    assertEquals(AT_CAPACITY, acquire("recent-node", second, "other"));
+  }
+
+  @Test
   void configureResource_updatesExistingConfig() {
     resourcePermitStore().configureResource("res-reconfig", 1, 1000, "initial");
     resourcePermitStore().configureResource("res-reconfig", 5, 2000, "updated");

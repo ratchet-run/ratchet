@@ -903,6 +903,11 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    return auxiliary.cleanupPermitsOfMissingNodes(acquiredBefore);
+  }
+
+  @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }

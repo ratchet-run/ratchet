@@ -159,10 +159,12 @@ final class SqlserverBatchOperations implements BatchStore {
     // alias and puts the hint on that alias in its FROM clause, as SqlserverJobDeleteOperations
     // does.
     int total = 0;
-    // Each page starts after the last id of the previous one. A cancel holds no parent lock, so a
-    // retry can return a child behind the cursor to PENDING mid-sweep; the engine repeats the
-    // cancel from the start after commit.
-    byte[] cursor = new byte[16];
+    // Cursor pages repeat from the first child until a pass changes nothing, catching children
+    // returned to a matching status behind the cursor. Cancel is terminal. For pause/resume,
+    // a RUNNING child may fail and retry to PENDING, but each candidate changes once: the reverse
+    // operation and batch retry need the parent lock held here.
+    byte[] cursor = null;
+    int passStart = 0;
     while (true) {
       String selectSql =
           """
@@ -170,31 +172,23 @@ final class SqlserverBatchOperations implements BatchStore {
           FROM scheduler_job c WITH (INDEX(idx_job_depends_on))
           INNER LOOP JOIN scheduler_job_queue q WITH (UPDLOCK, ROWLOCK, FORCESEEK (pk_scheduler_job_queue (job_id)))
             ON q.job_id = c.job_id
-          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) AND c.job_id > ?
+          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) %s
           ORDER BY c.job_id
           OPTION (FORCE ORDER)
           """
-              .formatted(statuses);
+              .formatted(statuses, cursor == null ? "" : "AND c.job_id > ?");
       var selection =
           ctx.em()
               .createNativeQuery(selectSql)
               .setParameter(1, UuidByteArrayConverter.toBytes(batchId));
 
-      selection.setParameter(2, cursor);
+      if (cursor != null) selection.setParameter(2, cursor);
       List<?> ids = selection.getResultList();
       if (ids.isEmpty()) {
-        if (operation.equals("cancel") && total > 0) {
-          ctx.em()
-              .createNativeQuery(
-                  """
-                  UPDATE scheduler_batch SET failed_items = failed_items + ?
-                  WHERE batch_id = ?
-                  """)
-              .setParameter(1, total)
-              .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
-              .executeUpdate();
-        }
-        return total;
+        if (total == passStart) break;
+        passStart = total;
+        cursor = null;
+        continue;
       }
       cursor = (byte[]) ids.get(ids.size() - 1);
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
@@ -243,6 +237,18 @@ final class SqlserverBatchOperations implements BatchStore {
         }
       }
     }
+    if (operation.equals("cancel") && total > 0) {
+      ctx.em()
+          .createNativeQuery(
+              """
+              UPDATE scheduler_batch SET failed_items = failed_items + ?
+              WHERE batch_id = ?
+              """)
+          .setParameter(1, total)
+          .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
+          .executeUpdate();
+    }
+    return total;
   }
 
   @Override

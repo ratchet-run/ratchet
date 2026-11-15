@@ -769,7 +769,8 @@ final class MysqlAuxiliaryOperations
         deleted +=
             cleanupOrphanedPermitsChunk(
                 staleNodeIds.subList(
-                    start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, staleNodeIds.size())));
+                    start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, staleNodeIds.size())),
+                null);
       }
       return deleted;
     } catch (RuntimeException e) {
@@ -777,7 +778,36 @@ final class MysqlAuxiliaryOperations
     }
   }
 
-  private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
+  @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    try {
+      // Keep scheduler_node out of locking statements to avoid heartbeat-upsert gap locks.
+      List<String> missing =
+          ((List<?>)
+                  ctx.em()
+                      .createNativeQuery(
+                          """
+                          SELECT DISTINCT p.node_id FROM scheduler_resource_permit p
+                          LEFT JOIN scheduler_node n ON n.node_id = p.node_id
+                          WHERE n.node_id IS NULL AND p.acquired_at < ?
+                          """)
+                      .setParameter(1, Timestamp.from(acquiredBefore))
+                      .getResultList())
+              .stream().map(Object::toString).toList();
+      int deleted = 0;
+      for (int start = 0; start < missing.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
+        deleted +=
+            cleanupOrphanedPermitsChunk(
+                missing.subList(start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, missing.size())),
+                acquiredBefore);
+      }
+      return deleted;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup permits of missing nodes", e);
+    }
+  }
+
+  private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds, Instant acquiredBefore) {
     String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
     Query discovery =
         ctx.em()
@@ -793,7 +823,8 @@ final class MysqlAuxiliaryOperations
     List<String> resources =
         ((List<?>) discovery.getResultList()).stream().map(Object::toString).sorted().toList();
     // Lock all limits in key order before deleting, matching acquire's limit-before-permit order.
-    // A stale node's permit created for an undiscovered resource is left for the next sweep.
+    // Late permits are removed by the next stale-node sweep while the row remains, or the
+    // missing-node sweep after the row is gone and the permit is older than its cutoff.
     for (String resource : resources) {
       ctx.em()
           .createNativeQuery(
@@ -813,10 +844,14 @@ final class MysqlAuxiliaryOperations
                   DELETE FROM scheduler_resource_permit
                   WHERE resource_name = ? AND node_id IN (%s)
                   """
-                      .formatted(placeholders));
+                          .formatted(placeholders)
+                      + (acquiredBefore == null ? "" : "AND acquired_at < ?\n"));
       delete.setParameter(1, resource);
       for (int i = 0; i < staleNodeIds.size(); i++) {
         delete.setParameter(i + 2, staleNodeIds.get(i));
+      }
+      if (acquiredBefore != null) {
+        delete.setParameter(staleNodeIds.size() + 2, Timestamp.from(acquiredBefore));
       }
       deleted += delete.executeUpdate();
     }

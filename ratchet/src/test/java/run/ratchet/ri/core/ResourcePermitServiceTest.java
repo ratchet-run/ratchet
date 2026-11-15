@@ -30,6 +30,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -79,10 +80,12 @@ class ResourcePermitServiceTest {
               service -> service.release("api", jobId, 7L),
               service -> service.releaseAll(jobId),
               service -> service.configureResource("api", 10, 100, null),
-              service -> service.cleanupOrphanedPermits(List.of("stale")));
+              service -> service.cleanupOrphanedPermits(List.of("stale")),
+              service -> service.cleanupPermitsOfMissingNodes(Instant.EPOCH));
       for (var mutation : mutations) {
         reset(store, wakeup);
         when(store.cleanupOrphanedPermits(List.of("stale"))).thenReturn(1);
+        when(store.cleanupPermitsOfMissingNodes(Instant.EPOCH)).thenReturn(1);
         when(store.findResourcesWithWaiters(null, 64)).thenReturn(List.of("api"));
         when(store.wakeWaiters("api"))
             .thenReturn(
@@ -102,6 +105,16 @@ class ResourcePermitServiceTest {
         verify(wakeup).notify(JobPriority.NORMAL, true, null);
       }
     }
+  }
+
+  @Test
+  void missingNodeCleanupWithoutRemovalsDoesNotWake() {
+    var registrar = new Registrar(Result.REGISTERED);
+    var service = new DefaultResourcePermitService(store, wakeup, registrar);
+    assertEquals(0, service.cleanupPermitsOfMissingNodes(Instant.EPOCH));
+    registrar.commit();
+    verify(store, never()).findResourcesWithWaiters(null, 64);
+    verifyNoInteractions(wakeup);
   }
 
   @Test
@@ -229,6 +242,7 @@ class ResourcePermitServiceTest {
     service.release("api", jobId, 7L);
     service.releaseAll(jobId);
     assertEquals(0, service.cleanupOrphanedPermits(List.of("node")));
+    assertEquals(0, service.cleanupPermitsOfMissingNodes(Instant.EPOCH));
     service.sweepWaiters();
     assertEquals(Optional.empty(), service.findResourceLimit("api"));
     assertEquals(List.of(), service.listResourceLimits());

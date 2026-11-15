@@ -77,8 +77,9 @@ class SqlserverBatchOperationsTest {
   }
 
   @Test
-  void sweepsAdvanceCursorBeforeEachPage() {
+  void sweepsAdvanceCursorAndRevisitEarlierIds() {
     for (String operation : List.of("pause", "resume", "cancel")) {
+      UUID returned = new UUID(0L, 1L);
       UUID first = new UUID(1L, 1L);
       UUID last = new UUID(1L, 2L);
       UUID next = new UUID(1L, 3L);
@@ -102,10 +103,12 @@ class SqlserverBatchOperationsTest {
                                       UuidByteArrayConverter.toBytes(first),
                                       UuidByteArrayConverter.toBytes(last));
                               case 1 -> List.of(UuidByteArrayConverter.toBytes(next));
+                              case 3 -> List.of(UuidByteArrayConverter.toBytes(returned));
                               default -> List.of();
                             };
                         default -> throw new UnsupportedOperationException(method.getName());
                       });
+      AtomicInteger metricUpdates = new AtomicInteger();
       Query writes =
           (Query)
               Proxy.newProxyInstance(
@@ -139,8 +142,25 @@ class SqlserverBatchOperationsTest {
                       String sql = (String) args[0];
                       if (sql.contains("SELECT status")) return parent;
                       if (sql.stripLeading().startsWith("SELECT")) {
-                        assertTrue(sql.contains("c.job_id > ?"));
+                        assertEquals(
+                            page.get() == 1 || page.get() == 2 || page.get() == 4,
+                            sql.contains("c.job_id > ?"));
                         return children;
+                      }
+                      if (sql.contains("failed_items = failed_items +")) {
+                        metricUpdates.incrementAndGet();
+                        return (Query)
+                            Proxy.newProxyInstance(
+                                Query.class.getClassLoader(),
+                                new Class<?>[] {Query.class},
+                                (p, m, a) -> {
+                                  if (m.getName().equals("setParameter")) {
+                                    if (a[0].equals(1)) assertEquals(3, a[1]);
+                                    return p;
+                                  }
+                                  if (m.getName().equals("executeUpdate")) return 1;
+                                  throw new UnsupportedOperationException(m.getName());
+                                });
                       }
                       return writes;
                     }
@@ -148,15 +168,19 @@ class SqlserverBatchOperationsTest {
                   });
       var operations = new SqlserverBatchOperations(new SqlserverStoreContext(em));
       UUID batchId = new UUID(1L, 0L);
-      switch (operation) {
-        case "pause" -> operations.pauseBatchChildren(batchId);
-        case "resume" -> operations.resumeBatchChildren(batchId);
-        default -> operations.cancelBatchChildren(batchId);
-      }
+      assertEquals(
+          3,
+          switch (operation) {
+            case "pause" -> operations.pauseBatchChildren(batchId);
+            case "resume" -> operations.resumeBatchChildren(batchId);
+            default -> operations.cancelBatchChildren(batchId);
+          });
+      assertEquals(operation.equals("cancel") ? 1 : 0, metricUpdates.get());
+      assertEquals(6, page.get());
       assertEquals(3, cursors.size());
-      assertArrayEquals(new byte[16], (byte[]) cursors.get(0));
-      assertArrayEquals(UuidByteArrayConverter.toBytes(last), (byte[]) cursors.get(1));
-      assertArrayEquals(UuidByteArrayConverter.toBytes(next), (byte[]) cursors.get(2));
+      assertArrayEquals(UuidByteArrayConverter.toBytes(last), (byte[]) cursors.get(0));
+      assertArrayEquals(UuidByteArrayConverter.toBytes(next), (byte[]) cursors.get(1));
+      assertArrayEquals(UuidByteArrayConverter.toBytes(returned), (byte[]) cursors.get(2));
     }
   }
 

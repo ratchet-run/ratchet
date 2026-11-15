@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.spi;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -181,4 +182,17 @@ public interface ResourcePermitStore {
    * @return number of permit rows released
    */
   int cleanupOrphanedPermits(List<String> staleNodeIds);
+
+  /**
+   * Removes permits whose node has no node row and whose acquisition is strictly before the cutoff.
+   * Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>The cutoff keeps recent permits whose node may heartbeat and re-create its row (heartbeat is
+   * an upsert). A node that died after committing a late permit loses it once it ages past the
+   * cutoff. Does not wake waiters; the engine calls {@link #wakeWaiters} after commit.
+   *
+   * @param acquiredBefore exclusive acquisition cutoff
+   * @return number of permit rows released
+   */
+  int cleanupPermitsOfMissingNodes(Instant acquiredBefore);
 }

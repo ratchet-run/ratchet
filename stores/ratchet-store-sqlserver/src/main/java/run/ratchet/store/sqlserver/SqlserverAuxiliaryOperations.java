@@ -799,6 +799,23 @@ final class SqlserverAuxiliaryOperations
     }
   }
 
+  @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    try {
+      return ctx.em()
+          .createNativeQuery(
+              """
+              DELETE p FROM scheduler_resource_permit p
+              WHERE p.acquired_at < ? AND NOT EXISTS (
+                SELECT 1 FROM scheduler_node n WHERE n.node_id = p.node_id)
+              """)
+          .setParameter(1, SqlserverTimestamps.microTimestamp(acquiredBefore))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup permits of missing nodes", e);
+    }
+  }
+
   private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
     String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
     // language=SQL Server

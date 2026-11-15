@@ -328,6 +328,10 @@ be missed. If a batch pause or resume is interrupted, call it again to finish th
 remaining children. Recovery finishes an interrupted cancellation of an open batch with
 a CANCELED parent.
 
+On MySQL, batch pause, resume and cancel throw `RatchetTransientStoreException` when they
+run in a transaction whose snapshot was taken before the batch was submitted. Retry the
+operation in a new transaction.
+
 ## Batch Recovery
 
 Two timers keep batches moving after a crash. The general crash-recovery scan resets orphaned batch children: any child stuck in RUNNING on a node whose heartbeat has gone stale is reset to PENDING and re-executed.

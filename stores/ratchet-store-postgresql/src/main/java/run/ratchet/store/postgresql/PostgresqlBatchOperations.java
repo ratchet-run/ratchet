@@ -150,34 +150,28 @@ final class PostgresqlBatchOperations implements BatchStore {
           default -> "'PAUSED'";
         };
     int total = 0;
-    // Each page starts after the last id of the previous one. A cancel holds no parent lock, so a
-    // retry can return a child behind the cursor to PENDING mid-sweep; the engine repeats the
-    // cancel from the start after commit.
-    UUID cursor = new UUID(0L, 0L);
+    // Cursor pages repeat from the first child until a pass changes nothing, catching children
+    // returned to a matching status behind the cursor. Cancel is terminal. For pause/resume,
+    // a RUNNING child may fail and retry to PENDING, but each candidate changes once: the reverse
+    // operation and batch retry need the parent lock held here.
+    UUID cursor = null;
+    int passStart = 0;
     while (true) {
       String selectSql =
           """
           SELECT q.job_id FROM scheduler_job_queue q JOIN scheduler_job c ON c.job_id = q.job_id
-          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) AND q.job_id > ?
+          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) %s
           ORDER BY q.job_id LIMIT 500 FOR UPDATE OF q
           """
-              .formatted(statuses);
-      var selection =
-          ctx.em().createNativeQuery(selectSql).setParameter(1, batchId).setParameter(2, cursor);
+              .formatted(statuses, cursor == null ? "" : "AND q.job_id > ?");
+      var selection = ctx.em().createNativeQuery(selectSql).setParameter(1, batchId);
+      if (cursor != null) selection.setParameter(2, cursor);
       List<?> ids = selection.getResultList();
       if (ids.isEmpty()) {
-        if (operation.equals("cancel") && total > 0) {
-          ctx.em()
-              .createNativeQuery(
-                  """
-                  UPDATE scheduler_batch SET failed_items = failed_items + ?
-                  WHERE batch_id = ?
-                  """)
-              .setParameter(1, total)
-              .setParameter(2, batchId)
-              .executeUpdate();
-        }
-        return total;
+        if (total == passStart) break;
+        passStart = total;
+        cursor = null;
+        continue;
       }
       cursor = PostgresqlJobRowMapper.uuidOrNull(ids.get(ids.size() - 1));
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
@@ -220,6 +214,18 @@ final class PostgresqlBatchOperations implements BatchStore {
         }
       }
     }
+    if (operation.equals("cancel") && total > 0) {
+      ctx.em()
+          .createNativeQuery(
+              """
+              UPDATE scheduler_batch SET failed_items = failed_items + ?
+              WHERE batch_id = ?
+              """)
+          .setParameter(1, total)
+          .setParameter(2, batchId)
+          .executeUpdate();
+    }
+    return total;
   }
 
   @Override

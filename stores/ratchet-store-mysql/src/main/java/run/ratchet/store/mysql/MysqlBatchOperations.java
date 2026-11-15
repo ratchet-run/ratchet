@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import org.jboss.logging.Logger;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
@@ -129,12 +130,18 @@ final class MysqlBatchOperations implements BatchStore {
     }
   }
 
-  // A non-locking read, so it uses the transaction's REPEATABLE READ snapshot. That snapshot can
-  // predate the parent lock when the caller read earlier in the transaction, so this query does
-  // not filter on status or join the queue row, which can be created after the snapshot.
-  // CHILD_LOCK_SQL keeps only children with a live queue row in the wanted status under the row
-  // lock. The index hint keeps the plan independent of table statistics; without it, MySQL has
-  // chosen an index merge with PRIMARY.
+  // Non-locking discovery uses the caller's snapshot, checked for parent visibility first.
+  // Do not filter queue status here: queue rows may postdate that snapshot. CHILD_LOCK_SQL
+  // rechecks status under lock. The index hint prevents index merge plans.
+  static final String CHILD_DISCOVERY_FIRST_SQL =
+      """
+      SELECT c.job_id
+      FROM scheduler_job c FORCE INDEX (idx_job_depends_on)
+      WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD'
+      ORDER BY c.job_id
+      LIMIT 500
+      """;
+
   static final String CHILD_DISCOVERY_SQL =
       """
       SELECT c.job_id
@@ -168,37 +175,58 @@ final class MysqlBatchOperations implements BatchStore {
         return 0;
       }
     }
+    // A batch's children commit in the parent's transaction, so a snapshot that sees the parent
+    // job row sees every child. A cancel locks no parent, so only a miss takes a shared lock to
+    // tell an old snapshot from a missing batch.
+    boolean visible =
+        !ctx.em()
+            .createNativeQuery("SELECT 1 FROM scheduler_job WHERE job_id = ?")
+            .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+            .getResultList()
+            .isEmpty();
+    if (!visible) {
+      boolean exists =
+          !operation.equals("cancel")
+              || !ctx.em()
+                  .createNativeQuery(
+                      "SELECT job_id FROM scheduler_job WHERE job_id = ? LOCK IN SHARE MODE")
+                  .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+                  .getResultList()
+                  .isEmpty();
+      if (exists) {
+        throw new RatchetTransientStoreException(
+            "Transaction's snapshot predates batch " + batchId + "; retry in a new transaction");
+      }
+    }
     String statuses =
         switch (operation) {
           case "cancel" -> "'PENDING', 'PAUSED', 'WAITING'";
           case "pause" -> "'PENDING'";
           default -> "'PAUSED'";
         };
+    // Cursor pages repeat from the first child until a pass changes nothing, catching children
+    // returned to a matching status behind the cursor. Cancel is terminal. For pause/resume,
+    // a RUNNING child may fail and retry to PENDING, but each candidate changes once: the reverse
+    // operation and batch retry need the parent lock held here.
+    // Re-passes also cover READ COMMITTED, where InnoDB releases nonmatching row locks.
     int total = 0;
-    byte[] cursor = new byte[16];
+    byte[] cursor = null;
+    int passStart = 0;
     // Lock the parent first, then child queue rows by ascending primary key, never a status
     // index. REPEATABLE READ also retains locks on children whose status does not match;
     // that only blocks, without a cycle, because claims also lock queue rows by primary key.
     while (true) {
-      List<?> discovered =
+      var discovery =
           ctx.em()
-              .createNativeQuery(CHILD_DISCOVERY_SQL)
-              .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
-              .setParameter(2, cursor)
-              .getResultList();
+              .createNativeQuery(cursor == null ? CHILD_DISCOVERY_FIRST_SQL : CHILD_DISCOVERY_SQL)
+              .setParameter(1, UuidByteArrayConverter.toBytes(batchId));
+      if (cursor != null) discovery.setParameter(2, cursor);
+      List<?> discovered = discovery.getResultList();
       if (discovered.isEmpty()) {
-        if (operation.equals("cancel") && total > 0) {
-          ctx.em()
-              .createNativeQuery(
-                  """
-                  UPDATE scheduler_batch SET failed_items = failed_items + ?
-                  WHERE batch_id = ?
-                  """)
-              .setParameter(1, total)
-              .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
-              .executeUpdate();
-        }
-        return total;
+        if (total == passStart) break;
+        passStart = total;
+        cursor = null;
+        continue;
       }
       cursor = (byte[]) discovered.get(discovered.size() - 1);
       String candidates = String.join(", ", Collections.nCopies(discovered.size(), "?"));
@@ -250,6 +278,18 @@ final class MysqlBatchOperations implements BatchStore {
         }
       }
     }
+    if (operation.equals("cancel") && total > 0) {
+      ctx.em()
+          .createNativeQuery(
+              """
+              UPDATE scheduler_batch SET failed_items = failed_items + ?
+              WHERE batch_id = ?
+              """)
+          .setParameter(1, total)
+          .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
+          .executeUpdate();
+    }
+    return total;
   }
 
   @Override

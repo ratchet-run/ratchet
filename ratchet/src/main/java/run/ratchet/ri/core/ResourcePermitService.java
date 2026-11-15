@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -78,4 +79,7 @@ public interface ResourcePermitService {
 
   /** Call periodically, e.g. during node heartbeat. */
   int cleanupOrphanedPermits(List<String> staleNodeIds);
+
+  /** Releases permits of missing nodes acquired strictly before the cutoff. */
+  int cleanupPermitsOfMissingNodes(Instant acquiredBefore);
 }

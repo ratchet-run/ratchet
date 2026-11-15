@@ -152,10 +152,12 @@ final class OracleBatchOperations implements BatchStore {
           default -> "'PAUSED'";
         };
     int total = 0;
-    // Each page starts after the last id of the previous one. A cancel holds no parent lock, so a
-    // retry can return a child behind the cursor to PENDING mid-sweep; the engine repeats the
-    // cancel from the start after commit.
-    byte[] cursor = new byte[16];
+    // Cursor pages repeat from the first child until a pass changes nothing, catching children
+    // returned to a matching status behind the cursor. Cancel is terminal. For pause/resume,
+    // a RUNNING child may fail and retry to PENDING, but each candidate changes once: the reverse
+    // operation and batch retry need the parent lock held here.
+    byte[] cursor = null;
+    int passStart = 0;
     while (true) {
       String selectSql =
           """
@@ -163,29 +165,21 @@ final class OracleBatchOperations implements BatchStore {
           WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) AND q.job_id IN (
             SELECT job_id FROM (SELECT h.job_id FROM scheduler_job_queue h
             JOIN scheduler_job j ON j.job_id = h.job_id
-            WHERE j.depends_on = ? AND j.job_type = 'BATCH_CHILD' AND h.status IN (%s) AND h.job_id > ?
+            WHERE j.depends_on = ? AND j.job_type = 'BATCH_CHILD' AND h.status IN (%s) %s
             ORDER BY h.job_id) WHERE ROWNUM <= 500)
           ORDER BY q.job_id FOR UPDATE OF q.status
           """
-              .formatted(statuses, statuses);
+              .formatted(statuses, statuses, cursor == null ? "" : "AND h.job_id > ?");
       var selection =
           ctx.em().createNativeQuery(selectSql).setParameter(1, UuidRawConverter.toBytes(batchId));
       selection.setParameter(2, UuidRawConverter.toBytes(batchId));
-      selection.setParameter(3, cursor);
+      if (cursor != null) selection.setParameter(3, cursor);
       List<?> ids = selection.getResultList();
       if (ids.isEmpty()) {
-        if (operation.equals("cancel") && total > 0) {
-          ctx.em()
-              .createNativeQuery(
-                  """
-                  UPDATE scheduler_batch SET failed_items = failed_items + ?
-                  WHERE batch_id = ?
-                  """)
-              .setParameter(1, total)
-              .setParameter(2, UuidRawConverter.toBytes(batchId))
-              .executeUpdate();
-        }
-        return total;
+        if (total == passStart) break;
+        passStart = total;
+        cursor = null;
+        continue;
       }
       cursor = (byte[]) ids.get(ids.size() - 1);
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
@@ -228,6 +222,18 @@ final class OracleBatchOperations implements BatchStore {
         }
       }
     }
+    if (operation.equals("cancel") && total > 0) {
+      ctx.em()
+          .createNativeQuery(
+              """
+              UPDATE scheduler_batch SET failed_items = failed_items + ?
+              WHERE batch_id = ?
+              """)
+          .setParameter(1, total)
+          .setParameter(2, UuidRawConverter.toBytes(batchId))
+          .executeUpdate();
+    }
+    return total;
   }
 
   @Override

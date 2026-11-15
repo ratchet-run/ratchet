@@ -17,6 +17,7 @@ package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
@@ -71,6 +73,74 @@ class MysqlBatchSweepLockingTest {
   @Test
   void pauseSeesPendingChildCommittedAfterSnapshot() {
     sweep("pause", true);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"pause", "resume", "cancel"})
+  void snapshotPredatingBatchMustRetryInNewTransaction(String operation) {
+    fixture.cleanupStore();
+    emf = newFactory();
+    var reader = emf.createEntityManager();
+    var writer = emf.createEntityManager();
+    try {
+      var readerStore = store(reader);
+      var writerStore = store(writer);
+      reader.getTransaction().begin();
+      reader.createNativeQuery("SELECT COUNT(*) FROM scheduler_job").getSingleResult();
+      writer.getTransaction().begin();
+      UUID parent = writerStore.create(fixture.newPendingJob()).getId();
+      for (int i = 0; i < 3; i++) {
+        UUID child = writerStore.create(fixture.newPendingJob()).getId();
+        writer
+            .createNativeQuery(
+                """
+                UPDATE scheduler_job SET depends_on = ?, job_type = 'BATCH_CHILD' WHERE job_id = ?
+                """)
+            .setParameter(1, UuidByteArrayConverter.toBytes(parent))
+            .setParameter(2, UuidByteArrayConverter.toBytes(child))
+            .executeUpdate();
+        status(writer, child, operation.equals("resume") ? "PAUSED" : "PENDING");
+      }
+      status(writer, parent, operation.equals("resume") ? "PENDING" : "PAUSED");
+      writer.getTransaction().commit();
+      var failure =
+          assertThrows(
+              RatchetTransientStoreException.class, () -> change(readerStore, parent, operation));
+      assertTrue(failure.getMessage().contains("snapshot predates batch " + parent));
+      assertTrue(failure.getMessage().contains("retry in a new transaction"));
+      reader.getTransaction().rollback();
+      reader.getTransaction().begin();
+      assertEquals(3, change(readerStore, parent, operation));
+      reader.getTransaction().commit();
+    } finally {
+      for (var em : List.of(reader, writer)) {
+        if (em.getTransaction().isActive()) em.getTransaction().rollback();
+        em.close();
+      }
+    }
+  }
+
+  @Test
+  void cancelMissingParentReturnsZero() {
+    fixture.cleanupStore();
+    emf = newFactory();
+    var em = emf.createEntityManager();
+    try {
+      em.getTransaction().begin();
+      assertEquals(0, store(em).cancelBatchChildren(UUID.randomUUID()));
+      em.getTransaction().commit();
+    } finally {
+      if (em.getTransaction().isActive()) em.getTransaction().rollback();
+      em.close();
+    }
+  }
+
+  private int change(MysqlJobStoreImpl store, UUID parent, String operation) {
+    return switch (operation) {
+      case "pause" -> store.pauseBatchChildren(parent);
+      case "resume" -> store.resumeBatchChildren(parent);
+      default -> store.cancelBatchChildren(parent);
+    };
   }
 
   private void sweep(String operation, boolean staleSnapshot) {
@@ -182,18 +252,23 @@ class MysqlBatchSweepLockingTest {
     try (var connection =
         DriverManager.getConnection(
             container.getJdbcUrl(), container.getUsername(), container.getPassword())) {
-      try (var explain =
-          connection.prepareStatement("EXPLAIN " + MysqlBatchOperations.CHILD_DISCOVERY_SQL)) {
-        explain.setBytes(1, UuidByteArrayConverter.toBytes(parent));
-        explain.setBytes(2, new byte[16]);
-        try (var rows = explain.executeQuery()) {
-          assertTrue(rows.next());
-          assertEquals("c", rows.getString("table"));
-          assertEquals("idx_job_depends_on", rows.getString("key"));
-          assertTrue(List.of("ref", "range").contains(rows.getString("type")));
-          String extra = rows.getString("Extra");
-          assertTrue(extra == null || !extra.contains("Using filesort"));
-          assertFalse(rows.next());
+      for (String sql :
+          List.of(
+              MysqlBatchOperations.CHILD_DISCOVERY_FIRST_SQL,
+              MysqlBatchOperations.CHILD_DISCOVERY_SQL)) {
+        try (var explain = connection.prepareStatement("EXPLAIN " + sql)) {
+          explain.setBytes(1, UuidByteArrayConverter.toBytes(parent));
+          if (sql.equals(MysqlBatchOperations.CHILD_DISCOVERY_SQL))
+            explain.setBytes(2, new byte[16]);
+          try (var rows = explain.executeQuery()) {
+            assertTrue(rows.next());
+            assertEquals("c", rows.getString("table"));
+            assertEquals("idx_job_depends_on", rows.getString("key"));
+            assertTrue(List.of("ref", "range").contains(rows.getString("type")));
+            String extra = rows.getString("Extra");
+            assertTrue(extra == null || !extra.contains("Using filesort"));
+            assertFalse(rows.next());
+          }
         }
       }
       try (var explain =

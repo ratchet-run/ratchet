@@ -82,9 +82,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -691,6 +693,35 @@ final class MongoAuxiliaryOperations {
           TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
+    }
+  }
+
+  int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            var age = lt("acquired_at", Date.from(acquiredBefore));
+            Set<String> missing = new HashSet<>();
+            ctx.resourcePermits()
+                .find(session, age)
+                .forEach(doc -> missing.add(doc.getString(NODE_ID)));
+            ctx.nodes()
+                .find(session, in(ID, missing))
+                .forEach(doc -> missing.remove(doc.getString(ID)));
+            if (missing.isEmpty()) return 0;
+            var filter = and(age, in(NODE_ID, missing));
+            Map<String, Integer> removedByResource = new HashMap<>();
+            ctx.resourcePermits()
+                .find(session, filter)
+                .forEach(
+                    doc -> removedByResource.merge(doc.getString(RESOURCE_NAME), 1, Integer::sum));
+            DeleteResult result = ctx.resourcePermits().deleteMany(session, filter);
+            decrementResourceCounts(session, removedByResource);
+            return (int) result.getDeletedCount();
+          },
+          TRANSACTION_OPTIONS);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup permits of missing nodes", e);
     }
   }
 

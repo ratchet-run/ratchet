@@ -779,6 +779,11 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    return fail("cleanupPermitsOfMissingNodes");
+  }
+
+  @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return fail("cleanupOrphanedPermits");
   }

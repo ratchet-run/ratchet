@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -244,6 +245,17 @@ public class DefaultResourcePermitService implements ResourcePermitService {
       log.infof("Cleaned up %s orphaned permit(s) from stale nodes", deleted);
     }
 
+    return deleted;
+  }
+
+  @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    if (resourcePermitStore == null) return 0;
+    int deleted = resourcePermitStore.cleanupPermitsOfMissingNodes(acquiredBefore);
+    if (deleted > 0) {
+      wakeAfterCommit(this::sweepWaiters);
+      log.infof("Cleaned up %s permit(s) of missing nodes", deleted);
+    }
     return deleted;
   }
 }

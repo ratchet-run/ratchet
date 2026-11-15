@@ -663,6 +663,13 @@ class OrphanRecoveryTimerTest {
     InOrder order = inOrder(resourcePermitService, nodeStore);
     order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
     order.verify(nodeStore).deleteInactiveNodesByIds(List.of("node-1"));
+    order.verify(resourcePermitService).cleanupPermitsOfMissingNodes(cutoff);
+  }
+
+  @Test
+  void scanWithoutStaleNodesStillCleansMissingNodePermits() {
+    timer.recoverNow();
+    verify(resourcePermitService).cleanupPermitsOfMissingNodes(FIXED_NOW.minusSeconds(60));
   }
 
   @Test
