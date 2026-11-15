@@ -404,7 +404,8 @@ final class OracleAuxiliaryOperations
     if (updated == 0) {
       return AcquireResult.SUPERSEDED;
     }
-    // Never wait for the job row here: a save can hold it while it waits for this queue row.
+    // Never wait for the job row here: standalone cancelJob, terminal mark writes and delete
+    // can hold it while waiting for this queue row.
     // Write the waiter row only while the job still names this resource.
     // language=Oracle
     String currentResource =

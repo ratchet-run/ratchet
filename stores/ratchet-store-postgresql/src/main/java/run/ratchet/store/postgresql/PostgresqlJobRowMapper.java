@@ -76,7 +76,7 @@ final class PostgresqlJobRowMapper extends AbstractJobRowMapper {
     q.picked_by, q.picked_at, q.paused_from_status, q.last_error, q.version, q.updated_at,
     q.signal_key, q.signal_timeout, q.signal_payload, q.signal_payload_type,
     q.signal_outcome, q.signal_rejection_reason, q.signal_delivered_at,
-    q.signal_delivered_by, q.signal_delivery_id, c.encrypted_payload, q.claim_seq\
+    q.signal_delivered_by, q.signal_delivery_id, c.encrypted_payload, q.claim_seq, c.row_version\
     """;
   }
 

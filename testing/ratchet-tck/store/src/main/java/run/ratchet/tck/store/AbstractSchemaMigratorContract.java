@@ -180,6 +180,34 @@ public abstract class AbstractSchemaMigratorContract {
   }
 
   @Test
+  void jobRowVersionMigrationIsIdempotentOnRepeat() throws Exception {
+    resetDatabase();
+    String version = appliedVersion(newMigrator().migrate(), "job_row_version");
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      boolean upper = metadata.storesUpperCaseIdentifiers();
+      try (ResultSet columns =
+          metadata.getColumns(
+              connection.getCatalog(),
+              connection.getSchema(),
+              upper ? "SCHEDULER_JOB" : "scheduler_job",
+              upper ? "ROW_VERSION" : "row_version")) {
+        assertTrue(columns.next(), "row_version must exist after migration");
+        assertEquals(0, columns.getInt("NULLABLE"), "row_version must be NOT NULL");
+      }
+      try (var statement =
+          connection.prepareStatement("DELETE FROM ratchet_schema_version WHERE version = ?")) {
+        statement.setString(1, version);
+        statement.executeUpdate();
+      }
+    }
+    var repeated = newMigrator().migrate();
+    assertEquals(
+        List.of(version),
+        repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+  }
+
+  @Test
   void batchReducerMigrationIsIdempotentOnRepeat() throws Exception {
     resetDatabase();
     String version = appliedVersion(newMigrator().migrate(), "batch_reducer");

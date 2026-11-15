@@ -383,7 +383,8 @@ final class OracleJobTerminalOperations {
   private boolean doCancelJob(UUID id) {
     // language=Oracle
     String cancelNonRecurringSql =
-        "UPDATE scheduler_job c SET c.terminal_status = 'CANCELED', c.terminated_at = "
+        "UPDATE scheduler_job c SET c.row_version = c.row_version + 1, c.terminal_status ="
+            + " 'CANCELED', c.terminated_at = "
             + NOW_UTC
             + ", "
             + runningTimingTuple()
@@ -484,7 +485,7 @@ final class OracleJobTerminalOperations {
     String clearTerminalSql =
         """
         UPDATE scheduler_job
-        SET terminal_status = NULL, terminal_error = NULL,
+        SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
             job_result = NULL, result_type = NULL,
             execution_start_time = NULL, execution_end_time = NULL,
             execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -545,7 +546,7 @@ final class OracleJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -739,7 +740,7 @@ final class OracleJobTerminalOperations {
     String updateColdSql =
         """
         UPDATE scheduler_job c
-        SET c.terminal_status = 'FAILED', c.terminal_error = ?,
+        SET c.row_version = c.row_version + 1, c.terminal_status = 'FAILED', c.terminal_error = ?,
             c.claim_seq = (SELECT q.claim_seq FROM scheduler_job_queue q WHERE q.job_id = c.job_id),
             c.total_attempts = %s, c.terminated_at = %s, %s
         WHERE c.job_id = ? AND c.terminal_status IS NULL
@@ -797,7 +798,7 @@ final class OracleJobTerminalOperations {
     // language=Oracle
     String sql =
         """
-        UPDATE scheduler_job c SET c.terminal_status = 'SUCCEEDED',
+        UPDATE scheduler_job c SET c.row_version = c.row_version + 1, c.terminal_status = 'SUCCEEDED',
             c.job_result = ?, c.result_type = ?,
             c.execution_start_time = ?, c.execution_end_time = ?,
             c.execution_duration_ms = ?, c.queue_wait_ms = ?,
@@ -832,7 +833,7 @@ final class OracleJobTerminalOperations {
     // language=Oracle
     String sql =
         """
-        UPDATE scheduler_job c SET c.terminal_status = 'SUCCEEDED',
+        UPDATE scheduler_job c SET c.row_version = c.row_version + 1, c.terminal_status = 'SUCCEEDED',
             c.execution_start_time = ?, c.execution_end_time = ?,
             c.execution_duration_ms = ?, c.queue_wait_ms = ?,
             c.claim_seq = (SELECT q.claim_seq FROM scheduler_job_queue q WHERE q.job_id = c.job_id),

@@ -1,0 +1,1 @@
+ALTER TABLE scheduler_job ADD COLUMN IF NOT EXISTS row_version INT NOT NULL DEFAULT 0;

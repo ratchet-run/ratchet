@@ -196,7 +196,9 @@ final class SqlserverBatchOperations implements BatchStore {
       if (operation.equals("cancel")) {
         sql =
             """
-            UPDATE c SET terminal_status = 'CANCELED', terminated_at = SYSUTCDATETIME()
+            UPDATE c
+            SET row_version = c.row_version + 1, terminal_status = 'CANCELED',
+                terminated_at = SYSUTCDATETIME()
             FROM scheduler_job c WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job))
             WHERE c.terminal_status IS NULL AND c.job_id IN (%s)
             """

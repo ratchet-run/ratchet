@@ -124,6 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_archive_rec_archived_at
 -- no mutation path writes them in both places.
 CREATE TABLE IF NOT EXISTS scheduler_job
 (
+    row_version INT NOT NULL DEFAULT 0,
     job_id                uuid NOT NULL,
     -- Immutable job-shape fields (duplicated on scheduler_job_queue per §duplication rule).
     job_type              TEXT        NOT NULL,

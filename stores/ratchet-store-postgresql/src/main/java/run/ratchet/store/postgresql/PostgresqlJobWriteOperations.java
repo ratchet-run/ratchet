@@ -98,6 +98,7 @@ final class PostgresqlJobWriteOperations {
   private static final int IDX_HOT_LAST_ERROR = 6;
   private static final int IDX_HOT_VERSION = 7;
   private static final int IDX_HOT_TERMINAL_STATUS = 8;
+  private static final int IDX_HOT_ROW_VERSION = 9;
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlBusinessKeyReservations reservations;
@@ -161,6 +162,18 @@ final class PostgresqlJobWriteOperations {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("bulk insert jobs", e);
     }
+    jobs.forEach(
+        job ->
+            job.setRowVersion(
+                job.getStatus() != null && PostgresqlJobRowMapper.isTerminalStatus(job.getStatus())
+                    ? 1
+                    : 0));
+    jobs.forEach(
+        job -> {
+          if (job.getVersion() == null) {
+            job.setVersion(0);
+          }
+        });
   }
 
   void saveInsert(JobEntity job) {
@@ -198,12 +211,17 @@ final class PostgresqlJobWriteOperations {
       }
       SqlIdempotencyKeys.reserve(ctx, List.of(job), nowTs, id -> id, false);
       coldInsert.executeUpdate();
+      job.setRowVersion(0);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
+        job.setRowVersion(1);
         job.setTerminalStatus(job.getStatus());
       } else {
         if (!recurring) {
           hotInsert.executeUpdate();
+          if (job.getVersion() == null) {
+            job.setVersion(0);
+          }
         }
       }
       if (job.getTags() != null && !job.getTags().isEmpty()) {
@@ -225,7 +243,8 @@ final class PostgresqlJobWriteOperations {
     String sql =
         """
         UPDATE scheduler_job
-        SET terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
+        SET row_version = row_version + 1,
+            terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
         WHERE job_id = ?
         """;
     ctx.em()
@@ -376,7 +395,7 @@ final class PostgresqlJobWriteOperations {
       String sql =
           """
           UPDATE scheduler_job AS c
-          SET terminal_status = v.terminal_status,
+          SET row_version = row_version + 1, terminal_status = v.terminal_status,
               terminal_error = v.terminal_error,
               total_attempts = v.total_attempts,
               terminated_at = v.terminated_at
@@ -434,15 +453,34 @@ final class PostgresqlJobWriteOperations {
     return String.join(", ", Collections.nCopies(count, values));
   }
 
+  // Save locks the queue row before the job row, like the CAS cancel gate and job completion,
+  // so racing either operation waits instead of deadlocking.
+  private void lockQueueRow(UUID id) {
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT job_id FROM scheduler_job_queue WHERE job_id = ? FOR UPDATE
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
+  }
+
   private void saveColdUpdate(JobEntity job) {
+    lockQueueRow(job.getId());
     Object[] row = snapshotHotRow(job.getId());
-    if (tryScheduledTimeOnlyHotUpdate(job, row)) {
-      return;
+    if (row == null) {
+      throw new IllegalStateException("save() called on missing job id=" + job.getId());
     }
-    if (tryHotMutationDispatch(job, row)) {
-      return;
+    if (job.getRowVersion() == null) {
+      throw new IllegalArgumentException(
+          "save() needs a job loaded from the store; rowVersion is null for job " + job.getId());
     }
-    guardAgainstHotMutation(job, row);
+    if (job.getRowVersion() != ((Number) row[IDX_HOT_ROW_VERSION]).intValue()) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
+      guardAgainstHotMutation(job, row);
+    }
+    // Fast paths write only the queue row, so always update the job row too.
 
     // language=PostgreSQL
     String sql =
@@ -453,26 +491,33 @@ final class PostgresqlJobWriteOperations {
             on_failure_payload = CAST(? AS jsonb),
             depends_on = ?,
             superseded_by = ?,
-            resource_name = ?
-        WHERE job_id = ?
+            resource_name = ?,
+            row_version = row_version + 1
+        WHERE job_id = ? AND row_version = ?
         """;
     boolean active = JobEncryption.activeFor(job);
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, PostgresqlJobRowMapper.paramsToJson(job, active))
-        .setParameter(
-            2,
-            PostgresqlJobRowMapper.callbackPayloadToJson(
-                job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
-        .setParameter(
-            3,
-            PostgresqlJobRowMapper.callbackPayloadToJson(
-                job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
-        .setParameter(4, job.getDependsOn())
-        .setParameter(5, job.getSupersededBy())
-        .setParameter(6, job.getResourceName())
-        .setParameter(7, job.getId())
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, PostgresqlJobRowMapper.paramsToJson(job, active))
+            .setParameter(
+                2,
+                PostgresqlJobRowMapper.callbackPayloadToJson(
+                    job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
+            .setParameter(
+                3,
+                PostgresqlJobRowMapper.callbackPayloadToJson(
+                    job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
+            .setParameter(4, job.getDependsOn())
+            .setParameter(5, job.getSupersededBy())
+            .setParameter(6, job.getResourceName())
+            .setParameter(7, job.getId())
+            .setParameter(8, ((Number) row[IDX_HOT_ROW_VERSION]).intValue())
+            .executeUpdate();
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
     // Under the job-row lock, keep only a waiter on the resource this save stores.
     deleteWaiterOffResource(job.getId(), job.getResourceName());
   }
@@ -509,7 +554,7 @@ final class PostgresqlJobWriteOperations {
         """
         UPDATE scheduler_job_queue
         SET scheduled_time = ?, updated_at = statement_timestamp()
-        WHERE job_id = ? AND status = ?
+        WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
         ctx.em()
@@ -517,10 +562,12 @@ final class PostgresqlJobWriteOperations {
             .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
             .setParameter(2, id)
             .setParameter(3, storedStatus)
+            .setParameter(4, ((Number) row[IDX_HOT_VERSION]).intValue())
             .executeUpdate();
-    if (updated > 0) {
-      deleteWaiter(id);
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    deleteWaiter(id);
     return true;
   }
 
@@ -642,10 +689,11 @@ final class PostgresqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
+               c.terminal_status, c.row_version
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
+        FOR UPDATE OF c
         """;
     List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
     return rows.isEmpty() ? null : rows.get(0);
@@ -653,9 +701,6 @@ final class PostgresqlJobWriteOperations {
 
   private void guardAgainstHotMutation(JobEntity incoming, Object[] row) {
     UUID id = incoming.getId();
-    if (row == null) {
-      throw new IllegalStateException("save() called on missing job id=" + id);
-    }
     String qStatus = (String) row[IDX_HOT_STATUS];
     String terminal = (String) row[IDX_HOT_TERMINAL_STATUS];
 
