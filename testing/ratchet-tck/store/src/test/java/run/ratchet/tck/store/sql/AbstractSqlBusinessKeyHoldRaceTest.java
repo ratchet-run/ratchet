@@ -499,10 +499,89 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
     }
   }
 
+  @Test
+  void expirySweepReachesAnUnlockedHoldBehindLockedOnes() throws Exception {
+    // Expired holds that other transactions locked must not use up the limit. Otherwise the
+    // unlocked holds behind them wait until those locks end.
+    assertExpirySweepPassesLockedHolds(2, 1, 2, 1);
+  }
+
+  @Test
+  void expirySweepPastLockedHoldsDeletesNoMoreThanItsLimit() throws Exception {
+    assertExpirySweepPassesLockedHolds(1, 3, 2, 2);
+  }
+
+  private void assertExpirySweepPassesLockedHolds(
+      int lockedCount, int unlockedCount, int limit, int expectedDeleted) throws Exception {
+    String prefix = "locked-front-" + UUID.randomUUID() + "-";
+    Instant now = Instant.now();
+    // The locked holds expired first, so they come first in expiry order.
+    List<String> locked =
+        createHolds(prefix + "a", "expiry-node", now.minusSeconds(120), lockedCount);
+    List<String> unlocked =
+        createHolds(prefix + "b", "expiry-node", now.minusSeconds(60), unlockedCount);
+    int total = locked.size() + unlocked.size();
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    Future<Integer> firstSweep = null;
+    try {
+      try (Connection lockHolder = fixture().openConnection()) {
+        lockHolder.setAutoCommit(false);
+        try {
+          try (Statement statement = lockHolder.createStatement()) {
+            for (String key : locked) {
+              assertEquals(
+                  1,
+                  statement.executeUpdate(
+                      "DELETE FROM scheduler_business_key_reservation WHERE business_key = '"
+                          + key
+                          + "'"));
+            }
+          }
+          firstSweep =
+              executor.submit(
+                  () -> fixture().store().deleteExpiredBusinessKeyHolds(Instant.now(), limit));
+          int deleted;
+          try {
+            deleted = firstSweep.get(10, TimeUnit.SECONDS);
+          } catch (TimeoutException e) {
+            throw new AssertionError(
+                "the sweep waited on holds that another transaction locked", e);
+          }
+          assertEquals(expectedDeleted, deleted, "the locked holds must not use up the limit");
+          List<String> remaining = remainingHoldKeys(prefix);
+          assertTrue(remaining.containsAll(locked), "the locked holds stay");
+          assertEquals(total - expectedDeleted, remaining.size());
+        } finally {
+          lockHolder.rollback();
+        }
+      }
+      assertEquals(
+          total - expectedDeleted,
+          executor
+              .submit(() -> fixture().store().deleteExpiredBusinessKeyHolds(Instant.now(), 50))
+              .get(30, TimeUnit.SECONDS),
+          "a later sweep deletes the rest once the locks are gone");
+      assertEquals(List.of(), remainingHoldKeys(prefix));
+    } finally {
+      if (firstSweep != null && !firstSweep.isDone()) {
+        try {
+          firstSweep.get(60, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+          // Let a blocked store call finish after rollback before fixture cleanup.
+        }
+      }
+      executor.shutdownNow();
+    }
+  }
+
   private List<String> createHolds(String prefix, String node, Instant heldUntil) {
+    return createHolds(prefix, node, heldUntil, 3);
+  }
+
+  private List<String> createHolds(String prefix, String node, Instant heldUntil, int count) {
     var store = fixture().store();
     List<String> keys = new ArrayList<>();
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < count; i++) {
       String key = prefix + i;
       keys.add(key);
       var job = fixture().newPendingJob();

@@ -33,6 +33,10 @@ final class MysqlBusinessKeyReservations {
 
   static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
 
+  // At most this many candidate pages per expiry sweep. Expired holds that other transactions
+  // have locked do not use up the limit, and one call stays bounded.
+  private static final int EXPIRED_HOLD_PAGES = 10;
+
   // The scheduler_business_key_reservation.business_key column width, which is also the API's
   // business-key limit. INSERT IGNORE would truncate a longer key instead of failing.
   private static final int MAX_BUSINESS_KEY_LENGTH = 255;
@@ -301,14 +305,8 @@ final class MysqlBusinessKeyReservations {
                 SELECT business_key, owner_job_id, held_claim_seq
                 FROM scheduler_business_key_reservation
                 WHERE held_until IS NOT NULL AND held_until < ?
-                ORDER BY held_until LIMIT ?
+                ORDER BY held_until, business_key LIMIT ? OFFSET ?
                 """;
-            List<?> keys =
-                ctx.em()
-                    .createNativeQuery(selectSql)
-                    .setParameter(1, Timestamp.from(now))
-                    .setParameter(2, limit)
-                    .getResultList();
             // language=MySQL
             String deleteSql =
                 """
@@ -316,22 +314,43 @@ final class MysqlBusinessKeyReservations {
                 WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
                   AND held_until IS NOT NULL AND held_until < ?
                 """;
-            Map<String, Hold> locked =
-                lockHolds(
-                    keys,
-                    "held_until IS NOT NULL AND held_until < ?",
-                    List.of(Timestamp.from(now)));
             int deleted = 0;
-            for (String key :
-                BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
-              deleted +=
+            int skipped = 0;
+            // Read the candidates in expiry order, one page at a time. A hold this call did not
+            // delete (locked by another transaction, or changed since the read) stays in front of
+            // the next page, so the offset steps over it.
+            for (int page = 0; page < EXPIRED_HOLD_PAGES && deleted < limit; page++) {
+              int size = limit - deleted;
+              List<?> keys =
                   ctx.em()
-                      .createNativeQuery(deleteSql)
-                      .setParameter(1, key)
-                      .setParameter(2, UuidByteArrayConverter.toBytes(locked.get(key).ownerJobId()))
-                      .setParameter(3, locked.get(key).claimSeq())
-                      .setParameter(4, Timestamp.from(now))
-                      .executeUpdate();
+                      .createNativeQuery(selectSql)
+                      .setParameter(1, Timestamp.from(now))
+                      .setParameter(2, size)
+                      .setParameter(3, skipped)
+                      .getResultList();
+              Map<String, Hold> locked =
+                  lockHolds(
+                      keys,
+                      "held_until IS NOT NULL AND held_until < ?",
+                      List.of(Timestamp.from(now)));
+              int pageDeleted = 0;
+              for (String key :
+                  BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
+                pageDeleted +=
+                    ctx.em()
+                        .createNativeQuery(deleteSql)
+                        .setParameter(1, key)
+                        .setParameter(
+                            2, UuidByteArrayConverter.toBytes(locked.get(key).ownerJobId()))
+                        .setParameter(3, locked.get(key).claimSeq())
+                        .setParameter(4, Timestamp.from(now))
+                        .executeUpdate();
+              }
+              deleted += pageDeleted;
+              skipped += keys.size() - pageDeleted;
+              if (keys.size() < size) {
+                break;
+              }
             }
             return deleted;
           } catch (RuntimeException e) {

@@ -132,8 +132,11 @@ public interface JobBulkStore {
    * reservations are never touched.
    *
    * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
-   * and it stays until a later sweep removes it. The bundled SQL stores lock the candidates with a
-   * skip-locked read.
+   * and it stays until a later sweep removes it. A skipped hold should not use up {@code limit}.
+   * The bundled SQL stores read the expired holds in expiry order, one page at a time, and lock
+   * each page with a skip-locked read. They read the next page while fewer than {@code limit} holds
+   * are deleted, up to ten pages per call. So when the first ten times {@code limit} expired holds
+   * are all locked, the holds behind them wait for a later call.
    *
    * @return number of holds deleted, counting only holds this call deleted
    */

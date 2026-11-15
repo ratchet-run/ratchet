@@ -38,6 +38,10 @@ final class SqlserverBusinessKeyReservations {
 
   static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
 
+  // At most this many candidate pages per expiry sweep. Expired holds that other transactions
+  // have locked do not use up the limit, and one call stays bounded.
+  private static final int EXPIRED_HOLD_PAGES = 10;
+
   // business_key is VARCHAR and the driver binds strings as NVARCHAR. Under a SQL collation that
   // stops SQL Server seeking the primary key, so a hold delete range-scans idx_bk_held_until and
   // locks other holds' index rows in expiry order. Cast the key and force the primary-key seek.
@@ -363,36 +367,51 @@ final class SqlserverBusinessKeyReservations {
             // language=SQL Server
             String selectSql =
                 """
-                SELECT TOP (?) business_key, owner_job_id, held_claim_seq
+                SELECT business_key, owner_job_id, held_claim_seq
                 FROM scheduler_business_key_reservation
                 WHERE held_until IS NOT NULL AND held_until < ?
-                ORDER BY held_until
+                ORDER BY held_until, business_key OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
                 """;
-            List<?> keys =
-                ctx.em()
-                    .createNativeQuery(selectSql)
-                    .setParameter(1, limit)
-                    .setParameter(2, Timestamp.from(now))
-                    .getResultList();
             String deleteSql =
                 DELETE_HOLD_BY_KEY
                     + " AND r.owner_job_id = ? AND r.held_claim_seq = ? AND r.held_until < ?";
-            Map<String, Hold> locked =
-                lockHolds(
-                    keys,
-                    "r.held_until IS NOT NULL AND r.held_until < ?",
-                    List.of(Timestamp.from(now)));
             int deleted = 0;
-            for (String key :
-                BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
-              deleted +=
+            int skipped = 0;
+            // Read the candidates in expiry order, one page at a time. A hold this call did not
+            // delete (locked by another transaction, or changed since the read) stays in front of
+            // the next page, so the offset steps over it.
+            for (int page = 0; page < EXPIRED_HOLD_PAGES && deleted < limit; page++) {
+              int size = limit - deleted;
+              List<?> keys =
                   ctx.em()
-                      .createNativeQuery(deleteSql)
-                      .setParameter(1, key)
-                      .setParameter(2, UuidByteArrayConverter.toBytes(locked.get(key).ownerJobId()))
-                      .setParameter(3, locked.get(key).claimSeq())
-                      .setParameter(4, Timestamp.from(now))
-                      .executeUpdate();
+                      .createNativeQuery(selectSql)
+                      .setParameter(1, Timestamp.from(now))
+                      .setParameter(2, skipped)
+                      .setParameter(3, size)
+                      .getResultList();
+              Map<String, Hold> locked =
+                  lockHolds(
+                      keys,
+                      "r.held_until IS NOT NULL AND r.held_until < ?",
+                      List.of(Timestamp.from(now)));
+              int pageDeleted = 0;
+              for (String key :
+                  BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
+                pageDeleted +=
+                    ctx.em()
+                        .createNativeQuery(deleteSql)
+                        .setParameter(1, key)
+                        .setParameter(
+                            2, UuidByteArrayConverter.toBytes(locked.get(key).ownerJobId()))
+                        .setParameter(3, locked.get(key).claimSeq())
+                        .setParameter(4, Timestamp.from(now))
+                        .executeUpdate();
+              }
+              deleted += pageDeleted;
+              skipped += keys.size() - pageDeleted;
+              if (keys.size() < size) {
+                break;
+              }
             }
             return deleted;
           } catch (RuntimeException e) {
