@@ -107,7 +107,8 @@ class DefaultJobSchedulerServiceIdempotencyKeyLookupTest {
         Clock.systemUTC(),
         null,
         new JakartaAfterCommitRegistrar(),
-        mock(BatchService.class));
+        mock(BatchService.class),
+        null);
   }
 
   @Test

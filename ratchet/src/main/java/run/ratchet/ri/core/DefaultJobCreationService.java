@@ -53,6 +53,7 @@ import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.ChainScheduler;
@@ -142,7 +143,7 @@ public class DefaultJobCreationService
   private final MetricsCollector metricsCollector;
   private final Clock clock;
   private final boolean signalCapabilityAvailable;
-  private final boolean resourcePermitCapabilityAvailable;
+  private final ResourcePermitStore resourcePermitStore;
 
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final BatchCompletionTransaction conflictResolutionTransaction;
@@ -172,7 +173,7 @@ public class DefaultJobCreationService
     this.afterCommitRegistrar = null;
     this.conflictResolutionTransaction = null;
     this.signalCapabilityAvailable = false;
-    this.resourcePermitCapabilityAvailable = false;
+    this.resourcePermitStore = null;
   }
 
   @Inject
@@ -222,7 +223,7 @@ public class DefaultJobCreationService
         metricsCollector,
         clock,
         signalStore.isResolvable(),
-        resourcePermitStore.isResolvable(),
+        resourcePermitStore.isResolvable() ? resourcePermitStore.get() : null,
         options != null ? options.callerPrincipalResolver() : null,
         afterCommitRegistrar,
         errorSanitizer,
@@ -250,7 +251,7 @@ public class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable,
+      ResourcePermitStore resourcePermitStore,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
@@ -274,7 +275,7 @@ public class DefaultJobCreationService
         metricsCollector,
         clock,
         signalCapabilityAvailable,
-        resourcePermitCapabilityAvailable,
+        resourcePermitStore,
         callerPrincipalResolver,
         afterCommitRegistrar,
         errorSanitizer,
@@ -302,7 +303,7 @@ public class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable,
+      ResourcePermitStore resourcePermitStore,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer,
@@ -334,7 +335,7 @@ public class DefaultJobCreationService
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.conflictResolutionTransaction = conflictResolutionTransaction;
     this.signalCapabilityAvailable = signalCapabilityAvailable;
-    this.resourcePermitCapabilityAvailable = resourcePermitCapabilityAvailable;
+    this.resourcePermitStore = resourcePermitStore;
   }
 
   /**
@@ -343,18 +344,26 @@ public class DefaultJobCreationService
    *     caller's transaction usable. An idempotency race resolves the original handle in a new
    *     transaction when the conflict-resolution helper is available. If that lookup fails after a
    *     business-key conflict, submission throws RatchetTransientStoreException and the caller's
-   *     transaction becomes rollback-only.
+   *     transaction becomes rollback-only. A missing resource limit is thrown before any write and
+   *     leaves the caller's transaction usable. A missing limit raised by other work inside the
+   *     submission, such as a nested submit from a stream, is rethrown as {@link
+   *     IllegalStateException} with the original as its cause, so the transaction rolls back.
    */
   @Override
   @Transactional(
       dontRollbackOn = {
         DuplicateBusinessKeyException.class,
-        DuplicateIdempotencyKeyException.class
+        DuplicateIdempotencyKeyException.class,
+        ResourceNotConfiguredException.class
       })
   public JobHandle submit(JobBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
+    } catch (OwnLimitCheckFailure own) {
+      throw ownLimitFailure(own);
+    } catch (ResourceNotConfiguredException nested) {
+      throw nestedLimitFailure(nested);
     } finally {
       JOB_PAYLOAD_CONVERTER.endPreparationScope();
     }
@@ -379,6 +388,10 @@ public class DefaultJobCreationService
       }
     }
 
+    String resourceName = builder.resourceName();
+    requireResourcePermitCapability(resourceName, "Job declares resource");
+    requireResourceLimit(resourceName);
+
     JobPayload payload = payload(builder.task());
     List<JobPayload> chainPayloads = state.chainTasks().stream().map(this::payload).toList();
     List<BranchPayloads> branches = prepareWorkflowBranches(builder.workflowBranches(), null);
@@ -391,8 +404,6 @@ public class DefaultJobCreationService
       throw new UnsupportedOperationException(
           "Signal-waiting job creation requires a store advertising the SignalStore capability");
     }
-    String resourceName = builder.resourceName();
-    requireResourcePermitCapability(resourceName, "Job declares resource");
     Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
@@ -550,18 +561,27 @@ public class DefaultJobCreationService
   /**
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the batch submission. A batch-parent idempotency race returns the
-   *     original handle without marking the caller transaction rollback-only.
+   *     original handle without marking the caller transaction rollback-only. A missing resource
+   *     limit is thrown before any write and leaves the caller's transaction usable. A missing
+   *     limit raised by other work inside the submission, such as a nested submit from a stream, is
+   *     rethrown as {@link IllegalStateException} with the original as its cause, so the
+   *     transaction rolls back.
    */
   @Override
   @Transactional(
       dontRollbackOn = {
         DuplicateBusinessKeyException.class,
-        DuplicateIdempotencyKeyException.class
+        DuplicateIdempotencyKeyException.class,
+        ResourceNotConfiguredException.class
       })
   public JobHandle submit(DefaultBatchBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
+    } catch (OwnLimitCheckFailure own) {
+      throw ownLimitFailure(own);
+    } catch (ResourceNotConfiguredException nested) {
+      throw nestedLimitFailure(nested);
     } finally {
       JOB_PAYLOAD_CONVERTER.endPreparationScope();
     }
@@ -581,6 +601,7 @@ public class DefaultJobCreationService
     }
     requireBatchCapability();
     requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
+    requireResourceLimit(builder.childResourceName());
     if (builder.partitionKey() != null) return submitPartitions(builder);
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
@@ -872,12 +893,20 @@ public class DefaultJobCreationService
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the streaming batch submission. An idempotency race returns the
    *     original handle and closes the stream without marking the caller transaction rollback-only.
+   *     A missing resource limit is thrown before any write and leaves the caller's transaction
+   *     usable. If closing the stream fails after that check, the submit throws {@link
+   *     IllegalStateException} with the missing-limit exception as its cause and the close failure
+   *     suppressed on it, and the transaction rolls back, because the close handler may have
+   *     written. A missing limit raised by other work inside the submission, such as a nested
+   *     submit from a stream, is rethrown as {@link IllegalStateException} with the original as its
+   *     cause, so the transaction rolls back.
    */
   @Override
   @Transactional(
       dontRollbackOn = {
         DuplicateBusinessKeyException.class,
-        DuplicateIdempotencyKeyException.class
+        DuplicateIdempotencyKeyException.class,
+        ResourceNotConfiguredException.class
       })
   // The internal builder crosses a public interface method that must retain transaction advice.
   @SuppressWarnings("ClassEscapesDefinedScope")
@@ -885,6 +914,10 @@ public class DefaultJobCreationService
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
+    } catch (OwnLimitCheckFailure own) {
+      throw ownLimitFailure(own);
+    } catch (ResourceNotConfiguredException nested) {
+      throw nestedLimitFailure(nested);
     } finally {
       JOB_PAYLOAD_CONVERTER.endPreparationScope();
     }
@@ -895,7 +928,9 @@ public class DefaultJobCreationService
     // start() owns the caller's stream and closes it on every path, including a failed check, a
     // duplicate key and a failed insert. A null stream (fromStream() never called) is skipped. If
     // the submit failed, a close() failure is added to it as suppressed; after a normal return, a
-    // close() failure propagates, as with any try-with-resources.
+    // close() failure propagates, as with any try-with-resources. A close failure after a failed
+    // own limit check turns the failure into an IllegalStateException so the transaction rolls
+    // back.
     try (Stream<T> stream = builder.stream()) {
       requireBatchCapability();
       requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
@@ -917,6 +952,7 @@ public class DefaultJobCreationService
       }
     }
 
+    requireResourceLimit(builder.childResourceName());
     List<JobPayload> stagedChildren = null;
     if (builder.reducer() != null) {
       builder.reducer().validate(classPolicy, PayloadSerializerHolder.get());
@@ -1219,8 +1255,49 @@ public class DefaultJobCreationService
         && Objects.equals(existing.misfirePolicy(), replacement.misfirePolicy());
   }
 
+  private static final class OwnLimitCheckFailure extends RuntimeException {
+    private final ResourceNotConfiguredException failure;
+
+    private OwnLimitCheckFailure(ResourceNotConfiguredException failure) {
+      super(null, failure, true, false);
+      this.failure = failure;
+    }
+  }
+
+  private static RuntimeException ownLimitFailure(OwnLimitCheckFailure own) {
+    Throwable[] suppressed = own.getSuppressed();
+    for (Throwable failure : suppressed) {
+      own.failure.addSuppressed(failure);
+    }
+    if (suppressed.length == 0) {
+      return own.failure;
+    }
+    return new IllegalStateException(
+        "Resource '"
+            + own.failure.resourceName()
+            + "' has no limit, and closing the submission's stream also failed (see the exceptions"
+            + " suppressed on the cause). Code that ran while the stream closed may have written, so"
+            + " the submission's transaction rolls back.",
+        own.failure);
+  }
+
+  private static IllegalStateException nestedLimitFailure(ResourceNotConfiguredException nested) {
+    return new IllegalStateException(
+        "Resource '"
+            + nested.resourceName()
+            + "' has no limit. The failure came from work inside this submission, not from its own"
+            + " limit check, so the submission's transaction rolls back.",
+        nested);
+  }
+
+  private void requireResourceLimit(String resourceName) {
+    if (resourceName != null && resourcePermitStore.findResourceLimit(resourceName).isEmpty()) {
+      throw new OwnLimitCheckFailure(new ResourceNotConfiguredException(resourceName));
+    }
+  }
+
   private void requireResourcePermitCapability(String resourceName, String subject) {
-    if (resourceName != null && !resourceName.isBlank() && !resourcePermitCapabilityAvailable) {
+    if (resourceName != null && !resourceName.isBlank() && resourcePermitStore == null) {
       // The caller asked for concurrency gating on a named resource, but the store cannot enforce
       // it. Reject the submission rather than silently running the job with unbounded concurrency.
       throw new UnsupportedOperationException(

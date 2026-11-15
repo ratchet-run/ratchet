@@ -264,7 +264,7 @@ class DefaultJobCreationServiceTransactionalTest {
         null,
         Clock.systemUTC(),
         false,
-        false,
+        null,
         null,
         mock(AfterCommitRegistrar.class),
         new DefaultErrorSanitizer());

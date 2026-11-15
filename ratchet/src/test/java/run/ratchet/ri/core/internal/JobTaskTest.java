@@ -95,6 +95,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
@@ -2979,6 +2980,28 @@ class JobTaskTest {
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     IllegalArgumentException unconfigured =
         new IllegalArgumentException("Resource is not configured: missing");
+    when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1"))
+        .thenThrow(unconfigured);
+    when(validationFacade.shouldNotRetry(unconfigured)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(resourcePermitService).tryAcquire("missing", JOB_UUID, 0L, "node-1");
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_resourceWithNoLimit_deadLettersWithoutRecordingStart() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("missing");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    ResourceNotConfiguredException unconfigured = new ResourceNotConfiguredException("missing");
     when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1"))
         .thenThrow(unconfigured);
     when(validationFacade.shouldNotRetry(unconfigured)).thenReturn(true);

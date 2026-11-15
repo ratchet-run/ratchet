@@ -139,7 +139,8 @@ class DefaultJobSchedulerServiceEventTest {
             FIXED_CLOCK,
             null,
             registrar,
-            batchService);
+            batchService,
+            null);
   }
 
   @ParameterizedTest

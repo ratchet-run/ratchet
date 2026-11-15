@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.micronaut.internal.MicronautTransactions;
 import run.ratchet.micronaut.internal.NoTransactionOperations;
 import run.ratchet.ri.core.DefaultJobCreationService;
@@ -46,7 +47,7 @@ class MicronautTransactionsTest {
   private TransactionOperations<?> operations;
 
   @Test
-  void submissionDefinitionPreservesBothWriteFreeConflicts() throws Exception {
+  void submissionDefinitionPreservesEveryWriteFreeException() throws Exception {
     var annotation =
         DefaultJobCreationService.class
             .getMethod("submit", JobBuilder.class)
@@ -54,9 +55,13 @@ class MicronautTransactionsTest {
     var definition = MicronautTransactions.definition(annotation);
     assertFalse(definition.rollbackOn(new DuplicateIdempotencyKeyException("key")));
     assertFalse(definition.rollbackOn(new DuplicateBusinessKeyException("key", "held")));
+    assertFalse(definition.rollbackOn(new ResourceNotConfiguredException("gpu")));
     assertTrue(definition.rollbackOn(new IllegalStateException("failure")));
     assertEquals(
-        List.of(DuplicateBusinessKeyException.class, DuplicateIdempotencyKeyException.class),
+        List.of(
+            DuplicateBusinessKeyException.class,
+            DuplicateIdempotencyKeyException.class,
+            ResourceNotConfiguredException.class),
         List.copyOf(definition.getDontRollbackOn()));
   }
 

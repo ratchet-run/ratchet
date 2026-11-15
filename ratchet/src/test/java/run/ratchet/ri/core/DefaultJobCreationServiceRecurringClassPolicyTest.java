@@ -98,7 +98,7 @@ class DefaultJobCreationServiceRecurringClassPolicyTest {
             null,
             Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
             true,
-            true,
+            null,
             null,
             new JakartaAfterCommitRegistrar(),
             new DefaultErrorSanitizer());

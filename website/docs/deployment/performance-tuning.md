@@ -144,13 +144,35 @@ Ratchet supports resource-level concurrency control through the `scheduler_resou
 
 ### Configure resource limits
 
-```sql
-INSERT INTO scheduler_resource_limit (resource_name, max_concurrent, retry_delay_ms, description)
-VALUES ('external-api', 5, 5000, 'Rate-limited external API');
+Set each limit with `JobSchedulerService.setResourceLimit`. A job or batch that names a resource with no limit fails at `submit()` with `ResourceNotConfiguredException`, so set limits at start-up, before any code submits jobs. A `SchedulerLifecycleHook` is a good place. Its `beforeStart` runs after schema migration and before the poller starts. In Spring Boot and Micronaut, register the hook as a bean.
 
-INSERT INTO scheduler_resource_limit (resource_name, max_concurrent, retry_delay_ms, description)
-VALUES ('report-generator', 2, 10000, 'Memory-intensive report generation');
+```java
+@ApplicationScoped
+public class ResourceLimitSetup implements SchedulerLifecycleHook {
+
+  @Inject JobSchedulerService scheduler;
+
+  @Override
+  public void beforeStart() {
+    scheduler.setResourceLimit(
+        ResourceLimit.of("external-api", 5).withDescription("Rate-limited external API"));
+    scheduler.setResourceLimit(
+        ResourceLimit.of("report-generator", 2)
+            .withRetryDelay(Duration.ofSeconds(10))
+            .withDescription("Memory-intensive report generation"));
+  }
+}
 ```
+
+- `setResourceLimit` creates the limit, or replaces every value of an existing one. Every node can set the same limits at start-up.
+- A name is trimmed and must be 1 to 100 printable ASCII characters. The limit must be at least 1. The retry delay defaults to 5 seconds and is stored in whole milliseconds. `withResource` applies the same name rule.
+- Lowering a limit does not stop running jobs. They keep their permits, and new jobs wait until enough permits are released. Raising a limit wakes waiting jobs straight away.
+- On SQL stores the call joins the caller's transaction and locks the limit row until commit, which holds up permit requests for that resource. On MongoDB the change applies at once, and a rollback does not undo it.
+- `findResourceLimit(name)` and `listResourceLimits()` read limits back. On a store without the `ResourcePermitStore` capability, `setResourceLimit` throws `UnsupportedOperationException` and the reads return nothing.
+- A hook exception is logged and does not stop start-up. If a limit fails to save there, the first submit that names the resource fails with `ResourceNotConfiguredException`.
+- MySQL, and SQL Server with a case-insensitive collation, treat `GPU` and `gpu` as one resource. PostgreSQL, Oracle and MongoDB do not.
+
+If a limit is deleted with SQL while jobs still name it, each of those jobs fails when it is next claimed. It uses no retry and goes to the dead-letter queue with `ResourceNotConfiguredException`. Set the limit again, then re-run the job with `retryJob`.
 
 ### Assign resources to jobs
 
