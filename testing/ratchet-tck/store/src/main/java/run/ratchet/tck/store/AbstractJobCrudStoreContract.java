@@ -649,10 +649,15 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void findStatusesByIds_emptyInput_returnsEmptyWithoutStoreCall() {
-    // Empty status reads issue no store statements.
-    assertEquals(
-        0, countStoreStatements(() -> assertTrue(store().findStatusesByIds(List.of()).isEmpty())));
+  void findStatusesByIds_emptyInput_returnsEmpty() {
+    // An empty status read returns an empty map, on any fixture.
+    assertTrue(store().findStatusesByIds(List.of()).isEmpty());
+  }
+
+  @Test
+  void findStatusesByIds_emptyInput_issuesNoStoreStatement() {
+    // Empty status reads issue no store statements where the fixture can count them.
+    assertEquals(0, countStoreStatements(() -> store().findStatusesByIds(List.of())));
   }
 
   @Test

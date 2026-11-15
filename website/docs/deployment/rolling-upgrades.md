@@ -72,11 +72,13 @@ node. MongoDB needs no change.
 SQL stores also gain a migration that adds three nullable columns and the `idx_bk_held_until` index
 to `scheduler_business_key_reservation` (`V019__business_key_hold.sql` on MySQL,
 `V017__business_key_hold.sql` on PostgreSQL, Oracle and SQL Server). They let a cancelled running
-job keep its business key until its body ends. The table has one row per held business key and the
-new columns start empty, so the index builds quickly. On PostgreSQL, Oracle and SQL Server, writes
-to the table wait while the index is built, and on Oracle the DDL fails with ORA-00054 if another
-transaction is writing to the table at that moment. Running the script again is safe. MySQL adds
-the columns and builds the index online. MongoDB creates the `idx_bk_held_until` index when the
+job keep its business key until its body ends. Adding the columns changes only table metadata.
+Building the index reads every row of the table, which has one row for each business key in use,
+even though the new columns start empty. On PostgreSQL, Oracle and SQL Server, writes to the table
+wait while the index is built, so on an installation with many keyed jobs, run the migration in a
+quiet window. On Oracle the DDL fails with ORA-00054 if another transaction is writing to the table
+at that moment. Running the script again is safe. MySQL adds the columns and builds the index
+online, while writes continue. MongoDB creates the `idx_bk_held_until` index when the
 store starts. With `ratchet.schema.auto-migrate=false` on Spring Boot or Micronaut, create it before
 you start the node; the store JAR's `ddl/mongodb-init.js` creates it. During a rolling upgrade, a
 node still on the older version releases the key at once when it cancels a running job, and a
