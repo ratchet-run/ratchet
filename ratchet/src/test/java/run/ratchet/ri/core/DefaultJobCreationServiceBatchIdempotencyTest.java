@@ -303,7 +303,20 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
   }
 
   @Test
-  void streamCloseFailureDoesNotHideSubmitFailure() {
+  void streamingOwnDuplicateWithoutCloseFailurePassesThroughUnchanged() {
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("stream-42")).thenReturn(Optional.empty());
+    DuplicateIdempotencyKeyException collision = new DuplicateIdempotencyKeyException("stream-42");
+    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+    DefaultStreamingBatchBuilder<String> builder = streamingBuilder(service, Stream.of("one"));
+    builder.withIdempotencyKey("stream-42");
+
+    assertSame(collision, assertThrows(DuplicateIdempotencyKeyException.class, builder::start));
+    assertEquals(0, collision.getSuppressed().length);
+  }
+
+  @Test
+  void streamCloseFailureAfterOwnDuplicateRollsBack() {
     DefaultJobCreationService service = newService();
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey("stream-42")).thenReturn(Optional.empty());
     DuplicateIdempotencyKeyException collision =
@@ -319,7 +332,10 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
     DefaultStreamingBatchBuilder<String> builder = streamingBuilder(service, stream);
     builder.withIdempotencyKey("stream-42");
 
-    assertSame(collision, assertThrows(DuplicateIdempotencyKeyException.class, builder::start));
+    IllegalStateException failure = assertThrows(IllegalStateException.class, builder::start);
+
+    assertSame(collision, failure.getCause());
+    assertEquals(1, collision.getSuppressed().length);
 
     assertSame(closeFailure, collision.getSuppressed()[0]);
   }

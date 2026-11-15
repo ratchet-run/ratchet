@@ -339,14 +339,17 @@ public class DefaultJobCreationService
   }
 
   /**
+   * A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
-   *     container starts one for the submission. Duplicate business and idempotency keys leave the
-   *     caller's transaction usable. An idempotency race resolves the original handle in a new
-   *     transaction when the conflict-resolution helper is available. If that lookup fails after a
-   *     business-key conflict, submission throws RatchetTransientStoreException and the caller's
-   *     transaction becomes rollback-only. A missing resource limit is thrown before any write and
-   *     leaves the caller's transaction usable. A missing limit raised by other work inside the
-   *     submission, such as a nested submit from a stream, is rethrown as {@link
+   *     container starts one for the submission. Its own duplicate business and idempotency keys
+   *     leave the caller's transaction usable. An idempotency race resolves the original handle in
+   *     a new transaction when the conflict-resolution helper is available. If that lookup fails
+   *     after a business-key conflict, submission throws RatchetTransientStoreException and the
+   *     caller's transaction becomes rollback-only. A missing resource limit is thrown before any
+   *     write and leaves the caller's transaction usable. A missing limit raised by other work
+   *     inside the submission, such as a nested submit from a stream, is rethrown as {@link
    *     IllegalStateException} with the original as its cause, so the transaction rolls back.
    */
   @Override
@@ -360,8 +363,10 @@ public class DefaultJobCreationService
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
-    } catch (OwnLimitCheckFailure own) {
-      throw ownLimitFailure(own);
+    } catch (OwnSubmissionCheckFailure own) {
+      throw ownSubmissionFailure(own);
+    } catch (DuplicateBusinessKeyException | DuplicateIdempotencyKeyException nested) {
+      throw nestedDuplicateFailure(nested);
     } catch (ResourceNotConfiguredException nested) {
       throw nestedLimitFailure(nested);
     } finally {
@@ -467,8 +472,9 @@ public class DefaultJobCreationService
           return () -> originalId;
         }
       }
-      throw new DuplicateBusinessKeyException(
-          businessKey, "Active job already exists with business key '" + businessKey + "'", e);
+      throw new OwnSubmissionCheckFailure(
+          new DuplicateBusinessKeyException(
+              businessKey, "Active job already exists with business key '" + businessKey + "'", e));
     }
     UUID jobId = saved.getId();
 
@@ -531,9 +537,9 @@ public class DefaultJobCreationService
       original = findOriginalInFreshTransaction(key);
     } catch (RuntimeException lookupFailure) {
       conflict.addSuppressed(lookupFailure);
-      throw conflict;
+      throw new OwnSubmissionCheckFailure(conflict);
     }
-    UUID originalId = original.orElseThrow(() -> conflict);
+    UUID originalId = original.orElseThrow(() -> new OwnSubmissionCheckFailure(conflict));
     return () -> originalId;
   }
 
@@ -549,16 +555,20 @@ public class DefaultJobCreationService
           "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, holderId);
       return () -> holderId;
     }
-    throw new DuplicateBusinessKeyException(
-        businessKey,
-        "Active job already exists with business key '"
-            + businessKey
-            + "' (jobId="
-            + holderId
-            + ")");
+    throw new OwnSubmissionCheckFailure(
+        new DuplicateBusinessKeyException(
+            businessKey,
+            "Active job already exists with business key '"
+                + businessKey
+                + "' (jobId="
+                + holderId
+                + ")"));
   }
 
   /**
+   * A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the batch submission. A batch-parent idempotency race returns the
    *     original handle without marking the caller transaction rollback-only. A missing resource
@@ -570,7 +580,6 @@ public class DefaultJobCreationService
   @Override
   @Transactional(
       dontRollbackOn = {
-        DuplicateBusinessKeyException.class,
         DuplicateIdempotencyKeyException.class,
         ResourceNotConfiguredException.class
       })
@@ -578,8 +587,10 @@ public class DefaultJobCreationService
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
-    } catch (OwnLimitCheckFailure own) {
-      throw ownLimitFailure(own);
+    } catch (OwnSubmissionCheckFailure own) {
+      throw ownSubmissionFailure(own);
+    } catch (DuplicateBusinessKeyException | DuplicateIdempotencyKeyException nested) {
+      throw nestedDuplicateFailure(nested);
     } catch (ResourceNotConfiguredException nested) {
       throw nestedLimitFailure(nested);
     } finally {
@@ -890,6 +901,9 @@ public class DefaultJobCreationService
   }
 
   /**
+   * A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
    *     container starts one for the streaming batch submission. An idempotency race returns the
    *     original handle and closes the stream without marking the caller transaction rollback-only.
@@ -899,12 +913,13 @@ public class DefaultJobCreationService
    *     suppressed on it, and the transaction rolls back, because the close handler may have
    *     written. A missing limit raised by other work inside the submission, such as a nested
    *     submit from a stream, is rethrown as {@link IllegalStateException} with the original as its
-   *     cause, so the transaction rolls back.
+   *     cause, so the transaction rolls back. An own duplicate key with suppressed stream-close
+   *     failures is also rethrown as IllegalStateException, because the close handler may have
+   *     written.
    */
   @Override
   @Transactional(
       dontRollbackOn = {
-        DuplicateBusinessKeyException.class,
         DuplicateIdempotencyKeyException.class,
         ResourceNotConfiguredException.class
       })
@@ -914,8 +929,10 @@ public class DefaultJobCreationService
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
       return submitPrepared(builder);
-    } catch (OwnLimitCheckFailure own) {
-      throw ownLimitFailure(own);
+    } catch (OwnSubmissionCheckFailure own) {
+      throw ownSubmissionFailure(own);
+    } catch (DuplicateBusinessKeyException | DuplicateIdempotencyKeyException nested) {
+      throw nestedDuplicateFailure(nested);
     } catch (ResourceNotConfiguredException nested) {
       throw nestedLimitFailure(nested);
     } finally {
@@ -929,8 +946,8 @@ public class DefaultJobCreationService
     // duplicate key and a failed insert. A null stream (fromStream() never called) is skipped. If
     // the submit failed, a close() failure is added to it as suppressed; after a normal return, a
     // close() failure propagates, as with any try-with-resources. A close failure after a failed
-    // own limit check turns the failure into an IllegalStateException so the transaction rolls
-    // back.
+    // own key or limit check turns the failure into an IllegalStateException so the transaction
+    // rolls back.
     try (Stream<T> stream = builder.stream()) {
       requireBatchCapability();
       requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
@@ -1255,16 +1272,16 @@ public class DefaultJobCreationService
         && Objects.equals(existing.misfirePolicy(), replacement.misfirePolicy());
   }
 
-  private static final class OwnLimitCheckFailure extends RuntimeException {
-    private final ResourceNotConfiguredException failure;
+  private static final class OwnSubmissionCheckFailure extends RuntimeException {
+    private final RuntimeException failure;
 
-    private OwnLimitCheckFailure(ResourceNotConfiguredException failure) {
+    private OwnSubmissionCheckFailure(RuntimeException failure) {
       super(null, failure, true, false);
       this.failure = failure;
     }
   }
 
-  private static RuntimeException ownLimitFailure(OwnLimitCheckFailure own) {
+  private static RuntimeException ownSubmissionFailure(OwnSubmissionCheckFailure own) {
     Throwable[] suppressed = own.getSuppressed();
     for (Throwable failure : suppressed) {
       own.failure.addSuppressed(failure);
@@ -1273,12 +1290,20 @@ public class DefaultJobCreationService
       return own.failure;
     }
     return new IllegalStateException(
-        "Resource '"
-            + own.failure.resourceName()
-            + "' has no limit, and closing the submission's stream also failed (see the exceptions"
-            + " suppressed on the cause). Code that ran while the stream closed may have written, so"
-            + " the submission's transaction rolls back.",
+        (own.failure instanceof ResourceNotConfiguredException limit
+                ? "Resource '" + limit.resourceName() + "' has no limit"
+                : "The submission's own key check found a duplicate key")
+            + ", and closing the submission's stream also failed (see the exceptions suppressed on"
+            + " the cause). Code that ran while the stream closed may have written, so the"
+            + " submission's transaction rolls back.",
         own.failure);
+  }
+
+  private static IllegalStateException nestedDuplicateFailure(RuntimeException nested) {
+    return new IllegalStateException(
+        "A duplicate key came from work inside this submission, not from its own key check, so"
+            + " the submission's transaction rolls back.",
+        nested);
   }
 
   private static IllegalStateException nestedLimitFailure(ResourceNotConfiguredException nested) {
@@ -1292,7 +1317,7 @@ public class DefaultJobCreationService
 
   private void requireResourceLimit(String resourceName) {
     if (resourceName != null && resourcePermitStore.findResourceLimit(resourceName).isEmpty()) {
-      throw new OwnLimitCheckFailure(new ResourceNotConfiguredException(resourceName));
+      throw new OwnSubmissionCheckFailure(new ResourceNotConfiguredException(resourceName));
     }
   }
 

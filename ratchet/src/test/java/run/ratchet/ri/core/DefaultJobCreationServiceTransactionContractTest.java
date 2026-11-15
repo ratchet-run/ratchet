@@ -17,14 +17,15 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobBuilder;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 class DefaultJobCreationServiceTransactionContractTest {
@@ -59,10 +60,16 @@ class DefaultJobCreationServiceTransactionContractTest {
 
     for (Method method : submitMethods) {
       Transactional transactional = method.getAnnotation(Transactional.class);
-      assertTrue(
-          Arrays.asList(transactional.dontRollbackOn())
-              .contains(ResourceNotConfiguredException.class),
-          method + " must not roll back on ResourceNotConfiguredException");
+      assertEquals(
+          method.getParameterTypes()[0] == JobBuilder.class
+              ? Set.of(
+                  DuplicateBusinessKeyException.class,
+                  DuplicateIdempotencyKeyException.class,
+                  ResourceNotConfiguredException.class)
+              : Set.of(
+                  DuplicateIdempotencyKeyException.class, ResourceNotConfiguredException.class),
+          Set.of(transactional.dontRollbackOn()),
+          method.toString());
     }
   }
 }

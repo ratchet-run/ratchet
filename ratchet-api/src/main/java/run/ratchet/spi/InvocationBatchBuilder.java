@@ -70,6 +70,10 @@ public interface InvocationBatchBuilder {
    * its own transaction, so rolling back the winner's caller transaction does not release the key,
    * and the loser returns the original handle. Task execution remains at least once.
    *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
    * @throws IllegalArgumentException if the trimmed key is longer than 36 characters or contains a

@@ -179,6 +179,10 @@ public interface JobBuilder {
    * lock on the holder's key until its transaction ends. The holder's completion waits for that
    * lock. Keep the caller's transaction short.
    *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @return a handle to the persisted job
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
    *     key with a different idempotency key
@@ -310,6 +314,10 @@ public interface JobBuilder {
    * 36-character value first, for example {@code
    * UUID.nameUUIDFromBytes(naturalKey.getBytes(StandardCharsets.UTF_8)) .toString()}.
    *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
    * @throws IllegalArgumentException if the trimmed key is longer than 36 characters or contains a
@@ -340,6 +348,10 @@ public interface JobBuilder {
    * through {@code U+007E}). The portable subset has the same byte width under Oracle's
    * byte-counted columns and SQL Server's collation-dependent {@code VARCHAR} columns. Invalid keys
    * are rejected rather than truncated or converted.
+   *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
    *
    * @param key if null or blank, no concurrent execution blocking is performed
    * @return this builder

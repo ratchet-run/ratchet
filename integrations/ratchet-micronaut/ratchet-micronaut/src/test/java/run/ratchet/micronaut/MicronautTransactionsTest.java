@@ -56,7 +56,14 @@ class MicronautTransactionsTest {
     assertFalse(definition.rollbackOn(new DuplicateIdempotencyKeyException("key")));
     assertFalse(definition.rollbackOn(new DuplicateBusinessKeyException("key", "held")));
     assertFalse(definition.rollbackOn(new ResourceNotConfiguredException("gpu")));
-    assertTrue(definition.rollbackOn(new IllegalStateException("failure")));
+    assertTrue(
+        definition.rollbackOn(
+            new IllegalStateException(
+                "nested duplicate", new DuplicateBusinessKeyException("key", "held"))));
+    assertTrue(
+        definition.rollbackOn(
+            new IllegalStateException(
+                "nested duplicate", new DuplicateIdempotencyKeyException("key"))));
     assertEquals(
         List.of(
             DuplicateBusinessKeyException.class,

@@ -371,10 +371,13 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
               .getMethod("submit", builderType)
               .getAnnotation(Transactional.class);
       assertEquals(
-          Set.of(
-              DuplicateBusinessKeyException.class,
-              DuplicateIdempotencyKeyException.class,
-              ResourceNotConfiguredException.class),
+          builderType == JobBuilder.class
+              ? Set.of(
+                  DuplicateBusinessKeyException.class,
+                  DuplicateIdempotencyKeyException.class,
+                  ResourceNotConfiguredException.class)
+              : Set.of(
+                  DuplicateIdempotencyKeyException.class, ResourceNotConfiguredException.class),
           Set.of(annotation.dontRollbackOn()));
     }
   }
