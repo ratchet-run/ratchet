@@ -1341,9 +1341,13 @@ public class JobTask implements Callable<Void> {
                     + " reached (ratchet.execution.max-continuations)");
         String sanitized = sanitizeError(failure);
         int failedAttempt = job.getAttempts() + 1;
-        observabilityFacade.recordJobFailure(job, failure, failedAttempt);
-        currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
-        if (handleNonRetryableFailure(failure, job.getAttempts(), sanitized)) {
+        boolean failed = handleNonRetryableFailure(failure, job.getAttempts(), sanitized);
+        // A cancel that won the failure write counts as a cancellation only.
+        if (!cancelHandled) {
+          observabilityFacade.recordJobFailure(job, failure, failedAttempt);
+          currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
+        }
+        if (failed) {
           try {
             if (!store.updateState(
                 job.getId(),

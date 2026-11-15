@@ -169,8 +169,13 @@ class JobTaskTest {
       JobExecutionEntity execution,
       ResultPersistenceStrategy results) {}
 
-  @SuppressWarnings("unchecked")
   private ContinuationScenario continuationScenario(Runnable payload, int limit) throws Exception {
+    return continuationScenario(payload, limit, TracingCollector.NoOpExecutionScope.INSTANCE);
+  }
+
+  @SuppressWarnings("unchecked")
+  private ContinuationScenario continuationScenario(
+      Runnable payload, int limit, TracingCollector.ExecutionScope scope) throws Exception {
     ResultPersistenceStrategy results = mock(ResultPersistenceStrategy.class);
     jobTask =
         new JobTask(
@@ -213,8 +218,7 @@ class JobTaskTest {
         new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
     jobTask.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
-    when(observabilityFacade.startExecutionScope(any(JobEntity.class)))
-        .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
+    when(observabilityFacade.startExecutionScope(any(JobEntity.class))).thenReturn(scope);
     jobTask.attach(attempt);
     JobExecutionEntity execution = JobExecutionEntity.start(JOB_UUID, 1, "node-1");
     when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
@@ -623,6 +627,53 @@ class JobTaskTest {
   @Test
   void rejectedLimitFailureDoesNotResetCounter() throws Exception {
     assertContinuationLimit(false);
+  }
+
+  @Test
+  void continuationLimitRecordsOneFailureAfterTheFailureWrite() throws Exception {
+    // A continuation-limit failure counts one failure and fails the tracing scope after the job
+    // moves to FAILED.
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 2, scope);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+        .thenReturn(true);
+    jobTask.call();
+    InOrder order = inOrder(lifecycleFacade, observabilityFacade, scope);
+    order.verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false);
+    order
+        .verify(observabilityFacade)
+        .recordJobFailure(eq(scenario.job()), any(IllegalStateException.class), eq(1));
+    order.verify(scope).failure(eq(IllegalStateException.class.getName()), any(), eq(1));
+    verify(observabilityFacade, times(1)).recordJobFailure(any(), any(), anyInt());
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+  }
+
+  @Test
+  void continuationLimitThatLosesItsWriteToACancel_endsCanceled() throws Exception {
+    // A cancel that commits after the post-body check wins the continuation-limit failure write.
+    // The attempt ends canceled, with no failure metric and no failed tracing scope.
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 2, scope);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
+    jobTask.call();
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false);
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
+    verify(scenario.store(), never()).updateState(any(), anyString(), anyString(), anyInt());
   }
 
   @Test
