@@ -53,6 +53,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -65,6 +67,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.event.JobSignalWaitingEvent;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -1009,6 +1013,86 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertEquals("missing", exception.resourceName());
     verify(jobCrudStore, never()).create(any());
     verify(jobCrudStore, never()).save(any());
+  }
+
+  private static Stream<RuntimeException> nestedDuplicateKeys() {
+    return Stream.of(
+        new DuplicateBusinessKeyException("nested", "held"),
+        new DuplicateIdempotencyKeyException("nested"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("nestedDuplicateKeys")
+  void submit_nestedDuplicateForChainStepRollsBack(RuntimeException nested) {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    doNothing().doThrow(nested).when(authorizationPolicy).checkCreate(any(), any());
+    var builder =
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+            .then(DefaultJobCreationServiceAuthorizationTest::noopTask);
+
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, () -> service.submit(builder));
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(authorizationPolicy, times(2)).checkCreate(any(), any());
+  }
+
+  @ParameterizedTest
+  @MethodSource("nestedDuplicateKeys")
+  void batchSubmit_nestedDuplicateForChildRollsBack(RuntimeException nested) {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    doNothing().doThrow(nested).when(authorizationPolicy).checkCreate(any(), any());
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("duplicate", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::submit);
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(authorizationPolicy, times(2)).checkCreate(any(), any());
+  }
+
+  @ParameterizedTest
+  @MethodSource("nestedDuplicateKeys")
+  void streamingBatchSubmit_nestedDuplicateDuringReadRollsBack(RuntimeException nested) {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("duplicate", service);
+    builder.fromStream(
+        Stream.of("one", "two")
+            .peek(
+                item -> {
+                  if (item.equals("two")) {
+                    throw nested;
+                  }
+                }));
+    builder.withChunkSize(2);
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(batchStore).saveBatch(any());
+  }
+
+  @ParameterizedTest
+  @MethodSource("nestedDuplicateKeys")
+  void streamingBatchSubmit_nestedDuplicateForChildRollsBack(RuntimeException nested) {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    doNothing().doThrow(nested).when(authorizationPolicy).checkCreate(any(), any());
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("duplicate", service);
+    builder.fromStream(Stream.of("one"));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(authorizationPolicy, times(2)).checkCreate(any(), any());
   }
 
   @Test

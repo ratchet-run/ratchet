@@ -27,7 +27,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
+import run.ratchet.store.dto.PartitionGenerationWrite;
 import run.ratchet.store.entity.JobEntity;
 
 /**
@@ -54,11 +56,14 @@ public abstract class AbstractJobStoreTransactionBoundaryContract {
     Transactional classLevel = jobStoreImplClass().getAnnotation(Transactional.class);
     Transactional create =
         jobStoreImplClass().getMethod("create", JobEntity.class).getAnnotation(Transactional.class);
-    assertNotNull(create, "create must preserve the caller's transaction on a held business key");
+    assertNotNull(create, "create must preserve the caller's transaction on a held reservation");
     assertEquals(classLevel.value(), create.value());
     assertArrayEquals(classLevel.rollbackOn(), create.rollbackOn());
     assertArrayEquals(
-        new Class<?>[] {BusinessKeyReservationConflictException.class}, create.dontRollbackOn());
+        new Class<?>[] {
+          BusinessKeyReservationConflictException.class, DuplicateIdempotencyKeyException.class
+        },
+        create.dontRollbackOn());
     Transactional save =
         jobStoreImplClass().getMethod("save", JobEntity.class).getAnnotation(Transactional.class);
     assertFalse(
@@ -70,9 +75,25 @@ public abstract class AbstractJobStoreTransactionBoundaryContract {
         "save must retain its normal rollback behavior");
   }
 
+  @Test
+  void createOrAdvanceExemptsOnlyHeldParentKey() throws NoSuchMethodException {
+    Transactional boundary =
+        jobStoreImplClass()
+            .getMethod("createOrAdvance", PartitionGenerationWrite.class)
+            .getAnnotation(Transactional.class);
+    assertNotNull(boundary);
+    assertEquals(Transactional.TxType.REQUIRED, boundary.value());
+    assertArrayEquals(
+        new Class<?>[] {DuplicateIdempotencyKeyException.class}, boundary.dontRollbackOn());
+    assertArrayEquals(new Class<?>[0], boundary.rollbackOn());
+  }
+
   private static boolean exemptsReservationConflict(Class<?>[] dontRollbackOn) {
     return Arrays.stream(dontRollbackOn)
-        .anyMatch(type -> type.isAssignableFrom(BusinessKeyReservationConflictException.class));
+        .anyMatch(
+            type ->
+                type.isAssignableFrom(BusinessKeyReservationConflictException.class)
+                    || type.isAssignableFrom(DuplicateIdempotencyKeyException.class));
   }
 
   @Test
