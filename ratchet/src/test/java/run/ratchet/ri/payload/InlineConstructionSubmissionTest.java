@@ -199,6 +199,7 @@ public class InlineConstructionSubmissionTest {
         null,
         new JakartaAfterCommitRegistrar(),
         mock(BatchService.class),
+        null,
         null);
   }
 
@@ -224,7 +225,7 @@ public class InlineConstructionSubmissionTest {
         null,
         Clock.systemUTC(),
         true,
-        true,
+        null,
         null,
         new JakartaAfterCommitRegistrar(),
         null);

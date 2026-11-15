@@ -113,6 +113,7 @@ class BatchControlTest {
         null,
         registrar,
         batchService,
+        null,
         null);
   }
 
@@ -319,6 +320,7 @@ class BatchControlTest {
             null,
             registrar,
             batchService,
+            null,
             null);
     SystemJobCancellation cancellation =
         new SystemJobCancellation(

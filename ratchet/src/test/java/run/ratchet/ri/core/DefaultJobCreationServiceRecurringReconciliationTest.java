@@ -301,7 +301,7 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
         null,
         clock,
         true,
-        true,
+        null,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer());

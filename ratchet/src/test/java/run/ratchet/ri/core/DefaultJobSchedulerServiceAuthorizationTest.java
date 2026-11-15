@@ -140,6 +140,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             new JakartaAfterCommitRegistrar(),
             mock(BatchService.class),
+            null,
             null);
   }
 
@@ -182,6 +183,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         RatchetOptions.builder().callerPrincipalResolver(callerPrincipalResolver).build(),
         new JakartaAfterCommitRegistrar(),
         mock(BatchService.class),
+        null,
         null);
   }
 
@@ -450,6 +452,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             new JakartaAfterCommitRegistrar(),
             mock(BatchService.class),
+            null,
             null);
 
     when(jobBatchStatusStore.compareAndSwapStatus(

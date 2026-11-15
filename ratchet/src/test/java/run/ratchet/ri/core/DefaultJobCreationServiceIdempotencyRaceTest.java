@@ -24,6 +24,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Transactional;
@@ -31,8 +32,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Assertions;
@@ -49,6 +50,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
@@ -61,6 +63,7 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -75,6 +78,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   @Mock private RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private BatchCompletionTransaction conflictResolutionTransaction;
+  @Mock private ResourcePermitStore resourcePermitStore;
 
   public static void noopTask() {}
 
@@ -115,7 +119,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         null,
         Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
         true,
-        true,
+        resourcePermitStore,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer(),
@@ -339,14 +343,15 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
-  void submit_exemptsOnlyDuplicateBusinessKeyFromRollback() throws Exception {
+  void submit_exemptsOnlyDuplicateBusinessKeyAndMissingLimitFromRollback() throws Exception {
     Transactional annotation =
         DefaultJobCreationService.class
             .getMethod("submit", JobBuilder.class)
             .getAnnotation(Transactional.class);
 
     assertEquals(
-        List.of(DuplicateBusinessKeyException.class), List.of(annotation.dontRollbackOn()));
+        Set.of(DuplicateBusinessKeyException.class, ResourceNotConfiguredException.class),
+        Set.of(annotation.dontRollbackOn()));
   }
 
   private DefaultJobBuilder racingBuilder(DefaultJobCreationService service, boolean explicit) {
@@ -443,5 +448,40 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
     DuplicateBusinessKeyException failure =
         Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
     assertTrue(failure.getMessage().contains("Active job already exists with business key"));
+  }
+
+  @Test
+  void submit_keyHeldWithUnconfiguredResource_reportsTheHeldKey() {
+    // The holder lookup runs before the resource-limit check, so the held key is reported.
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findBusinessKeyHolder("held"))
+        .thenReturn(
+            Optional.of(
+                new BusinessKeyHolder(UUID.randomUUID(), JobType.SINGLE, JobStatus.CANCELED)));
+    JobBuilder builder = heldKeyBuilder(service).withResource("unconfigured");
+    DuplicateBusinessKeyException failure =
+        Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
+    assertTrue(failure.getMessage().contains("held by canceled job"));
+    verifyNoInteractions(resourcePermitStore);
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
+  }
+
+  @Test
+  void submit_unseenHoldWithUnconfiguredResource_throwsMissingLimitBeforeAnyWrite() {
+    // A hold the lookup cannot see yet leaves the missing limit to fail the submit first.
+    DefaultJobCreationService service = newService();
+    JobBuilder builder = heldKeyBuilder(service).withResource("unconfigured");
+    ResourceNotConfiguredException failure =
+        Assertions.assertThrows(
+            ResourceNotConfiguredException.class, () -> service.submit(builder));
+    assertEquals("unconfigured", failure.resourceName());
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
+  }
+
+  private static JobBuilder heldKeyBuilder(DefaultJobCreationService service) {
+    return DefaultJobBuilder.create(
+            service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO)
+        .withIdempotencyKey("different")
+        .withBusinessKey("held");
   }
 }

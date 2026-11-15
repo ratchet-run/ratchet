@@ -41,6 +41,7 @@ import run.ratchet.ri.core.JobTypeRateLimiter;
 import run.ratchet.ri.core.PartitionService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.RetryBufferManager;
 import run.ratchet.ri.core.SubmissionFailureHandler;
 import run.ratchet.ri.core.SubmissionGateChecker;
@@ -247,7 +248,7 @@ class RatchetSubmissionConfiguration {
             metrics,
             clock,
             store.capability(SignalStore.class).isPresent(),
-            store.capability(ResourcePermitStore.class).isPresent(),
+            store.capability(ResourcePermitStore.class).orElse(null),
             options.callerPrincipalResolver(),
             registrar,
             errorSanitizer,
@@ -275,6 +276,7 @@ class RatchetSubmissionConfiguration {
       AfterCommitRegistrar registrar,
       BatchService batchService,
       PartitionService partitions,
+      ResourcePermitService resourcePermitService,
       WorkflowScheduler workflowScheduler) {
     MicronautDefaultJobSchedulerService service =
         new MicronautDefaultJobSchedulerService(
@@ -302,6 +304,7 @@ class RatchetSubmissionConfiguration {
             options,
             registrar,
             batchService,
+            resourcePermitService,
             workflowScheduler);
     service.configurePartitions(partitions);
     return service;

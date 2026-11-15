@@ -17,12 +17,15 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobBuilder;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 class DefaultJobCreationServiceTransactionContractTest {
 
@@ -39,6 +42,27 @@ class DefaultJobCreationServiceTransactionContractTest {
       Transactional transactional = method.getAnnotation(Transactional.class);
       assertNotNull(transactional, method + " must declare the public API TX attribute");
       assertEquals(Transactional.TxType.REQUIRED, transactional.value());
+    }
+  }
+
+  @Test
+  void submitsThatCanNameAResourceKeepTheCallerTransactionOnAMissingLimit()
+      throws NoSuchMethodException {
+    // The limit is read before any write, so a missing one must leave the caller's transaction
+    // usable. Recurring jobs cannot name a resource.
+    List<Method> submitMethods =
+        List.of(
+            DefaultJobCreationService.class.getMethod("submit", JobBuilder.class),
+            DefaultJobCreationService.class.getMethod("submit", DefaultBatchBuilder.class),
+            DefaultJobCreationService.class.getMethod(
+                "submit", DefaultStreamingBatchBuilder.class));
+
+    for (Method method : submitMethods) {
+      Transactional transactional = method.getAnnotation(Transactional.class);
+      assertTrue(
+          Arrays.asList(transactional.dontRollbackOn())
+              .contains(ResourceNotConfiguredException.class),
+          method + " must not roll back on ResourceNotConfiguredException");
     }
   }
 }

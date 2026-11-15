@@ -38,6 +38,7 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -71,7 +72,7 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable,
+      ResourcePermitStore resourcePermitStore,
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer,
@@ -96,7 +97,7 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
         metricsCollector,
         clock,
         signalCapabilityAvailable,
-        resourcePermitCapabilityAvailable,
+        resourcePermitStore,
         callerPrincipalResolver,
         afterCommitRegistrar,
         errorSanitizer,

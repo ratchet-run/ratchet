@@ -150,6 +150,7 @@ class DefaultJobSchedulerServiceEventTest {
             OPTIONS,
             registrar,
             batchService,
+            null,
             workflowScheduler);
   }
 

@@ -15,7 +15,6 @@
  */
 package run.ratchet.showcase.service;
 
-import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -25,7 +24,6 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.SignalDecision;
-import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.showcase.domain.OrderProjection;
 import run.ratchet.showcase.domain.OrderStatus;
 import run.ratchet.showcase.domain.ReviewTicket;
@@ -38,16 +36,8 @@ public class OrderWorkflowService {
 
   @Inject OrderRepository repository;
   @Inject JobSchedulerService scheduler;
-  @Inject ResourcePermitService resources;
 
   private volatile Instant paymentOutageUntil = Instant.EPOCH;
-
-  @PostConstruct
-  void configureResources() {
-    resources.configureResource("payment-gateway", 3, 1500, "External payment gateway");
-    resources.configureResource("warehouse-robots", 4, 1000, "Warehouse robot picks");
-    resources.configureResource("carrier-api", 2, 2000, "Carrier label API");
-  }
 
   public void validateOrder(String orderId) {
     OrderProjection order = repository.require(orderId);
