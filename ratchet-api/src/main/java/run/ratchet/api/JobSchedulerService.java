@@ -200,12 +200,15 @@ public interface JobSchedulerService
    * <p>If a RUNNING job has a business key, the key stays held until the body ends, so a new job
    * with the same key cannot run alongside the old body. While the key is held, {@link
    * BusinessKeyLookup#findBusinessKeyHolder} returns the cancelled job with status CANCELED and
-   * {@link JobBuilder#submit()} throws {@link DuplicateBusinessKeyException}. The hold also ends
-   * when another node's orphan scan cleans up the node that ran the body, or when the orphan scan
-   * finds it past its limit: the cancel time plus the job's timeout (or {@code
-   * ratchet.timeout.default-sla-seconds}) plus {@code ratchet.node.orphan-grace-seconds}. If the
-   * worker thread is interrupted when the body ends, the worker does not release the key, and it
-   * can stay held until that limit. A job that fails by a hard timeout does not hold its key.
+   * {@link JobBuilder#submit()} throws {@link DuplicateBusinessKeyException}. The worker releases
+   * the key when the body ends. If that store call fails, or the worker thread is interrupted again
+   * after the body ends, a scheduler thread retries the release every 5 seconds for up to 5
+   * minutes. If the node that ran the body dies, another node's orphan scan releases its holds, and
+   * a node releases its own holds when it starts. The orphan scan also deletes a hold on its first
+   * run after the hold's limit: the cancel time plus the job's timeout (or {@code
+   * ratchet.timeout.default-sla-seconds}), plus {@code ratchet.node.orphan-grace-seconds}, plus
+   * {@code ratchet.node.orphan-scan-interval-seconds}. A job that fails by a hard timeout does not
+   * hold its key.
    *
    * <p>Cancelling a job also cancels the chain and workflow steps that wait on it, and cancelling a
    * batch parent cancels the rest of its batch. A step that has just started is cancelled as a

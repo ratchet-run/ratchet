@@ -214,7 +214,7 @@ Cancelling a batch child counts as a failure. The batch completes
 as soon as its last child ends.
 
 - **PENDING**, **PAUSED** and **WAITING** jobs transition directly to CANCELED.
-- **RUNNING** jobs transition to CANCELED, and the body is asked to stop through `JobContext.isCancellationRequested()`. The worker thread is not interrupted. A body that stops by throwing ends CANCELED, with no retry, DLQ entry or `onFailure` callback. A keyed job keeps its business key held until the body ends, bounded by its timeout. See [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job).
+- **RUNNING** jobs transition to CANCELED, and the body is asked to stop through `JobContext.isCancellationRequested()`. The worker thread is not interrupted. A body that stops by throwing ends CANCELED, with no retry, DLQ entry or `onFailure` callback. A keyed job keeps its business key held until the body ends, and the worker then releases it. If the worker cannot release it, the key can stay held until the first orphan scan after the hold's limit: the cancel time plus the job's timeout (or `ratchet.timeout.default-sla-seconds`), plus `ratchet.node.orphan-grace-seconds`, plus `ratchet.node.orphan-scan-interval-seconds`. See [Cancelling a running job](../concepts/execution-model.md#cancelling-a-running-job).
 - Chain and workflow steps that wait on the job are canceled with it.
 - Jobs in terminal states (SUCCEEDED, FAILED, CANCELED) cannot be canceled.
 

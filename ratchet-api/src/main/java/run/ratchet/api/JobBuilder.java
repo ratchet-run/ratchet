@@ -332,8 +332,12 @@ public interface JobBuilder {
    * only active (PENDING/RUNNING/PAUSED/WAITING) jobs are blocked. {@link #submit()} throws {@link
    * DuplicateBusinessKeyException} while an active job holds the key, unless its idempotency key
    * matches this builder's custom key, in which case the original handle is returned. A RUNNING job
-   * that is cancelled keeps the key until its body ends, bounded by its timeout; see {@link
-   * JobSchedulerService#cancelJob}.
+   * that is cancelled keeps the key until its body ends, and then the worker releases it. If that
+   * release fails or the node stops, the key stays held until a retry, an orphan scan or the node's
+   * restart releases it. At the latest, the first orphan scan after the hold's limit removes it.
+   * The limit is the cancel time plus the job's timeout (or {@code
+   * ratchet.timeout.default-sla-seconds}), plus {@code ratchet.node.orphan-grace-seconds}, plus
+   * {@code ratchet.node.orphan-scan-interval-seconds}. See {@link JobSchedulerService#cancelJob}.
    *
    * <p>Ratchet checks and reserves the key before writing anything. A duplicate leaves the caller's
    * transaction usable, including a recurring holder or a holder committed after the caller's first
