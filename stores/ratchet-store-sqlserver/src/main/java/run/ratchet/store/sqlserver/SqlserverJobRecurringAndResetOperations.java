@@ -132,7 +132,7 @@ final class SqlserverJobRecurringAndResetOperations {
     String coldSql =
         """
         UPDATE scheduler_job
-        SET terminal_status = 'CANCELED',
+        SET row_version = row_version + 1, terminal_status = 'CANCELED',
             terminated_at = SYSUTCDATETIME()
         WHERE job_id IN (%s)
           AND terminal_status IS NULL

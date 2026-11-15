@@ -33,7 +33,7 @@ import run.ratchet.store.util.RowValues;
 /**
  * Shared row-to-{@link JobEntity} hydration for the JDBC dialects.
  *
- * <p>Holds the 52 positional column indexes and the full {@link #hydrateRow(Object[])} setter body
+ * <p>Holds the 55 positional column indexes and the full {@link #hydrateRow(Object[])} setter body
  * that both SQL stores share. Each dialect supplies only its own SELECT projection (PostgreSQL adds
  * {@code ::text} casts on JSON columns) and a dialect label for hydration error messages.
  *
@@ -41,7 +41,7 @@ import run.ratchet.store.util.RowValues;
  */
 public abstract class AbstractJobRowMapper {
 
-  public static final int HYDRATION_COL_COUNT = 54;
+  public static final int HYDRATION_COL_COUNT = 55;
   public static final int IDX_Q_STATUS = 34;
 
   protected static final int IDX_JOB_ID = 0;
@@ -99,6 +99,7 @@ public abstract class AbstractJobRowMapper {
   // hydration projection — it is read only by the rare key-rotation drain-check query.
   protected static final int IDX_ENCRYPTED_PAYLOAD = 52;
   protected static final int IDX_Q_CLAIM_SEQ = 53;
+  protected static final int IDX_ROW_VERSION = 54;
 
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
@@ -131,6 +132,8 @@ public abstract class AbstractJobRowMapper {
     JobEntity j = new JobEntity();
     UUID jobId = RowValues.uuidOrNull(row[IDX_JOB_ID]);
     j.setId(jobId);
+    j.setRowVersion(
+        row[IDX_ROW_VERSION] == null ? null : ((Number) row[IDX_ROW_VERSION]).intValue());
     // Surfaces are decrypted in place; decryption is marker-driven, so an unencrypted (unframed)
     // value passes through unchanged regardless of the per-row flag. The flag is hydrated below for
     // re-write paths (e.g. result persistence) and integrity tooling.

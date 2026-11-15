@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -57,9 +58,17 @@ class MysqlJobRowMapperTest {
     assertTrue(thrown.getMessage().contains("no live or terminal status"));
   }
 
+  @Test
+  void hydratesJobRowVersion() {
+    Object[] row = liveRow();
+    row[54] = 12;
+    assertEquals(12, new MysqlJobRowMapper().hydrateJobEntity(row).getRowVersion());
+  }
+
   private static Object[] liveRow() {
     Object[] row = new Object[MysqlJobRowMapper.HYDRATION_COL_COUNT];
     row[53] = 0L;
+    row[54] = 0;
     Instant now = Instant.parse("2026-05-12T14:30:00Z");
     row[0] = JOB_ID.toString();
     row[1] = JobExecutionType.SINGLE.name();
