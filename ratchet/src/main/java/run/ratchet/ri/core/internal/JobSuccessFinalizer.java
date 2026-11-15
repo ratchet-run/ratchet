@@ -87,6 +87,8 @@ public class JobSuccessFinalizer {
 
   /**
    * Persists full success, falling back to minimal success after transient conflicts are exhausted.
+   * An interrupted retry returns INTERRUPTED before further store work; the caller must record the
+   * interrupt and perform the minimal write with a clear thread flag.
    */
   public Outcome finalizeSuccess(
       JobEntity job,
@@ -116,7 +118,7 @@ public class JobSuccessFinalizer {
             "Job %s transient success finalization failure on attempt %s/%s: %s",
             job.getId(), attempt, MAX_ATTEMPTS, e.getMessage());
         if (!sleepBeforeRetry(job, attempt)) {
-          break;
+          return Outcome.INTERRUPTED;
         }
       }
     }
@@ -138,7 +140,7 @@ public class JobSuccessFinalizer {
         job, resultJson, resultType, start, end, durationMs, queueWaitMs, false);
   }
 
-  private Outcome finalizeMinimalSuccess(
+  Outcome finalizeMinimalSuccess(
       JobEntity job,
       String resultJson,
       String resultType,
@@ -207,13 +209,14 @@ public class JobSuccessFinalizer {
       sleeper.sleep(delay);
       return true;
     } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
       log.warnf("Job %s finalization retry interrupted", job.getId());
       return false;
     }
   }
 
   public enum Outcome {
+    /** The caller owns interrupt restoration and the minimal-success fallback. */
+    INTERRUPTED,
     COMPLETED_FULL,
     COMPLETED_MINIMAL,
     TERMINAL_SKIPPED,

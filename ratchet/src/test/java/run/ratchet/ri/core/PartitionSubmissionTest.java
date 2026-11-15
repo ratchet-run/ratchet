@@ -33,6 +33,7 @@ import org.mockito.ArgumentCaptor;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.KeyRange;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
@@ -49,6 +50,7 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.PartitionStore;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -61,6 +63,8 @@ class PartitionSubmissionTest {
   private final List<KeyRange> ranges = List.of(new KeyRange(0, 10), new KeyRange(10, 20));
   private WorkflowConditionStore conditions = mock(WorkflowConditionStore.class);
   private final BatchService batchService = mock(BatchService.class);
+  // Unstubbed, findResourceLimit returns empty: no resource has a limit.
+  private final ResourcePermitStore permits = mock(ResourcePermitStore.class);
   private DefaultJobCreationService service;
 
   public static void process(KeyRange range) {}
@@ -90,7 +94,7 @@ class PartitionSubmissionTest {
             null,
             Clock.fixed(Instant.parse("2026-11-11T12:00:00Z"), ZoneOffset.UTC),
             true,
-            true,
+            permits,
             null,
             new JakartaAfterCommitRegistrar(),
             new DefaultErrorSanitizer());
@@ -139,6 +143,21 @@ class PartitionSubmissionTest {
     var capture = ArgumentCaptor.forClass(PartitionGenerationWrite.class);
     verify(partitions).createOrAdvance(capture.capture());
     return capture.getValue();
+  }
+
+  @Test
+  void resourceWithNoLimitThrowsBeforeAnyWrite() {
+    var builder = builder();
+    builder.withResource("gpu");
+
+    var exception = assertThrows(ResourceNotConfiguredException.class, builder::submit);
+
+    assertEquals("gpu", exception.resourceName());
+    verify(permits).findResourceLimit("gpu");
+    verify(partitions, never()).findPartitionSet(any());
+    verify(partitions, never()).createOrAdvance(any());
+    verify(jobs, never()).create(any());
+    verifyNoInteractions(bulk, conditions);
   }
 
   @Test

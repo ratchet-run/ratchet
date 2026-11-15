@@ -17,18 +17,23 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Status;
@@ -42,6 +47,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,8 +63,10 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -77,6 +85,7 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -98,6 +107,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private MetricsCollector metricsCollector;
   @Mock private TransactionSynchronizationRegistry txRegistry;
+  @Mock private ResourcePermitStore resourcePermitStore;
 
   private DefaultJobCreationService service;
   private JobWakeupService wakeupService;
@@ -183,7 +193,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         metricsCollector,
         clock,
         true,
-        true,
+        resourcePermitStore,
         null,
         registrar,
         new DefaultErrorSanitizer());
@@ -215,7 +225,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         metricsCollector,
         clock,
         true,
-        false,
+        null,
         null,
         new JakartaAfterCommitRegistrar(txRegistry),
         new DefaultErrorSanitizer());
@@ -243,7 +253,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         metricsCollector,
         Clock.systemUTC(),
         true,
-        true,
+        resourcePermitStore,
         callerPrincipalResolver,
         new JakartaAfterCommitRegistrar(txRegistry),
         new DefaultErrorSanitizer());
@@ -272,7 +282,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         null,
         Clock.systemUTC(),
         true,
-        true,
+        resourcePermitStore,
         null,
         new JakartaAfterCommitRegistrar(txRegistry),
         new DefaultErrorSanitizer());
@@ -281,6 +291,10 @@ class DefaultJobCreationServiceAuthorizationTest {
   @BeforeEach
   void setUp() {
     lenient().when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    // Every resource has a limit unless a test says otherwise.
+    lenient()
+        .when(resourcePermitStore.findResourceLimit(anyString()))
+        .thenAnswer(inv -> Optional.of(ResourceLimit.of(inv.getArgument(0), 1)));
     wakeupService = new NoopJobWakeupService();
     service =
         serviceWith(
@@ -977,6 +991,274 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(jobCrudStore, never()).save(any());
     verify(batchStore, never()).saveBatch(any());
     verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void submit_resourceWithNoLimitThrowsBeforeAnyWrite() {
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
+    builder.withResource(" missing ");
+
+    ResourceNotConfiguredException exception =
+        assertThrows(ResourceNotConfiguredException.class, () -> service.submit(builder));
+
+    assertEquals("missing", exception.resourceName());
+    verify(jobCrudStore, never()).create(any());
+    verify(jobCrudStore, never()).save(any());
+  }
+
+  @Test
+  void submit_nestedMissingLimitBeforeAnyWriteRollsBack() {
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    doThrow(nested).when(authorizationPolicy).checkCreate(any(), any());
+
+    IllegalStateException exception =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                service.submit(
+                    DefaultJobBuilder.create(
+                        service,
+                        DefaultJobCreationServiceAuthorizationTest::noopTask,
+                        Duration.ZERO)));
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore, never()).create(any());
+    verify(jobCrudStore, never()).save(any());
+  }
+
+  @Test
+  void submit_resourceWithALimitReadsItOnceAndKeepsTheResourceOnTheJob() {
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(savedEntity());
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
+    builder.withResource("gpu");
+
+    service.submit(builder);
+
+    verify(resourcePermitStore).findResourceLimit("gpu");
+    ArgumentCaptor<JobEntity> created = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore).create(created.capture());
+    assertEquals("gpu", created.getValue().getResourceName());
+  }
+
+  @Test
+  void submit_withoutResourceReadsNoLimit() {
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(savedEntity());
+
+    service.submit(
+        DefaultJobBuilder.create(
+            service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO));
+
+    verifyNoInteractions(resourcePermitStore);
+  }
+
+  @Test
+  void submit_duplicateIdempotencyKeyReturnsTheExistingJobWithoutReadingTheLimit() {
+    // A retried submission must still get its handle back, even if the limit was removed since.
+    UUID existing = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("order-1"))
+        .thenReturn(Optional.of(existing));
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
+    builder.withIdempotencyKey("order-1").withResource("missing");
+
+    assertEquals(existing, service.submit(builder).id());
+    verifyNoInteractions(resourcePermitStore);
+  }
+
+  @Test
+  void submit_resourceWithoutCapabilityStillThrowsUnsupportedOperation() {
+    DefaultJobCreationService limited =
+        serviceWithoutResourceCapability(
+            principalProviderReturning(CAPTURED_PRINCIPAL),
+            authorizationPolicy,
+            eventPublisher,
+            metricsCollector,
+            Clock.systemUTC());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                limited, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
+    builder.withResource("gpu");
+
+    assertThrows(UnsupportedOperationException.class, () -> limited.submit(builder));
+    verify(jobCrudStore, never()).create(any());
+  }
+
+  @Test
+  void batchSubmit_childResourceWithNoLimitThrowsBeforeAnyWrite() {
+    when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("resource", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing");
+
+    ResourceNotConfiguredException exception =
+        assertThrows(ResourceNotConfiguredException.class, builder::submit);
+
+    assertEquals("missing", exception.resourceName());
+    verify(resourcePermitStore).findResourceLimit("missing");
+    verify(jobCrudStore, never()).create(any());
+    verify(jobCrudStore, never()).save(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void batchSubmit_nestedMissingLimitForChildRollsBack() {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    doNothing().doThrow(nested).when(authorizationPolicy).checkCreate(any(), any());
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("resource", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::submit);
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(authorizationPolicy, times(2)).checkCreate(any(), any());
+  }
+
+  @Test
+  void batchSubmit_duplicateIdempotencyKeyReturnsTheExistingBatchWithoutReadingTheLimit() {
+    UUID existing = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("batch-1"))
+        .thenReturn(Optional.of(existing));
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("resource", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing").withIdempotencyKey("batch-1");
+
+    assertEquals(existing, builder.submit().id());
+    verifyNoInteractions(resourcePermitStore);
+  }
+
+  @Test
+  void streamingBatchSubmit_childResourceWithNoLimitThrowsBeforeAnyWriteAndClosesTheStream() {
+    when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
+    AtomicBoolean closed = new AtomicBoolean();
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(Stream.of("one").onClose(() -> closed.set(true)));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing");
+
+    ResourceNotConfiguredException exception =
+        assertThrows(ResourceNotConfiguredException.class, builder::start);
+
+    assertEquals(ResourceNotConfiguredException.class, exception.getClass());
+    assertEquals("missing", exception.resourceName());
+    assertEquals(0, exception.getSuppressed().length);
+    assertTrue(closed.get(), "start() closes the caller's stream on a failed check");
+    verify(jobCrudStore, never()).create(any());
+    verify(jobCrudStore, never()).save(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_nestedMissingLimitAfterParentWriteRollsBack() {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(
+        Stream.of("one", "two")
+            .peek(
+                item -> {
+                  if (item.equals("two")) {
+                    throw nested;
+                  }
+                }));
+    builder.withChunkSize(2);
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
+
+    assertSame(nested, exception.getCause());
+    verify(jobCrudStore).create(any());
+    verify(batchStore).saveBatch(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_ownMissingLimitWithFailingCloseRollsBack() {
+    when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
+    IllegalStateException closeFailure = new IllegalStateException("close failed");
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(
+        Stream.of("one")
+            .onClose(
+                () -> {
+                  throw closeFailure;
+                }));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing");
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
+
+    assertNotSame(closeFailure, exception);
+    assertEquals(ResourceNotConfiguredException.class, exception.getCause().getClass());
+    ResourceNotConfiguredException cause = (ResourceNotConfiguredException) exception.getCause();
+    assertEquals("missing", cause.resourceName());
+    assertEquals(1, cause.getSuppressed().length);
+    assertSame(closeFailure, cause.getSuppressed()[0]);
+    verify(jobCrudStore, never()).create(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_ownMissingLimitThenNestedMissingLimitInCloseRollsBack() {
+    when(resourcePermitStore.findResourceLimit("missing")).thenReturn(Optional.empty());
+    ResourceNotConfiguredException nested = new ResourceNotConfiguredException("nested");
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(
+        Stream.of("one")
+            .onClose(
+                () -> {
+                  throw nested;
+                }));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing");
+
+    IllegalStateException exception = assertThrows(IllegalStateException.class, builder::start);
+
+    assertNotSame(nested, exception.getCause());
+    assertEquals(ResourceNotConfiguredException.class, exception.getCause().getClass());
+    ResourceNotConfiguredException cause = (ResourceNotConfiguredException) exception.getCause();
+    assertEquals("missing", cause.resourceName());
+    assertEquals(1, cause.getSuppressed().length);
+    assertSame(nested, cause.getSuppressed()[0]);
+    verify(jobCrudStore, never()).create(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_duplicateIdempotencyKeyReturnsWithoutReadingTheLimit() {
+    UUID existing = UUID.randomUUID();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("stream-1"))
+        .thenReturn(Optional.of(existing));
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", service);
+    builder.fromStream(Stream.of("one"));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("missing").withIdempotencyKey("stream-1");
+
+    assertEquals(existing, builder.start().id());
+    verifyNoInteractions(resourcePermitStore);
   }
 
   @Test

@@ -41,6 +41,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -95,6 +98,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
@@ -2055,6 +2059,183 @@ class JobTaskTest {
   }
 
   @Test
+  void cancelledBlockingBody_restoresInterruptAfterFailureWrites() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobAttemptControl attempt = initInterruptibleBodyTask(invoker);
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch finished = new CountDownLatch(1);
+    AtomicBoolean interruptedAfterReturn = new AtomicBoolean();
+    AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+    AtomicReference<Boolean> interruptedDuringRetryWrite = new AtomicReference<>();
+    AtomicReference<Boolean> interruptedDuringFailureWrite = new AtomicReference<>();
+    when(invoker.invoke(any()))
+        .thenAnswer(
+            inv -> {
+              started.countDown();
+              Thread.sleep(30_000);
+              throw new AssertionError("Body was not interrupted");
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L))
+        .thenAnswer(
+            inv -> {
+              interruptedDuringRetryWrite.set(Thread.currentThread().isInterrupted());
+              return 1;
+            });
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false)))
+        .thenAnswer(
+            inv -> {
+              interruptedDuringFailureWrite.set(Thread.currentThread().isInterrupted());
+              return true;
+            });
+
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<?> future =
+          executor.submit(
+              () -> {
+                try {
+                  jobTask.call();
+                  interruptedAfterReturn.set(Thread.currentThread().isInterrupted());
+                } catch (Throwable failure) {
+                  workerFailure.set(failure);
+                } finally {
+                  Thread.interrupted();
+                  finished.countDown();
+                }
+              });
+      Assertions.assertTrue(started.await(5, TimeUnit.SECONDS));
+      Assertions.assertTrue(attempt.cancelExecution(future));
+      // A cancelled Future completes before the worker finishes cleanup.
+      Assertions.assertTrue(finished.await(5, TimeUnit.SECONDS));
+      Assertions.assertNull(workerFailure.get());
+      Assertions.assertEquals(Boolean.FALSE, interruptedDuringRetryWrite.get());
+      Assertions.assertEquals(Boolean.FALSE, interruptedDuringFailureWrite.get());
+      Assertions.assertTrue(interruptedAfterReturn.get());
+      verify(observabilityFacade).recordJobFailure(any(), any(InterruptedException.class), eq(1));
+    } finally {
+      executor.shutdownNow();
+      Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void wrappedBodyInterruption_restoresInterruptWithoutThreadFlag() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    initInterruptibleBodyTask(invoker);
+    RuntimeException failure = new RuntimeException(new InterruptedException("body interrupted"));
+    when(invoker.invoke(any()))
+        .thenAnswer(
+            inv -> {
+              Assertions.assertFalse(Thread.currentThread().isInterrupted());
+              throw failure;
+            });
+
+    try {
+      jobTask.call();
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      verify(observabilityFacade).recordJobFailure(any(), eq(failure), eq(1));
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void thrownBodyInterruption_flushesCheckpointBeforeFailureWrites() throws Exception {
+    assertBodyInterruptionFlush(false);
+  }
+
+  @Test
+  void bodyLeavingInterruptFlagSet_skipsCheckpointFlush() throws Exception {
+    assertBodyInterruptionFlush(true);
+  }
+
+  private void assertBodyInterruptionFlush(boolean flagSet) throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    // Checkpoints need a serializer, the shared commit and flush mocks, and a claimed attempt.
+    initInterruptibleBodyTask(
+        invoker,
+        callbackTask(
+            invoker, new JsonbTestPayloadSerializer(), checkpointRegistrar, jobStateFlusher));
+    jobTask.attach(
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1"));
+    JobStateStore stateStore = pendingCheckpointStore();
+    when(invoker.invoke(any()))
+        .thenAnswer(
+            inv -> {
+              JobContext.current().checkpoint("committed");
+              checkpointCommit.run();
+              if (flagSet) Thread.currentThread().interrupt();
+              // Thread.sleep and similar calls clear the flag before they throw.
+              throw new InterruptedException("body interrupted");
+            });
+
+    try {
+      jobTask.call();
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      if (flagSet) {
+        verify(stateStore, never()).initState(any(), anyString(), anyString(), anyLong());
+        verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+      } else {
+        InOrder order = inOrder(stateStore, jobStore);
+        order
+            .verify(stateStore)
+            .initState(eq(JOB_UUID), eq(JobCheckpointWriter.NAMESPACE), anyString(), eq(7L));
+        order.verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+      }
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void cancelledBeforeBodyStarts_doesNotRestoreInterrupt() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobAttemptControl attempt = initInterruptibleBodyTask(invoker);
+    FutureTask<Void> future = new FutureTask<>(() -> null);
+    Assertions.assertTrue(attempt.cancelExecution(future));
+
+    try {
+      jobTask.call();
+      Assertions.assertFalse(Thread.currentThread().isInterrupted());
+      verify(invoker, never()).invoke(any());
+      verify(observabilityFacade)
+          .recordJobFailure(
+              any(),
+              argThat(
+                  failure ->
+                      failure instanceof InterruptedException
+                          && "Attempt cancelled before its body started"
+                              .equals(failure.getMessage())),
+              eq(1));
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private JobAttemptControl initInterruptibleBodyTask(JobPayloadInvoker invoker) throws Exception {
+    return initInterruptibleBodyTask(invoker, callbackTask(invoker));
+  }
+
+  private JobAttemptControl initInterruptibleBodyTask(JobPayloadInvoker invoker, JobTask task)
+      throws Exception {
+    jobTask = task;
+    JobEntity job = createTestJob();
+    job.setMaxRetries(3);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1");
+    jobTask.attach(attempt);
+    return attempt;
+  }
+
+  @Test
   void unfilledBatchResultSlotFailsPermanentlyBeforeInvocation() throws Exception {
     JobEntity job = createTestJob();
     JobPayload original = job.getPayload();
@@ -2389,6 +2570,15 @@ class JobTaskTest {
   }
 
   private JobTask callbackTask(JobPayloadInvoker invoker) {
+    return callbackTask(
+        invoker, null, mock(AfterCommitRegistrar.class), mock(JobStateFlusher.class));
+  }
+
+  private JobTask callbackTask(
+      JobPayloadInvoker invoker,
+      PayloadSerializer serializer,
+      AfterCommitRegistrar registrar,
+      JobStateFlusher flusher) {
     // Hydration/signal poison exits before service-name lookup.
     lenient()
         .when(invoker.resilienceTarget(any()))
@@ -2411,9 +2601,9 @@ class JobTaskTest {
         context -> noopLogger(),
         (jobId, result) -> SerializedJobResult.empty(),
         null,
-        null,
-        mock(AfterCommitRegistrar.class),
-        mock(JobStateFlusher.class),
+        serializer,
+        registrar,
+        flusher,
         null,
         FIXED_CLOCK,
         null,
@@ -2857,14 +3047,27 @@ class JobTaskTest {
               Thread.currentThread().interrupt();
               throw failure;
             });
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    List<Boolean> flags = new ArrayList<>();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return 1;
+            });
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false))
+        .thenAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return true;
+            });
 
     jobTask.call();
 
     verify(resourcePermitService, times(1)).tryAcquire("gpu", JOB_UUID, 0L, "node-1");
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
     verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    // The failure path's store writes run with the interrupt flag clear.
+    Assertions.assertEquals(List.of(false, false), flags);
     verifyNoAttemptRecorded();
   }
 
@@ -2976,6 +3179,28 @@ class JobTaskTest {
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     IllegalArgumentException unconfigured =
         new IllegalArgumentException("Resource is not configured: missing");
+    when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1"))
+        .thenThrow(unconfigured);
+    when(validationFacade.shouldNotRetry(unconfigured)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(resourcePermitService).tryAcquire("missing", JOB_UUID, 0L, "node-1");
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_resourceWithNoLimit_deadLettersWithoutRecordingStart() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("missing");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    ResourceNotConfiguredException unconfigured = new ResourceNotConfiguredException("missing");
     when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1"))
         .thenThrow(unconfigured);
     when(validationFacade.shouldNotRetry(unconfigured)).thenReturn(true);

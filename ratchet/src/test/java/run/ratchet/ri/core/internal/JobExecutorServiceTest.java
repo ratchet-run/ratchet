@@ -38,10 +38,12 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Assertions;
@@ -146,9 +148,9 @@ class JobExecutorServiceTest {
     assertFalse(result.isRejected());
     ArgumentCaptor<Runnable> queued = ArgumentCaptor.forClass(Runnable.class);
     verify(jobExecutor).execute(queued.capture());
-    result.future().cancel(true);
+    attempt.cancelExecution(result.future());
     queued.getValue().run();
-    result.future().cancel(true);
+    attempt.cancelExecution(result.future());
     verify(pool).releasePermit(JobExecutionType.SINGLE);
     assertTrue(service.awaitIdle(Duration.ZERO));
   }
@@ -181,6 +183,55 @@ class JobExecutorServiceTest {
     queued.getValue().run();
     verify(pool).releasePermit(JobExecutionType.SINGLE);
     assertTrue(service.awaitIdle(Duration.ZERO));
+  }
+
+  @Test
+  void shutdownCancelsFinishedBodyWithoutInterrupting() throws Exception {
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    CountDownLatch writing = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch idle = new CountDownLatch(1);
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    AtomicBoolean interrupted = new AtomicBoolean();
+    var quiescent = service.onIdle(idle::countDown);
+    Method prepare =
+        DefaultJobExecutorService.class.getDeclaredMethod(
+            "prepareTask", Callable.class, Runnable.class, JobAttemptControl.class);
+    prepare.setAccessible(true);
+    Callable<Void> callable =
+        () -> {
+          try {
+            assertTrue(attempt.markBodyStarted());
+            attempt.markBodyFinished();
+            writing.countDown();
+            release.await();
+            interrupted.set(Thread.currentThread().isInterrupted());
+          } catch (Throwable thrown) {
+            failure.set(thrown);
+          }
+          return null;
+        };
+    FutureTask<?> future =
+        (FutureTask<?>) prepare.invoke(service, callable, (Runnable) () -> {}, attempt);
+    Thread worker = new Thread(future);
+    worker.start();
+    try {
+      assertTrue(writing.await(5, TimeUnit.SECONDS));
+      Assertions.assertEquals(1, service.shutdownActiveExecutions());
+      assertTrue(future.isCancelled());
+      assertFalse(quiescent.getAsBoolean());
+      Assertions.assertEquals(1, idle.getCount());
+    } finally {
+      release.countDown();
+      worker.join(5000);
+    }
+    assertFalse(worker.isAlive());
+    Assertions.assertNull(failure.get());
+    assertFalse(interrupted.get());
+    assertTrue(attempt.isRevoked());
+    assertTrue(quiescent.getAsBoolean());
+    Assertions.assertEquals(0, idle.getCount());
   }
 
   @Test

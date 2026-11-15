@@ -82,28 +82,33 @@ public class JobExecutionCoordinator {
 
   /** Stops submissions, drains accepted work, releases its claims, then cancels what is left. */
   public void shutdown(Duration timeout) {
-    retryBufferDrainer.shutdown();
-    if (!timeout.isZero() && !timeout.isNegative()) {
-      try {
-        jobExecutorService.awaitIdle(timeout);
-      } catch (InterruptedException interrupted) {
-        Thread.currentThread().interrupt();
-      }
-    }
+    boolean interrupted = Thread.interrupted();
     try {
-      jobStateFlusher.flushAll();
-    } catch (Throwable failure) {
-      log.warn("Checkpoint flush during shutdown failed", failure);
-    }
-    // Release before interrupting. The claim fence then rejects the failure an interrupted worker
-    // would record, so a drain timeout charges neither an attempt nor a crash.
-    int reset = jobStateManager.resetRunningJobsForNode();
-    log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);
-    int activeExecutions = jobExecutorService.shutdownActiveExecutions();
-    if (activeExecutions > 0) {
-      log.warnf(
-          "JobExecutionCoordinator shutdown - %s active execution(s) did not stop",
-          activeExecutions);
+      retryBufferDrainer.shutdown();
+      if (!timeout.isZero() && !timeout.isNegative()) {
+        try {
+          jobExecutorService.awaitIdle(timeout);
+        } catch (InterruptedException awaitInterrupted) {
+          interrupted = true;
+        }
+      }
+      try {
+        jobStateFlusher.flushAll();
+      } catch (Throwable failure) {
+        log.warn("Checkpoint flush during shutdown failed", failure);
+      }
+      // Release before interrupting. The claim fence then rejects the failure an interrupted worker
+      // would record, so a drain timeout charges neither an attempt nor a crash.
+      int reset = jobStateManager.resetRunningJobsForNode();
+      log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);
+      int activeExecutions = jobExecutorService.shutdownActiveExecutions();
+      if (activeExecutions > 0) {
+        log.warnf(
+            "JobExecutionCoordinator shutdown - %s active execution(s) did not stop",
+            activeExecutions);
+      }
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
     }
   }
 }

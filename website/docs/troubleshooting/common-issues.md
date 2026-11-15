@@ -344,7 +344,7 @@ Ratchet enforces timeouts using a watchdog thread that monitors each job executi
 
 1. **Soft timeout** (default 80% of limit): Logs a warning but does not interrupt the job
 2. **Cancellation request** (limit minus `ratchet.timeout.cancellation-grace-seconds`, off by default): Sets `JobContext.isCancellationRequested()` so a cooperative job can stop at a safe point
-3. **Hard timeout** (100% of limit): Cancels the `Future` via `Thread.interrupt()` and marks the job FAILED
+3. **Hard timeout** (100% of limit): Cancels the attempt, interrupts the job body if it is still running, and handles the attempt as a timeout
 
 ```
 WARNING: Job 12345 approaching timeout - 80% threshold reached. Elapsed: 24m 0s, Timeout: 1800s
@@ -358,7 +358,7 @@ SEVERE: Job 12345 exceeded timeout of 1800s. Cancelling execution. Elapsed: 30m 
 - Soft timeout percentage: `RatchetOptions.timeout(t -> t.softTimeoutPercent(...))` (default 80)
 - Cancellation grace: `RatchetOptions.timeout(t -> t.cancellationGraceSeconds(...))` (default 0, no early request)
 
-**Important:** The hard timeout uses `Future.cancel(true)`, which sets the thread's interrupt flag. Your job code must check `Thread.interrupted()` or handle `InterruptedException` to stop cleanly. If your job ignores interrupts (e.g., stuck in a tight CPU loop with no blocking calls), the timeout cannot forcefully kill it. To avoid the interrupt altogether, set a cancellation grace and check `JobContext.throwIfCancellationRequested()` between units of work. See [Stopping at a safe point](../concepts/execution-model.md#stopping-at-a-safe-point).
+**Important:** When the job body is still running at the hard timeout, the watchdog interrupts it with `Future.cancel(true)`, which sets the thread's interrupt flag. Your job code must check `Thread.interrupted()` or handle `InterruptedException` to stop cleanly. If your job ignores interrupts (e.g., stuck in a tight CPU loop with no blocking calls), the timeout cannot forcefully kill it. To avoid the interrupt altogether, set a cancellation grace and check `JobContext.throwIfCancellationRequested()` between units of work. See [Stopping at a safe point](../concepts/execution-model.md#stopping-at-a-safe-point).
 
 **After timeout:** If the job has retries remaining, it is rescheduled for another attempt. If retries are exhausted, it moves to the DLQ.
 

@@ -197,6 +197,8 @@ The `ResilienceStrategy` SPI is consulted to check if the target service is avai
 
 If the job names a resource, the `ResourcePermitService` asks the store for a permit. The job gets one when a slot is still free after the live waiters ahead of it are counted: with three free slots and one waiter ahead, it gets a permit. Otherwise the store parks the job in the same transaction. The job goes back to PENDING (PAUSED if its batch is paused), due again after the resource's `retry_delay_ms`, and it gets a row in `scheduler_resource_waiter`. Parking is not a failure and uses no retry. While the job waits, its `last_error` reads `Waiting for resource: <name>`.
 
+If the resource has no limit, the store throws `ResourceNotConfiguredException`. The attempt fails without using a retry, and the job goes to the dead-letter queue. `submit()` already rejects a resource with no limit, so this happens only when a limit was deleted after the job was submitted. Set the limit again and re-run the job with `retryJob`.
+
 Waiting jobs are served in order: higher priority first, then the job that has waited longest, then job id. A job starts waiting at the due time of the attempt that first missed, and later misses keep that time. When a permit is released, the engine wakes as many of the first waiters as there are free slots. A raised limit wakes that resource's waiters the same way. Orphan recovery and the start-up permit clean-up do not know which resources they freed, so they run the waiter sweep, which wakes the waiters of up to 64 resources and moves on to the next 64 the following time. A woken job's `scheduled_time` goes back to the time it started waiting, so a job query can show an earlier due time than the one set when it last parked. The wake-up also sends the cluster wake-up hint, so a node that can run the job polls straight away. Orphan recovery also runs a sweep that wakes waiters whose wake-up was lost.
 
 The order has limits:
@@ -257,7 +259,7 @@ Each execution attempt has a deadline: the time the attempt started plus the job
 
 1. At `ratchet.timeout.soft-timeout-percent` of the timeout (80% by default), it logs a warning.
 2. At the deadline minus `ratchet.timeout.cancellation-grace-seconds`, it sets the attempt's cancellation request. This step is skipped when the grace is `0` (the default) or not shorter than the timeout.
-3. At the deadline, if the attempt is still running, it sets the cancellation request (if it is not set yet) and interrupts the worker thread with `Future.cancel(true)`. The attempt then counts as a timeout: it is retried if it has retries left, otherwise it fails and goes to the DLQ. An attempt that already stopped after the request is not interrupted (see [Stopping at a safe point](#stopping-at-a-safe-point)).
+3. At the deadline, if the attempt is still running, it sets the cancellation request (if it is not set yet) and cancels the attempt. If the job body is running, the worker thread is interrupted with `Future.cancel(true)`. A body that has not started does not start, and a worker that has returned from the body is not interrupted while it records the outcome. The attempt then counts as a timeout: it is retried if it has retries left, otherwise it fails and goes to the DLQ. An attempt that already stopped after the request is not interrupted (see [Stopping at a safe point](#stopping-at-a-safe-point)).
 
 ```java
 scheduler.enqueue(() -> longRunningTask())
@@ -267,11 +269,11 @@ scheduler.enqueue(() -> longRunningTask())
 
 ### Stopping at a safe point
 
-An interrupt lands wherever the worker happens to be blocked: waiting for a pooled bean, a JDBC connection, or a cache lock. The code it interrupts may report the timeout as an unrelated error and leave container state half-changed. A job that works in units, such as pages of a table, can stop between units instead. `JobContext` tells it when to stop:
+An interrupt lands wherever the job body happens to be blocked: waiting for a pooled bean, a JDBC connection, or a cache lock. The code it interrupts may report the timeout as an unrelated error and leave container state half-changed. A job that works in units, such as pages of a table, can stop between units instead. `JobContext` tells it when to stop:
 
 | Method | Returns |
 |---|---|
-| `deadline()` | `Optional<Instant>`: when the watchdog will interrupt this attempt. Empty when the context was not bound for a watched execution, for example inside an `onFailure` callback that the watchdog runs after it interrupts a job. |
+| `deadline()` | `Optional<Instant>`: when the watchdog will cancel this attempt. Empty when the context was not bound for a watched execution, for example inside an `onFailure` callback that the watchdog runs after it interrupts a job. |
 | `isCancellationRequested()` | `true` once Ratchet has asked this attempt to stop. Cheap to call; it does no I/O. |
 | `throwIfCancellationRequested()` | Throws `CancellationRequestedException` if a stop was requested. |
 
