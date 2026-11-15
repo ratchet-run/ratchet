@@ -64,13 +64,15 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
    * usable. If the winner rolls back, submission can proceed. If the winner commits but the
    * original job cannot be looked up, the loser throws {@link DuplicateIdempotencyKeyException}
    * instead, and the caller's transaction still stays usable. The loser closes the stream, but it
-   * may already have read items, because payloads are validated before the parent is created. On
-   * MySQL the wait is bounded by {@code innodb_lock_wait_timeout}. If the wait times out,
-   * submission throws {@link RatchetTransientStoreException} and marks the caller's transaction
-   * rollback-only. Roll it back and retry in a new transaction. With the MongoDB store, the
-   * winner's parent write commits in its own transaction, so rolling back the winner's caller
-   * transaction does not release the key, and the loser returns the original handle. Task execution
-   * remains at least once.
+   * may already have read items, because payloads are validated before the parent is created. If
+   * the loser would throw {@code DuplicateIdempotencyKeyException} and closing the stream fails,
+   * {@code start()} throws {@link IllegalStateException} instead, with the duplicate as its cause
+   * and the close failure suppressed on it, and the transaction rolls back. On MySQL the wait is
+   * bounded by {@code innodb_lock_wait_timeout}. If the wait times out, submission throws {@link
+   * RatchetTransientStoreException} and marks the caller's transaction rollback-only. Roll it back
+   * and retry in a new transaction. With the MongoDB store, the winner's parent write commits in
+   * its own transaction, so rolling back the winner's caller transaction does not release the key,
+   * and the loser returns the original handle. Task execution remains at least once.
    *
    * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
    * key. A duplicate key raised by other work inside the submission is rethrown as {@link
