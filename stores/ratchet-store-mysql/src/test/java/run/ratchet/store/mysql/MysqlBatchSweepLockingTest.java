@@ -16,6 +16,7 @@
 package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -186,22 +187,13 @@ class MysqlBatchSweepLockingTest {
         explain.setBytes(1, UuidByteArrayConverter.toBytes(parent));
         explain.setBytes(2, new byte[16]);
         try (var rows = explain.executeQuery()) {
-          int count = 0;
-          while (rows.next()) {
-            count++;
-            String table = rows.getString("table");
-            if (table.equals("c")) {
-              assertEquals("idx_job_depends_on", rows.getString("key"));
-              assertTrue(List.of("ref", "range").contains(rows.getString("type")));
-            } else {
-              assertEquals("q", table);
-              assertEquals("PRIMARY", rows.getString("key"));
-              assertEquals("eq_ref", rows.getString("type"));
-            }
-            String extra = rows.getString("Extra");
-            assertTrue(extra == null || !extra.contains("Using filesort"));
-          }
-          assertEquals(2, count);
+          assertTrue(rows.next());
+          assertEquals("c", rows.getString("table"));
+          assertEquals("idx_job_depends_on", rows.getString("key"));
+          assertTrue(List.of("ref", "range").contains(rows.getString("type")));
+          String extra = rows.getString("Extra");
+          assertTrue(extra == null || !extra.contains("Using filesort"));
+          assertFalse(rows.next());
         }
       }
       try (var explain =

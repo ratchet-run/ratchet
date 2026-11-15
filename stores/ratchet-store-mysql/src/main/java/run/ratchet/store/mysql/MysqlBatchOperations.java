@@ -131,14 +131,14 @@ final class MysqlBatchOperations implements BatchStore {
 
   // A non-locking read, so it uses the transaction's REPEATABLE READ snapshot. That snapshot can
   // predate the parent lock when the caller read earlier in the transaction, so this query does
-  // not filter on status: a child that became eligible since then is still found, and
-  // CHILD_LOCK_SQL checks its current status under the row lock. The index hint keeps the plan
-  // independent of table statistics; without it, MySQL has chosen an index merge with PRIMARY.
+  // not filter on status or join the queue row, which can be created after the snapshot.
+  // CHILD_LOCK_SQL keeps only children with a live queue row in the wanted status under the row
+  // lock. The index hint keeps the plan independent of table statistics; without it, MySQL has
+  // chosen an index merge with PRIMARY.
   static final String CHILD_DISCOVERY_SQL =
       """
       SELECT c.job_id
       FROM scheduler_job c FORCE INDEX (idx_job_depends_on)
-      STRAIGHT_JOIN scheduler_job_queue q ON q.job_id = c.job_id
       WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND c.job_id > ?
       ORDER BY c.job_id
       LIMIT 500
