@@ -78,8 +78,8 @@ public interface NodeStore {
    * <p>A node keeps its row while a hold of one of its cancelled claims is left, for example one
    * that {@link JobBulkStore#releaseBusinessKeyHolds} skipped because another transaction had it
    * locked. The orphan scan then finds the node again on its next run and retries the release. Read
-   * the remaining holds with a read that neither skips nor waits for a locked hold row, in the same
-   * transaction as the delete.
+   * the remaining holds with a read that neither skips nor waits for a locked hold row, then delete
+   * only the other nodes. A transactional store does both in one transaction.
    *
    * <p>Implementors MUST override this method; it is abstract precisely because a silent {@code
    * UnsupportedOperationException} default would defer the failure from compile time to
