@@ -159,6 +159,10 @@ final class SqlserverBatchOperations implements BatchStore {
     // alias and puts the hint on that alias in its FROM clause, as SqlserverJobDeleteOperations
     // does.
     int total = 0;
+    // Each page starts after the last id of the previous one. A cancel holds no parent lock, so a
+    // retry can return a child behind the cursor to PENDING mid-sweep; the engine repeats the
+    // cancel from the start after commit.
+    byte[] cursor = new byte[16];
     while (true) {
       String selectSql =
           """
@@ -166,7 +170,7 @@ final class SqlserverBatchOperations implements BatchStore {
           FROM scheduler_job c WITH (INDEX(idx_job_depends_on))
           INNER LOOP JOIN scheduler_job_queue q WITH (UPDLOCK, ROWLOCK, FORCESEEK (pk_scheduler_job_queue (job_id)))
             ON q.job_id = c.job_id
-          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s)
+          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) AND c.job_id > ?
           ORDER BY c.job_id
           OPTION (FORCE ORDER)
           """
@@ -176,6 +180,7 @@ final class SqlserverBatchOperations implements BatchStore {
               .createNativeQuery(selectSql)
               .setParameter(1, UuidByteArrayConverter.toBytes(batchId));
 
+      selection.setParameter(2, cursor);
       List<?> ids = selection.getResultList();
       if (ids.isEmpty()) {
         if (operation.equals("cancel") && total > 0) {
@@ -191,6 +196,7 @@ final class SqlserverBatchOperations implements BatchStore {
         }
         return total;
       }
+      cursor = (byte[]) ids.get(ids.size() - 1);
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
       String sql;
       if (operation.equals("cancel")) {

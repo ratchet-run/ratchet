@@ -188,12 +188,13 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   }
 
   /**
-   * @return delay in milliseconds, or 5000 as default if resource not found
+   * @return delay in milliseconds, or {@link #DEFAULT_RETRY_DELAY_MS} as default if resource not
+   *     found
    */
   @Override
   public int getRetryDelay(String resourceName) {
     if (resourcePermitStore == null) {
-      return 5000;
+      return DEFAULT_RETRY_DELAY_MS;
     }
     return resourcePermitStore.getPermitRetryDelay(resourceName);
   }

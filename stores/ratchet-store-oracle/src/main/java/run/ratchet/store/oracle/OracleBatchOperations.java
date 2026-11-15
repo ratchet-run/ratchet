@@ -152,6 +152,10 @@ final class OracleBatchOperations implements BatchStore {
           default -> "'PAUSED'";
         };
     int total = 0;
+    // Each page starts after the last id of the previous one. A cancel holds no parent lock, so a
+    // retry can return a child behind the cursor to PENDING mid-sweep; the engine repeats the
+    // cancel from the start after commit.
+    byte[] cursor = new byte[16];
     while (true) {
       String selectSql =
           """
@@ -159,7 +163,7 @@ final class OracleBatchOperations implements BatchStore {
           WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) AND q.job_id IN (
             SELECT job_id FROM (SELECT h.job_id FROM scheduler_job_queue h
             JOIN scheduler_job j ON j.job_id = h.job_id
-            WHERE j.depends_on = ? AND j.job_type = 'BATCH_CHILD' AND h.status IN (%s)
+            WHERE j.depends_on = ? AND j.job_type = 'BATCH_CHILD' AND h.status IN (%s) AND h.job_id > ?
             ORDER BY h.job_id) WHERE ROWNUM <= 500)
           ORDER BY q.job_id FOR UPDATE OF q.status
           """
@@ -167,6 +171,7 @@ final class OracleBatchOperations implements BatchStore {
       var selection =
           ctx.em().createNativeQuery(selectSql).setParameter(1, UuidRawConverter.toBytes(batchId));
       selection.setParameter(2, UuidRawConverter.toBytes(batchId));
+      selection.setParameter(3, cursor);
       List<?> ids = selection.getResultList();
       if (ids.isEmpty()) {
         if (operation.equals("cancel") && total > 0) {
@@ -182,6 +187,7 @@ final class OracleBatchOperations implements BatchStore {
         }
         return total;
       }
+      cursor = (byte[]) ids.get(ids.size() - 1);
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
       String sql;
       if (operation.equals("cancel")) {

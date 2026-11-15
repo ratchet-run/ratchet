@@ -940,12 +940,17 @@ public class JobTask implements Callable<Void> {
       try {
         result = acquireResourcePermit(resourceName, claimSeq);
       } catch (RatchetTransientStoreException e) {
-        // An interrupted backoff keeps the existing failure path; only exhausted tries reschedule.
-        // The backoff records its interrupt in workerInterrupted and leaves the flag clear.
-        if (workerInterrupted || Thread.currentThread().isInterrupted()) {
+        // The store calls below run with the interrupt flag clear; call() restores it at the end.
+        recordInterrupt(Thread.interrupted());
+        // The failure can come after the permit insert committed. permitAcquired stays false, so
+        // call() would not release it. Releasing a permit this claim does not hold is a no-op.
+        releaseResourcePermit();
+        // An interrupted acquire or backoff keeps the failure path; only exhausted tries
+        // reschedule.
+        if (workerInterrupted) {
           throw e;
         }
-        int retryDelay = resourcePermitService.getRetryDelay(resourceName);
+        int retryDelay = permitRetryDelay(resourceName);
         if (!jobStore.scheduleJobRetry(
             job.getId(),
             "Permit check failed transiently for resource: " + resourceName,
@@ -974,7 +979,7 @@ public class JobTask implements Callable<Void> {
       }
       // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
       // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
-      int retryDelay = resourcePermitService.getRetryDelay(resourceName);
+      int retryDelay = permitRetryDelay(resourceName);
       if (!jobStore.scheduleJobRetry(
           job.getId(),
           "Waiting for resource: " + resourceName,
@@ -993,6 +998,16 @@ public class JobTask implements Callable<Void> {
       log.errorf(e, "Job %s references unconfigured resource: %s", job.getId(), resourceName);
       handleFailure(e);
       return false;
+    }
+  }
+
+  private int permitRetryDelay(String resourceName) {
+    try {
+      return resourcePermitService.getRetryDelay(resourceName);
+    } catch (RatchetTransientStoreException e) {
+      log.warnf(
+          e, "Permit retry delay lookup failed for resource '%s'; using default", resourceName);
+      return ResourcePermitService.DEFAULT_RETRY_DELAY_MS;
     }
   }
 

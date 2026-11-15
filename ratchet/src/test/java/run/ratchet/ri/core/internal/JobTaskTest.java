@@ -3048,6 +3048,13 @@ class JobTaskTest {
               throw failure;
             });
     List<Boolean> flags = new ArrayList<>();
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(resourcePermitService)
+        .release("gpu", JOB_UUID, 0L);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 0L))
         .thenAnswer(
             inv -> {
@@ -3064,10 +3071,12 @@ class JobTaskTest {
     jobTask.call();
 
     verify(resourcePermitService, times(1)).tryAcquire("gpu", JOB_UUID, 0L, "node-1");
-    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+    InOrder order = inOrder(resourcePermitService, jobStore);
+    order.verify(resourcePermitService).release("gpu", JOB_UUID, 0L);
+    order.verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
     verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
     // The failure path's store writes run with the interrupt flag clear.
-    Assertions.assertEquals(List.of(false, false), flags);
+    Assertions.assertEquals(List.of(false, false, false), flags);
     verifyNoAttemptRecorded();
   }
 
@@ -3322,7 +3331,10 @@ class JobTaskTest {
 
     verify(resourcePermitService, times(JobTask.PERMIT_ACQUIRE_TRIES))
         .tryAcquire("gpu", JOB_UUID, 7L, "node-1");
-    verify(jobStore)
+    InOrder order = inOrder(resourcePermitService, jobStore);
+    order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
+    order
+        .verify(jobStore)
         .scheduleJobRetry(
             eq(JOB_UUID),
             eq("Permit check failed transiently for resource: gpu"),
@@ -3335,7 +3347,75 @@ class JobTaskTest {
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
     verify(validationFacade, never()).shouldNotRetry(any());
-    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_transientPermitRetryDelayFailureUsesDefault() throws Exception {
+    assertPermitRetryFallback(false, false);
+  }
+
+  @Test
+  void call_supersededPermitRetryDelayFailureUsesDefault() throws Exception {
+    assertPermitRetryFallback(true, false);
+  }
+
+  @Test
+  void call_permitReleaseFailureStillReschedules() throws Exception {
+    assertPermitRetryFallback(false, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertPermitRetryFallback(boolean superseded, boolean releaseFails)
+      throws Exception {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setAttempts(2);
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    if (superseded) {
+      when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+          .thenReturn(AcquireResult.SUPERSEDED);
+    } else {
+      when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+          .thenThrow(new RatchetTransientStoreException("deadlock"));
+    }
+    when(resourcePermitService.getRetryDelay("gpu"))
+        .thenThrow(new RatchetTransientStoreException("lookup deadlock"));
+    if (releaseFails) {
+      doThrow(new RatchetTransientStoreException("release deadlock"))
+          .when(resourcePermitService)
+          .release("gpu", JOB_UUID, 7L);
+    }
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    InOrder order = inOrder(resourcePermitService, jobStore);
+    if (!superseded) {
+      verify(resourcePermitService, times(JobTask.PERMIT_ACQUIRE_TRIES))
+          .tryAcquire("gpu", JOB_UUID, 7L, "node-1");
+      order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
+    }
+    order
+        .verify(jobStore)
+        .scheduleJobRetry(
+            eq(JOB_UUID),
+            eq(
+                superseded
+                    ? "Waiting for resource: gpu"
+                    : "Permit check failed transiently for resource: gpu"),
+            eq(FIXED_NOW.plusMillis(ResourcePermitService.DEFAULT_RETRY_DELAY_MS)),
+            eq(2),
+            eq(7L));
+    Assertions.assertEquals(2, job.getAttempts());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verifyNoAttemptRecorded();
   }
 

@@ -225,7 +225,7 @@ class ResourcePermitServiceTest {
     AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
     var service = new DefaultResourcePermitService((ResourcePermitStore) null, wakeup, registrar);
     assertEquals(AcquireResult.ACQUIRED, service.tryAcquire("api", jobId, 7L, "node"));
-    assertEquals(5000, service.getRetryDelay("api"));
+    assertEquals(ResourcePermitService.DEFAULT_RETRY_DELAY_MS, service.getRetryDelay("api"));
     service.release("api", jobId, 7L);
     service.releaseAll(jobId);
     assertEquals(0, service.cleanupOrphanedPermits(List.of("node")));

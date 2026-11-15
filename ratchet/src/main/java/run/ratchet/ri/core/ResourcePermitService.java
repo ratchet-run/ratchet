@@ -30,6 +30,9 @@ import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
  */
 public interface ResourcePermitService {
 
+  /** Default permit retry delay in milliseconds. */
+  int DEFAULT_RETRY_DELAY_MS = 5000;
+
   /**
    * Attempts to acquire a permit atomically using pessimistic locking.
    *
@@ -49,7 +52,8 @@ public interface ResourcePermitService {
   void releaseAll(UUID jobId);
 
   /**
-   * @return delay in milliseconds, or 5000 as default if resource not found
+   * @return delay in milliseconds, or {@link #DEFAULT_RETRY_DELAY_MS} as default if resource not
+   *     found
    */
   int getRetryDelay(String resourceName);
 

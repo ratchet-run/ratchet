@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.sqlserver;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,6 +30,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 
 class SqlserverBatchOperationsTest {
 
@@ -71,6 +73,90 @@ class SqlserverBatchOperationsTest {
           assertTrue(statements.get(1).contains("OPTION (FORCE ORDER)"));
         }
       }
+    }
+  }
+
+  @Test
+  void sweepsAdvanceCursorBeforeEachPage() {
+    for (String operation : List.of("pause", "resume", "cancel")) {
+      UUID first = new UUID(1L, 1L);
+      UUID last = new UUID(1L, 2L);
+      UUID next = new UUID(1L, 3L);
+      List<Object> cursors = new ArrayList<>();
+      AtomicInteger page = new AtomicInteger();
+      Query children =
+          (Query)
+              Proxy.newProxyInstance(
+                  Query.class.getClassLoader(),
+                  new Class<?>[] {Query.class},
+                  (proxy, method, args) ->
+                      switch (method.getName()) {
+                        case "setParameter" -> {
+                          if (args[0].equals(2)) cursors.add(args[1]);
+                          yield proxy;
+                        }
+                        case "getResultList" ->
+                            switch (page.getAndIncrement()) {
+                              case 0 ->
+                                  List.of(
+                                      UuidByteArrayConverter.toBytes(first),
+                                      UuidByteArrayConverter.toBytes(last));
+                              case 1 -> List.of(UuidByteArrayConverter.toBytes(next));
+                              default -> List.of();
+                            };
+                        default -> throw new UnsupportedOperationException(method.getName());
+                      });
+      Query writes =
+          (Query)
+              Proxy.newProxyInstance(
+                  Query.class.getClassLoader(),
+                  new Class<?>[] {Query.class},
+                  (proxy, method, args) ->
+                      switch (method.getName()) {
+                        case "setParameter" -> proxy;
+                        case "executeUpdate" -> 1;
+                        default -> throw new UnsupportedOperationException(method.getName());
+                      });
+      Query parent =
+          (Query)
+              Proxy.newProxyInstance(
+                  Query.class.getClassLoader(),
+                  new Class<?>[] {Query.class},
+                  (proxy, method, args) ->
+                      switch (method.getName()) {
+                        case "setParameter" -> proxy;
+                        case "getResultList" ->
+                            List.of(operation.equals("pause") ? "PAUSED" : "PENDING");
+                        default -> throw new UnsupportedOperationException(method.getName());
+                      });
+      EntityManager em =
+          (EntityManager)
+              Proxy.newProxyInstance(
+                  EntityManager.class.getClassLoader(),
+                  new Class<?>[] {EntityManager.class},
+                  (proxy, method, args) -> {
+                    if (method.getName().equals("createNativeQuery")) {
+                      String sql = (String) args[0];
+                      if (sql.contains("SELECT status")) return parent;
+                      if (sql.stripLeading().startsWith("SELECT")) {
+                        assertTrue(sql.contains("c.job_id > ?"));
+                        return children;
+                      }
+                      return writes;
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                  });
+      var operations = new SqlserverBatchOperations(new SqlserverStoreContext(em));
+      UUID batchId = new UUID(1L, 0L);
+      switch (operation) {
+        case "pause" -> operations.pauseBatchChildren(batchId);
+        case "resume" -> operations.resumeBatchChildren(batchId);
+        default -> operations.cancelBatchChildren(batchId);
+      }
+      assertEquals(3, cursors.size());
+      assertArrayEquals(new byte[16], (byte[]) cursors.get(0));
+      assertArrayEquals(UuidByteArrayConverter.toBytes(last), (byte[]) cursors.get(1));
+      assertArrayEquals(UuidByteArrayConverter.toBytes(next), (byte[]) cursors.get(2));
     }
   }
 

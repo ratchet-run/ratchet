@@ -150,16 +150,20 @@ final class PostgresqlBatchOperations implements BatchStore {
           default -> "'PAUSED'";
         };
     int total = 0;
+    // Each page starts after the last id of the previous one. A cancel holds no parent lock, so a
+    // retry can return a child behind the cursor to PENDING mid-sweep; the engine repeats the
+    // cancel from the start after commit.
+    UUID cursor = new UUID(0L, 0L);
     while (true) {
       String selectSql =
           """
           SELECT q.job_id FROM scheduler_job_queue q JOIN scheduler_job c ON c.job_id = q.job_id
-          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s)
+          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) AND q.job_id > ?
           ORDER BY q.job_id LIMIT 500 FOR UPDATE OF q
           """
               .formatted(statuses);
-      var selection = ctx.em().createNativeQuery(selectSql).setParameter(1, batchId);
-
+      var selection =
+          ctx.em().createNativeQuery(selectSql).setParameter(1, batchId).setParameter(2, cursor);
       List<?> ids = selection.getResultList();
       if (ids.isEmpty()) {
         if (operation.equals("cancel") && total > 0) {
@@ -175,6 +179,7 @@ final class PostgresqlBatchOperations implements BatchStore {
         }
         return total;
       }
+      cursor = PostgresqlJobRowMapper.uuidOrNull(ids.get(ids.size() - 1));
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
       String sql;
       if (operation.equals("cancel")) {
