@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
+import jakarta.transaction.Status;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,7 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.CancellableJob;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.idempotency.CallerTransactionBean.CallerResult;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
@@ -50,6 +52,7 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class BusinessKeyHoldIT extends BaseRatchetIT {
   @Inject private JobSchedulerService scheduler;
   @Inject private JobCrudStore store;
+  @Inject private CallerTransactionBean callerTransaction;
   private final List<JobHandle> jobs = new ArrayList<>();
   private JobHandle running;
 
@@ -60,6 +63,10 @@ class BusinessKeyHoldIT extends BaseRatchetIT {
             System.getProperty("testsuite.profile", "wildfly-managed"),
             System.getProperty("ratchet.test.db.type", "mysql"))
         .addClasses(CancellableJob.class, SimpleJob.class, TestJobService.class)
+        .addClasses(
+            CallerTransactionBean.class,
+            CallerTransactionBean.Step.class,
+            CallerTransactionBean.CallerResult.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -97,6 +104,22 @@ class BusinessKeyHoldIT extends BaseRatchetIT {
     CancellableJob.release();
     awaitFree(key);
     assertNotNull(submitLater(key));
+  }
+
+  @Test
+  void heldKeyDuplicate_callerCatchesItAndCommitsItsOwnWrite() throws Exception {
+    // A held key is the submission's own duplicate, so the caller's transaction stays usable.
+    String key = "held-caller-" + UUID.randomUUID();
+    JobHandle old = start(key);
+    assertTrue(scheduler.cancelJob(old.id()));
+    await().atMost(Duration.ofSeconds(5)).untilTrue(CancellableJob.SAW_REQUEST);
+    CallerResult result =
+        callerTransaction.writeOwnJobAndCatchDuplicate(() -> {}, () -> submitLater(key));
+    jobs.add(result.ownWrite());
+    assertEquals(Status.STATUS_ACTIVE, result.statusAfterCatch());
+    assertTrue(result.duplicate().getMessage().contains("held by canceled job"));
+    assertTrue(store.findById(result.ownWrite().id()).isPresent());
+    assertHeld(key, old);
   }
 
   @Test

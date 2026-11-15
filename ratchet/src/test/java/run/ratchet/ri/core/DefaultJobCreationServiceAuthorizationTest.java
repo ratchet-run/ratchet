@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -61,9 +62,11 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.event.JobSignalWaitingEvent;
@@ -1037,6 +1040,38 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertSame(nested, exception.getCause());
     verify(jobCrudStore).create(any());
     verify(authorizationPolicy, times(2)).checkCreate(any(), any());
+  }
+
+  @Test
+  void submit_nestedSubmitOfKeyHeldByCanceledJobRollsBack() {
+    // A key held by a canceled running job is the nested submit's own duplicate, so it reaches
+    // the outer submission as a nested duplicate and rolls the outer transaction back.
+    UUID holderId = UUID.randomUUID();
+    when(jobCrudStore.findBusinessKeyHolder("held"))
+        .thenReturn(
+            Optional.of(new BusinessKeyHolder(holderId, JobType.SINGLE, JobStatus.CANCELED)));
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    var nested =
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+            .withBusinessKey("held");
+    doNothing()
+        .doAnswer(invocation -> service.submit(nested))
+        .doNothing()
+        .when(authorizationPolicy)
+        .checkCreate(any(), any());
+    var builder =
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+            .then(DefaultJobCreationServiceAuthorizationTest::noopTask);
+
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, () -> service.submit(builder));
+
+    DuplicateBusinessKeyException held =
+        assertInstanceOf(DuplicateBusinessKeyException.class, exception.getCause());
+    assertTrue(held.getMessage().contains("held by canceled job " + holderId));
+    verify(jobCrudStore).create(any());
   }
 
   @ParameterizedTest
