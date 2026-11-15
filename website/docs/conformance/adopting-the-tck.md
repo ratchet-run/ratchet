@@ -206,6 +206,8 @@ Two hook checks skip tests. `supportsOwnerTransaction()` returning false skips e
 
 Make each check in the delete's own transaction, after locking the job's queue row and then its job row. That is the order `cancelRunningJob` locks them in, so a cancel and a delete of the same job cannot both win. `AbstractActiveBusinessKeyContract` checks these rules.
 
+The orphan scan calls `releaseBusinessKeyHolds` and `deleteExpiredBusinessKeyHolds`, so neither should wait for a hold row that another transaction has locked. Skip that row, leave it for a later call, and return only the number of holds the call deleted. The bundled SQL stores lock the candidate rows through the primary key with a skip-locked read (`FOR UPDATE SKIP LOCKED`, or `UPDLOCK, READPAST` on SQL Server) and delete only the rows they locked.
+
 ## API Compatible
 
 The API contracts are container-neutral JUnit classes. They can run in a plain JVM when the

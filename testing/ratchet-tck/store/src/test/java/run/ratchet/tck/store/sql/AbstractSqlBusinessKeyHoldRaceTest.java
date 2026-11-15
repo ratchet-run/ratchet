@@ -21,6 +21,10 @@ import static run.ratchet.tck.store.sql.SqlRaceFailures.isConnectionFailure;
 import static run.ratchet.tck.store.sql.SqlRaceFailures.isLockFailure;
 import static run.ratchet.tck.store.sql.SqlRaceFailures.rootMessage;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,14 +32,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiConsumer;
@@ -321,6 +328,113 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
       fixture().observeTransientFailures((method, failure) -> {});
     }
     assertTrue(lockFailures.isEmpty(), "sweep lock failures: " + lockFailures);
+  }
+
+  @Test
+  void expirySweepSkipsAHoldThatAnotherTransactionLocked() throws Exception {
+    // A frozen node can keep a held reservation row locked; the expiry sweep must not wait for it.
+    String prefix = "locked-expiry-" + UUID.randomUUID() + "-";
+    List<String> keys = createHolds(prefix, "expiry-node", Instant.now().minusSeconds(60));
+    assertSweepSkipsLockedHold(
+        prefix, keys, () -> fixture().store().deleteExpiredBusinessKeyHolds(Instant.now(), 50));
+  }
+
+  @Test
+  void nodeReleaseSkipsAHoldThatAnotherTransactionLocked() throws Exception {
+    // A frozen node can keep a held reservation row locked; the node release must not wait for it.
+    String prefix = "locked-release-" + UUID.randomUUID() + "-";
+    List<String> keys = createHolds(prefix, "released-node", Instant.now().plusSeconds(3600));
+    assertSweepSkipsLockedHold(
+        prefix, keys, () -> fixture().store().releaseBusinessKeyHolds(List.of("released-node")));
+  }
+
+  private List<String> createHolds(String prefix, String node, Instant heldUntil) {
+    var store = fixture().store();
+    List<String> keys = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      String key = prefix + i;
+      keys.add(key);
+      var job = fixture().newPendingJob();
+      job.setBusinessKey(key);
+      store.create(job);
+    }
+    List<JobEntity> claimed = new ArrayList<>();
+    for (int tries = 0; claimed.size() < keys.size() && tries < 20; tries++) {
+      claimed.addAll(store.claimNextBatch(keys.size(), node));
+    }
+    assertEquals(keys.size(), claimed.size());
+    for (JobEntity job : claimed) {
+      assertTrue(store.cancelRunningJob(job.getId(), heldUntil));
+    }
+    return keys;
+  }
+
+  private void assertSweepSkipsLockedHold(String prefix, List<String> keys, Callable<Integer> sweep)
+      throws Exception {
+    String locked = keys.get(1);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    Future<Integer> firstSweep = null;
+    try {
+      try (Connection lockHolder = fixture().openConnection()) {
+        lockHolder.setAutoCommit(false);
+        try {
+          // SQL Server binds string parameters as NVARCHAR, which can stop a primary-key seek.
+          try (Statement statement = lockHolder.createStatement()) {
+            assertEquals(
+                1,
+                statement.executeUpdate(
+                    "DELETE FROM scheduler_business_key_reservation WHERE business_key = '"
+                        + locked
+                        + "'"));
+          }
+          firstSweep = executor.submit(sweep);
+          int deleted;
+          try {
+            deleted = firstSweep.get(10, TimeUnit.SECONDS);
+          } catch (TimeoutException e) {
+            throw new AssertionError(
+                "the sweep waited on a hold that another transaction locked", e);
+          }
+          assertEquals(keys.size() - 1, deleted);
+          assertEquals(List.of(locked), remainingHoldKeys(prefix));
+        } finally {
+          lockHolder.rollback();
+        }
+      }
+      assertEquals(
+          1,
+          executor.submit(sweep).get(30, TimeUnit.SECONDS),
+          "a later call deletes the hold once its lock is gone");
+      assertEquals(List.of(), remainingHoldKeys(prefix));
+    } finally {
+      if (firstSweep != null && !firstSweep.isDone()) {
+        try {
+          firstSweep.get(60, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+          // Let a blocked store call finish after rollback before fixture cleanup.
+        }
+      }
+      executor.shutdownNow();
+    }
+  }
+
+  private List<String> remainingHoldKeys(String prefix) throws Exception {
+    try (Connection connection = fixture().openConnection();
+        PreparedStatement statement =
+            connection.prepareStatement(
+                """
+                SELECT business_key FROM scheduler_business_key_reservation
+                WHERE business_key LIKE ? ORDER BY business_key
+                """)) {
+      statement.setString(1, prefix + "%");
+      List<String> keys = new ArrayList<>();
+      try (ResultSet rows = statement.executeQuery()) {
+        while (rows.next()) {
+          keys.add(rows.getString(1));
+        }
+      }
+      return keys;
+    }
   }
 
   @Test

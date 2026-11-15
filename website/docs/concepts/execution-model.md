@@ -315,6 +315,8 @@ If the job has a business key, the key stays held until the body ends, so a new 
 - The orphan scan on another node releases it when it cleans up the node that ran the body. A node also releases its own holds when it starts.
 - The orphan scan deletes it once its limit has passed. The limit is the cancel time plus the job's timeout (or `ratchet.timeout.default-sla-seconds`), plus `ratchet.node.orphan-grace-seconds`, plus `ratchet.node.orphan-scan-interval-seconds`. The body's deadline comes first, so the limit only ends the hold of a body that ignored both the stop request and the deadline interrupt.
 
+The node release and the expiry cleanup never wait for a hold that another transaction has locked, such as a release on a node that has stopped responding. They skip that hold. The expiry cleanup tries it again on every scan. A hold that a node release skipped, at start-up or when a dead node is cleaned up, stays until its limit has passed.
+
 The node that cancels the job sets the limit, and the node that runs the body sets the deadline. Give every node the same `default-sla-seconds`, `orphan-grace-seconds` and `orphan-scan-interval-seconds`, and keep their clocks in sync. Otherwise the limit can pass before the body's deadline.
 
 If the worker thread is interrupted again after the body ends, the worker does not check for the cancel, so the attempt's execution record can show a failure.

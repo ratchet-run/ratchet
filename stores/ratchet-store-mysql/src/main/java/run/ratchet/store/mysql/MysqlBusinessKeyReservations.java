@@ -251,7 +251,8 @@ final class MysqlBusinessKeyReservations {
                 select.setParameter(i + 1, chunk.get(i));
               }
               List<?> keys = select.getResultList();
-              for (String key : BusinessKeyReservations.holdDeleteOrder(keys)) {
+              List<String> locked = lockHolds(keys, predicate, chunk);
+              for (String key : BusinessKeyReservations.holdDeleteOrder(locked)) {
                 Query delete =
                     ctx.em()
                         .createNativeQuery(
@@ -300,8 +301,13 @@ final class MysqlBusinessKeyReservations {
                 DELETE FROM scheduler_business_key_reservation
                 WHERE business_key = ? AND held_until IS NOT NULL AND held_until < ?
                 """;
+            List<String> locked =
+                lockHolds(
+                    keys,
+                    "held_until IS NOT NULL AND held_until < ?",
+                    List.of(Timestamp.from(now)));
             int deleted = 0;
-            for (String key : BusinessKeyReservations.holdDeleteOrder(keys)) {
+            for (String key : BusinessKeyReservations.holdDeleteOrder(locked)) {
               deleted +=
                   ctx.em()
                       .createNativeQuery(deleteSql)
@@ -315,5 +321,36 @@ final class MysqlBusinessKeyReservations {
           }
         },
         count -> count > 0 ? "deleted" : "miss");
+  }
+
+  private List<String> lockHolds(List<?> keys, String predicate, List<?> predicateParams) {
+    List<String> locked = new ArrayList<>();
+    for (int start = 0; start < keys.size(); start += 500) {
+      List<?> chunk = keys.subList(start, Math.min(start + 500, keys.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      // Lock candidates through the primary key and skip rows another transaction holds, so a
+      // sweep never waits on a frozen or slow writer. A skipped hold stays for a later call. Under
+      // REPEATABLE READ a locking read keeps every row it scans locked, so force the primary key
+      // and not idx_bk_held_until.
+      String sql =
+          """
+          SELECT business_key FROM scheduler_business_key_reservation FORCE INDEX (PRIMARY)
+          WHERE business_key IN (%s) AND %s
+          FOR UPDATE SKIP LOCKED
+          """
+              .formatted(placeholders, predicate);
+      Query query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (Object key : chunk) {
+        query.setParameter(parameter++, key);
+      }
+      for (Object value : predicateParams) {
+        query.setParameter(parameter++, value);
+      }
+      for (Object key : query.getResultList()) {
+        locked.add((String) key);
+      }
+    }
+    return locked;
   }
 }

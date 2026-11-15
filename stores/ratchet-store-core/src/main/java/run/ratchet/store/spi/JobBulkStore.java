@@ -117,7 +117,11 @@ public interface JobBulkStore {
    * calls it for nodes it has judged dead, and a node calls it for its own id at start-up. Normal
    * reservations are never touched.
    *
-   * @return number of holds deleted
+   * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
+   * and it stays until a later release for that node or the expiry sweep removes it. The bundled
+   * SQL stores lock the candidates with a skip-locked read.
+   *
+   * @return number of holds deleted, counting only holds this call deleted
    */
   int releaseBusinessKeyHolds(List<String> nodeIds);
 
@@ -125,7 +129,11 @@ public interface JobBulkStore {
    * Deletes up to {@code limit} business-key holds whose expiry is before {@code now}. Normal
    * reservations are never touched.
    *
-   * @return number of holds deleted
+   * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
+   * and it stays until a later sweep removes it. The bundled SQL stores lock the candidates with a
+   * skip-locked read.
+   *
+   * @return number of holds deleted, counting only holds this call deleted
    */
   int deleteExpiredBusinessKeyHolds(Instant now, int limit);
 }

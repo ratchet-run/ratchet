@@ -35,9 +35,9 @@ public final class BusinessKeyReservations {
   }
 
   /**
-   * Returns the order in which every hold sweep deletes the keys it selected. The expiry sweep and
-   * the node release each delete many rows in one transaction, so a shared order keeps them from
-   * locking the same rows in opposite order.
+   * Returns the order in which every hold sweep deletes its locked keys. Each sweep deletes only
+   * rows it already locked with a skip-locked read, so the sweeps no longer wait on each other. The
+   * sorted order keeps a sweep's own deletes in a stable order.
    */
   public static List<String> holdDeleteOrder(List<?> keys) {
     return keys.stream().map(String.class::cast).sorted().toList();
