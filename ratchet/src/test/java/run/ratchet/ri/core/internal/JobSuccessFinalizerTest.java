@@ -203,10 +203,9 @@ class JobSuccessFinalizerTest {
   }
 
   @Test
-  void interruptedRetryPreservesInterruptAndFallsBackToMinimalSuccess() {
+  void interruptedRetryReportsToCallerBeforeMinimalSuccess() {
     when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenReturn(true);
     JobSuccessFinalizer finalizer =
         finalizer(
             delay -> {
@@ -217,11 +216,11 @@ class JobSuccessFinalizerTest {
 
     JobSuccessFinalizer.Outcome outcome = finalizeSuccess(finalizer);
 
-    assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL, outcome);
+    assertEquals(JobSuccessFinalizer.Outcome.INTERRUPTED, outcome);
     assertEquals(List.of(25L), delays);
-    assertTrue(Thread.currentThread().isInterrupted());
+    assertFalse(Thread.currentThread().isInterrupted());
     verify(lifecycleFacade).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
-    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(lifecycleFacade, never()).completeSuccessMinimal(job, START, END, 1_000L, 25L);
   }
 
   @Test

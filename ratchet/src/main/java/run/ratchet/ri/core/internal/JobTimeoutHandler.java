@@ -900,7 +900,7 @@ public class JobTimeoutHandler {
     // marker is cleared in processHardTimeout's finally once this path is done with it.
     watchdogCancelledJobIds.add(jobId);
 
-    future.cancel(true);
+    attempt.cancelExecution(future);
     attempt.flushStateQuietly();
 
     try {

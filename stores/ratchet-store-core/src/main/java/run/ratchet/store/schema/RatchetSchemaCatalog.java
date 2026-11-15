@@ -54,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 20;
+  public static final int CURRENT_VERSION = 21;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -118,6 +118,7 @@ public final class RatchetSchemaCatalog {
 
   private static Table schedulerJob() {
     return Table.builder("scheduler_job")
+        .column(required("row_version", INT32))
         .column(required("job_id", UUID))
         .column(required("job_type", TEXT))
         .column(required("priority", INT32))

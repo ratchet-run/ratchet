@@ -87,11 +87,12 @@ final class OracleJobRecurringAndResetOperations {
     // Oracle has no UPDATE..JOIN; the tag and live-status joins become EXISTS predicates.
     // language=Oracle
     String coldSql =
-        "UPDATE scheduler_job j SET j.terminal_status = 'CANCELED', j.terminated_at ="
-            + " CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) WHERE j.job_type <> 'RECURRING'"
-            + " AND j.terminal_status IS NULL AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE"
-            + " t.job_id = j.job_id AND t.tag = ?) AND EXISTS (SELECT 1 FROM scheduler_job_queue q"
-            + " WHERE q.job_id = j.job_id AND q.status IN ('PENDING','PAUSED','WAITING'))";
+        "UPDATE scheduler_job j SET j.row_version = j.row_version + 1, j.terminal_status ="
+            + " 'CANCELED', j.terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)"
+            + " WHERE j.job_type <> 'RECURRING' AND j.terminal_status IS NULL AND EXISTS (SELECT 1"
+            + " FROM scheduler_job_tag t WHERE t.job_id = j.job_id AND t.tag = ?) AND EXISTS"
+            + " (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = j.job_id AND q.status IN"
+            + " ('PENDING','PAUSED','WAITING'))";
     int cancelled =
         ctx.timedStoreOperation(
             "cancel_jobs_by_tag",

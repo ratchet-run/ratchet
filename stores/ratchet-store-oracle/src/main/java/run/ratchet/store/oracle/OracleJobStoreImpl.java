@@ -427,7 +427,7 @@ class OracleJobStoreImpl implements OracleJobStore {
         dependency ->
             em.createNativeQuery(
                     """
-                    UPDATE scheduler_job SET payload = ?, encryption_key_id = ? WHERE job_id = ?
+                    UPDATE scheduler_job SET row_version = row_version + 1, payload = ?, encryption_key_id = ? WHERE job_id = ?
                     """)
                 .setParameter(1, dependency.payload())
                 .setParameter(2, dependency.encryptionKeyId())

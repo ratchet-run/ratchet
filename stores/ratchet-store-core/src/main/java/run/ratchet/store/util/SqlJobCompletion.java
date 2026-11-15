@@ -180,7 +180,12 @@ public final class SqlJobCompletion {
                 .setParameter(4, uuid.apply(dependency.jobId()))
                 .executeUpdate();
         if (changed != 1) throw stale("Dependency update lost", dependency.jobId());
-        em.createNativeQuery("UPDATE scheduler_job SET job_type = ? WHERE job_id = ?")
+        em.createNativeQuery(
+                """
+                UPDATE scheduler_job
+                SET job_type = ?, row_version = row_version + 1
+                WHERE job_id = ?
+                """)
             .setParameter(1, dependency.jobType().name())
             .setParameter(2, uuid.apply(dependency.jobId()))
             .executeUpdate();

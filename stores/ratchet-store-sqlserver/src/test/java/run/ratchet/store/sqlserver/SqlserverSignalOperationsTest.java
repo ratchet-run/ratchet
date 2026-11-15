@@ -42,6 +42,7 @@ class SqlserverSignalOperationsTest {
     var jobs = operations.findTimedOutSignalJobs(Instant.now(), 10);
 
     assertEquals(timeout.toInstant(), jobs.get(0).getSignalTimeout());
+    assertEquals(4, jobs.get(0).getRowVersion());
   }
 
   @Test
@@ -100,7 +101,8 @@ class SqlserverSignalOperationsTest {
       null,
       timeout,
       "tester",
-      "delivery-1"
+      "delivery-1",
+      4
     };
   }
 }

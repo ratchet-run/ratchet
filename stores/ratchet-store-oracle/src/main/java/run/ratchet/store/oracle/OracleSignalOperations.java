@@ -61,14 +61,15 @@ final class OracleSignalOperations implements SignalStore {
                  c.backoff_policy, c.backoff_param_ms,
                  q.signal_payload, q.signal_payload_type, q.signal_outcome,
                  q.signal_rejection_reason, q.signal_delivered_at,
-                 q.signal_delivered_by, q.signal_delivery_id
+                 q.signal_delivered_by, q.signal_delivery_id, c.row_version
           FROM scheduler_job_queue q
           JOIN scheduler_job c ON c.job_id = q.job_id
           WHERE q.status = 'WAITING'
             AND q.signal_timeout IS NOT NULL
             AND q.signal_timeout <= ?
           ORDER BY q.signal_timeout ASC, q.job_id ASC
-          FETCH FIRST """
+          FETCH FIRST\
+          """
               + " "
               + limit
               + " ROWS ONLY";
@@ -102,6 +103,7 @@ final class OracleSignalOperations implements SignalStore {
         job.setSignalDeliveredAt(RowValues.instantOrNull(row[14]));
         job.setSignalDeliveredBy((String) row[15]);
         job.setSignalDeliveryId((String) row[16]);
+        job.setRowVersion(((Number) row[17]).intValue());
         result.add(job);
       }
       return result;

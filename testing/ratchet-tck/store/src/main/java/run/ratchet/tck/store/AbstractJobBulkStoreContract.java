@@ -55,6 +55,28 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void bulkInsert_sameInstanceCanBeSavedWithoutReload() {
+    var job = newPendingJob();
+    store().bulkInsert(List.of(job));
+    job.setResourceName("after-bulk-insert");
+    store().save(job);
+    assertEquals(
+        "after-bulk-insert", store().findById(job.getId()).orElseThrow().getResourceName());
+  }
+
+  @Test
+  void bulkInsert_terminalInstanceCanBeSavedWithoutReload() {
+    var job = newPendingJob();
+    job.setStatus(JobStatus.SUCCEEDED);
+    store().bulkInsert(List.of(job));
+    job.setResourceName("after-terminal-bulk-insert");
+    store().save(job);
+    var stored = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, stored.getStatus());
+    assertEquals("after-terminal-bulk-insert", stored.getResourceName());
+  }
+
+  @Test
   void bulkInsert_keepsPresetIds() {
     var first = newPendingJob();
     var second = newPendingJob();
