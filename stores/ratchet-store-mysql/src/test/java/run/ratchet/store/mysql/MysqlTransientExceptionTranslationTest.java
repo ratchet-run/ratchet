@@ -178,8 +178,10 @@ class MysqlTransientExceptionTranslationTest {
         writeOperations(
             entityManager(
                 queryReturningUpdate(1), queryReturningUpdate(1), queryThrowingOnExecute()));
+    JobEntity job = existingJob();
+    job.setIdempotencyKey("key");
 
-    assertThrows(RatchetTransientStoreException.class, () -> writes.saveInsert(existingJob()));
+    assertThrows(RatchetTransientStoreException.class, () -> writes.saveInsert(job));
   }
 
   @Test

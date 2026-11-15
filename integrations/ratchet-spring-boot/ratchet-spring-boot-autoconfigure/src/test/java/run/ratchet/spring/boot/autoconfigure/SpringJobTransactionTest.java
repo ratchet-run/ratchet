@@ -27,10 +27,27 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import run.ratchet.api.JobBuilder;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
+import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.JobTransaction;
 
 class SpringJobTransactionTest {
+  @Test
+  void nativeJakartaParserPreservesBothSubmissionConflicts() throws Exception {
+    var method = DefaultJobCreationService.class.getMethod("submit", JobBuilder.class);
+    var attribute =
+        new AnnotationTransactionAttributeSource()
+            .getTransactionAttribute(method, DefaultJobCreationService.class);
+    assertNotNull(attribute);
+    assertFalse(attribute.rollbackOn(new DuplicateIdempotencyKeyException("key")));
+    assertFalse(attribute.rollbackOn(new DuplicateBusinessKeyException("key", "held")));
+    assertTrue(attribute.rollbackOn(new IllegalStateException("failure")));
+  }
+
   @Test
   void templateUsesOneSelectedTransactionAndAvoidsAutomaticProxy() throws Exception {
     try (var context = new AnnotationConfigApplicationContext(Config.class)) {

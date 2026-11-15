@@ -35,6 +35,7 @@ import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -45,6 +46,36 @@ class OracleConstraintDetectorTest {
 
   private static Exception ora(String message, String sqlState, int errorCode) {
     return new RuntimeException("hibernate", new SQLException(message, sqlState, errorCode));
+  }
+
+  @Test
+  void idempotencyConflictReleasesSameCallBusinessReservationWithoutJobWrites() {
+    EntityManager em = mock(EntityManager.class);
+    Query cold = mock(Query.class, RETURNS_SELF);
+    Query hot = mock(Query.class, RETURNS_SELF);
+    Query business = mock(Query.class, RETURNS_SELF);
+    Query idempotency = mock(Query.class, RETURNS_SELF);
+    Query release = mock(Query.class, RETURNS_SELF);
+    when(em.createNativeQuery(anyString())).thenReturn(cold, hot, business, idempotency, release);
+    when(business.executeUpdate()).thenReturn(1);
+    when(idempotency.executeUpdate()).thenReturn(0);
+    OracleStoreContext ctx = new OracleStoreContext(em, null);
+    OracleJobWriteOperations writes =
+        new OracleJobWriteOperations(ctx, new OracleBusinessKeyReservations(ctx), null);
+    JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setBusinessKey("fresh-business-key");
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+
+    DuplicateIdempotencyKeyException conflict =
+        assertThrows(DuplicateIdempotencyKeyException.class, () -> writes.saveInsert(job));
+
+    assertNull(conflict.getCause());
+    assertEquals(job.getIdempotencyKey(), conflict.idempotencyKey());
+    verify(release).executeUpdate();
+    verify(cold, never()).executeUpdate();
+    verify(hot, never()).executeUpdate();
+    verify(em, times(5)).createNativeQuery(anyString());
   }
 
   @Test

@@ -23,6 +23,7 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /**
  * Fluent builder for jobs created from pre-resolved {@link JobInvocation}s — the invocation-typed
@@ -124,8 +125,14 @@ public interface InvocationJobBuilder {
    * JobBuilder#submit()}: the caller can catch {@link DuplicateBusinessKeyException} and commit its
    * own work. A matching custom idempotency key returns the original handle.
    *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
    *     key
+   * @throws RatchetTransientStoreException if the lookup after a business-key conflict fails, or
+   *     another transient store failure occurs; retry in a fresh transaction
    */
   JobHandle submit();
 }
