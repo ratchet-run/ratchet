@@ -23,22 +23,30 @@ import static org.assertj.core.api.SoftAssertions.assertSoftly;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.BusinessKeyLookup;
+import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.consumer.sql.SqlDatabase;
+import run.ratchet.ri.security.PermitAllJobAuthorizationPolicy;
 
 /**
  * What a duplicate business key does to the caller's own Spring transaction. The caller writes an
@@ -119,6 +127,83 @@ class SqlBusinessKeyTransactionTest {
                 .as("the loser's job rows")
                 .isZero();
           });
+    }
+  }
+
+  @Test
+  void idempotencyInsertCollisionReturnsOriginalAndCommitsCallerWrite() {
+    try (var context =
+        new SpringApplicationBuilder(ConsumerApplication.class, RaceConfiguration.class)
+            .properties(database.properties())
+            .properties("consumer.idempotency-race=true")
+            .run()) {
+      var scheduler = context.getBean(JobSchedulerService.class);
+      var jobs = context.getBean(ConsumerJobs.class);
+      var policy = context.getBean(RacePolicy.class);
+      var jdbc = context.getBean(JdbcTemplate.class);
+      var transactions = new TransactionTemplate(context.getBean(PlatformTransactionManager.class));
+      var worker = Executors.newSingleThreadExecutor();
+      String key = UUID.randomUUID().toString();
+      String own = id("idempotency-own");
+      String businessKey = id("unused-business");
+      var original = new AtomicReference<JobHandle>();
+      try {
+        transactions.executeWithoutResult(
+            status -> {
+              jdbc.update("insert into consumer_record (id, state) values (?, ?)", own, "own");
+              // Authorization runs after the loser's pre-check. Commit a competing submission
+              // now so this call must exercise the store conflict and fresh-transaction lookup.
+              policy.beforeCreate.set(
+                  () -> {
+                    try {
+                      original.set(
+                          worker
+                              .submit(
+                                  () ->
+                                      scheduler
+                                          .schedule(LATER, () -> jobs.complete("winner"))
+                                          .withIdempotencyKey(key)
+                                          .submit())
+                              .get(30, TimeUnit.SECONDS));
+                    } catch (Exception failure) {
+                      throw new IllegalStateException("Winner did not commit", failure);
+                    }
+                  });
+              JobHandle handle =
+                  scheduler
+                      .schedule(LATER, () -> jobs.complete("loser"))
+                      .withIdempotencyKey(key)
+                      .withBusinessKey(businessKey)
+                      .submit();
+              assertThat(handle.id()).isEqualTo(original.get().id());
+              assertThat(status.isRollbackOnly()).isFalse();
+              assertThat(jdbc.queryForObject("select 1", Integer.class)).isEqualTo(1);
+            });
+        assertThat(count(jdbc, own)).isEqualTo(1);
+        assertThat(scheduler.findBusinessKeyHolder(businessKey)).isEmpty();
+      } finally {
+        policy.beforeCreate.set(null);
+        worker.shutdownNow();
+      }
+    }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnProperty(name = "consumer.idempotency-race", havingValue = "true")
+  static class RaceConfiguration {
+    @Bean
+    RacePolicy racePolicy() {
+      return new RacePolicy();
+    }
+  }
+
+  public static class RacePolicy extends PermitAllJobAuthorizationPolicy {
+    final AtomicReference<Runnable> beforeCreate = new AtomicReference<>();
+
+    @Override
+    public void checkCreate(UUID jobId, String principal) {
+      Runnable action = beforeCreate.getAndSet(null);
+      if (action != null) action.run();
     }
   }
 

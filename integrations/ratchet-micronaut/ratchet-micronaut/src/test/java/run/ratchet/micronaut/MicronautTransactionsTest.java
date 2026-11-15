@@ -24,20 +24,53 @@ import io.micronaut.transaction.TransactionDefinition.Propagation;
 import io.micronaut.transaction.TransactionOperations;
 import io.micronaut.transaction.TransactionStatus;
 import io.micronaut.transaction.exceptions.IllegalTransactionStateException;
+import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobBuilder;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.micronaut.internal.MicronautTransactions;
 import run.ratchet.micronaut.internal.NoTransactionOperations;
+import run.ratchet.ri.core.DefaultJobCreationService;
 
 class MicronautTransactionsTest {
   private ApplicationContext context;
   private TransactionOperations<?> operations;
+
+  @Test
+  void submissionDefinitionPreservesEveryWriteFreeException() throws Exception {
+    var annotation =
+        DefaultJobCreationService.class
+            .getMethod("submit", JobBuilder.class)
+            .getAnnotation(Transactional.class);
+    var definition = MicronautTransactions.definition(annotation);
+    assertFalse(definition.rollbackOn(new DuplicateIdempotencyKeyException("key")));
+    assertFalse(definition.rollbackOn(new DuplicateBusinessKeyException("key", "held")));
+    assertFalse(definition.rollbackOn(new ResourceNotConfiguredException("gpu")));
+    assertTrue(
+        definition.rollbackOn(
+            new IllegalStateException(
+                "nested duplicate", new DuplicateBusinessKeyException("key", "held"))));
+    assertTrue(
+        definition.rollbackOn(
+            new IllegalStateException(
+                "nested duplicate", new DuplicateIdempotencyKeyException("key"))));
+    assertEquals(
+        List.of(
+            DuplicateBusinessKeyException.class,
+            DuplicateIdempotencyKeyException.class,
+            ResourceNotConfiguredException.class),
+        List.copyOf(definition.getDontRollbackOn()));
+  }
 
   @BeforeEach
   void start() {

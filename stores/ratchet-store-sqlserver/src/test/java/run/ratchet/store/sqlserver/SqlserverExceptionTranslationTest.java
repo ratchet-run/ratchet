@@ -164,11 +164,12 @@ class SqlserverExceptionTranslationTest {
 
   @Test
   void saveInsertTranslatesFirstWriteDeadlock() {
-    // Cold and hot INSERTs are prepared before the idempotency reservation writes first.
+    // Cold and hot INSERTs are prepared before the idempotency reservation writes first. The
+    // reservation reads its outcome as a single result.
     var writes =
         writeOperations(
             entityManager(
-                queryReturningUpdate(1), queryReturningUpdate(1), queryThrowingOnExecute()));
+                queryReturningUpdate(1), queryReturningUpdate(1), queryThrowingOnSingleResult()));
 
     assertThrows(RatchetTransientStoreException.class, () -> writes.saveInsert(existingJob()));
   }

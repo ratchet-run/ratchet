@@ -156,7 +156,17 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 
 A duplicate active business key fails against `pk_scheduler_business_key_reservation`. The `business_key` column on `scheduler_job` is observability-only and carries a plain (non-unique) `idx_job_business_key` index.
 
-When `submit()` finds an active owner with a different idempotency key, it throws `DuplicateBusinessKeyException`. A submission that loses the insert race aborts its PostgreSQL transaction, so Ratchet does not look up the owner in it. With the builder's generated idempotency key, `submit()` throws `DuplicateBusinessKeyException` straight away. With a custom idempotency key, Ratchet reads the owner in a new transaction and throws `DuplicateBusinessKeyException` for a different key or `DuplicateIdempotencyKeyException` for the same key. If that read fails or finds no active owner, it throws `RatchetTransientStoreException`, and a retry in a fresh transaction resolves the outcome. See [Active business key violation](../troubleshooting/common-issues.md#active-business-key-violation).
+When `submit()` finds an active owner with a different idempotency key, it throws
+`DuplicateBusinessKeyException`. Single-job creation reserves business and idempotency keys with
+`ON CONFLICT ... DO NOTHING`, so a held key leaves the caller's transaction usable. A lost
+idempotency race resolves the permanent ledger in a new transaction and returns the original
+handle. If that lookup cannot resolve the original, `DuplicateIdempotencyKeyException` escapes
+without marking the caller rollback-only. A partitioned batch reserves its parent's idempotency
+key first, so a duplicate or lost race on that key also returns the original handle. Two
+submissions of the same partition set with different idempotency keys race on the set row
+instead. The loser throws `IllegalStateException` and its transaction becomes rollback-only, so
+retry it in a fresh transaction. See
+[Active business key violation](../troubleshooting/common-issues.md#active-business-key-violation).
 
 ### Generated columns
 

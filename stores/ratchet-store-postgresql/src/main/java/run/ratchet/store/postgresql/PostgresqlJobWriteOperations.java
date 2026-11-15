@@ -177,6 +177,10 @@ final class PostgresqlJobWriteOperations {
   }
 
   void saveInsert(JobEntity job) {
+    saveInsert(job, false);
+  }
+
+  void saveInsert(JobEntity job, boolean idempotencyKeyReserved) {
     assignIdIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
@@ -209,7 +213,14 @@ final class PostgresqlJobWriteOperations {
           throw new BusinessKeyReservationConflictException(job.getBusinessKey());
         }
       }
-      SqlIdempotencyKeys.reserve(ctx, List.of(job), nowTs, id -> id, false);
+      // Ordinary creation: business-key reservation, idempotency key, cold row, hot row.
+      // Partition creation has already reserved the ledger key before partition metadata.
+      if (!idempotencyKeyReserved && !tryReserveIdempotencyKey(job, nowTs)) {
+        if (hasBkey && !bornTerminal) {
+          reservations.deleteReservationByOwner(job.getId());
+        }
+        throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey());
+      }
       coldInsert.executeUpdate();
       job.setRowVersion(0);
       if (bornTerminal) {
@@ -228,7 +239,8 @@ final class PostgresqlJobWriteOperations {
         tags.insertTags(job.getId(), job.getTags());
       }
     } catch (RuntimeException e) {
-      if (e instanceof BusinessKeyReservationConflictException) {
+      if (e instanceof BusinessKeyReservationConflictException
+          || e instanceof DuplicateIdempotencyKeyException) {
         throw e;
       }
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
@@ -236,6 +248,23 @@ final class PostgresqlJobWriteOperations {
       }
       throw ctx.translateTransientStoreException("create job", e);
     }
+  }
+
+  boolean tryReserveIdempotencyKey(JobEntity job, Timestamp nowTs) {
+    String sql =
+        """
+        INSERT INTO scheduler_idempotency_key
+          (idempotency_key, original_job_id, reserved_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT (idempotency_key) DO NOTHING
+        """;
+    return ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, job.getIdempotencyKey())
+            .setParameter(2, job.getId())
+            .setParameter(3, nowTs)
+            .executeUpdate()
+        == 1;
   }
 
   private void executeColdTerminalBackfill(JobEntity job, Timestamp nowTs) {

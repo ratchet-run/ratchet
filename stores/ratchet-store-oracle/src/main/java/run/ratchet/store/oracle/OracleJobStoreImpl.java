@@ -37,6 +37,7 @@ import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.dto.BatchProgress;
@@ -177,7 +178,11 @@ class OracleJobStoreImpl implements OracleJobStore {
 
   @Override
   // The conflict is raised before any write and must not mark the caller's transaction.
-  @Transactional(dontRollbackOn = BusinessKeyReservationConflictException.class)
+  @Transactional(
+      dontRollbackOn = {
+        BusinessKeyReservationConflictException.class,
+        DuplicateIdempotencyKeyException.class
+      })
   public JobEntity create(JobEntity job) {
     return jobs.create(job);
   }
@@ -1159,6 +1164,7 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
+  @Transactional(dontRollbackOn = DuplicateIdempotencyKeyException.class)
   public boolean createOrAdvance(PartitionGenerationWrite write) {
     return partitions.createOrAdvance(write);
   }

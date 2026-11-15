@@ -86,6 +86,7 @@ final class SqlserverPartitionOperations implements PartitionStore {
   @Override
   public boolean createOrAdvance(PartitionGenerationWrite write) {
     try {
+      jobs.reservePartitionParentKey(write.parent());
       PartitionSetEntity set = write.set();
       if (write.expectedVersion() == null) {
         int inserted =
@@ -162,7 +163,7 @@ final class SqlserverPartitionOperations implements PartitionStore {
               row.getPartitionIndex());
         }
       }
-      jobs.create(write.parent());
+      jobs.createWithReservedIdempotencyKey(write.parent());
       batches.saveBatch(write.batch());
       return true;
     } catch (RuntimeException ex) {

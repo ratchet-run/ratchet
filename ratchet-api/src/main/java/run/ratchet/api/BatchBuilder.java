@@ -20,7 +20,9 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.exception.ResourceNotConfiguredException;
 
 /**
@@ -79,9 +81,20 @@ public interface BatchBuilder {
    * is a single job if one used it first, and writes no parent, children, progress hook or
    * branches.
    *
-   * <p>If two submissions race on the same key, the loser's {@link #submit()} may throw. A retry in
-   * a new transaction returns the original handle, even after job history is purged. Task execution
-   * remains at least once.
+   * <p>If two submissions race on the same key, the loser waits until the winner's transaction
+   * ends, then returns the original handle if the winner commits. The caller's transaction stays
+   * usable. If the winner rolls back, submission can proceed. If the winner commits but the
+   * original job cannot be looked up, the loser throws {@link DuplicateIdempotencyKeyException}
+   * instead, and the caller's transaction still stays usable. On MySQL the wait is bounded by
+   * {@code innodb_lock_wait_timeout}. If the wait times out, submission throws {@link
+   * RatchetTransientStoreException} and marks the caller's transaction rollback-only. Roll it back
+   * and retry in a new transaction. With the MongoDB store, the winner's parent write commits in
+   * its own transaction, so rolling back the winner's caller transaction does not release the key,
+   * and the loser returns the original handle. Task execution remains at least once.
+   *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder

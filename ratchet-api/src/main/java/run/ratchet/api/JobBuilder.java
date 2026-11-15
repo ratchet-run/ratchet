@@ -169,8 +169,9 @@ public interface JobBuilder {
    * until the winner's transaction ends. It then throws, or succeeds if the winner rolled back.
    * With a custom idempotency key matching the winner's, it returns the winner's handle instead.
    *
-   * <p>{@link DuplicateIdempotencyKeyException} and {@link RatchetTransientStoreException} still
-   * leave the transaction rollback-only. This also applies to a MySQL deadlock victim when two or
+   * <p>{@link DuplicateIdempotencyKeyException} leaves the caller's transaction usable and is
+   * thrown only if the original handle cannot be resolved. {@link RatchetTransientStoreException}
+   * leaves the transaction rollback-only. This also applies to a MySQL deadlock victim when two or
    * more submissions wait on a winner that rolls back, and to a PostgreSQL serialization failure
    * when the caller uses an isolation level above READ COMMITTED. Retry in a fresh transaction.
    *
@@ -178,11 +179,15 @@ public interface JobBuilder {
    * lock on the holder's key until its transaction ends. The holder's completion waits for that
    * lock. Keep the caller's transaction short.
    *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
+   *
    * @return a handle to the persisted job
    * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
    *     key with a different idempotency key
    * @throws DuplicateIdempotencyKeyException if a concurrent submission wins the same idempotency
-   *     key; retry in a fresh transaction to obtain the original handle
+   *     key and its original handle cannot be resolved
    * @throws RatchetTransientStoreException if the lookup after a business-key conflict fails, or
    *     another transient store failure occurs; retry in a fresh transaction
    * @throws PayloadTooLargeException if the task or a persisted callback/branch exceeds the
@@ -284,10 +289,19 @@ public interface JobBuilder {
    * {@link #withBusinessKey(String)}, once consumed this key is never reusable. A duplicate
    * submission returns the original job's handle rather than creating a second job.
    *
-   * <p>When two submissions <em>race</em> on the same key, the losing {@code submit()} may throw
-   * instead of merging. The key still binds to exactly one job; a subsequent submission in a fresh
-   * transaction returns the original handle, even after job history is purged. Task execution
-   * remains at least once.
+   * <p>When two submissions race on the same key, the loser waits until the winner's transaction
+   * ends, then returns the original handle if the winner commits. The caller's transaction stays
+   * usable. If the winner rolls back, submission can proceed. If the winner commits but the
+   * original job cannot be looked up, the loser throws {@link DuplicateIdempotencyKeyException}
+   * instead, and the caller's transaction still stays usable. If the two submissions also share a
+   * business key, a lookup that finds no job throws {@link DuplicateBusinessKeyException} and the
+   * caller's transaction stays usable. A lookup that fails throws {@link
+   * RatchetTransientStoreException} and marks the transaction rollback-only. On MySQL the wait is
+   * bounded by {@code innodb_lock_wait_timeout}. If the wait times out, submission throws {@link
+   * RatchetTransientStoreException} and marks the caller's transaction rollback-only. Roll it back
+   * and retry in a new transaction. With the MongoDB store, the winner's job write commits in its
+   * own transaction, so rolling back the winner's caller transaction does not release the key, and
+   * the loser returns the original handle. Task execution remains at least once.
    *
    * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column. After trimming, it must
    * contain at most 36 printable ASCII characters ({@code U+0020} through {@code U+007E}), the same
@@ -299,6 +313,10 @@ public interface JobBuilder {
    * <p>If your natural key is longer than 36 characters or contains other characters, hash it to a
    * 36-character value first, for example {@code
    * UUID.nameUUIDFromBytes(naturalKey.getBytes(StandardCharsets.UTF_8)) .toString()}.
+   *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
@@ -325,14 +343,17 @@ public interface JobBuilder {
    *
    * <p>On MySQL and SQL Server, a reported store conflict leaves a lock on the holder's key until
    * the caller's transaction ends. Holder completion waits for that lock, so keep the transaction
-   * short. See {@link #submit()} for failures that still leave it rollback-only, including
-   * idempotency conflicts, transient store failures, MySQL deadlock victims and PostgreSQL
-   * serialization failures above READ COMMITTED.
+   * short. See {@link #submit()} for failures that still leave it rollback-only: transient store
+   * failures, MySQL deadlock victims and PostgreSQL serialization failures above READ COMMITTED.
    *
    * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
    * through {@code U+007E}). The portable subset has the same byte width under Oracle's
    * byte-counted columns and SQL Server's collation-dependent {@code VARCHAR} columns. Invalid keys
    * are rejected rather than truncated or converted.
+   *
+   * <p>Only the submission's own key check leaves the caller's transaction usable on a duplicate
+   * key. A duplicate key raised by other work inside the submission is rethrown as {@link
+   * IllegalStateException} with the original as its cause, so the transaction rolls back.
    *
    * @param key if null or blank, no concurrent execution blocking is performed
    * @return this builder
