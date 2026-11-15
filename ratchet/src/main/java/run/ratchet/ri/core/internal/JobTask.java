@@ -1370,7 +1370,12 @@ public class JobTask implements Callable<Void> {
       }
       if (result == StateWriteResult.SUPERSEDED) {
         markAttemptSuperseded();
-        saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+        if (jobWasCanceled()) {
+          // A cancel committed after the post-body check and superseded the counter write.
+          handleCanceledDuringExecution(start);
+        } else {
+          saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+        }
         return;
       }
       if (writeAttempt == 3) {

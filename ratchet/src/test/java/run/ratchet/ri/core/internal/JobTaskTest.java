@@ -365,11 +365,36 @@ class JobTaskTest {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
     when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
         .thenReturn(StateWriteResult.UPDATED);
-    when(jobStore.getJobStatus(JOB_UUID))
-        .thenReturn(JobStatus.RUNNING, JobStatus.RUNNING, JobStatus.CANCELED);
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
+    jobTask.call();
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+  }
+
+  @Test
+  void cancelThatSupersedesTheContinuationCounter_endsCanceled() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return StateWriteResult.SUPERSEDED;
+            });
     jobTask.call();
     Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
     verify(observabilityFacade).recordJobCancellation(scenario.job());
+    verify(scenario.store()).initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L));
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
   }
 
   @Test
@@ -4695,7 +4720,16 @@ class JobTaskTest {
     when(retryPolicy.shouldRetry(1, error)).thenReturn(true);
     when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
 
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
     jobTask.call();
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
 
     ArgumentCaptor<JobExecutionEntity> execution =
         ArgumentCaptor.forClass(JobExecutionEntity.class);
