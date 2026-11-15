@@ -2861,9 +2861,9 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(false);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
-    doThrow(new IllegalStateException("observer failed"))
-        .when(observabilityFacade)
-        .recordJobFailure(job, error, 1);
+    // The failure metric is recorded after the retry or failure write, so break the handler
+    // before it.
+    when(retryPolicy.shouldRetry(1, error)).thenThrow(new IllegalStateException("policy failed"));
     when(errorSanitizer.sanitize(error)).thenReturn("safe original");
     when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
         .thenReturn(true);
@@ -4711,8 +4711,11 @@ class JobTaskTest {
 
   @Test
   void retryThatLosesItsWriteToACancel_endsCanceled() throws Exception {
-    // A cancel that commits between the attempt increment and the retry write ends canceled.
+    // A cancel that commits between the attempt increment and the retry write ends canceled, with
+    // no failure metric and no failed tracing scope.
     JobEntity job = cancelScenario(true);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
     jobTask.attach(cancelAttempt());
     RuntimeException error = new IllegalStateException("retry me");
     failBody(() -> error);
@@ -4736,7 +4739,74 @@ class JobTaskTest {
     verify(observabilityFacade, atLeastOnce()).saveExecution(execution.capture());
     Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getValue().getStatus());
     verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+  }
+
+  @Test
+  void dlqMoveThatLosesItsWriteToACancel_endsCanceled() throws Exception {
+    // A cancel that commits between the attempt increment and the DLQ write ends canceled, with
+    // no failure metric, no failed tracing scope and no onFailure callback.
+    JobEntity job = cancelScenario(true);
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    job.setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    jobTask.attach(cancelAttempt());
+    RuntimeException error = new IllegalStateException("out of retries");
+    failBody(() -> error);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, error)).thenReturn(false);
+
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
+    jobTask.call();
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade, atLeastOnce()).saveExecution(execution.capture());
+    Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getValue().getStatus());
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    Assertions.assertNull(CallbackRecorder.context);
+  }
+
+  @Test
+  void retryRecordsOneFailureAfterTheRetryWrite() throws Exception {
+    // A retried failure counts one failure and fails the tracing scope after the retry write.
+    JobEntity job = cancelScenario(false);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    jobTask.attach(cancelAttempt());
+    RuntimeException error = new IllegalStateException("retry me");
+    failBody(() -> error);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, error)).thenReturn(true);
+    when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(1), eq(7L))).thenReturn(true);
+
+    jobTask.call();
+
+    InOrder order = inOrder(jobStore, observabilityFacade, scope);
+    order.verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(1), eq(7L));
+    order.verify(observabilityFacade).recordJobFailure(job, error, 1);
+    order.verify(scope).failure(eq(error.getClass().getName()), any(), eq(1));
+    verify(observabilityFacade, times(1)).recordJobFailure(any(), any(), anyInt());
+    verify(observabilityFacade, never()).recordJobCancellation(any());
   }
 
   @Test

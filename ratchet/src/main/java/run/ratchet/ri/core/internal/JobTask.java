@@ -1235,8 +1235,6 @@ public class JobTask implements Callable<Void> {
     }
 
     job.setAttempts(attempt);
-    observabilityFacade.recordJobFailure(job, ex, attempt);
-    currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     logIfTimeout(ex);
 
     if (attempt <= job.getMaxRetries()
@@ -1245,6 +1243,11 @@ public class JobTask implements Callable<Void> {
       scheduleRetry(ex, attempt, sanitized);
     } else {
       moveToDlq(ex, attempt, sanitized);
+    }
+    // A cancel that won the retry or failure write counts as a cancellation only.
+    if (!cancelHandled) {
+      observabilityFacade.recordJobFailure(job, ex, attempt);
+      currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     }
   }
 
