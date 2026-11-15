@@ -353,6 +353,15 @@ final class OracleJobTerminalOperations {
         "cancel_job",
         () -> {
           try {
+            // Lock the queue row before the job row, the order of cancelRunningJob, the terminal
+            // writes, delete and save.
+            if (ctx.em()
+                .createNativeQuery("SELECT 1 FROM scheduler_job_queue WHERE job_id = ? FOR UPDATE")
+                .setParameter(1, UuidRawConverter.toBytes(id))
+                .getResultList()
+                .isEmpty()) {
+              return false;
+            }
             return doCancelJob(id);
           } catch (RuntimeException e) {
             throw ctx.translateTransientStoreException("cancel job", e);

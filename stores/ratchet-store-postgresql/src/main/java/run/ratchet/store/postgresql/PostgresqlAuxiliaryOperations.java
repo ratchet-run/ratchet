@@ -376,8 +376,9 @@ final class PostgresqlAuxiliaryOperations
     if (updated == 0) {
       return AcquireResult.SUPERSEDED;
     }
-    // Never wait for the job row here: the store's standalone cancelJob locks the job row before
-    // this queue row, so it can hold the job row while it waits for this queue row.
+    // Skip a locked job row instead of waiting for it. cancelJob, the terminal writes, delete and
+    // save all lock this queue row before the job row. Skipping keeps any other job-row writer
+    // from deadlocking with this park; a skipped row parks the job without a waiter row.
     // Write the waiter row only while the job still names this resource.
     // language=PostgreSQL
     String currentResource =

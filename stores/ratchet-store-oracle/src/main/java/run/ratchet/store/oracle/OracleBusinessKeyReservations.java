@@ -20,7 +20,9 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
@@ -235,23 +237,33 @@ final class OracleBusinessKeyReservations {
               Query select =
                   ctx.em()
                       .createNativeQuery(
-                          "SELECT business_key FROM scheduler_business_key_reservation WHERE "
-                              + predicate);
+                          """
+                          SELECT business_key, owner_job_id, held_claim_seq
+                          FROM scheduler_business_key_reservation
+                          WHERE %s
+                          """
+                              .formatted(predicate));
               for (int i = 0; i < chunk.size(); i++) {
                 select.setParameter(i + 1, chunk.get(i));
               }
               List<?> keys = select.getResultList();
-              List<String> locked = lockHolds(keys, predicate, chunk);
-              for (String key : BusinessKeyReservations.holdDeleteOrder(locked)) {
+              Map<String, Hold> locked = lockHolds(keys, predicate, chunk);
+              for (String key :
+                  BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
                 Query delete =
                     ctx.em()
                         .createNativeQuery(
-                            "DELETE FROM scheduler_business_key_reservation WHERE business_key = ?"
-                                + " AND "
-                                + predicate)
-                        .setParameter(1, key);
+                            """
+                            DELETE FROM scheduler_business_key_reservation
+                            WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
+                              AND %s
+                            """
+                                .formatted(predicate))
+                        .setParameter(1, key)
+                        .setParameter(2, UuidRawConverter.toBytes(locked.get(key).ownerJobId()))
+                        .setParameter(3, locked.get(key).claimSeq());
                 for (int i = 0; i < chunk.size(); i++) {
-                  delete.setParameter(i + 2, chunk.get(i));
+                  delete.setParameter(i + 4, chunk.get(i));
                 }
                 deleted += delete.executeUpdate();
               }
@@ -275,7 +287,8 @@ final class OracleBusinessKeyReservations {
             // language=Oracle
             String selectSql =
                 """
-                SELECT business_key FROM scheduler_business_key_reservation
+                SELECT business_key, owner_job_id, held_claim_seq
+                FROM scheduler_business_key_reservation
                 WHERE held_until IS NOT NULL AND held_until < ?
                 ORDER BY held_until FETCH FIRST ? ROWS ONLY
                 """;
@@ -289,20 +302,24 @@ final class OracleBusinessKeyReservations {
             String deleteSql =
                 """
                 DELETE FROM scheduler_business_key_reservation
-                WHERE business_key = ? AND held_until IS NOT NULL AND held_until < ?
+                WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
+                  AND held_until IS NOT NULL AND held_until < ?
                 """;
-            List<String> locked =
+            Map<String, Hold> locked =
                 lockHolds(
                     keys,
                     "held_until IS NOT NULL AND held_until < ?",
                     List.of(Timestamp.from(now)));
             int deleted = 0;
-            for (String key : BusinessKeyReservations.holdDeleteOrder(locked)) {
+            for (String key :
+                BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
               deleted +=
                   ctx.em()
                       .createNativeQuery(deleteSql)
                       .setParameter(1, key)
-                      .setParameter(2, Timestamp.from(now))
+                      .setParameter(2, UuidRawConverter.toBytes(locked.get(key).ownerJobId()))
+                      .setParameter(3, locked.get(key).claimSeq())
+                      .setParameter(4, Timestamp.from(now))
                       .executeUpdate();
             }
             return deleted;
@@ -313,16 +330,24 @@ final class OracleBusinessKeyReservations {
         count -> count > 0 ? "deleted" : "miss");
   }
 
-  private List<String> lockHolds(List<?> keys, String predicate, List<?> predicateParams) {
-    List<String> locked = new ArrayList<>();
+  private Map<String, Hold> lockHolds(List<?> keys, String predicate, List<?> predicateParams) {
+    Map<String, Hold> locked = new HashMap<>();
+    Map<String, Hold> candidates = new HashMap<>();
+    for (Object value : keys) {
+      Object[] row = (Object[]) value;
+      candidates.put(
+          (String) row[0],
+          new Hold(OracleJobRowMapper.uuidOrNull(row[1]), ((Number) row[2]).longValue()));
+    }
     for (int start = 0; start < keys.size(); start += 500) {
       List<?> chunk = keys.subList(start, Math.min(start + 500, keys.size()));
       String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
       // Lock candidates through the primary key and skip rows another transaction holds, so a
-      // sweep never waits on a frozen or slow writer. A skipped hold stays for a later call.
+      // sweep never waits on a frozen or slow writer. Also check that each row is still the hold
+      // the candidate read found. A skipped hold stays for a later call.
       String sql =
           """
-          SELECT business_key FROM scheduler_business_key_reservation
+          SELECT business_key, owner_job_id, held_claim_seq FROM scheduler_business_key_reservation
           WHERE business_key IN (%s) AND %s
           FOR UPDATE SKIP LOCKED
           """
@@ -330,15 +355,22 @@ final class OracleBusinessKeyReservations {
       Query query = ctx.em().createNativeQuery(sql);
       int parameter = 1;
       for (Object key : chunk) {
-        query.setParameter(parameter++, key);
+        query.setParameter(parameter++, ((Object[]) key)[0]);
       }
       for (Object value : predicateParams) {
         query.setParameter(parameter++, value);
       }
-      for (Object key : query.getResultList()) {
-        locked.add((String) key);
+      for (Object value : query.getResultList()) {
+        Object[] row = (Object[]) value;
+        String key = (String) row[0];
+        Hold hold = new Hold(OracleJobRowMapper.uuidOrNull(row[1]), ((Number) row[2]).longValue());
+        if (hold.equals(candidates.get(key))) {
+          locked.put(key, hold);
+        }
       }
     }
     return locked;
   }
+
+  private record Hold(UUID ownerJobId, long claimSeq) {}
 }

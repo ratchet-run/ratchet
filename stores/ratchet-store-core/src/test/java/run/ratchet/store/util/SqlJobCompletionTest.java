@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.util;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
@@ -23,6 +24,7 @@ import static org.mockito.Mockito.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -35,6 +37,59 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobStore;
 
 class SqlJobCompletionTest {
+  @Test
+  void queueRowsLockInUnsignedBinaryKeyOrder() {
+    var em = mock(EntityManager.class);
+    var store = mock(JobStore.class);
+    var query = mock(Query.class, RETURNS_SELF);
+    UUID id = UUID.fromString("80000000-0000-7000-8000-000000000001");
+    UUID child = UUID.fromString("7fffffff-0000-7000-8000-000000000001");
+    Instant now = Instant.now();
+    when(em.createNativeQuery(startsWith("SELECT "))).thenReturn(query);
+    when(query.getResultList()).thenReturn(List.of());
+    var dependency =
+        new JobCompletionPlan.DependencyTransition(
+            child,
+            JobStatus.PENDING,
+            0,
+            now,
+            JobStatus.PENDING,
+            now,
+            JobExecutionType.WORKFLOW_BRANCH,
+            null,
+            null);
+    var plan =
+        new JobCompletionPlan(
+            id,
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(dependency),
+            null,
+            List.of());
+    List<UUID> lockOrder = new ArrayList<>();
+    SqlJobCompletion.commit(
+        em,
+        store,
+        mock(BatchStore.class),
+        plan,
+        false,
+        uuid -> {
+          lockOrder.add(uuid);
+          return uuid;
+        });
+    assertEquals(List.of(child, id), lockOrder);
+  }
+
   @Test
   void unchangedAttemptsDoNotIssueAnUpdate() {
     exerciseAttempts(4, 4);

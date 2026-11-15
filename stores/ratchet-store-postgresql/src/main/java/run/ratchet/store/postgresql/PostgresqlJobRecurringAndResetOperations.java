@@ -102,7 +102,8 @@ final class PostgresqlJobRecurringAndResetOperations {
     // skip the now-RUNNING row, stranding it forever while the reservation is still freed. Holding
     // FOR UPDATE on each queue row makes the claim path's FOR UPDATE SKIP LOCKED step past it, so a
     // claim cannot interleave. Mirrors the single-job cancel gate in
-    // PostgresqlJobTerminalOperations.
+    // PostgresqlJobTerminalOperations. PostgreSQL locks the rows after sorting them, so they are
+    // locked in job_id order, the order that completion and delete use.
     // language=PostgreSQL
     String lockSql =
         """
@@ -114,6 +115,7 @@ final class PostgresqlJobRecurringAndResetOperations {
           AND j.job_type <> 'RECURRING'
           AND j.terminal_status IS NULL
           AND q.status IN ('PENDING','PAUSED','WAITING')
+        ORDER BY q.job_id
         FOR UPDATE OF q
         """;
     @SuppressWarnings("unchecked")

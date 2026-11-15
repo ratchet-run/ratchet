@@ -303,7 +303,25 @@ final class SqlserverJobTerminalOperations {
 
   boolean cancelJob(UUID id) {
     return ctx.timedStoreOperation(
-        "cancel_job", () -> doCancelJob(id), updated -> updated ? "updated" : "miss");
+        "cancel_job",
+        () -> {
+          try {
+            // Lock the queue row before the job row, the order of cancelRunningJob, the terminal
+            // writes, delete and save.
+            if (ctx.em()
+                .createNativeQuery(
+                    "SELECT 1 FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK) WHERE job_id = ?")
+                .setParameter(1, UuidByteArrayConverter.toBytes(id))
+                .getResultList()
+                .isEmpty()) {
+              return false;
+            }
+            return doCancelJob(id);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("cancel job", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   private boolean doCancelJob(UUID id) {

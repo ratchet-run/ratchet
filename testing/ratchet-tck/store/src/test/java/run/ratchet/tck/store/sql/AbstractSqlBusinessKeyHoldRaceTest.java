@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -43,9 +44,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
-import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -348,6 +351,83 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
         prefix, keys, () -> fixture().store().releaseBusinessKeyHolds(List.of("released-node")));
   }
 
+  @Test
+  void nodeReleaseKeepsAHoldThatReplacedTheSelectedOne() throws Exception {
+    assertSweepKeepsReplacement(false);
+  }
+
+  @Test
+  void expirySweepKeepsAHoldThatReplacedTheSelectedOne() throws Exception {
+    assertSweepKeepsReplacement(true);
+  }
+
+  private void assertSweepKeepsReplacement(boolean expiry) throws Exception {
+    var store = fixture().store();
+    String key = "replacement-" + UUID.randomUUID();
+    String node = "replacement-node";
+    Instant heldUntil = Instant.now().plusSeconds(expiry ? -60 : 3600);
+    var first = fixture().newPendingJob();
+    first.setBusinessKey(key);
+    store.create(first);
+    JobEntity claimed = store.claimNextBatch(1, node).get(0);
+    assertEquals(first.getId(), claimed.getId());
+    assertTrue(store.cancelRunningJob(claimed.getId(), heldUntil));
+    Thread caller = Thread.currentThread();
+    AtomicBoolean fired = new AtomicBoolean();
+    AtomicReference<UUID> replacement = new AtomicReference<>();
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .observeNativeQueries(
+              (sql, event) -> {
+                String normalized = sql.replaceAll("\\s+", " ").trim().toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() == caller
+                    && event.completed()
+                    && event.operation().equals("getResultList")
+                    && normalized.startsWith("SELECT")
+                    && normalized.contains("SCHEDULER_BUSINESS_KEY_RESERVATION")
+                    && !normalized.contains("FOR UPDATE")
+                    && !normalized.contains("UPDLOCK")
+                    && !normalized.contains("READPAST")
+                    && fired.compareAndSet(false, true)) {
+                  try {
+                    executor
+                        .submit(
+                            () -> {
+                              assertTrue(
+                                  store.releaseBusinessKeyHold(
+                                      claimed.getId(), claimed.getClaimSeq()));
+                              var next = fixture().newPendingJob();
+                              next.setBusinessKey(key);
+                              store.create(next);
+                              JobEntity nextClaim = store.claimNextBatch(1, node).get(0);
+                              assertEquals(next.getId(), nextClaim.getId());
+                              assertTrue(store.cancelRunningJob(nextClaim.getId(), heldUntil));
+                              replacement.set(nextClaim.getId());
+                            })
+                        .get(30, TimeUnit.SECONDS);
+                  } catch (Exception e) {
+                    throw new IllegalStateException("could not replace the selected hold", e);
+                  }
+                }
+              });
+      int deleted =
+          expiry
+              ? store.deleteExpiredBusinessKeyHolds(Instant.now(), 50)
+              : store.releaseBusinessKeyHolds(List.of(node));
+      assertTrue(fired.get(), "the candidate read must trigger the replacement");
+      assertEquals(0, deleted);
+      assertEquals(List.of(key), remainingHoldKeys(key));
+      assertEquals(
+          new BusinessKeyHolder(replacement.get(), JobType.SINGLE, JobStatus.CANCELED),
+          store.findBusinessKeyHolder(key).orElseThrow());
+    } finally {
+      fixture().observeNativeQueries((sql, event) -> {});
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+    }
+  }
+
   private List<String> createHolds(String prefix, String node, Instant heldUntil) {
     var store = fixture().store();
     List<String> keys = new ArrayList<>();
@@ -500,7 +580,8 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
             return false;
           }
         },
-        (job, deleted) -> {
+        (job, deleted, canceled) -> {
+          assertTrue(deleted ^ canceled, "exactly one winner for " + job.getId());
           if (deleted) {
             assertTrue(store.findById(job.getId()).isEmpty());
           } else {
@@ -512,6 +593,40 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
         });
   }
 
+  @Test
+  void rawCancelJobAndDirectTerminalWritesDoNotDeadlock() throws Exception {
+    var store = fixture().store();
+    assertOneWinnerPerJobAgainstCancel(
+        "raw-terminal-race",
+        (index, job, now) ->
+            switch (index % 3) {
+              case 0 -> store.markJobSucceeded(job.getId(), null, null, now, now, 0L, 0L);
+              case 1 -> store.markJobSucceededMinimal(job.getId(), now, now, 0L, 0L);
+              default ->
+                  store.markJobFailedTerminal(
+                      job.getId(), "race failure", job.getAttempts(), job.getClaimSeq());
+            },
+        job -> store.cancelJob(job.getId()),
+        (job, won, canceled) ->
+            assertTrue(won ^ canceled, "exactly one winner for " + job.getId()));
+  }
+
+  @Test
+  void deleteAndRawCancelJobDoNotDeadlock() throws Exception {
+    var store = fixture().store();
+    assertOneWinnerPerJobAgainstCancel(
+        "raw-delete-race",
+        (index, job, now) -> {
+          store.delete(job.getId());
+          return true;
+        },
+        job -> store.cancelJob(job.getId()),
+        (job, deleted, canceled) -> {
+          assertTrue(deleted);
+          assertTrue(store.findById(job.getId()).isEmpty());
+        });
+  }
+
   /** A terminal write that one thread races against a running cancel of the same job. */
   @FunctionalInterface
   private interface TerminalWrite {
@@ -520,11 +635,32 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
 
   private void assertOneWinnerPerJobAgainstCancel(String keyPrefix, TerminalWrite terminalWrite)
       throws Exception {
-    assertOneWinnerPerJobAgainstCancel(keyPrefix, terminalWrite, (job, won) -> {});
+    assertOneWinnerPerJobAgainstCancel(
+        keyPrefix,
+        terminalWrite,
+        (job, won, canceled) ->
+            assertTrue(won ^ canceled, "exactly one winner for " + job.getId()));
   }
 
   private void assertOneWinnerPerJobAgainstCancel(
-      String keyPrefix, TerminalWrite terminalWrite, BiConsumer<JobEntity, Boolean> check)
+      String keyPrefix, TerminalWrite terminalWrite, OutcomeCheck check) throws Exception {
+    assertOneWinnerPerJobAgainstCancel(
+        keyPrefix,
+        terminalWrite,
+        job -> fixture().store().cancelRunningJob(job.getId(), Instant.now().plusSeconds(30)),
+        check);
+  }
+
+  @FunctionalInterface
+  private interface OutcomeCheck {
+    void accept(JobEntity job, boolean writeWon, boolean cancelWon);
+  }
+
+  private void assertOneWinnerPerJobAgainstCancel(
+      String keyPrefix,
+      TerminalWrite terminalWrite,
+      Predicate<JobEntity> cancelWrite,
+      OutcomeCheck check)
       throws Exception {
     var store = fixture().store();
     String node = keyPrefix + "-node";
@@ -576,17 +712,14 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
                 () -> {
                   barrier.await();
                   for (int i = 0; i < jobs.size(); i++) {
-                    cancelWins[i] =
-                        store.cancelRunningJob(jobs.get(i).getId(), Instant.now().plusSeconds(30));
+                    cancelWins[i] = cancelWrite.test(jobs.get(i));
                   }
                   return null;
                 });
         terminal.get(60, TimeUnit.SECONDS);
         cancel.get(60, TimeUnit.SECONDS);
         for (int i = 0; i < jobs.size(); i++) {
-          assertTrue(
-              terminalWins[i] ^ cancelWins[i], "exactly one winner for " + jobs.get(i).getId());
-          check.accept(jobs.get(i), terminalWins[i]);
+          check.accept(jobs.get(i), terminalWins[i], cancelWins[i]);
         }
       }
     } finally {
