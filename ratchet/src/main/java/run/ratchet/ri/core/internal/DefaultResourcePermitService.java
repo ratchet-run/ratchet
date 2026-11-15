@@ -18,10 +18,14 @@ package run.ratchet.ri.core.internal;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.ResourceLimit;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.spi.ResourcePermitStore;
@@ -195,13 +199,31 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   public void configureResource(
       String resourceName, int maxConcurrent, int retryDelayMs, String description) {
     if (resourcePermitStore == null) {
-      return;
+      throw new UnsupportedOperationException(
+          "Resource limits require a store that advertises the ResourcePermitStore capability");
     }
     resourcePermitStore.configureResource(resourceName, maxConcurrent, retryDelayMs, description);
     wakeAfterCommit(() -> wake(resourceName));
     log.infof(
         "Configured resource %s with max=%s, retryDelay=%sms",
         resourceName, maxConcurrent, retryDelayMs);
+  }
+
+  @Override
+  public Optional<ResourceLimit> findResourceLimit(String resourceName) {
+    return resourcePermitStore == null
+        ? Optional.empty()
+        : resourcePermitStore.findResourceLimit(resourceName);
+  }
+
+  @Override
+  public List<ResourceLimit> listResourceLimits() {
+    if (resourcePermitStore == null) {
+      return List.of();
+    }
+    List<ResourceLimit> sorted = new ArrayList<>(resourcePermitStore.listResourceLimits());
+    sorted.sort(Comparator.comparing(ResourceLimit::resourceName));
+    return List.copyOf(sorted);
   }
 
   /** Call periodically, e.g. during node heartbeat. */

@@ -41,6 +41,7 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.JobBuilderState;
+import run.ratchet.api.internal.ResourceLimitRules;
 
 /** Default {@link JobBuilder} implementation. */
 final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
@@ -204,9 +205,14 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
     return this;
   }
 
-  /** Trims a resource name; null or blank means no resource limiting and becomes null. */
+  /**
+   * Trims a resource name; null or blank means no resource and becomes null.
+   *
+   * @throws IllegalArgumentException for more than 100 characters or a character outside printable
+   *     ASCII
+   */
   static String normalizeResourceName(String resourceName) {
-    return (resourceName != null && !resourceName.isBlank()) ? resourceName.trim() : null;
+    return ResourceLimitRules.normalizeName(resourceName);
   }
 
   @Override

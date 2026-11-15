@@ -31,8 +31,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Assertions;
@@ -49,6 +49,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
@@ -115,7 +116,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         null,
         Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
         true,
-        true,
+        null,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer(),
@@ -339,14 +340,15 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
-  void submit_exemptsOnlyDuplicateBusinessKeyFromRollback() throws Exception {
+  void submit_exemptsOnlyDuplicateBusinessKeyAndMissingLimitFromRollback() throws Exception {
     Transactional annotation =
         DefaultJobCreationService.class
             .getMethod("submit", JobBuilder.class)
             .getAnnotation(Transactional.class);
 
     assertEquals(
-        List.of(DuplicateBusinessKeyException.class), List.of(annotation.dontRollbackOn()));
+        Set.of(DuplicateBusinessKeyException.class, ResourceNotConfiguredException.class),
+        Set.of(annotation.dontRollbackOn()));
   }
 
   private DefaultJobBuilder racingBuilder(DefaultJobCreationService service, boolean explicit) {
