@@ -208,6 +208,8 @@ Make each check in the delete's own transaction, after locking the job's queue r
 
 The orphan scan calls `releaseBusinessKeyHolds` and `deleteExpiredBusinessKeyHolds`, so neither should wait for a hold row that another transaction has locked. Skip that row, leave it for a later call, and return only the number of holds the call deleted. The bundled SQL stores lock the candidate rows through the primary key with a skip-locked read (`FOR UPDATE SKIP LOCKED`, or `UPDLOCK, READPAST` on SQL Server) and delete only the rows they locked.
 
+`NodeStore.deleteInactiveNodesByIds` must keep the row of a node that still has a hold from one of its claims, so the next orphan scan finds the node again and calls `releaseBusinessKeyHolds` for it once more. Read the remaining holds with a read that neither skips nor waits for a locked hold row, in the same transaction as the delete, and delete only the other nodes. `AbstractActiveBusinessKeyContract` checks this rule.
+
 ## API Compatible
 
 The API contracts are container-neutral JUnit classes. They can run in a plain JVM when the

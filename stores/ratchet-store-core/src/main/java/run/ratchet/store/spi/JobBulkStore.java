@@ -119,7 +119,9 @@ public interface JobBulkStore {
    *
    * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
    * and it stays until a later release for that node or the expiry sweep removes it. The bundled
-   * SQL stores lock the candidates with a skip-locked read.
+   * SQL stores lock the candidates with a skip-locked read. {@link
+   * NodeStore#deleteInactiveNodesByIds} keeps the row of a node with a skipped hold, so the orphan
+   * scan calls this again for that node on its next run.
    *
    * @return number of holds deleted, counting only holds this call deleted
    */

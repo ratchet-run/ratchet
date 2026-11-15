@@ -62,6 +62,9 @@ public interface NodeStore {
   /**
    * Deletes inactive node rows. Transaction attribute: {@code REQUIRED}.
    *
+   * <p>Unlike {@link #deleteInactiveNodesByIds}, this does not keep a node that still has
+   * business-key holds. The orphan scan does not call it.
+   *
    * @param cutoff nodes whose last heartbeat is strictly before this instant are deleted; never
    *     {@code null}
    * @return number of node rows deleted
@@ -69,7 +72,14 @@ public interface NodeStore {
   int deleteInactiveNodesSince(Instant cutoff);
 
   /**
-   * Deletes the resolved inactive node rows by id. Transaction attribute: {@code REQUIRED}.
+   * Deletes the resolved inactive node rows by id, except nodes that still have a business-key
+   * hold. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>A node keeps its row while a hold of one of its cancelled claims is left, for example one
+   * that {@link JobBulkStore#releaseBusinessKeyHolds} skipped because another transaction had it
+   * locked. The orphan scan then finds the node again on its next run and retries the release. Read
+   * the remaining holds with a read that neither skips nor waits for a locked hold row, in the same
+   * transaction as the delete.
    *
    * <p>Implementors MUST override this method; it is abstract precisely because a silent {@code
    * UnsupportedOperationException} default would defer the failure from compile time to

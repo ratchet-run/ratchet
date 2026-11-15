@@ -750,6 +750,30 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   }
 
   @Test
+  void deleteInactiveNodesByIds_keepsNodeWithHoldUntilItIsReleased() {
+    // A dead node keeps its row while a hold of its cancelled claim is left, so the next orphan
+    // scan can release that hold. A normal running reservation does not keep the row.
+    Instant stale = Instant.now().minus(Duration.ofHours(1));
+    String heldNode = "held-dead-" + UUID.randomUUID();
+    String idleNode = "idle-dead-" + UUID.randomUUID();
+    store().upsertHeartbeat(heldNode, stale);
+    store().upsertHeartbeat(idleNode, stale);
+    var held = persist(jobWithBusinessKey(uniqueBusinessKey()));
+    assertEquals(held.getId(), store().claimNextBatch(1, heldNode).get(0).getId());
+    assertTrue(store().cancelRunningJob(held.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var running = persist(jobWithBusinessKey(uniqueBusinessKey()));
+    assertEquals(running.getId(), store().claimNextBatch(1, idleNode).get(0).getId());
+
+    assertEquals(1, store().deleteInactiveNodesByIds(List.of(heldNode, idleNode)));
+    assertTrue(store().findNodeById(heldNode).isPresent(), "a node with a hold keeps its row");
+    assertTrue(store().findNodeById(idleNode).isEmpty());
+
+    assertEquals(1, store().releaseBusinessKeyHolds(List.of(heldNode)));
+    assertEquals(1, store().deleteInactiveNodesByIds(List.of(heldNode)));
+    assertTrue(store().findNodeById(heldNode).isEmpty());
+  }
+
+  @Test
   void deleteExpiredBusinessKeyHolds_deletesOnlyExpired() {
     // Expiry cleanup preserves live holds and normal pending reservations.
     String expiredKey = uniqueBusinessKey();

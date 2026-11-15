@@ -59,6 +59,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.tck.store.JpaContainerFixture;
 
 /** Exercises business key holds against queue and reservation writes in the bundled SQL stores. */
@@ -349,6 +350,76 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
     List<String> keys = createHolds(prefix, "released-node", Instant.now().plusSeconds(3600));
     assertSweepSkipsLockedHold(
         prefix, keys, () -> fixture().store().releaseBusinessKeyHolds(List.of("released-node")));
+  }
+
+  @Test
+  void deadNodeKeepsItsRowUntilALaterScanReleasesItsLockedHold() throws Exception {
+    // The scan keeps a dead node's row while a hold of that node is left, so the next scan
+    // retries the release for a hold that the first one skipped as locked.
+    var store = fixture().store();
+    String node = "locked-dead-" + UUID.randomUUID();
+    store.upsertHeartbeat(node, Instant.now().minus(Duration.ofHours(1)));
+    String prefix = "locked-dead-node-" + UUID.randomUUID() + "-";
+    List<String> keys = createHolds(prefix, node, Instant.now().plusSeconds(3600));
+    String locked = keys.get(1);
+    Instant cutoff = Instant.now().minusSeconds(60);
+    // The orphan scan's steps for stale nodes, limited to this test's node.
+    Callable<List<Integer>> scan =
+        () -> {
+          List<String> stale =
+              store.findInactiveNodesSince(cutoff).stream()
+                  .map(NodeEntity::getId)
+                  .filter(node::equals)
+                  .toList();
+          int released = store.releaseBusinessKeyHolds(stale);
+          int deleted = store.deleteInactiveNodesByIds(stale);
+          return List.of(stale.size(), released, deleted);
+        };
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    Future<List<Integer>> firstScan = null;
+    try {
+      try (Connection lockHolder = fixture().openConnection()) {
+        lockHolder.setAutoCommit(false);
+        try {
+          try (Statement statement = lockHolder.createStatement()) {
+            assertEquals(
+                1,
+                statement.executeUpdate(
+                    "DELETE FROM scheduler_business_key_reservation WHERE business_key = '"
+                        + locked
+                        + "'"));
+          }
+          firstScan = executor.submit(scan);
+          List<Integer> first;
+          try {
+            first = firstScan.get(10, TimeUnit.SECONDS);
+          } catch (TimeoutException e) {
+            throw new AssertionError(
+                "the scan waited on a hold that another transaction locked", e);
+          }
+          assertEquals(List.of(1, keys.size() - 1, 0), first, "found, released, nodes deleted");
+          assertEquals(List.of(locked), remainingHoldKeys(prefix));
+          assertTrue(store.findNodeById(node).isPresent(), "the dead node keeps its row");
+        } finally {
+          lockHolder.rollback();
+        }
+      }
+      assertEquals(
+          List.of(1, 1, 1),
+          executor.submit(scan).get(30, TimeUnit.SECONDS),
+          "the next scan releases the skipped hold, then deletes the node row");
+      assertEquals(List.of(), remainingHoldKeys(prefix));
+      assertTrue(store.findNodeById(node).isEmpty());
+    } finally {
+      if (firstScan != null && !firstScan.isDone()) {
+        try {
+          firstScan.get(60, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+          // Let a blocked store call finish after rollback before fixture cleanup.
+        }
+      }
+      executor.shutdownNow();
+    }
   }
 
   @Test
