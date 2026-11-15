@@ -118,6 +118,7 @@ public final class RatchetSchemaCatalog {
 
   private static Table schedulerJob() {
     return Table.builder("scheduler_job")
+        .column(required("row_version", INT32))
         .column(required("job_id", UUID))
         .column(required("job_type", TEXT))
         .column(required("priority", INT32))

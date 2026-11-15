@@ -16,6 +16,7 @@
 package run.ratchet.tck.store.sql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.ACQUIRED;
@@ -74,10 +75,6 @@ import run.ratchet.tck.store.JpaContainerFixture;
 public abstract class AbstractSqlResourcePermitClaimRaceTest {
 
   protected abstract JpaContainerFixture fixture();
-
-  protected boolean saveLocksTheQueueRowFirst() {
-    return false;
-  }
 
   /** Whether an acquire's resource lock also holds every other resource until it commits. */
   protected boolean resourceLockBlocksOtherResources() {
@@ -470,10 +467,9 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
-  /** Pins removal of a newly inserted waiter by a save moving the job during its park. */
+  /** Pins a save that moves the job during its park: it waits, then removes the new waiter row. */
   @Test
-  void saveThatMovesTheJobWhileItParksRemovesTheNewWaiterRow() throws Exception {
-    assumeFalse(saveLocksTheQueueRowFirst(), "save locks the queue row before handling waiters");
+  void saveThatMovesTheJobWhileItParksWaitsAndRemovesTheNewWaiterRow() throws Exception {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
     permits.configureResource("res-a", 1, 60_000, null);
@@ -485,6 +481,7 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     running.setResourceName("res-b");
     var caller = Thread.currentThread();
     var fired = new AtomicBoolean();
+    var saveStarted = new CountDownLatch(1);
     var saveReachedTheJobRow = new CountDownLatch(1);
     var saveReachedBeforeCommit = new AtomicBoolean();
     var save = new AtomicReference<Future<?>>();
@@ -494,6 +491,12 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
           .observeNativeQueries(
               (sql, event) -> {
                 String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+                if (Thread.currentThread() != caller
+                    && !event.completed()
+                    && normalized.trim().startsWith("SELECT")
+                    && normalized.contains("SCHEDULER_JOB_QUEUE")) {
+                  saveStarted.countDown();
+                }
                 if (Thread.currentThread() != caller
                     && !event.completed()
                     && event.operation().equals("executeUpdate")
@@ -507,7 +510,10 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                     && fired.compareAndSet(false, true)) {
                   save.set(executor.submit(() -> store.save(running)));
                   try {
-                    saveReachedBeforeCommit.set(saveReachedTheJobRow.await(5, TimeUnit.SECONDS));
+                    if (!saveStarted.await(10, TimeUnit.SECONDS)) {
+                      throw new IllegalStateException("save did not start its queue-row lock");
+                    }
+                    saveReachedBeforeCommit.set(saveReachedTheJobRow.await(1, TimeUnit.SECONDS));
                   } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException(e);
@@ -517,70 +523,16 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
       assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-a"));
       assertTrue(fired.get());
       awaitFuture(save.get());
-      assertTrue(
-          permits.findResourcesWithWaiters(null, 10).isEmpty(),
-          "save reached the job row before park committed: " + saveReachedBeforeCommit.get());
-      assertTrue(saveReachedBeforeCommit.get(), "the save did not reach the job row mid-park");
+      assertEquals(0, saveReachedTheJobRow.getCount());
+      // save() locks the queue row first, which the park holds, so it waits for the park to commit.
+      assertFalse(saveReachedBeforeCommit.get(), "the save wrote the job row mid-park");
+      assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
       assertEquals("res-b", store.findById(waiter.getId()).orElseThrow().getResourceName());
     } finally {
       fixture().observeNativeQueries((sql, event) -> {});
       executor.shutdownNow();
       assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
     }
-  }
-
-  /** Pins removal of a newer resource's waiter when a save writes back an older resource. */
-  @Test
-  void saveThatWritesBackAnOlderResourceRemovesAWaiterOnTheNewerOne() throws Exception {
-    assumeFalse(saveLocksTheQueueRowFirst(), "save locks the job row before it reads the resource");
-    var permits = fixture().resourcePermitStore();
-    var store = fixture().store();
-    permits.configureResource("res-a", 1, 60_000, null);
-    permits.configureResource("res-b", 1, 60_000, null);
-    var holderB = claimNewJob("res-b", "holder");
-    assertEquals(ACQUIRED, acquire(permits, holderB, "holder", "res-b"));
-    var job = fixture().newPendingJob();
-    job.setResourceName("res-a");
-    var created = store.create(job);
-    var stale = store.findById(created.getId()).orElseThrow();
-    var caller = Thread.currentThread();
-    var fired = new AtomicBoolean();
-    var executor = Executors.newSingleThreadExecutor();
-    try {
-      fixture()
-          .observeNativeQueries(
-              (sql, event) -> {
-                String normalized = sql.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
-                if (Thread.currentThread() == caller
-                    && event.completed()
-                    && event.operation().equals("getResultList")
-                    && normalized.contains("SELECT Q.STATUS, Q.SCHEDULED_TIME, Q.ATTEMPTS")
-                    && fired.compareAndSet(false, true)) {
-                  awaitFuture(
-                      executor.submit(
-                          () -> {
-                            var moved = store.findById(created.getId()).orElseThrow();
-                            moved.setResourceName("res-b");
-                            store.save(moved);
-                            var claims = store.claimNextBatch(1, "node-b");
-                            assertEquals(1, claims.size());
-                            assertEquals(created.getId(), claims.get(0).getId());
-                            assertEquals(
-                                AT_CAPACITY, acquire(permits, claims.get(0), "node-b", "res-b"));
-                          }));
-                }
-              });
-      store.save(stale);
-    } finally {
-      fixture().observeNativeQueries((sql, event) -> {});
-      executor.shutdownNow();
-      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
-    }
-    assertTrue(fired.get(), "the job moved and parked on res-b after the save read it");
-    assertEquals("res-a", store.findById(created.getId()).orElseThrow().getResourceName());
-    assertTrue(
-        permits.findResourcesWithWaiters(null, 10).isEmpty(),
-        "a waiter on res-b stayed after the save moved the job back to res-a");
   }
 
   /** Pins skipping a waiter whose job moves after wake reads its old resource line. */
@@ -1063,8 +1015,8 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
                       if (isConnectionFailure(failure)) {
                         connectionFailures.add(failure);
                       } else if (isLockFailure(failure)) {
-                        // A save does not translate a deadlock, so it escapes on its first attempt
-                        // with no method name. Its statement text still shows a waiter-row failure.
+                        // A lock failure can escape without a recorded method name. Its statement
+                        // text can still identify a waiter-row failure.
                         String method = lastLockFailure.get();
                         String key = method == null ? "unknown" : method;
                         var counts =

@@ -35,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
@@ -102,6 +103,168 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
 
     assertTrue(reloaded.isPresent(), "Persisted job should be reloadable by ID");
     assertEquals(saved.getId(), reloaded.get().getId());
+  }
+
+  @Test
+  void save_scheduledTimeAndResourceName_persistsBothChanges() {
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    Instant scheduledTime = job.getScheduledTime().plusSeconds(60);
+    job.setScheduledTime(scheduledTime);
+    job.setResourceName("updated-resource");
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals(scheduledTime, found.getScheduledTime());
+    assertEquals("updated-resource", found.getResourceName());
+  }
+
+  @Test
+  void save_scheduledTimeAndParams_persistsBothChanges() {
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    Instant scheduledTime = job.getScheduledTime().plusSeconds(60);
+    Map<String, String> params = Map.of("key", "updated-value");
+    job.setScheduledTime(scheduledTime);
+    job.setParams(params);
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals(scheduledTime, found.getScheduledTime());
+    assertEquals(params, found.getParams());
+  }
+
+  @Test
+  void save_lastErrorAndDependsOnAndCallbacks_persistsEveryChange() {
+    var parent = persist(newPendingJob());
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    var onSuccess =
+        new JobPayload("com.example.Callback", "onSuccess", "()V", false, List.of(), null);
+    var onFailure =
+        new JobPayload("com.example.Callback", "onFailure", "()V", false, List.of(), null);
+    job.setLastError("updated-error");
+    job.setDependsOn(parent.getId());
+    job.setOnSuccessPayload(onSuccess);
+    job.setOnFailurePayload(onFailure);
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals("updated-error", found.getLastError());
+    assertEquals(parent.getId(), found.getDependsOn());
+    assertEquals(onSuccess, found.getOnSuccessPayload());
+    assertEquals(onFailure, found.getOnFailurePayload());
+  }
+
+  @Test
+  void save_canceledAndSupersededBy_persistsBothChanges() {
+    var replacement = persist(newPendingJob());
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    job.setStatus(JobStatus.CANCELED);
+    job.setSupersededBy(replacement.getId());
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.CANCELED, found.getStatus());
+    assertEquals(replacement.getId(), found.getSupersededBy());
+  }
+
+  @Test
+  void save_resourceNameOnly_persistsChange() {
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    job.setResourceName("updated-resource");
+
+    store().save(job);
+
+    var found = store().findById(job.getId()).orElseThrow();
+    assertEquals("updated-resource", found.getResourceName());
+  }
+
+  @Test
+  void save_staleScheduledTimeCannotOverwriteConcurrentParams() {
+    var saved = persist(newPendingJob());
+    var a = store().findById(saved.getId()).orElseThrow();
+    var b = store().findById(saved.getId()).orElseThrow();
+    Instant originalTime = a.getScheduledTime();
+    b.setParams(Map.of("key", "concurrent-value"));
+    store().save(b);
+    a.setScheduledTime(originalTime.plusSeconds(60));
+
+    assertThrows(RatchetOptimisticLockException.class, () -> store().save(a));
+
+    var found = store().findById(saved.getId()).orElseThrow();
+    assertEquals(b.getParams(), found.getParams());
+    assertEquals(originalTime, found.getScheduledTime());
+  }
+
+  @Test
+  void save_staleParamsCannotOverwriteConcurrentResourceName() {
+    var saved = persist(newPendingJob());
+    var a = store().findById(saved.getId()).orElseThrow();
+    var b = store().findById(saved.getId()).orElseThrow();
+    var originalParams = a.getParams();
+    b.setResourceName("concurrent-resource");
+    store().save(b);
+    a.setParams(Map.of("key", "stale-write"));
+
+    assertThrows(RatchetOptimisticLockException.class, () -> store().save(a));
+
+    var found = store().findById(saved.getId()).orElseThrow();
+    assertEquals("concurrent-resource", found.getResourceName());
+    assertEquals(originalParams, found.getParams());
+  }
+
+  @Test
+  void save_staleTerminalParamsCannotOverwriteConcurrentSupersededBy() {
+    var replacement = persist(newPendingJob());
+    var saved = persist(newPendingJob());
+    var terminal = store().findById(saved.getId()).orElseThrow();
+    terminal.setStatus(JobStatus.CANCELED);
+    store().save(terminal);
+    var a = store().findById(saved.getId()).orElseThrow();
+    var b = store().findById(saved.getId()).orElseThrow();
+    var originalParams = a.getParams();
+    b.setSupersededBy(replacement.getId());
+    store().save(b);
+    a.setParams(Map.of("key", "stale-write"));
+
+    assertThrows(RatchetOptimisticLockException.class, () -> store().save(a));
+
+    var found = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.CANCELED, found.getStatus());
+    assertEquals(replacement.getId(), found.getSupersededBy());
+    assertEquals(originalParams, found.getParams());
+  }
+
+  @Test
+  void save_sameLoadedInstanceCanBeSavedTwice() {
+    var saved = persist(newPendingJob());
+    var job = store().findById(saved.getId()).orElseThrow();
+    Instant scheduled = job.getScheduledTime().plusSeconds(60);
+    job.setScheduledTime(scheduled);
+    store().save(job);
+    job.setParams(Map.of("key", "second-save"));
+    store().save(job);
+
+    var found = store().findById(saved.getId()).orElseThrow();
+    assertEquals(scheduled, found.getScheduledTime());
+    assertEquals(job.getParams(), found.getParams());
+  }
+
+  @Test
+  void save_sameCreatedInstanceNeedsNoReload() {
+    var job = newPendingJob();
+    store().create(job);
+    job.setParams(Map.of("key", "after-create"));
+    store().save(job);
+
+    assertEquals(job.getParams(), store().findById(job.getId()).orElseThrow().getParams());
   }
 
   @Test

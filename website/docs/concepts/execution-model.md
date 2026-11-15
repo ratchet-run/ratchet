@@ -259,7 +259,7 @@ Each execution attempt has a deadline: the time the attempt started plus the job
 
 1. At `ratchet.timeout.soft-timeout-percent` of the timeout (80% by default), it logs a warning.
 2. At the deadline minus `ratchet.timeout.cancellation-grace-seconds`, it sets the attempt's cancellation request. This step is skipped when the grace is `0` (the default) or not shorter than the timeout.
-3. At the deadline, if the attempt is still running, it sets the cancellation request (if it is not set yet) and interrupts the worker thread with `Future.cancel(true)`. The attempt then counts as a timeout: it is retried if it has retries left, otherwise it fails and goes to the DLQ. An attempt that already stopped after the request is not interrupted (see [Stopping at a safe point](#stopping-at-a-safe-point)).
+3. At the deadline, if the attempt is still running, it sets the cancellation request (if it is not set yet) and cancels the attempt. If the job body is running, the worker thread is interrupted with `Future.cancel(true)`. A body that has not started does not start, and a worker that has returned from the body is not interrupted while it records the outcome. The attempt then counts as a timeout: it is retried if it has retries left, otherwise it fails and goes to the DLQ. An attempt that already stopped after the request is not interrupted (see [Stopping at a safe point](#stopping-at-a-safe-point)).
 
 ```java
 scheduler.enqueue(() -> longRunningTask())
@@ -269,11 +269,11 @@ scheduler.enqueue(() -> longRunningTask())
 
 ### Stopping at a safe point
 
-An interrupt lands wherever the worker happens to be blocked: waiting for a pooled bean, a JDBC connection, or a cache lock. The code it interrupts may report the timeout as an unrelated error and leave container state half-changed. A job that works in units, such as pages of a table, can stop between units instead. `JobContext` tells it when to stop:
+An interrupt lands wherever the job body happens to be blocked: waiting for a pooled bean, a JDBC connection, or a cache lock. The code it interrupts may report the timeout as an unrelated error and leave container state half-changed. A job that works in units, such as pages of a table, can stop between units instead. `JobContext` tells it when to stop:
 
 | Method | Returns |
 |---|---|
-| `deadline()` | `Optional<Instant>`: when the watchdog will interrupt this attempt. Empty when the context was not bound for a watched execution, for example inside an `onFailure` callback that the watchdog runs after it interrupts a job. |
+| `deadline()` | `Optional<Instant>`: when the watchdog will cancel this attempt. Empty when the context was not bound for a watched execution, for example inside an `onFailure` callback that the watchdog runs after it interrupts a job. |
 | `isCancellationRequested()` | `true` once Ratchet has asked this attempt to stop. Cheap to call; it does no I/O. |
 | `throwIfCancellationRequested()` | Throws `CancellationRequestedException` if a stop was requested. |
 
@@ -311,13 +311,13 @@ A step that waits on a cancelled or failed job can start just before Ratchet can
 
 If the job has a business key, the key stays held until the body ends, so a new job with the same key cannot run alongside the old body. While the key is held, `submit()` throws `DuplicateBusinessKeyException` and `findBusinessKeyHolder` returns the cancelled job with status `CANCELED`. `cancelJob` and `replace` of a running job hold the key. So do the cancels Ratchet makes itself, such as the cancel of a running step described above. A hard timeout does not. The hold ends in one of three ways:
 
-- The worker releases it when the body ends. If the worker thread is interrupted at that point, for example by the watchdog at the deadline, or if the store call fails, a scheduler thread makes the release instead. It tries again every 5 seconds for up to 5 minutes.
+- The worker releases it when the body ends. Ratchet interrupts a worker only while its body runs, and the worker clears that interrupt before it makes the release. If the store call fails, or if code outside Ratchet interrupts the worker thread after the body ends, a scheduler thread makes the release instead. It tries again every 5 seconds for up to 5 minutes.
 - The orphan scan on another node releases it when it cleans up the node that ran the body. A node also releases its own holds when it starts.
 - The orphan scan deletes it once its limit has passed. The limit is the cancel time plus the job's timeout (or `ratchet.timeout.default-sla-seconds`), plus `ratchet.node.orphan-grace-seconds`, plus `ratchet.node.orphan-scan-interval-seconds`. The body's deadline comes first, so the limit only ends the hold of a body that ignored both the stop request and the deadline interrupt.
 
 The node that cancels the job sets the limit, and the node that runs the body sets the deadline. Give every node the same `default-sla-seconds`, `orphan-grace-seconds` and `orphan-scan-interval-seconds`, and keep their clocks in sync. Otherwise the limit can pass before the body's deadline.
 
-If the worker thread is interrupted when the body ends, for example by the watchdog or by a node shutdown, the worker does not check for the cancel, so the attempt's execution record can show a failure.
+If code outside Ratchet interrupts the worker thread after the body ends, the worker does not check for the cancel, so the attempt's execution record can show a failure.
 
 Deleting or archiving a job does not end its hold. The store's `delete` of a held job fails, its `deleteJobsByIds` skips the job, and job retention archives the job only after the hold ends.
 

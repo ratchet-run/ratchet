@@ -336,7 +336,6 @@ public class WorkflowScheduler extends ChainScheduler {
     }
 
     childJob.setScheduledTime(effective().instant());
-    childJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     jobCrudStore.save(childJob);
     return true;
   }

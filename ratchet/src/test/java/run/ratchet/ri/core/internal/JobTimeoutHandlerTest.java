@@ -472,6 +472,7 @@ class JobTimeoutHandlerTest {
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
         .thenReturn(true);
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
+    assertTrue(attempt.markBodyStarted());
     assertTrue(attempt.claimTimeoutForWorker());
     assertTrue(attempt.handBackTimeoutToWatchdog());
     Future<?> future = mock(Future.class);
@@ -480,6 +481,35 @@ class JobTimeoutHandlerTest {
     invokeHardTimeout(attempt, future);
 
     verify(future).cancel(true);
+    verify(jobCrudStore, never()).getJobStatus(any());
+    verify(jobCrudStore).findById(JOB_ID);
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L));
+    verify(lifecycleFacade)
+        .handleTimeoutTransition(any(TimeoutException.class), eq(false), any(Supplier.class));
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    assertFalse(attempt.isTimeoutHandedBack());
+  }
+
+  @Test
+  void finishedBodyTimeoutCancelsWithoutInterrupt() throws Exception {
+    JobEntity job = jobWithMaxRetries(3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
+        .thenReturn(true);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
+    assertTrue(attempt.markBodyStarted());
+    assertTrue(attempt.claimTimeoutForWorker());
+    assertTrue(attempt.handBackTimeoutToWatchdog());
+    Future<?> future = mock(Future.class);
+    attempt.markBodyFinished();
+
+    invokeHardTimeout(attempt, future);
+
+    verify(future).cancel(false);
     verify(jobCrudStore, never()).getJobStatus(any());
     verify(jobCrudStore).findById(JOB_ID);
     verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
@@ -536,6 +566,7 @@ class JobTimeoutHandlerTest {
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
         .thenReturn(true);
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
+    assertTrue(attempt.markBodyStarted());
     Runnable hook = mock(Runnable.class);
     doAnswer(
             call -> {
@@ -571,6 +602,7 @@ class JobTimeoutHandlerTest {
   void graceSchedulesRequestBeforeHardTimeoutWithoutInterrupting() {
     handler = handlerWithGrace(3L);
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0, 0L, "node-1");
+    assertTrue(attempt.markBodyStarted());
     Future<?> future = mock(Future.class);
     ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
     handler.scheduleTimeoutMonitoring(attempt, future, scheduler, attempt.executionStartTime());
@@ -589,6 +621,7 @@ class JobTimeoutHandlerTest {
   void zeroGraceSetsFlagBeforeInterruptAndSchedulesNoEarlyRequest() {
     handler = handlerWithGrace(0L);
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0, 0L, "node-1");
+    assertTrue(attempt.markBodyStarted());
     Future<?> future = mock(Future.class);
     AtomicBoolean flagAtInterrupt = new AtomicBoolean();
     when(future.cancel(true))

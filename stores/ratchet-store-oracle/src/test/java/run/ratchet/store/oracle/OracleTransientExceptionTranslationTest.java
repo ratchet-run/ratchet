@@ -15,8 +15,10 @@
  */
 package run.ratchet.store.oracle;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
@@ -32,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -43,19 +46,120 @@ class OracleTransientExceptionTranslationTest {
   private static final UUID JOB_ID = UUID.fromString("01900000-0000-7000-8000-000000000001");
 
   @Test
+  void scheduledTimeSaveRejectsConcurrentModificationBeforeColdUpdate() {
+    assertScheduledTimeSave(0);
+  }
+
+  @Test
+  void scheduledTimeSaveAlsoUpdatesColdRow() {
+    assertScheduledTimeSave(1);
+  }
+
+  private static void assertScheduledTimeSave(int hotUpdateCount) {
+    Instant storedTime = Instant.parse("2026-11-14T00:00:00Z");
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setStatus(JobStatus.PENDING);
+    job.setVersion(7);
+    job.setRowVersion(3);
+    job.setScheduledTime(storedTime.plusSeconds(60));
+    job.setResourceName("changed-resource");
+    Object[] snapshot = {"PENDING", storedTime, 0, null, null, null, null, 7, null, null, 3};
+    AtomicInteger statements = new AtomicInteger();
+    AtomicInteger coldUpdates = new AtomicInteger();
+    AtomicInteger versionBindings = new AtomicInteger();
+    EntityManager em =
+        (EntityManager)
+            Proxy.newProxyInstance(
+                EntityManager.class.getClassLoader(),
+                new Class<?>[] {EntityManager.class},
+                (proxy, method, args) -> {
+                  if (!"createNativeQuery".equals(method.getName())) {
+                    throw new UnsupportedOperationException(method.getName());
+                  }
+                  String sql = (String) args[0];
+                  boolean waiterCleanup = sql.contains("DELETE FROM scheduler_resource_waiter");
+                  int statement = waiterCleanup ? -1 : statements.getAndIncrement();
+                  if (waiterCleanup) {
+                    assertTrue(sql.contains("WHERE job_id = ?"));
+                  } else if (statement == 0) {
+                    assertTrue(sql.contains("SELECT job_id FROM scheduler_job_queue"));
+                  } else if (statement == 2) {
+                    assertTrue(sql.contains("WHERE job_id = ? AND status = ? AND version = ?"));
+                  } else if (statement == 3) {
+                    assertTrue(sql.contains("UPDATE scheduler_job"));
+                    assertTrue(sql.contains("SET params = "));
+                  } else {
+                    assertEquals(1, statement);
+                  }
+                  return Proxy.newProxyInstance(
+                      Query.class.getClassLoader(),
+                      new Class<?>[] {Query.class},
+                      (query, queryMethod, parameters) -> {
+                        switch (queryMethod.getName()) {
+                          case "setParameter":
+                            if (statement == 2 && Integer.valueOf(4).equals(parameters[0])) {
+                              assertEquals(7, parameters[1]);
+                              versionBindings.incrementAndGet();
+                            }
+                            return query;
+                          case "getResultList":
+                            if (statement == 0) {
+                              return List.of(JOB_ID);
+                            }
+                            assertEquals(1, statement);
+                            return Collections.singletonList(snapshot);
+                          case "executeUpdate":
+                            if (waiterCleanup) {
+                              return 1;
+                            }
+                            if (statement == 2) {
+                              return hotUpdateCount;
+                            }
+                            assertEquals(3, statement);
+                            coldUpdates.incrementAndGet();
+                            return 1;
+                          default:
+                            throw new UnsupportedOperationException(queryMethod.getName());
+                        }
+                      });
+                });
+    var ctx = new OracleStoreContext(em, null);
+    var writes =
+        new OracleJobWriteOperations(
+            ctx, new OracleBusinessKeyReservations(ctx), new OracleTagOperations(ctx));
+    if (hotUpdateCount == 0) {
+      var failure = assertThrows(RatchetOptimisticLockException.class, () -> writes.save(job));
+      assertEquals("Concurrent modification on job " + JOB_ID, failure.getMessage());
+      assertEquals(3, statements.get());
+      assertEquals(0, coldUpdates.get());
+    } else {
+      writes.save(job);
+      assertEquals(4, statements.get());
+      assertEquals(1, coldUpdates.get());
+      assertEquals(4, job.getRowVersion());
+    }
+    assertEquals(1, versionBindings.get());
+    assertEquals(7, job.getVersion());
+  }
+
+  @Test
   void saveTranslatesSnapshotDeadlock() {
-    var writes = writeOperations(entityManager(queryThrowingOnResults()));
+    var writes =
+        writeOperations(entityManager(queryReturning(List.of(JOB_ID)), queryThrowingOnResults()));
 
     assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
   }
 
   @Test
   void saveTranslatesColdUpdateDeadlock() {
-    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null, null};
+    Object[] snapshot = {"PENDING", null, 0, null, null, null, null, 0, null, null, 0};
     var writes =
         writeOperations(
             entityManager(
-                queryReturning(Collections.singletonList(snapshot)), queryThrowingOnExecute()));
+                queryReturning(List.of(JOB_ID)),
+                queryReturning(Collections.singletonList(snapshot)),
+                queryThrowingOnExecute()));
 
     assertThrows(RatchetTransientStoreException.class, () -> writes.save(existingJob()));
   }
@@ -81,7 +185,8 @@ class OracleTransientExceptionTranslationTest {
 
   @Test
   void saveMissingJobLeavesIllegalStateExceptionUnchanged() {
-    var writes = writeOperations(entityManager(queryReturning(List.of())));
+    var writes =
+        writeOperations(entityManager(queryReturning(List.of()), queryReturning(List.of())));
 
     assertThrows(IllegalStateException.class, () -> writes.save(existingJob()));
   }
@@ -91,6 +196,7 @@ class OracleTransientExceptionTranslationTest {
     job.setId(JOB_ID);
     job.setJobType(JobExecutionType.SINGLE);
     job.setVersion(0);
+    job.setRowVersion(0);
     return job;
   }
 

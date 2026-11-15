@@ -172,7 +172,7 @@ final class SqlserverJobDeleteOperations {
     String sql =
         """
         SELECT j.job_type, j.depends_on, q.claim_seq, q.picked_by, q.attempts, j.max_retries,
-               j.priority, j.business_key, j.recurring_master_id
+               j.priority, j.business_key, j.recurring_master_id, j.row_version
         FROM scheduler_job j JOIN scheduler_job_queue q ON q.job_id = j.job_id
         WHERE j.job_id = ?
         """;
@@ -197,6 +197,7 @@ final class SqlserverJobDeleteOperations {
     snapshot.setPriority(RowValues.safeJobPriority(((Number) row[6]).intValue()));
     snapshot.setBusinessKey(RowValues.stringOrNull(row[7]));
     snapshot.setRecurringMasterId(SqlserverJobRowMapper.uuidOrNull(row[8]));
+    snapshot.setRowVersion(((Number) row[9]).intValue());
     return Optional.of(snapshot);
   }
 

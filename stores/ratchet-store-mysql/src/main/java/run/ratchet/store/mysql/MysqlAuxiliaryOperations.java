@@ -373,7 +373,9 @@ final class MysqlAuxiliaryOperations
     if (updated == 0) {
       return AcquireResult.SUPERSEDED;
     }
-    // Never wait for the job row here: a save can hold it while it waits for this queue row.
+    // Skip a locked job row instead of waiting for it. cancelJob, the terminal mark writes, delete
+    // and save all lock this queue row before the job row. Skipping keeps any other job-row writer
+    // from deadlocking with this park; a skipped row parks the job without a waiter row.
     // Write the waiter row only while the job still names this resource.
     // language=MySQL
     String currentResource =

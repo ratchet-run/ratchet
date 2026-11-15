@@ -24,11 +24,12 @@ import org.jboss.logging.Logger;
 import run.ratchet.store.spi.JobTerminalStore;
 
 /**
- * Releases the business-key hold of a cancelled attempt. A worker thread that was interrupted, for
- * example by the watchdog at the deadline, must not call the store, because a JDBC call on an
- * interrupted thread can break the pooled connection. A store call can also fail. In both cases the
- * release moves to a scheduler thread and is retried there. This is a best effort: the hold's
- * expiry, the stale-node release and the start-up release are the backstops.
+ * Releases the business-key hold of a cancelled attempt. The worker clears the interrupt that the
+ * watchdog or a shutdown gives a running body before it gets here, but a thread that is still
+ * interrupted must not call the store, because a JDBC call on an interrupted thread can break the
+ * pooled connection. A store call can also fail. In both cases the release moves to a scheduler
+ * thread and is retried there. This is a best effort: the hold's expiry, the stale-node release and
+ * the start-up release are the backstops.
  */
 final class HeldKeyReleases {
   static final Duration RETRY_DELAY = Duration.ofSeconds(5);

@@ -107,6 +107,7 @@ final class SqlserverJobWriteOperations {
   private static final int IDX_HOT_LAST_ERROR = 6;
   private static final int IDX_HOT_VERSION = 7;
   private static final int IDX_HOT_TERMINAL_STATUS = 8;
+  private static final int IDX_HOT_ROW_VERSION = 9;
 
   private final SqlserverStoreContext ctx;
   private final SqlserverBusinessKeyReservations reservations;
@@ -171,6 +172,18 @@ final class SqlserverJobWriteOperations {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("bulk insert jobs", e);
     }
+    jobs.forEach(
+        job ->
+            job.setRowVersion(
+                job.getStatus() != null && SqlserverJobRowMapper.isTerminalStatus(job.getStatus())
+                    ? 1
+                    : 0));
+    jobs.forEach(
+        job -> {
+          if (job.getVersion() == null) {
+            job.setVersion(0);
+          }
+        });
   }
 
   void saveInsert(JobEntity job) {
@@ -209,12 +222,17 @@ final class SqlserverJobWriteOperations {
       SqlIdempotencyKeys.reserve(
           ctx, List.of(job), nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
       coldInsert.executeUpdate();
+      job.setRowVersion(0);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
+        job.setRowVersion(1);
         job.setTerminalStatus(job.getStatus());
       } else {
         if (!recurring) {
           hotInsert.executeUpdate();
+          if (job.getVersion() == null) {
+            job.setVersion(0);
+          }
         }
       }
       if (job.getTags() != null && !job.getTags().isEmpty()) {
@@ -236,7 +254,8 @@ final class SqlserverJobWriteOperations {
     String sql =
         """
         UPDATE scheduler_job
-        SET terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
+        SET row_version = row_version + 1,
+            terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
         WHERE job_id = ?
         """;
     ctx.em()
@@ -388,7 +407,7 @@ final class SqlserverJobWriteOperations {
       String sql =
           """
           UPDATE c
-          SET terminal_status = v.terminal_status,
+          SET row_version = row_version + 1, terminal_status = v.terminal_status,
               terminal_error = v.terminal_error,
               total_attempts = v.total_attempts,
               terminated_at = v.terminated_at
@@ -447,15 +466,37 @@ final class SqlserverJobWriteOperations {
     return String.join(", ", Collections.nCopies(count, values));
   }
 
+  // Save locks the queue row before the job row, like the CAS cancel gate and job completion,
+  // so racing either operation waits instead of deadlocking.
+  private void lockQueueRow(UUID id) {
+    // language=SQL Server
+    String sql =
+        """
+        SELECT job_id FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK) WHERE job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .getResultList();
+  }
+
   private void saveColdUpdate(JobEntity job) {
+    lockQueueRow(job.getId());
     Object[] row = snapshotHotRow(job.getId());
-    if (tryScheduledTimeOnlyHotUpdate(job, row)) {
-      return;
+    if (row == null) {
+      throw new IllegalStateException("save() called on missing job id=" + job.getId());
     }
-    if (tryHotMutationDispatch(job, row)) {
-      return;
+    if (job.getRowVersion() == null) {
+      throw new IllegalArgumentException(
+          "save() needs a job loaded from the store; rowVersion is null for job " + job.getId());
     }
-    guardAgainstHotMutation(job, row);
+    if (job.getRowVersion() != ((Number) row[IDX_HOT_ROW_VERSION]).intValue()) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
+      guardAgainstHotMutation(job, row);
+    }
+    // Fast paths write only the queue row, so always update the job row too.
 
     // language=SQL Server
     String sql =
@@ -466,26 +507,33 @@ final class SqlserverJobWriteOperations {
             on_failure_payload = ?,
             depends_on = CAST(? AS BINARY(16)),
             superseded_by = CAST(? AS BINARY(16)),
-            resource_name = ?
-        WHERE job_id = ?
+            resource_name = ?,
+            row_version = row_version + 1
+        WHERE job_id = ? AND row_version = ?
         """;
     boolean active = JobEncryption.activeFor(job);
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, SqlserverJobRowMapper.paramsToJson(job, active))
-        .setParameter(
-            2,
-            SqlserverJobRowMapper.callbackPayloadToJson(
-                job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
-        .setParameter(
-            3,
-            SqlserverJobRowMapper.callbackPayloadToJson(
-                job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
-        .setParameter(4, UuidByteArrayConverter.toBytes(job.getDependsOn()))
-        .setParameter(5, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
-        .setParameter(6, job.getResourceName())
-        .setParameter(7, UuidByteArrayConverter.toBytes(job.getId()))
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, SqlserverJobRowMapper.paramsToJson(job, active))
+            .setParameter(
+                2,
+                SqlserverJobRowMapper.callbackPayloadToJson(
+                    job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
+            .setParameter(
+                3,
+                SqlserverJobRowMapper.callbackPayloadToJson(
+                    job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
+            .setParameter(4, UuidByteArrayConverter.toBytes(job.getDependsOn()))
+            .setParameter(5, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
+            .setParameter(6, job.getResourceName())
+            .setParameter(7, UuidByteArrayConverter.toBytes(job.getId()))
+            .setParameter(8, ((Number) row[IDX_HOT_ROW_VERSION]).intValue())
+            .executeUpdate();
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
     // Under the job-row lock, keep only a waiter on the resource this save stores.
     deleteWaiterOffResource(job.getId(), job.getResourceName());
   }
@@ -522,7 +570,7 @@ final class SqlserverJobWriteOperations {
         """
         UPDATE scheduler_job_queue
         SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
-        WHERE job_id = ? AND status = ?
+        WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
         ctx.em()
@@ -530,10 +578,12 @@ final class SqlserverJobWriteOperations {
             .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
             .setParameter(2, UuidByteArrayConverter.toBytes(id))
             .setParameter(3, storedStatus)
+            .setParameter(4, ((Number) row[IDX_HOT_VERSION]).intValue())
             .executeUpdate();
-    if (updated > 0) {
-      deleteWaiterIfPresent(id);
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    deleteWaiterIfPresent(id);
     return true;
   }
 
@@ -662,8 +712,8 @@ final class SqlserverJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status
-        FROM scheduler_job c
+               c.terminal_status, c.row_version
+        FROM scheduler_job c WITH (UPDLOCK, ROWLOCK)
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
         """;
@@ -677,9 +727,6 @@ final class SqlserverJobWriteOperations {
 
   private void guardAgainstHotMutation(JobEntity incoming, Object[] row) {
     UUID id = incoming.getId();
-    if (row == null) {
-      throw new IllegalStateException("save() called on missing job id=" + id);
-    }
     String qStatus = (String) row[IDX_HOT_STATUS];
     String terminal = (String) row[IDX_HOT_TERMINAL_STATUS];
 

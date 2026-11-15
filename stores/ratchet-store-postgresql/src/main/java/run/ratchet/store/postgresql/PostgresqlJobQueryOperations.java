@@ -133,7 +133,8 @@ final class PostgresqlJobQueryOperations {
       NULL,
       NULL,
       NULL,
-      0\
+      0,
+      NULL\
       """;
 
   private static final int MAX_RESULT_LIMIT = 1000;
@@ -147,9 +148,9 @@ final class PostgresqlJobQueryOperations {
   private static final int POS_JOB_ID = 1;
   private static final int POS_PRIORITY = 3;
   private static final int POS_CREATED_AT = 21;
-  private static final int POS_TERMINAL_STATUS = 55;
-  private static final int POS_Q_SCHEDULED_TIME = 56;
-  private static final int POS_Q_UPDATED_AT = 57;
+  private static final int POS_TERMINAL_STATUS = 56;
+  private static final int POS_Q_SCHEDULED_TIME = 57;
+  private static final int POS_Q_UPDATED_AT = 58;
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlTagOperations tags;

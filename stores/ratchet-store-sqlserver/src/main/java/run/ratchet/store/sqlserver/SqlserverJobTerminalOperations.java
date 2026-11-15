@@ -344,7 +344,7 @@ final class SqlserverJobTerminalOperations {
       String updateColdSql =
           """
           UPDATE c
-          SET terminal_status = 'CANCELED',
+          SET row_version = row_version + 1, terminal_status = 'CANCELED',
               terminated_at = SYSUTCDATETIME(),
               execution_start_time =
                   CASE WHEN q.status = 'RUNNING'
@@ -455,7 +455,7 @@ final class SqlserverJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -523,7 +523,7 @@ final class SqlserverJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -718,7 +718,7 @@ final class SqlserverJobTerminalOperations {
     String updateColdSql =
         """
         UPDATE c
-        SET terminal_status = 'FAILED',
+        SET row_version = row_version + 1, terminal_status = 'FAILED',
             claim_seq = q.claim_seq,
             terminal_error = ?,
             total_attempts = %s,
@@ -801,7 +801,7 @@ final class SqlserverJobTerminalOperations {
     String sql =
         """
         UPDATE c
-        SET terminal_status = 'SUCCEEDED',
+        SET row_version = row_version + 1, terminal_status = 'SUCCEEDED',
             claim_seq = q.claim_seq,
             job_result = ?, result_type = ?,
             execution_start_time = ?, execution_end_time = ?,
@@ -840,7 +840,7 @@ final class SqlserverJobTerminalOperations {
     String sql =
         """
         UPDATE c
-        SET terminal_status = 'SUCCEEDED',
+        SET row_version = row_version + 1, terminal_status = 'SUCCEEDED',
             claim_seq = q.claim_seq,
             execution_start_time = ?, execution_end_time = ?,
             execution_duration_ms = ?, queue_wait_ms = ?,

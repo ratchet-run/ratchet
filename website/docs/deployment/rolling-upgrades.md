@@ -59,6 +59,16 @@ validates the schema, so create the `scheduler_resource_waiter` collection and i
 both. During a rolling upgrade, nodes still on the older version ignore the waiting line, so the
 order holds only once every node runs the new version.
 
+Every SQL store also gains `scheduler_job.row_version`, in `V016__job_row_version.sql` on
+PostgreSQL, Oracle and SQL Server and in `V018__job_row_version.sql` on MySQL. Every write to a job
+row advances it, and `save()` uses it to reject a stale entity, for terminal jobs as well as live
+ones. The column is `NOT NULL` with a default of 0. MySQL, PostgreSQL and Oracle add such a column
+by changing only table metadata, so the migration is quick. SQL Server does the same on Enterprise
+edition; other editions write every row of `scheduler_job`, so run it in a quiet window on a large
+installation. Nodes from before this release do not advance `row_version`, so while old and new
+nodes run together, a save on an upgraded node cannot detect a concurrent change made by an old
+node. MongoDB needs no change.
+
 SQL stores also gain a migration that adds three nullable columns and the `idx_bk_held_until` index
 to `scheduler_business_key_reservation` (`V018__business_key_hold.sql` on MySQL,
 `V016__business_key_hold.sql` on PostgreSQL, Oracle and SQL Server). They let a cancelled running

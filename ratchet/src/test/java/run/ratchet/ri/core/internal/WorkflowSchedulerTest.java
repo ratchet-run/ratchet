@@ -351,6 +351,7 @@ class WorkflowSchedulerTest {
   void scheduleNext_matchedWaitingBranchKeepsWaitingStatusAndUnlocksSchedule() {
     JobEntity parent = job(new UUID(0L, 1L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 2L), JobStatus.WAITING);
+    child.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
     when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
@@ -417,9 +418,11 @@ class WorkflowSchedulerTest {
   }
 
   @Test
-  void scheduleNext_matchedPendingBranchKeepsPendingStatusAndSetsWorkflowType() {
+  void scheduleNext_matchedPendingBranchChangesScheduledTimeAndPreservesJobType() {
     JobEntity parent = job(new UUID(0L, 16L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 17L), JobStatus.PENDING);
+    child.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
     when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
@@ -430,6 +433,25 @@ class WorkflowSchedulerTest {
     verify(jobCrudStore).save(child);
     assertEquals(JobStatus.PENDING, child.getStatus());
     assertEquals(JobExecutionType.WORKFLOW_BRANCH, child.getJobType());
+    assertEquals(FIXED_NOW, child.getScheduledTime());
+  }
+
+  @Test
+  void scheduleNext_preservesExistingChildShape() {
+    JobEntity parent = job(new UUID(0L, 16L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 17L), JobStatus.PENDING);
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(jobCrudStore).save(child);
+    assertEquals(JobStatus.PENDING, child.getStatus());
+    assertEquals(JobExecutionType.CHAIN_STEP, child.getJobType());
     assertEquals(FIXED_NOW, child.getScheduledTime());
   }
 
