@@ -4836,6 +4836,218 @@ class JobTaskTest {
   }
 
   @Test
+  void cooperativeTimeoutThatFindsTheJobCanceled_endsCanceled() throws Exception {
+    // A cancel between the worker's post-body check and the timeout read ends canceled.
+    // The worker releases the hold with its claim sequence.
+    jobTask = newJobTaskWithTimeoutHandler(realTimeoutHandler());
+    JobEntity job = cancelScenario(true);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    attempt.requestCancellation();
+    failBody(() -> new CancellationRequestedException("grace stop"));
+    List<ExecutionStatus> saved = savedExecutionStatuses();
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return Optional.of(storedRow(JobStatus.CANCELED));
+            });
+
+    jobTask.call();
+
+    verify(jobStore).findById(JOB_UUID);
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), saved);
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    Assertions.assertTrue(attempt.isSuperseded());
+  }
+
+  @Test
+  void cooperativeTimeoutRetryThatLosesItsWriteToACancel_endsCanceled() throws Exception {
+    // A cancel after the timeout handler's read makes its retry increment miss.
+    // The attempt still ends canceled.
+    jobTask = newJobTaskWithTimeoutHandler(realTimeoutHandler());
+    JobEntity job = cancelScenario(true);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    attempt.requestCancellation();
+    failBody(() -> new CancellationRequestedException("grace stop"));
+    List<ExecutionStatus> saved = savedExecutionStatuses();
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(storedRow(JobStatus.RUNNING)));
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return -1;
+            });
+
+    jobTask.call();
+
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L);
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), saved);
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void circuitBreakerRescheduleThatLosesItsWriteToACancel_endsCanceled() throws Exception {
+    // A cancel before the reschedule after an open-circuit rejection ends canceled, not failed.
+    JobEntity job = cancelScenario(true);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    jobTask.attach(cancelAttempt());
+    failBody(() -> new CircuitBreakerOpenException("Circuit breaker OPEN"));
+    when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofMillis(250));
+    List<ExecutionStatus> saved = savedExecutionStatuses();
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
+
+    jobTask.call();
+
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), saved);
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void openCircuitRescheduleThatLosesItsWriteToACancel_recordsTheCancelWithoutAnAttempt()
+      throws Exception {
+    // When the circuit is open before the body starts and a cancel wins the reschedule,
+    // the cancel is recorded and no attempt is.
+    JobEntity job = cancelScenario(true);
+    jobTask.attach(cancelAttempt());
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(false);
+    when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofMillis(250));
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
+
+    jobTask.call();
+
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verifyNoAttemptRecorded();
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void unboundArgumentDlqMoveThatLosesItsWriteToACancel_endsCanceled() throws Exception {
+    // A cancel before the dead-letter move of a job with an unbound argument ends canceled,
+    // not failed.
+    JobEntity job = cancelScenario(true);
+    JobPayload original = job.getPayload();
+    job.setPayload(
+        new JobPayload(
+            original.target(),
+            original.method(),
+            original.methodDescriptor(),
+            original.isStatic(),
+            Arrays.asList((Object) null),
+            List.of(0)));
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    jobTask.attach(cancelAttempt());
+    List<ExecutionStatus> saved = savedExecutionStatuses();
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(eq(job), any()))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
+
+    jobTask.call();
+
+    verify(lifecycleFacade).moveToDlqAndHandlePermanentFailure(eq(job), any());
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), saved);
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+  }
+
+  @Test
+  void lastResortFailureThatLosesItsWriteToACancel_endsCanceled() throws Exception {
+    // When failure handling fails and a cancel wins the last-resort failure write,
+    // the attempt ends canceled and onFailure does not run.
+    JobEntity job = cancelScenario(true);
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    job.setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    jobTask.attach(cancelAttempt());
+    RuntimeException original = new RuntimeException("original");
+    failBody(() -> original);
+    // Break failure handling before any write, so the last-resort path runs.
+    when(validationFacade.shouldNotRetry(original))
+        .thenThrow(new IllegalStateException("validation failed"));
+    List<ExecutionStatus> saved = savedExecutionStatuses();
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return false;
+            });
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    Assertions.assertEquals(List.of(ExecutionStatus.CANCELED), saved);
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(scope, never()).failure(any(), any(), anyInt());
+    verify(scope).close();
+    Assertions.assertNull(CallbackRecorder.context);
+  }
+
+  @Test
   void retryRecordsOneFailureAfterTheRetryWrite() throws Exception {
     // A retried failure counts one failure and fails the tracing scope after the retry write.
     JobEntity job = cancelScenario(false);
@@ -4912,6 +5124,48 @@ class JobTaskTest {
     verify(observabilityFacade).recordJobCancellation(job);
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
     Assertions.assertNull(CallbackRecorder.context);
+  }
+
+  /** A real timeout handler over the store mock, whose transition wrapper runs the transition. */
+  @SuppressWarnings("unchecked")
+  private JobTimeoutHandler realTimeoutHandler() {
+    when(lifecycleFacade.handleTimeoutTransition(any(), anyBoolean(), any(Supplier.class)))
+        .thenAnswer(
+            invocation ->
+                ((Optional<?>) invocation.getArgument(2, Supplier.class).get()).isPresent());
+    return new JobTimeoutHandler(
+        jobStore,
+        jobStore,
+        jobStore,
+        lifecycleFacade,
+        80,
+        60L,
+        FIXED_CLOCK,
+        null,
+        null,
+        null,
+        JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+  }
+
+  /** Records each saved execution's status at the moment it is saved. */
+  private List<ExecutionStatus> savedExecutionStatuses() {
+    List<ExecutionStatus> statuses = new ArrayList<>();
+    when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
+        .thenAnswer(
+            invocation -> {
+              JobExecutionEntity execution = invocation.getArgument(0);
+              statuses.add(execution.getStatus());
+              return execution;
+            });
+    return statuses;
+  }
+
+  private JobEntity storedRow(JobStatus status) {
+    JobEntity row = createTestJob();
+    row.setStatus(status);
+    row.setClaimSeq(7L);
+    row.setBusinessKey("held");
+    return row;
   }
 
   private JobAttemptControl cancelAttempt() {

@@ -550,6 +550,7 @@ public class JobTask implements Callable<Void> {
             }
             if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
               markAttemptSuperseded();
+              if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
             }
           } catch (Throwable finalizationFailure) {
             log.errorf(
@@ -883,6 +884,9 @@ public class JobTask implements Callable<Void> {
           failed = true;
         } else {
           markAttemptSuperseded();
+          // Cancel handling can only have run already if its execution save failed, so this does
+          // not count the cancel twice.
+          if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -1026,7 +1030,12 @@ public class JobTask implements Callable<Void> {
         newScheduledTime,
         jobEntity.getAttempts(),
         expectedClaimSeq())) {
-      warnRejectedOwnerWrite();
+      if (jobWasCanceled()) {
+        markAttemptSuperseded();
+        handleCanceledDuringExecution(cancelStart());
+      } else {
+        warnRejectedOwnerWrite();
+      }
     }
   }
 
@@ -1197,6 +1206,10 @@ public class JobTask implements Callable<Void> {
                     + " recovery, which resets it only after this node stops heartbeating",
                 job.getId());
           }
+        }
+        // A cancel that committed after the check above made the timeout transition miss.
+        if (attempt.isSuperseded() && jobWasCanceled()) {
+          handleCanceledDuringExecution(cancelStart());
         }
       } else {
         log.infof(

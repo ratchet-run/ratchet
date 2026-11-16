@@ -726,6 +726,27 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void cooperativeTimeoutOfAJobThatLeftRunning_supersedesTheAttemptWithoutWriting() {
+    // A cancel before the handler reads the job makes the cooperative transition miss.
+    // The handler marks the attempt superseded so the worker checks for the cancel.
+    JobEntity job = jobWithMaxRetries(3);
+    job.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    attempt.requestCancellation();
+    assertTrue(attempt.claimTimeoutForWorker());
+
+    handler.processCooperativeTimeout(attempt);
+
+    assertTrue(attempt.isSuperseded());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
   void cooperativeRerunReusesCommittedIncrement() {
     JobEntity job = jobWithMaxRetries(3);
     job.setAttempts(2);
