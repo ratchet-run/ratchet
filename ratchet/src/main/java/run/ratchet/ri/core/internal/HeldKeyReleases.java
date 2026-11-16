@@ -15,69 +15,36 @@
  */
 package run.ratchet.ri.core.internal;
 
-import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.store.spi.JobTerminalStore;
 
 /**
- * Releases the business-key hold of a cancelled attempt. The worker clears the interrupt that the
- * watchdog or a shutdown gives a running body before it gets here, but a thread that is still
- * interrupted must not call the store, because a JDBC call on an interrupted thread can break the
- * pooled connection. A store call can also fail. In both cases the release moves to a scheduler
- * thread and is retried there. This is a best effort: the hold's expiry, the stale-node release and
- * the start-up release are the backstops.
+ * Releases the business-key hold of a cancelled attempt through {@link ReleaseRetries}. The worker
+ * clears the interrupt that the watchdog or a shutdown gives a running body before it gets here,
+ * but a thread that is still interrupted must not call the store, because a JDBC call on an
+ * interrupted thread can break the pooled connection. A store call can also fail. In both cases the
+ * release moves to a scheduler thread and is retried there. This is a best effort: the hold's
+ * expiry, the stale-node release and the start-up release are the backstops.
  */
 final class HeldKeyReleases {
-  static final Duration RETRY_DELAY = Duration.ofSeconds(5);
-  static final int MAX_RETRIES = 60;
-  private static final Logger log = Logger.getLogger(HeldKeyReleases.class);
   private final JobTerminalStore store;
-  private final Supplier<ScheduledExecutorService> scheduler;
+  private final ReleaseRetries retries;
 
   HeldKeyReleases(JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler) {
     this.store = store;
-    this.scheduler = scheduler;
+    this.retries = new ReleaseRetries(scheduler);
   }
 
   /** Releases the hold of this claim. */
   void release(UUID jobId, long claimSeq) {
-    if (Thread.currentThread().isInterrupted()) {
-      schedule(jobId, claimSeq, 1, 0);
-      return;
-    }
-    try {
-      store.releaseBusinessKeyHold(jobId, claimSeq);
-    } catch (RuntimeException e) {
-      log.warnf(e, "Could not release business-key hold for job %s; scheduling retry", jobId);
-      schedule(jobId, claimSeq, 1, RETRY_DELAY.toMillis());
-    }
-  }
-
-  private void schedule(UUID jobId, long claimSeq, int attempt, long delayMillis) {
-    try {
-      scheduler
-          .get()
-          .schedule(() -> retry(jobId, claimSeq, attempt), delayMillis, TimeUnit.MILLISECONDS);
-    } catch (RuntimeException e) {
-      log.debugf(e, "Could not schedule business-key hold release for job %s", jobId);
-    }
-  }
-
-  private void retry(UUID jobId, long claimSeq, int attempt) {
-    try {
-      store.releaseBusinessKeyHold(jobId, claimSeq);
-    } catch (RuntimeException e) {
-      log.debugf(e, "Business-key hold release attempt %s failed for job %s", attempt, jobId);
-      if (attempt < MAX_RETRIES) {
-        schedule(jobId, claimSeq, attempt + 1, RETRY_DELAY.toMillis());
-      } else {
-        log.warnf(
-            "Business-key hold for job %s left to its expiry after %s attempts", jobId, attempt);
-      }
-    }
+    retries.release(
+        new ReleaseRetries.Release(
+            "business-key hold for job " + jobId,
+            "its expiry",
+            Logger.Level.DEBUG,
+            () -> store.releaseBusinessKeyHold(jobId, claimSeq)));
   }
 }
