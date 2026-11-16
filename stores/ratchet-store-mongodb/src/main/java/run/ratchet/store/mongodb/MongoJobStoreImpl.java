@@ -161,7 +161,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.query = new MongoJobQueryOperations(ctx);
     this.lifecycle = new MongoJobLifecycleOperations(ctx, batches, reservations, query);
     this.nodeLocks = new MongoNodeLockOperations(ctx);
-    this.archives = new MongoArchiveOperations(ctx, true, true);
+    this.archives = new MongoArchiveOperations(ctx, true, true, reservations);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
     this.signals = new MongoSignalOperations(ctx);
     this.recurringJobs = new MongoRecurringJobOperations(ctx, reservations, crud);
@@ -1211,5 +1211,30 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public boolean deletePartitionSet(UUID setId) {
     return partitions.deletePartitionSet(setId);
+  }
+
+  @Override
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return lifecycle.cancelRunningJob(id, keyHeldUntil);
+  }
+
+  @Override
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return lifecycle.releaseBusinessKeyHold(jobId, claimSeq);
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return crud.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return crud.deleteExpiredBusinessKeyHolds(now, limit);
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    return crud.findStatusesByIds(ids);
   }
 }

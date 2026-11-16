@@ -199,6 +199,7 @@ public class InlineConstructionSubmissionTest {
         null,
         new JakartaAfterCommitRegistrar(),
         mock(BatchService.class),
+        null,
         null);
   }
 

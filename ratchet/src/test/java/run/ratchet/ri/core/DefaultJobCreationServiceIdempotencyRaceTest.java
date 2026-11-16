@@ -24,6 +24,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Transactional;
@@ -63,6 +64,7 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -77,6 +79,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   @Mock private RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private BatchCompletionTransaction conflictResolutionTransaction;
+  @Mock private ResourcePermitStore resourcePermitStore;
 
   public static void noopTask() {}
 
@@ -117,7 +120,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         null,
         Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
         true,
-        null,
+        resourcePermitStore,
         null,
         new JakartaAfterCommitRegistrar(),
         new DefaultErrorSanitizer(),
@@ -484,5 +487,75 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
     assertEquals(existingId, handle.id());
     // The happy-path short-circuit never reaches create().
     verify(jobCrudStore, times(0)).create(any(JobEntity.class));
+  }
+
+  @Test
+  void submit_keyHeldByCanceledJob_saysTheKeyIsHeld() {
+    // A canceled holder explains that its body still owns the key and identifies that job.
+    UUID id = UUID.randomUUID();
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findBusinessKeyHolder("held"))
+        .thenReturn(Optional.of(new BusinessKeyHolder(id, JobType.SINGLE, JobStatus.CANCELED)));
+    JobBuilder builder =
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO)
+            .withIdempotencyKey("different")
+            .withBusinessKey("held");
+    DuplicateBusinessKeyException failure =
+        Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
+    assertTrue(failure.getMessage().contains("held by canceled job"));
+    assertTrue(failure.getMessage().contains(id.toString()));
+  }
+
+  @Test
+  void submit_keyHeldByLiveJob_keepsTheActiveJobMessage() {
+    // A pending holder retains the existing active-job duplicate-key explanation.
+    UUID id = UUID.randomUUID();
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findBusinessKeyHolder("held"))
+        .thenReturn(Optional.of(new BusinessKeyHolder(id, JobType.SINGLE, JobStatus.PENDING)));
+    JobBuilder builder =
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO)
+            .withIdempotencyKey("different")
+            .withBusinessKey("held");
+    DuplicateBusinessKeyException failure =
+        Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
+    assertTrue(failure.getMessage().contains("Active job already exists with business key"));
+  }
+
+  @Test
+  void submit_keyHeldWithUnconfiguredResource_reportsTheHeldKey() {
+    // The holder lookup runs before the resource-limit check, so the held key is reported.
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findBusinessKeyHolder("held"))
+        .thenReturn(
+            Optional.of(
+                new BusinessKeyHolder(UUID.randomUUID(), JobType.SINGLE, JobStatus.CANCELED)));
+    JobBuilder builder = heldKeyBuilder(service).withResource("unconfigured");
+    DuplicateBusinessKeyException failure =
+        Assertions.assertThrows(DuplicateBusinessKeyException.class, () -> service.submit(builder));
+    assertTrue(failure.getMessage().contains("held by canceled job"));
+    verifyNoInteractions(resourcePermitStore);
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
+  }
+
+  @Test
+  void submit_unseenHoldWithUnconfiguredResource_throwsMissingLimitBeforeAnyWrite() {
+    // A hold the lookup cannot see yet leaves the missing limit to fail the submit first.
+    DefaultJobCreationService service = newService();
+    JobBuilder builder = heldKeyBuilder(service).withResource("unconfigured");
+    ResourceNotConfiguredException failure =
+        Assertions.assertThrows(
+            ResourceNotConfiguredException.class, () -> service.submit(builder));
+    assertEquals("unconfigured", failure.resourceName());
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
+  }
+
+  private static JobBuilder heldKeyBuilder(DefaultJobCreationService service) {
+    return DefaultJobBuilder.create(
+            service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO)
+        .withIdempotencyKey("different")
+        .withBusinessKey("held");
   }
 }

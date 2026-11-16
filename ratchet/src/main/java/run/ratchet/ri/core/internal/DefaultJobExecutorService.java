@@ -79,6 +79,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
   private final PoolRegistry poolRegistry;
   private final JobTimeoutHandler timeoutHandler;
+  private final HeldKeyReleases holdReleases;
   private final ExecutorProvider executorProvider;
   private final RatchetOptions options;
   private final JobStore jobStore;
@@ -109,6 +110,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   protected DefaultJobExecutorService() {
     this.poolRegistry = null;
     this.timeoutHandler = null;
+    this.holdReleases = null;
     this.executorProvider = null;
     this.options = null;
     this.jobStore = null;
@@ -277,6 +279,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
       RatchetOptions options) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
+    this.holdReleases =
+        new HeldKeyReleases(jobStore, () -> executorProvider.getScheduledExecutor());
     this.executorProvider = executorProvider;
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
@@ -404,7 +408,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       Runnable release) {
     TrackingFutureTask task;
     try {
-      task = prepareTask(callable, release, attempt);
+      task = prepareTask(callable, release, attempt, handlesRef);
     } catch (RejectedExecutionException e) {
       release.run();
       return ExecutionResult.rejected(e);
@@ -544,6 +548,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
             afterCommitRegistrar,
             jobStateFlusher,
             timeoutHandler,
+            holdReleases,
             effective(),
             argResolver,
             options);
@@ -563,8 +568,11 @@ public class DefaultJobExecutorService implements JobExecutorService {
   }
 
   private TrackingFutureTask prepareTask(
-      Callable<Void> callable, Runnable release, @Nullable JobAttemptControl attempt) {
-    TrackingFutureTask task = new TrackingFutureTask(callable, release, attempt);
+      Callable<Void> callable,
+      Runnable release,
+      @Nullable JobAttemptControl attempt,
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
+    TrackingFutureTask task = new TrackingFutureTask(callable, release, attempt, handlesRef);
     synchronized (submissionLock) {
       if (!acceptingExecutions.get()) {
         throw new RejectedExecutionException("Job executor is shutting down");
@@ -611,11 +619,16 @@ public class DefaultJobExecutorService implements JobExecutorService {
     private final AtomicBoolean runnerStarted = new AtomicBoolean(false);
     private final CountDownLatch runnerExited = new CountDownLatch(1);
     private final Runnable release;
+    private final AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef;
     private final @Nullable JobAttemptControl attempt;
 
     private TrackingFutureTask(
-        Callable<Void> callable, Runnable release, @Nullable JobAttemptControl attempt) {
+        Callable<Void> callable,
+        Runnable release,
+        @Nullable JobAttemptControl attempt,
+        AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
       super(callable);
+      this.handlesRef = handlesRef;
       this.release = release;
       this.attempt = attempt;
     }
@@ -645,6 +658,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
     @Override
     protected void done() {
+      cancelTimeoutHandles(handlesRef);
       if (!runnerStarted.get()) {
         markRunnerExited();
       }

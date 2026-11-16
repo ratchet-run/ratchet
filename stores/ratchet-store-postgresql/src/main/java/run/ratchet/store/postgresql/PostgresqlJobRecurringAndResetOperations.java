@@ -40,7 +40,7 @@ final class PostgresqlJobRecurringAndResetOperations {
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-            updated_at = statement_timestamp()
+            updated_at = statement_timestamp(), version = version + 1
         WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ? AND claim_seq = ?
         """;
     return ctx.timedStoreOperation(
@@ -62,7 +62,7 @@ final class PostgresqlJobRecurringAndResetOperations {
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-            updated_at = statement_timestamp()
+            updated_at = statement_timestamp(), version = version + 1
         WHERE status = 'RUNNING' AND picked_by = ?
         """;
     return ctx.timedStoreOperation(
@@ -102,7 +102,8 @@ final class PostgresqlJobRecurringAndResetOperations {
     // skip the now-RUNNING row, stranding it forever while the reservation is still freed. Holding
     // FOR UPDATE on each queue row makes the claim path's FOR UPDATE SKIP LOCKED step past it, so a
     // claim cannot interleave. Mirrors the single-job cancel gate in
-    // PostgresqlJobTerminalOperations.
+    // PostgresqlJobTerminalOperations. PostgreSQL locks the rows after sorting them, so they are
+    // locked in job_id order, the order that completion and delete use.
     // language=PostgreSQL
     String lockSql =
         """
@@ -114,6 +115,7 @@ final class PostgresqlJobRecurringAndResetOperations {
           AND j.job_type <> 'RECURRING'
           AND j.terminal_status IS NULL
           AND q.status IN ('PENDING','PAUSED','WAITING')
+        ORDER BY q.job_id
         FOR UPDATE OF q
         """;
     @SuppressWarnings("unchecked")

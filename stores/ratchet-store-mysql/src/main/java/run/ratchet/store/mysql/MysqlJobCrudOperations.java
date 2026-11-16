@@ -17,6 +17,7 @@ package run.ratchet.store.mysql;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -288,5 +289,20 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     return tags.countJobsByExecutionNodeForTag(tag);
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return deletes.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return deletes.deleteExpiredBusinessKeyHolds(now, limit);
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    return reads.findStatusesByIds(ids);
   }
 }

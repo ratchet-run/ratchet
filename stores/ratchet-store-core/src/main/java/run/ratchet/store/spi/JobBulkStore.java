@@ -41,7 +41,16 @@ public interface JobBulkStore {
    */
   void bulkInsert(List<JobEntity> jobs);
 
-  /** Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>Skips a job whose business key is held after a running cancel, and leaves that job and its
+   * hold in place. Lock the queue rows and then the job rows before checking the holds, as {@link
+   * JobCrudStore#delete} does.
+   *
+   * @param ids the jobs to delete
+   * @return the number of jobs deleted, which excludes skipped held jobs
+   */
   int deleteJobsByIds(List<UUID> ids);
 
   /** Deletes old DLQ rows. Transaction attribute: {@code REQUIRED}. */
@@ -60,11 +69,11 @@ public interface JobBulkStore {
    * <p>Rows below {@code maxCrashRedeliveries} (missing count means zero) become PENDING, with
    * owner and picked_at cleared, crash count incremented and updated_at set to now. Exhausted rows
    * stay RUNNING with the same owner, crash count and claim_seq; picked_at and updated_at are both
-   * set to the current JVM time ({@link Instant#now()}), and the row version is incremented so a
-   * save of an entity read before the page fails its version check. This defers them for one grace
-   * period. Every confirmed row leaves the candidate window for this cutoff. Returns (scanned,
-   * reset, 0, exhausted), with the page's exhausted claims in original picked_at order for the
-   * engine to fail.
+   * set to the current JVM time ({@link Instant#now()}). This defers them for one grace period.
+   * Both changes increment the row version, so a save of an entity read before the page fails its
+   * version check. Every confirmed row leaves the candidate window for this cutoff. Returns
+   * (scanned, reset, 0, exhausted), with the page's exhausted claims in original picked_at order
+   * for the engine to fail.
    *
    * <p>One transaction per call, never joined to a caller's transaction. A nonpositive limit
    * touches nothing and returns {@link OrphanRecovery#none()}.
@@ -76,8 +85,9 @@ public interface JobBulkStore {
    * guaranteed order. Rechecks candidates and closes their RUNNING execution rows as FAILED with
    * {@code JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}. Resets rows below the maximum to
    * PENDING, clears owner and picked_at, increments crash count (missing means zero), and sets
-   * updated_at to now. For rows at or above the maximum, clears only the owner, preserving status,
-   * picked_at and claim_seq so a later periodic page can fail them.
+   * updated_at to now. For rows at or above the maximum, clears the owner, preserving status,
+   * picked_at and claim_seq so a later periodic page can fail them. Both changes increment the row
+   * version, so a save of an entity read before the call fails its version check.
    *
    * <p>Returns (scanned, reset, released, empty exhausted list). One transaction per call, never
    * joined to a caller's transaction. A nonpositive limit touches nothing and returns {@link
@@ -102,4 +112,34 @@ public interface JobBulkStore {
   default int closeStaleExecutions(Instant cutoff, int limit) {
     return 0;
   }
+
+  /**
+   * Deletes the business-key holds whose cancelled claim ran on one of these nodes. Orphan recovery
+   * calls it for nodes it has judged dead, and a node calls it for its own id at start-up. Normal
+   * reservations are never touched.
+   *
+   * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
+   * and it stays until a later release for that node or the expiry sweep removes it. The bundled
+   * SQL stores lock the candidates with a skip-locked read. {@link
+   * NodeStore#deleteInactiveNodesByIds} keeps the row of a node with a skipped hold, so the orphan
+   * scan calls this again for that node on its next run.
+   *
+   * @return number of holds deleted, counting only holds this call deleted
+   */
+  int releaseBusinessKeyHolds(List<String> nodeIds);
+
+  /**
+   * Deletes up to {@code limit} business-key holds whose expiry is before {@code now}. Normal
+   * reservations are never touched.
+   *
+   * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
+   * and it stays until a later sweep removes it. A skipped hold should not use up {@code limit}.
+   * The bundled SQL stores read the expired holds in expiry order, one page at a time, and lock
+   * each page with a skip-locked read. They read the next page while fewer than {@code limit} holds
+   * are deleted, up to ten pages per call. So when the first ten times {@code limit} expired holds
+   * are all locked, the holds behind them wait for a later call.
+   *
+   * @return number of holds deleted, counting only holds this call deleted
+   */
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit);
 }

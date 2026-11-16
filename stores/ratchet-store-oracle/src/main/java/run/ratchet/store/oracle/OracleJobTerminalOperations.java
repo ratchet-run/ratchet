@@ -305,25 +305,47 @@ final class OracleJobTerminalOperations {
   }
 
   private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
+    return lockExpectedQueueClaim(id, expected) != null;
+  }
+
+  private Object[] lockExpectedQueueClaim(UUID id, JobStatus expected) {
     // The terminal cancel path deletes any live queue row after updating the cold row. Lock the
     // expected hot row first so this multi-statement path preserves CAS semantics inside the
     // method transaction: either this caller owns the expected status, or it reports a miss.
     // language=Oracle
     String gateSql =
         """
-        SELECT job_id
+        SELECT picked_by, claim_seq
         FROM scheduler_job_queue
         WHERE job_id = ? AND status = ?
         FOR UPDATE
         """;
     @SuppressWarnings("unchecked")
-    List<Object> rows =
+    List<Object[]> rows =
         ctx.em()
             .createNativeQuery(gateSql)
             .setParameter(1, UuidRawConverter.toBytes(id))
             .setParameter(2, expected.name())
             .getResultList();
-    return !rows.isEmpty();
+    return rows.isEmpty() ? null : rows.get(0);
+  }
+
+  boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return ctx.timedStoreOperation(
+        "cancel_running_job",
+        () -> {
+          try {
+            Object[] claim = lockExpectedQueueClaim(id, JobStatus.RUNNING);
+            return claim != null && doCancelJob(id, keyHeldUntil, claim);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("cancel running job", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
+  }
+
+  boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return reservations.releaseBusinessKeyHold(jobId, claimSeq);
   }
 
   boolean cancelJob(UUID id) {
@@ -331,6 +353,15 @@ final class OracleJobTerminalOperations {
         "cancel_job",
         () -> {
           try {
+            // Lock the queue row before the job row, the order of cancelRunningJob, the terminal
+            // writes, delete and save.
+            if (ctx.em()
+                .createNativeQuery("SELECT 1 FROM scheduler_job_queue WHERE job_id = ? FOR UPDATE")
+                .setParameter(1, UuidRawConverter.toBytes(id))
+                .getResultList()
+                .isEmpty()) {
+              return false;
+            }
             return doCancelJob(id);
           } catch (RuntimeException e) {
             throw ctx.translateTransientStoreException("cancel job", e);
@@ -381,6 +412,10 @@ final class OracleJobTerminalOperations {
   }
 
   private boolean doCancelJob(UUID id) {
+    return doCancelJob(id, null, null);
+  }
+
+  private boolean doCancelJob(UUID id, @Nullable Instant keyHeldUntil, Object[] claim) {
     // language=Oracle
     String cancelNonRecurringSql =
         "UPDATE scheduler_job c SET c.row_version = c.row_version + 1, c.terminal_status ="
@@ -423,7 +458,12 @@ final class OracleJobTerminalOperations {
       if (!batchRows.isEmpty() && batchRows.get(0) != null) {
         batches.incrementFailedAtomic(OracleJobRowMapper.uuidOrNull(batchRows.get(0)));
       }
-      reservations.deleteReservationByOwner(id);
+      if (keyHeldUntil == null) {
+        reservations.deleteReservationByOwner(id);
+      } else {
+        reservations.holdReservation(
+            id, keyHeldUntil, (String) claim[0], ((Number) claim[1]).longValue());
+      }
       return true;
     }
 
@@ -731,6 +771,11 @@ final class OracleJobTerminalOperations {
       Integer totalAttempts,
       JobStatus expectedStatus,
       @Nullable Long expectedClaimSeq) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, expectedStatus) == null) {
+      return false;
+    }
+
     // total_attempts: either a caller-supplied count (bind) or the queue row's attempts (subquery).
     String attemptsExpression =
         totalAttempts == null
@@ -795,6 +840,11 @@ final class OracleJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=Oracle
     String sql =
         """
@@ -830,6 +880,11 @@ final class OracleJobTerminalOperations {
 
   private boolean doMarkTerminalSuccessMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=Oracle
     String sql =
         """

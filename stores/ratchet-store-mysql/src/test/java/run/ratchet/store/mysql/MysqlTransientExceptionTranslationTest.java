@@ -441,6 +441,8 @@ class MysqlTransientExceptionTranslationTest {
               }
               return switch (method.getName()) {
                 case "setParameter", "setFirstResult", "setMaxResults" -> proxy;
+                // A queue-row lock finds the expected claim, so the write itself runs.
+                case "getResultList" -> List.<Object[]>of(new Object[] {"node", 1L});
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

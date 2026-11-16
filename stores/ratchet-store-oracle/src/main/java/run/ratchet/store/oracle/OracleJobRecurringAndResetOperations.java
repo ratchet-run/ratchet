@@ -16,7 +16,12 @@
 package run.ratchet.store.oracle;
 
 import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
+import static run.ratchet.store.oracle.OracleBusinessKeyReservations.DELETE_RESERVATIONS_CHUNK_SIZE;
 
+import jakarta.persistence.Query;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 
@@ -26,9 +31,12 @@ import run.ratchet.store.oracle.converter.UuidRawConverter;
 final class OracleJobRecurringAndResetOperations {
 
   private final OracleStoreContext ctx;
+  private final OracleBusinessKeyReservations reservations;
 
-  OracleJobRecurringAndResetOperations(OracleStoreContext ctx) {
+  OracleJobRecurringAndResetOperations(
+      OracleStoreContext ctx, OracleBusinessKeyReservations reservations) {
     this.ctx = ctx;
+    this.reservations = reservations;
   }
 
   boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
@@ -36,7 +44,8 @@ final class OracleJobRecurringAndResetOperations {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP),
+            version = version + 1
         WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ? AND claim_seq = ?
         """;
     return ctx.timedStoreOperation(
@@ -57,7 +66,8 @@ final class OracleJobRecurringAndResetOperations {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP),
+            version = version + 1
         WHERE status = 'RUNNING' AND picked_by = ?
         """;
     return ctx.timedStoreOperation(
@@ -84,56 +94,92 @@ final class OracleJobRecurringAndResetOperations {
   }
 
   int cancelJobsByTag(String tag) {
-    // Oracle has no UPDATE..JOIN; the tag and live-status joins become EXISTS predicates.
-    // language=Oracle
-    String coldSql =
-        "UPDATE scheduler_job j SET j.row_version = j.row_version + 1, j.terminal_status ="
-            + " 'CANCELED', j.terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)"
-            + " WHERE j.job_type <> 'RECURRING' AND j.terminal_status IS NULL AND EXISTS (SELECT 1"
-            + " FROM scheduler_job_tag t WHERE t.job_id = j.job_id AND t.tag = ?) AND EXISTS"
-            + " (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = j.job_id AND q.status IN"
-            + " ('PENDING','PAUSED','WAITING'))";
-    int cancelled =
-        ctx.timedStoreOperation(
-            "cancel_jobs_by_tag",
-            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
-            updated -> updated > 0 ? "updated" : "miss");
-    if (cancelled == 0) {
-      return 0;
+    return ctx.timedStoreOperation(
+        "cancel_jobs_by_tag",
+        () -> doCancelJobsByTag(tag),
+        cancelled -> cancelled > 0 ? "updated" : "miss");
+  }
+
+  private int doCancelJobsByTag(String tag) {
+    String candidatesSql =
+        """
+        SELECT q.job_id FROM scheduler_job_queue q
+        JOIN scheduler_job j ON j.job_id = q.job_id
+        JOIN scheduler_job_tag t ON t.job_id = q.job_id
+        WHERE t.tag = ? AND j.job_type <> 'RECURRING' AND j.terminal_status IS NULL
+          AND q.status IN ('PENDING','PAUSED','WAITING')
+        ORDER BY q.job_id
+        """;
+    List<UUID> candidates = new ArrayList<>();
+    for (Object row :
+        ctx.em().createNativeQuery(candidatesSql).setParameter(1, tag).getResultList()) {
+      candidates.add(OracleJobRowMapper.uuidOrNull(row));
     }
-    // language=Oracle
-    String hotSql =
-        """
-        DELETE FROM scheduler_job_queue q
-        WHERE q.status IN ('PENDING','PAUSED','WAITING')
-          AND q.job_id IN (
-            SELECT j.job_id FROM scheduler_job j
-              JOIN scheduler_job_tag t ON t.job_id = j.job_id
-            WHERE t.tag = ?
-              AND j.job_type <> 'RECURRING'
-              AND j.terminal_status = 'CANCELED'
-          )
-        """;
-    ctx.timedStoreOperation(
-        "cancel_jobs_by_tag_hot_delete",
-        () -> ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate(),
-        deleted -> deleted > 0 ? "updated" : "miss");
-    // language=Oracle
-    String reservationsSql =
-        """
-        DELETE FROM scheduler_business_key_reservation r
-        WHERE r.owner_job_id IN (
-          SELECT j.job_id FROM scheduler_job j
-            JOIN scheduler_job_tag t ON t.job_id = j.job_id
-          WHERE t.tag = ?
-            AND j.job_type <> 'RECURRING'
-            AND j.terminal_status = 'CANCELED'
-        )
-        """;
+    // Lock queue rows first so a poller cannot claim them between the cold update and hot delete.
+    // Every queue chunk is locked before any job or reservation is changed.
+    List<UUID> ids = new ArrayList<>();
+    for (int start = 0; start < candidates.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          candidates.subList(
+              start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, candidates.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      String lockSql =
+          """
+          SELECT job_id FROM scheduler_job_queue
+          WHERE job_id IN (%s) AND status IN ('PENDING','PAUSED','WAITING')
+          ORDER BY job_id FOR UPDATE
+          """
+              .formatted(placeholders);
+      for (Object row : bindIds(lockSql, chunk).getResultList()) {
+        ids.add(OracleJobRowMapper.uuidOrNull(row));
+      }
+    }
+    int cancelled = 0;
+    for (int start = 0; start < ids.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          ids.subList(start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ids.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      String coldSql =
+          """
+          UPDATE scheduler_job
+          SET row_version = row_version + 1, terminal_status = 'CANCELED',
+              terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+          WHERE job_id IN (%s) AND terminal_status IS NULL
+          """
+              .formatted(placeholders);
+      int updated = bindIds(coldSql, chunk).executeUpdate();
+      String hotSql =
+          "DELETE FROM scheduler_job_queue WHERE job_id IN (%s)".formatted(placeholders);
+      int deleted =
+          ctx.timedStoreOperation(
+              "cancel_jobs_by_tag_hot_delete",
+              () -> bindIds(hotSql, chunk).executeUpdate(),
+              count -> count > 0 ? "updated" : "miss");
+      if (updated != deleted) {
+        throw new IllegalStateException(
+            "cancel-by-tag canceled "
+                + updated
+                + " cold rows but removed "
+                + deleted
+                + " hot rows for tag "
+                + tag);
+      }
+      cancelled += updated;
+    }
     ctx.timedStoreOperation(
         "cancel_jobs_by_tag_reservations",
-        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
-        deleted -> deleted > 0 ? "updated" : "miss");
+        () -> {
+          reservations.deleteReservationsByOwners(ids);
+          return ids.size();
+        },
+        count -> count > 0 ? "updated" : "miss");
     return cancelled;
+  }
+
+  private Query bindIds(String sql, List<UUID> ids) {
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) query.setParameter(parameter++, UuidRawConverter.toBytes(id));
+    return query;
   }
 }

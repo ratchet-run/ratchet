@@ -339,8 +339,13 @@ final class MysqlExtensionOperations implements JobPropertyStore, JobStateStore 
   }
 
   private Optional<Boolean> encryptedPayloadForStateWrite(UUID jobId) {
-    // Lock job before queue and state, matching cancel's lock order and avoiding FK deadlocks.
+    // Lock queue, then job, then state: the queue-then-job order of cancel and completion. The
+    // job lock comes before the state write to avoid FK deadlocks.
     // LOCK IN SHARE MODE, not FOR SHARE: MariaDB rejects FOR SHARE.
+    ctx.em()
+        .createNativeQuery("SELECT 1 FROM scheduler_job_queue WHERE job_id = ? LOCK IN SHARE MODE")
+        .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+        .getResultList();
     String sql =
         """
         SELECT encrypted_payload

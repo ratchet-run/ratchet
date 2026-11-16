@@ -1255,4 +1255,29 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   public boolean deletePartitionSet(UUID setId) {
     return partitions.deletePartitionSet(setId);
   }
+
+  @Override
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return lifecycle.cancelRunningJob(id, keyHeldUntil);
+  }
+
+  @Override
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return lifecycle.releaseBusinessKeyHold(jobId, claimSeq);
+  }
+
+  @Override
+  public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return jobs.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  @Override
+  public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return jobs.deleteExpiredBusinessKeyHolds(now, limit);
+  }
+
+  @Override
+  public Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    return jobs.findStatusesByIds(ids);
+  }
 }

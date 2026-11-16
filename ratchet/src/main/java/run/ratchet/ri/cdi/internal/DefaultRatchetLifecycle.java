@@ -33,6 +33,7 @@ import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
@@ -64,6 +65,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       RecurringScheduler recurringScheduler,
       OrphanRecoveryTimer orphanRecoveryTimer,
       BatchRecoveryTimer batchRecoveryTimer,
+      CancelRequestRelay cancelRequestRelay,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetterService,
       JobArchivingService jobArchivingService,
@@ -81,6 +83,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         recurringScheduler,
         orphanRecoveryTimer,
         batchRecoveryTimer,
+        cancelRequestRelay,
         jobStateFlusher,
         deadLetterService,
         jobArchivingService,
@@ -101,6 +104,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       RecurringScheduler recurringScheduler,
       OrphanRecoveryTimer orphanRecoveryTimer,
       BatchRecoveryTimer batchRecoveryTimer,
+      CancelRequestRelay cancelRequestRelay,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetterService,
       JobArchivingService jobArchivingService,
@@ -119,6 +123,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         recurringScheduler,
         orphanRecoveryTimer,
         batchRecoveryTimer,
+        cancelRequestRelay,
         jobStateFlusher,
         deadLetterService,
         jobArchivingService,
@@ -141,6 +146,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       RecurringScheduler recurringScheduler,
       OrphanRecoveryTimer orphanRecoveryTimer,
       BatchRecoveryTimer batchRecoveryTimer,
+      CancelRequestRelay cancelRequestRelay,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetterService,
       JobArchivingService jobArchivingService,
@@ -161,6 +167,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
             recurringScheduler,
             orphanRecoveryTimer,
             batchRecoveryTimer,
+            cancelRequestRelay,
             jobStateFlusher,
             deadLetterService,
             durable,

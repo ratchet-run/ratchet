@@ -49,6 +49,7 @@ import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.PoolRegistry;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -260,7 +261,9 @@ class RatchetSubmissionConfiguration {
       MetricsCollector metrics,
       Clock clock,
       AfterCommitRegistrar registrar,
-      BatchService batchService) {
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler,
+      RatchetOptions options) {
     return new SystemJobCancellation(
         events,
         store,
@@ -270,7 +273,10 @@ class RatchetSubmissionConfiguration {
         wakeup,
         metrics,
         clock,
-        registrar);
+        registrar,
+        store,
+        workflowScheduler,
+        options);
   }
 
   @Bean
@@ -291,7 +297,8 @@ class RatchetSubmissionConfiguration {
       AfterCommitRegistrar registrar,
       BatchService batchService,
       PartitionService partitions,
-      ResourcePermitService resourcePermitService) {
+      ResourcePermitService resourcePermitService,
+      WorkflowScheduler workflowScheduler) {
     DefaultJobSchedulerService service =
         new DefaultJobSchedulerService(
             events,
@@ -318,7 +325,8 @@ class RatchetSubmissionConfiguration {
             options,
             registrar,
             batchService,
-            resourcePermitService);
+            resourcePermitService,
+            workflowScheduler);
     service.configurePartitions(partitions);
     return service;
   }

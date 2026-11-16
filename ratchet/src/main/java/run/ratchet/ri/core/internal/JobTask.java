@@ -143,6 +143,7 @@ public class JobTask implements Callable<Void> {
   private final JobStateFlusher jobStateFlusher;
   private final PayloadSerializer payloadSerializer;
   private final JobTimeoutHandler timeoutHandler;
+  private final HeldKeyReleases holdReleases;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
   private @Nullable JobAttemptControl attempt;
@@ -168,6 +169,9 @@ public class JobTask implements Callable<Void> {
   // any future task reuse and clears SpotBugs AT_STALE_THREAD_WRITE_OF_PRIMITIVE
   // at zero behavioral cost.
   private volatile boolean permitAcquired;
+  // Set when this worker recorded a cancel, so the finally block releases the business-key hold.
+  private volatile boolean cancelHandled;
+  private Instant executionStart;
 
   protected JobTask() {
     this.maxContinuations = 1000;
@@ -190,6 +194,7 @@ public class JobTask implements Callable<Void> {
     this.jobStateFlusher = null;
     this.payloadSerializer = null;
     this.timeoutHandler = null;
+    this.holdReleases = null;
     this.clock = null;
     this.callbackInvoker = null;
     this.argResolver = null;
@@ -216,6 +221,7 @@ public class JobTask implements Callable<Void> {
       AfterCommitRegistrar afterCommitRegistrar,
       JobStateFlusher jobStateFlusher,
       JobTimeoutHandler timeoutHandler,
+      HeldKeyReleases holdReleases,
       Clock clock,
       PreExecutionArgResolver argResolver,
       RatchetOptions options) {
@@ -240,6 +246,7 @@ public class JobTask implements Callable<Void> {
     this.jobStateFlusher = jobStateFlusher;
     this.payloadSerializer = payloadSerializer;
     this.timeoutHandler = timeoutHandler;
+    this.holdReleases = holdReleases;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.callbackInvoker =
         new LifecycleCallbackInvoker(
@@ -282,6 +289,7 @@ public class JobTask implements Callable<Void> {
       } else {
         log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
       }
+      releaseHoldIfAttemptEnded(jobId, claim != null ? claim.businessKey() : null);
       JobMdcContext.clear();
       return null;
     }
@@ -296,6 +304,7 @@ public class JobTask implements Callable<Void> {
       log.infof(
           "Job %s claim no longer owned by this node (status=%s, pickedBy=%s) - skipping execution",
           jobId, jobEntity.getStatus(), jobEntity.getPickedBy());
+      releaseHeldBusinessKey(jobId, jobEntity.getBusinessKey(), claim.claimSeq());
       JobMdcContext.clear();
       return null;
     }
@@ -330,6 +339,7 @@ public class JobTask implements Callable<Void> {
         log.infof(
             "Job %s not started: batch %s is closed (parent %s)",
             jobId, jobEntity.getDependsOn(), parentState.description());
+        releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
         JobMdcContext.clear();
         return null;
       }
@@ -354,6 +364,7 @@ public class JobTask implements Callable<Void> {
         log.errorf(
             releaseFailure, "Job %s could not release claim after batch check failed", jobId);
       }
+      releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
       JobMdcContext.clear();
       return null;
     }
@@ -377,6 +388,7 @@ public class JobTask implements Callable<Void> {
       } else {
         handleFailureSafely(e);
       }
+      releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
       JobMdcContext.clear();
       return null;
     }
@@ -491,6 +503,7 @@ public class JobTask implements Callable<Void> {
         }
 
         Instant start = effective().instant();
+        executionStart = start;
         observabilityFacade.publishEvent(
             new JobStartedEvent(
                 jobEntity.getId(),
@@ -583,6 +596,7 @@ public class JobTask implements Callable<Void> {
         if (permitAcquired) {
           releaseResourcePermit();
         }
+        releaseHoldIfAttemptEnded(jobId, job.getBusinessKey());
         log.debugf("Job %s execution complete - cleaning up context", jobId);
         currentScope.close();
       }
@@ -1082,9 +1096,11 @@ public class JobTask implements Callable<Void> {
 
   /**
    * Cancellation ends the job CANCELED, not FAILED, so onFailure does not run. A canceled batch
-   * child still counts toward the batch's failed items, but the child itself is CANCELED.
+   * child still counts toward the batch's failed items. The cancel path already handled the chain
+   * and the batch.
    */
   private void handleCanceledDuringExecution(Instant start) {
+    cancelHandled = true;
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = effective().instant();
@@ -1100,17 +1116,46 @@ public class JobTask implements Callable<Void> {
     }
 
     observabilityFacade.recordJobCancellation(job);
-
-    handleBatchOrWorkflowCancellation();
   }
 
-  private void handleBatchOrWorkflowCancellation() {
-    if (job.getJobType() != JobExecutionType.BATCH_CHILD) {
-      lifecycleFacade.cancelChain(job);
+  private Instant cancelStart() {
+    return executionStart != null
+        ? executionStart
+        : attempt != null ? attempt.executionStartTime() : effective().instant();
+  }
+
+  private boolean jobWasCanceled() {
+    if (Thread.currentThread().isInterrupted()) return false;
+    try {
+      return jobStore.getJobStatus(job.getId()) == JobStatus.CANCELED;
+    } catch (RuntimeException e) {
+      log.debugf(e, "Could not read cancellation status for job %s", job.getId());
+      return false;
     }
   }
 
+  /**
+   * Releases this claim's held business key once a cancel or a lost fenced write ended the attempt,
+   * including on the exits before the body runs.
+   */
+  private void releaseHoldIfAttemptEnded(UUID jobId, @Nullable String businessKey) {
+    if (businessKey != null && (cancelHandled || (attempt != null && attempt.isSuperseded()))) {
+      releaseHeldBusinessKey(jobId, businessKey, expectedClaimSeq());
+    }
+  }
+
+  private void releaseHeldBusinessKey(UUID jobId, @Nullable String businessKey, Long claimSeq) {
+    if (businessKey == null || claimSeq == null) return;
+    holdReleases.release(jobId, claimSeq);
+  }
+
   private void handleFailure(Throwable ex) {
+    if (attempt != null
+        && (attempt.isUserCancelRequested() || attempt.isSuperseded())
+        && jobWasCanceled()) {
+      handleCanceledDuringExecution(cancelStart());
+      return;
+    }
     // Watchdog ownership is claimed before the interrupt marker is published. A superseded
     // worker must defer every failure, including checkpoint exceptions, throughout that window
     // and after the marker is removed. The owner flushes checkpoints before changing the outcome.
@@ -1154,6 +1199,10 @@ public class JobTask implements Callable<Void> {
     if (cooperativeStop) {
       if (attempt.claimTimeoutForWorker()) {
         flushStateQuietly();
+        if (jobWasCanceled()) {
+          handleCanceledDuringExecution(cancelStart());
+          return;
+        }
         log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());
         boolean executionSaved = false;
         try {
@@ -1203,23 +1252,28 @@ public class JobTask implements Callable<Void> {
     if (validationFacade.shouldNotRetry(ex)) {
       // The stored count is not incremented, but observers get the 1-based attempt that failed.
       int failedAttempt = job.getAttempts() + 1;
-      observabilityFacade.recordJobFailure(job, ex, failedAttempt);
-      currentScope.failure(ex.getClass().getName(), sanitized, failedAttempt);
       logIfTimeout(ex);
       handleNonRetryableFailure(ex, job.getAttempts(), sanitized);
+      // A cancel that won the failure write counts as a cancellation only.
+      if (!cancelHandled) {
+        observabilityFacade.recordJobFailure(job, ex, failedAttempt);
+        currentScope.failure(ex.getClass().getName(), sanitized, failedAttempt);
+      }
       return;
     }
 
     int attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq());
     if (attempt == -1) {
+      if (jobWasCanceled()) {
+        handleCanceledDuringExecution(cancelStart());
+        return;
+      }
       warnRejectedOwnerWrite();
       saveDeferredExecutionFailure(ex);
       return;
     }
 
     job.setAttempts(attempt);
-    observabilityFacade.recordJobFailure(job, ex, attempt);
-    currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     logIfTimeout(ex);
 
     if (attempt <= job.getMaxRetries()
@@ -1228,6 +1282,11 @@ public class JobTask implements Callable<Void> {
       scheduleRetry(ex, attempt, sanitized);
     } else {
       moveToDlq(ex, attempt, sanitized);
+    }
+    // A cancel that won the retry or failure write counts as a cancellation only.
+    if (!cancelHandled) {
+      observabilityFacade.recordJobFailure(job, ex, attempt);
+      currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     }
   }
 
@@ -1321,9 +1380,13 @@ public class JobTask implements Callable<Void> {
                     + " reached (ratchet.execution.max-continuations)");
         String sanitized = sanitizeError(failure);
         int failedAttempt = job.getAttempts() + 1;
-        observabilityFacade.recordJobFailure(job, failure, failedAttempt);
-        currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
-        if (handleNonRetryableFailure(failure, job.getAttempts(), sanitized)) {
+        boolean failed = handleNonRetryableFailure(failure, job.getAttempts(), sanitized);
+        // A cancel that won the failure write counts as a cancellation only.
+        if (!cancelHandled) {
+          observabilityFacade.recordJobFailure(job, failure, failedAttempt);
+          currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
+        }
+        if (failed) {
           try {
             if (!store.updateState(
                 job.getId(),
@@ -1353,7 +1416,12 @@ public class JobTask implements Callable<Void> {
       }
       if (result == StateWriteResult.SUPERSEDED) {
         markAttemptSuperseded();
-        saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+        if (jobWasCanceled()) {
+          // A cancel committed after the post-body check and superseded the counter write.
+          handleCanceledDuringExecution(start);
+        } else {
+          saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+        }
         return;
       }
       if (writeAttempt == 3) {
@@ -1373,6 +1441,11 @@ public class JobTask implements Callable<Void> {
       log.infof(
           "Job %s continuing (%d/%d) in %d ms",
           job.getId(), count + 1, maxContinuations, delay.toMillis());
+    } else if (jobWasCanceled()) {
+      // A cancel committed after the post-body check, so the continuation write missed.
+      markAttemptSuperseded();
+      handleCanceledDuringExecution(start);
+      return;
     } else {
       warnRejectedOwnerWrite();
       saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
@@ -1741,6 +1814,10 @@ public class JobTask implements Callable<Void> {
       }
     }
     if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
+      if (jobWasCanceled()) {
+        handleCanceledDuringExecution(cancelStart());
+        return;
+      }
       markAttemptSuperseded();
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());
       saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
@@ -1825,6 +1902,7 @@ public class JobTask implements Callable<Void> {
       return true;
     }
     markAttemptSuperseded();
+    if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
     return false;
   }
 
@@ -1951,6 +2029,10 @@ public class JobTask implements Callable<Void> {
           job.getMaxRetries(),
           ex.getClass().getName(),
           ex.getMessage());
+    } else if (jobWasCanceled()) {
+      // A cancel committed after the attempt increment. The saved FAILED record becomes CANCELED.
+      markAttemptSuperseded();
+      handleCanceledDuringExecution(cancelStart());
     } else {
       warnRejectedOwnerWrite();
     }

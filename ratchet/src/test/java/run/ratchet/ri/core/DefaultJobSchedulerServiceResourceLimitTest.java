@@ -153,6 +153,7 @@ class DefaultJobSchedulerServiceResourceLimitTest {
         null,
         new JakartaAfterCommitRegistrar(),
         null,
-        permits);
+        permits,
+        null);
   }
 }

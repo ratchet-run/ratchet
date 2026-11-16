@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -120,6 +121,7 @@ class JobTaskAuthorizationTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
+            new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -268,6 +270,7 @@ class JobTaskAuthorizationTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
+            new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());

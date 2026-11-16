@@ -39,6 +39,7 @@ public class TransactionalJobProbe {
     public final AtomicInteger writes = new AtomicInteger();
     public final AtomicReference<JobContext> context = new AtomicReference<>();
     public final CountDownLatch written = new CountDownLatch(1);
+    public final CountDownLatch stopRequested = new CountDownLatch(1);
     public final CountDownLatch release = new CountDownLatch(1);
   }
 
@@ -69,6 +70,23 @@ public class TransactionalJobProbe {
   @TransactionalJob
   public static void block(String key) throws InterruptedException {
     execute(key, false, true);
+  }
+
+  /** Writes, waits for a stop request, then waits for the test before it stops by throwing. */
+  @TransactionalJob
+  public static void stopWhenCancelled(String key) throws InterruptedException {
+    Attempt attempt = ATTEMPTS.get(key);
+    attempt.bodies.incrementAndGet();
+    CDI.current().select(TransactionalJobProbe.class).get().insert(key);
+    attempt.writes.incrementAndGet();
+    attempt.written.countDown();
+    JobContext context = JobContext.current();
+    for (int i = 0; i < 300 && !context.isCancellationRequested(); i++) Thread.sleep(100);
+    if (context.isCancellationRequested()) attempt.stopRequested.countDown();
+    if (!attempt.release.await(45, TimeUnit.SECONDS)) {
+      throw new IllegalStateException("Transactional body was not released");
+    }
+    context.throwIfCancellationRequested();
   }
 
   private static void execute(String key, boolean failFirst, boolean block)

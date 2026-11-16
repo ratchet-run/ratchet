@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -202,12 +203,34 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
       return 0;
     }
     try {
-      String placeholders = String.join(",", Collections.nCopies(nodeIds.size(), "?"));
+      var remaining = new LinkedHashSet<>(nodeIds);
+      String placeholders = String.join(",", Collections.nCopies(remaining.size(), "?"));
+      // A plain read sees a hold that another transaction has locked, without waiting for it.
+      // language=PostgreSQL
+      String heldSql =
+          """
+          SELECT DISTINCT held_by_node FROM scheduler_business_key_reservation
+          WHERE held_until IS NOT NULL AND held_by_node IN (
+          """
+              + placeholders
+              + ")";
+      var heldQuery = ctx.em().createNativeQuery(heldSql);
+      int parameter = 1;
+      for (String nodeId : remaining) {
+        heldQuery.setParameter(parameter++, nodeId);
+      }
+      for (Object heldByNode : heldQuery.getResultList()) {
+        remaining.remove(String.valueOf(heldByNode));
+      }
+      if (remaining.isEmpty()) {
+        return 0;
+      }
+      placeholders = String.join(",", Collections.nCopies(remaining.size(), "?"));
       // language=PostgreSQL
       String sql = "DELETE FROM scheduler_node WHERE node_id IN (" + placeholders + ")";
       var query = ctx.em().createNativeQuery(sql);
-      int parameter = 1;
-      for (String nodeId : nodeIds) {
+      parameter = 1;
+      for (String nodeId : remaining) {
         query.setParameter(parameter++, nodeId);
       }
       return query.executeUpdate();

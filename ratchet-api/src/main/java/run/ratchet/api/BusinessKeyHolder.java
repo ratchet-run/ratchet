@@ -19,7 +19,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * The active holder of a business key.
+ * The holder of a business key: a live job, a recurring master, or a cancelled job whose running
+ * body has not ended yet.
  *
  * @param id the job id or recurring master id. {@link JobSchedulerService#cancelJob(UUID)} cancels
  *     either.
@@ -27,7 +28,8 @@ import java.util.UUID;
  *     which is {@link JobType#SINGLE} for a job from {@link JobBuilder}.
  * @param status the job's live status: PENDING, RUNNING, PAUSED or WAITING. A recurring master is
  *     PAUSED when paused and PENDING otherwise, as in {@link JobQueryService#getRecurringMasters}.
- *     Never null or terminal.
+ *     CANCELED for a cancelled job that still holds the key, as described in {@link
+ *     JobSchedulerService#cancelJob(UUID)}. Never null, SUCCEEDED or FAILED.
  */
 public record BusinessKeyHolder(UUID id, JobType type, JobStatus status) {
   public BusinessKeyHolder {

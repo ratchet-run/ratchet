@@ -245,7 +245,7 @@ On **failure:**
 
 ### Mid-Execution Cancellation
 
-The executor checks `wasJobCanceledDuringExecution()` both before starting work and after the method returns. If the job was canceled during execution, the result is discarded and the job stays in CANCELED state. This handles the race condition where `cancelJob()` is called while a job is actively running.
+`cancelJob()` and `replace()` move a running job to `CANCELED` in the store and ask its body to stop (see [Canceling a running job](#cancelling-a-running-job)). The executor also re-reads the status before it starts work and after the method returns. If the job was canceled, the result is discarded and the job stays `CANCELED`.
 
 ## Transactions and Database Connections
 
@@ -301,7 +301,27 @@ What happens next depends on how the job ends:
 
 Each attempt has its own request flag, so a retry starts with the flag cleared. The flag is held in memory on the node running the attempt, where the watchdog also runs.
 
-Cancelling a running job with `JobSchedulerService.cancelJob` does not set the request yet. The job's status changes to `CANCELED` in the store, and the worker discards the result when the job returns.
+### Canceling a running job {#cancelling-a-running-job}
+
+`JobSchedulerService.cancelJob` and `replace` also set the request for a running job. When the cancel runs on the node that runs the job, the flag is set right after the cancel commits. Every node also checks the store every 5 seconds for its attempts that have run for at least 5 seconds, so a cancel made on another node reaches the job within about 10 seconds. Ratchet does not interrupt the worker thread for a cancel. A job that never checks the flag runs until it returns or the watchdog interrupts it at its deadline, and its result is discarded.
+
+When a canceled job stops by throwing any exception, the attempt ends as `CANCELED`. Its execution record is `CANCELED`, and there is no retry, DLQ entry, `JobExecutionTimedOutEvent` or `onFailure` callback. The cancel publishes the one `JobCancelledEvent`. It also cancels the chain and workflow steps that wait on the job, so they never start, whatever the body does next. A resource permit held by the job is released when the body ends.
+
+A step that waits on a canceled or failed job can start just before Ratchet cancels it. Ratchet then cancels that step as a running job, and holds its business key as described below. The step gets its stop request from the store check every 5 seconds, so the request arrives within about 10 seconds. No `JobCancelledEvent` is published for the step. The `ChainFailedEvent` for a canceled job has the error message `Job was canceled`. If the job was retried before the cancel, it keeps the error of its earlier failed attempt, and the event carries that error instead.
+
+If the job has a business key, the key stays held until the body ends, so a new job with the same key cannot run alongside the old body. While the key is held, `submit()` throws `DuplicateBusinessKeyException` and `findBusinessKeyHolder` returns the canceled job with status `CANCELED`. `cancelJob` and `replace` of a running job hold the key. So do the cancels Ratchet makes itself, such as the cancel of a running step described above. A hard timeout does not. The hold ends in one of three ways:
+
+- The worker releases it when the body ends. Ratchet's timeout and shutdown interrupts reach a worker only while its body runs, and the worker clears that interrupt before it makes the release. If the store call fails, or if the worker thread is interrupted again after the body ends, a scheduler thread makes the release instead and tries again every 5 seconds for up to 5 minutes. A late interrupt can come from the application, from the container, or from the standalone executor when shutdown has to force it to stop.
+- The orphan scan on another node releases it when it cleans up the node that ran the body. A node also releases its own holds when it starts.
+- The orphan scan deletes it on its first run after its limit has passed. The limit is the cancel time plus the job's timeout (or `ratchet.timeout.default-sla-seconds`), plus `ratchet.node.orphan-grace-seconds`, plus `ratchet.node.orphan-scan-interval-seconds`. The body's deadline comes first, so the limit only ends the hold of a body that ignored both the stop request and the deadline interrupt.
+
+The node release and the expiry cleanup never wait for a hold that another transaction has locked, such as a release on a node that has stopped responding. They skip that hold. The expiry cleanup tries it again on every scan. When the release for a dead node skips a hold, the scan keeps that node's `scheduler_node` row, so the next scan finds the node again and tries the release again. The row is deleted once none of the node's holds is left. A hold that a node skipped when it released its own holds at start-up stays until its limit has passed.
+
+The node that cancels the job sets the limit, and the node that runs the body sets the deadline. Give every node the same `default-sla-seconds`, `orphan-grace-seconds` and `orphan-scan-interval-seconds`, and keep their clocks in sync. Otherwise the limit can pass before the body's deadline.
+
+If the worker thread is interrupted again after the body ends, the worker does not check for the cancel, so the attempt's execution record can show a failure.
+
+Deleting or archiving a job does not end its hold. The store's `delete` of a held job fails, its `deleteJobsByIds` skips the job, and job retention archives the job only after the hold ends.
 
 ## Performance Characteristics
 

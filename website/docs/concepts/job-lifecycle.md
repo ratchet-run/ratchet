@@ -129,7 +129,7 @@ The job is blocked until an external signal is delivered. WAITING jobs are not v
 
 ### CANCELED
 
-The job was explicitly canceled and will not execute. This is a terminal state. Canceling a RUNNING job sets the status; the executor checks status mid-flight and discards results.
+The job was explicitly canceled and will not execute. This is a terminal state. Canceling a RUNNING job sets the status and asks the body to stop at a safe point; its result is discarded, and a keyed job holds its business key until the body ends. See [Cancelling a running job](execution-model.md#cancelling-a-running-job).
 
 - **Terminal:** Yes
 - **Cascading:** Canceling a chain step cancels all downstream dependents
@@ -147,7 +147,7 @@ When you call `submit()` on a builder, the engine:
 5. Persists the `JobEntity` with status PENDING
 6. For immediate or CRITICAL-priority jobs, publishes a wakeup notification via `ClusterCoordinator`
 
-A conflicting business key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state. Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
+A conflicting business key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until the holder releases the key's reservation. A job usually releases it when it reaches a terminal state. A cancelled RUNNING job is the exception: it is CANCELED at once, but it keeps the reservation until its body ends (see [Cancelling a running job](execution-model.md#cancelling-a-running-job)). Ratchet checks and reserves the business key before writing anything. `DuplicateBusinessKeyException` leaves the caller's transaction usable, so the caller can catch it and commit its own work. This applies to an active job found up front, a recurring holder, a holder that committed during the caller's transaction, and a concurrent winner. A losing submission waits until the winner's transaction ends. It then throws, or succeeds if the winner rolled back. With a custom idempotency key matching the winner's, it returns the winner's handle instead.
 
 To see who holds a key before you submit, call [`findBusinessKeyHolder`](../api-reference/job-scheduler-service#business-key-lookup). The answer is a point-in-time check, so a later submit can still lose a race.
 
@@ -270,14 +270,15 @@ scheduler.cancelJob(jobId);
 
 Behavior depends on current state:
 - **PENDING:** Immediately transitions to CANCELED
-- **RUNNING:** Sets status to CANCELED. The payload is not interrupted. After it returns, the executor checks cancellation and discards its result
+- **RUNNING:** Sets status to CANCELED and asks the body to stop at a safe point. The worker thread is not interrupted. The result is discarded, and a keyed job keeps its business key until the body ends. See [Cancelling a running job](execution-model.md#cancelling-a-running-job)
 - **WAITING:** Cancels the signal wait and prevents future delivery from releasing the job
 - **Terminal states:** Returns `false` (cannot cancel completed jobs)
 
-For an ordinary job or chain step, `cancelJob` cancels that job only. It does not
-cancel downstream jobs. For a batch parent, it also cancels unstarted batch children
-and callback branches with their unstarted descendants. RUNNING batch children keep
-running and record their real results.
+Cancelling an ordinary job or chain step also cancels the chain and workflow steps that
+wait on it. A step that has just started is cancelled as a RUNNING job. For a batch
+parent, `cancelJob` also cancels unstarted batch children and callback branches with
+their unstarted descendants. RUNNING batch children keep running and record their real
+results.
 
 ## Claim fencing
 
@@ -301,7 +302,7 @@ The next claim advances the claim sequence. A stalled worker cannot overwrite th
 
 ## Archival
 
-Completed jobs (SUCCEEDED and FAILED) are eligible for archival after a configurable retention period. The `JobArchivingService` moves old jobs from `scheduler_job` to `scheduler_job_archive`, keeping the active table lean for efficient polling.
+Completed jobs (SUCCEEDED and FAILED) are eligible for archival after a configurable retention period. The `JobArchivingService` moves old jobs from `scheduler_job` to `scheduler_job_archive`, keeping the active table lean for efficient polling. A cancelled job that still holds its business key is archived only after the hold ends (see [Cancelling a running job](execution-model.md#cancelling-a-running-job)).
 
 ## Related
 

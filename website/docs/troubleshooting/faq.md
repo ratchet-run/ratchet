@@ -100,7 +100,7 @@ When a node crashes while jobs are RUNNING:
 
 4. **Resource permits are cleaned up.** Any permits held by the dead node in `scheduler_resource_permit` are released. A retry of a recovered job does not reuse the dead attempt's permit. If the resource is full, the retry waits for this clean-up and then takes a permit of its own. The clean-up runs a waiter sweep, which wakes jobs waiting for the freed resources (up to 64 resources per sweep; later sweeps cover the rest).
 
-5. **The stale node entry is deleted.** The `scheduler_node` row for the crashed node is removed. Every orphan scan also removes permits whose node row is missing once their acquisition time is older than the orphan cutoff, freeing late permits left by a crashed node.
+5. **The stale node entry is deleted.** The scan releases the business keys still held by jobs that were cancelled while they ran on the crashed node, then removes the node's `scheduler_node` row. If another transaction has one of those holds locked, the scan skips it and keeps the row, and the next scan tries again. Every orphan scan also removes permits whose node row is missing once their acquisition time is older than the orphan cutoff, freeing late permits left by a crashed node.
 
 When a node starts, it also deletes the permits left under its own node id before it claims any job. This only helps when the restarted node keeps its id, which needs `ratchet.node.id` or a custom `NodeIdentityProvider` with a stable id. The default id changes on every start.
 

@@ -107,6 +107,7 @@ class DefaultJobSchedulerServiceBusinessKeyLookupTest {
             null,
             new JakartaAfterCommitRegistrar(),
             mock(BatchService.class),
+            null,
             null);
   }
 

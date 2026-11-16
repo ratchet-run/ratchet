@@ -32,6 +32,21 @@ import run.ratchet.store.entity.JobEntity;
 /** Shared utilities for archiving jobs across JPA-based store implementations. */
 public final class ArchiveHelper {
 
+  /**
+   * Rejects an archive of jobs whose business key is still held after a running cancel.
+   *
+   * @param heldIds the members of the archive whose business key is held
+   * @throws RatchetTransientStoreException if {@code heldIds} is not empty
+   */
+  public static void requireNoHeldJobs(List<UUID> heldIds) {
+    if (!heldIds.isEmpty()) {
+      throw new RatchetTransientStoreException(
+          "Archive contains job "
+              + heldIds.get(0)
+              + " whose business key is still held; rolling back");
+    }
+  }
+
   private ArchiveHelper() {}
 
   /**

@@ -17,6 +17,7 @@ package run.ratchet.store.oracle;
 
 import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
+import static run.ratchet.store.oracle.OracleBusinessKeyReservations.DELETE_RESERVATIONS_CHUNK_SIZE;
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
@@ -47,6 +48,11 @@ final class OracleJobDeleteOperations {
 
   void delete(UUID id) {
     try {
+      lockDeleteRows(List.of(id));
+      if (!reservations.heldOwners(List.of(id)).isEmpty()) {
+        throw new IllegalStateException(
+            "Job " + id + " cannot be deleted while its business key is held");
+      }
       reservations.deleteReservationByOwner(id);
       // language=Oracle
       String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
@@ -56,18 +62,54 @@ final class OracleJobDeleteOperations {
     }
   }
 
+  private void lockDeleteRows(List<UUID> ids) {
+    List<UUID> ordered =
+        ids.stream().distinct().sorted(Comparator.comparing(UUID::toString)).toList();
+    // Queue rows precede job rows, which precede reservation reads and writes.
+    for (String table : List.of("scheduler_job_queue", "scheduler_job")) {
+      for (int start = 0; start < ordered.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+        List<UUID> chunk =
+            ordered.subList(
+                start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ordered.size()));
+        String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        Query query =
+            ctx.em()
+                .createNativeQuery(
+                    "SELECT job_id FROM "
+                        + table
+                        + " WHERE job_id IN ("
+                        + placeholders
+                        + ") ORDER BY job_id FOR UPDATE");
+        int parameter = 1;
+        for (UUID id : chunk) query.setParameter(parameter++, UuidRawConverter.toBytes(id));
+        query.getResultList();
+      }
+    }
+  }
+
   int deleteJobsByIds(List<UUID> ids) {
     try {
       if (ids.isEmpty()) {
         return 0;
       }
+      lockDeleteRows(ids);
+      List<UUID> held = reservations.heldOwners(ids);
+      ids = ids.stream().filter(id -> !held.contains(id)).toList();
+      if (ids.isEmpty()) return 0;
       reservations.deleteReservationsByOwners(ids);
-      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-      // language=Oracle
-      String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
-      Query jobDelete = ctx.em().createNativeQuery(jobSql);
-      bindUuidList(jobDelete, ids, 1);
-      return jobDelete.executeUpdate();
+      int deleted = 0;
+      for (int start = 0; start < ids.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+        List<UUID> chunk =
+            ids.subList(start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ids.size()));
+        String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        Query jobDelete =
+            ctx.em()
+                .createNativeQuery(
+                    "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+        bindUuidList(jobDelete, chunk, 1);
+        deleted += jobDelete.executeUpdate();
+      }
+      return deleted;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete jobs by ids", e);
     }
@@ -301,7 +343,8 @@ final class OracleJobDeleteOperations {
                   """
                   UPDATE scheduler_job_queue
                   SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-                      crash_count = crash_count + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+                      crash_count = crash_count + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP),
+                      version = version + 1
                   """
                       + restricted
                       + " AND crash_count < ?");
@@ -313,7 +356,7 @@ final class OracleJobDeleteOperations {
         Query release =
             ctx.em()
                 .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                    "UPDATE scheduler_job_queue SET picked_by = NULL, version = version + 1 "
                         + restricted
                         + " AND crash_count >= ?");
         bindRecovery(release, restrictedParameters, maxCrashRedeliveries);
@@ -374,5 +417,13 @@ final class OracleJobDeleteOperations {
     for (Object parameter : parameters) {
       query.setParameter(index++, parameter);
     }
+  }
+
+  int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return reservations.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return reservations.deleteExpiredBusinessKeyHolds(now, limit);
   }
 }

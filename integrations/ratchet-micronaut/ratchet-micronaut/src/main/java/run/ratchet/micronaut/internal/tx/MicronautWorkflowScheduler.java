@@ -18,11 +18,13 @@ package run.ratchet.micronaut.internal.tx;
 import io.micronaut.core.annotation.Creator;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -41,6 +43,8 @@ public class MicronautWorkflowScheduler extends WorkflowScheduler {
   public MicronautWorkflowScheduler(
       JobCrudStore jobCrudStore,
       JobTerminalStore jobTerminalStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      RatchetOptions options,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
@@ -49,6 +53,8 @@ public class MicronautWorkflowScheduler extends WorkflowScheduler {
     super(
         jobCrudStore,
         jobTerminalStore,
+        jobBatchStatusStore,
+        options,
         conditionStore,
         conditionEvaluator,
         clock,

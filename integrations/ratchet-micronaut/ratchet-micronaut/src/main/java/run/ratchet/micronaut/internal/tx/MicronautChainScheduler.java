@@ -18,10 +18,12 @@ package run.ratchet.micronaut.internal.tx;
 import io.micronaut.core.annotation.Creator;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
@@ -39,9 +41,18 @@ public class MicronautChainScheduler extends ChainScheduler {
   public MicronautChainScheduler(
       JobCrudStore jobCrudStore,
       JobTerminalStore jobTerminalStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      RatchetOptions options,
       Clock clock,
       InternalEventPublisher eventPublisher,
       AfterCommitRegistrar afterCommitRegistrar) {
-    super(jobCrudStore, jobTerminalStore, clock, eventPublisher, afterCommitRegistrar);
+    super(
+        jobCrudStore,
+        jobTerminalStore,
+        jobBatchStatusStore,
+        options,
+        clock,
+        eventPublisher,
+        afterCommitRegistrar);
   }
 }

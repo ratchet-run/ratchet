@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -679,6 +680,7 @@ class OrphanRecoveryTimerTest {
     verify(jobBulkStore)
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+    verify(jobBulkStore).deleteExpiredBusinessKeyHolds(FIXED_NOW, 500);
     verifyNoMoreInteractions(jobBulkStore, jobCrudStore, lifecycleFacade, callbackInvoker);
   }
 
@@ -821,6 +823,9 @@ class OrphanRecoveryTimerTest {
 
   @Test
   void stopsAtPageCap() {
+    NodeEntity stale = new NodeEntity();
+    stale.setId("dead");
+    when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60))).thenReturn(List.of(stale));
     when(jobBulkStore.resetOrphanJobsBefore(
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenReturn(new OrphanRecovery(500, 500, 0, List.of()));
@@ -830,12 +835,19 @@ class OrphanRecoveryTimerTest {
     }
     verify(jobBulkStore, times(OrphanRecoveryTimer.MAX_ORPHAN_PAGES_PER_SCAN))
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    // A scan stopped by the page cap still releases dead nodes' holds and sweeps expired ones.
+    verify(jobBulkStore).releaseBusinessKeyHolds(List.of("dead"));
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
   }
 
   @Test
   void stopsAtBudgetAndRunsFinally() {
     MutableClock clock = new MutableClock();
     timer = timerWithClock(clock);
+    NodeEntity stale = new NodeEntity();
+    stale.setId("dead");
+    when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60))).thenReturn(List.of(stale));
     when(jobBulkStore.resetOrphanJobsBefore(
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenAnswer(
@@ -850,6 +862,11 @@ class OrphanRecoveryTimerTest {
     verify(jobBulkStore, times(2))
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
     verify(resourcePermitService).sweepWaiters();
+    // A scan stopped by the time budget still releases dead nodes' holds and sweeps expired ones.
+    verify(jobBulkStore).releaseBusinessKeyHolds(List.of("dead"));
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(
+            any(Instant.class), eq(OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT));
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
   }
 
@@ -918,6 +935,8 @@ class OrphanRecoveryTimerTest {
     timer.recoverNow();
     verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
     verifyNoMoreInteractions(jobBulkStore);
   }
@@ -931,6 +950,8 @@ class OrphanRecoveryTimerTest {
     verify(lifecycleFacade, never()).completeFailure(missing, JobStatus.RUNNING, false);
     verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
     verifyNoMoreInteractions(jobBulkStore);
   }
@@ -944,6 +965,8 @@ class OrphanRecoveryTimerTest {
     timer.recoverNow();
     verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
     verifyNoMoreInteractions(jobBulkStore);
   }
@@ -1211,5 +1234,67 @@ class OrphanRecoveryTimerTest {
       logger.setLevel(originalLevel);
       logger.setUseParentHandlers(originalUseParentHandlers);
     }
+  }
+
+  @Test
+  void recoverOrphans_releasesHoldsOfStaleNodesBeforeDeletingThem() {
+    // A dead node's permits and held keys are released before its identity is deleted.
+    NodeEntity stale = new NodeEntity();
+    stale.setId("dead");
+    when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60))).thenReturn(List.of(stale));
+    timer.recoverNow();
+    InOrder order = inOrder(resourcePermitService, jobBulkStore, nodeStore);
+    order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("dead"));
+    order.verify(jobBulkStore).releaseBusinessKeyHolds(List.of("dead"));
+    order.verify(nodeStore).deleteInactiveNodesByIds(List.of("dead"));
+  }
+
+  @Test
+  void recoverOrphans_withoutStaleNodes_releasesNoHolds() {
+    // Recovery without stale nodes does not release any node's held keys.
+    timer.recoverNow();
+    verify(jobBulkStore, never()).releaseBusinessKeyHolds(any());
+  }
+
+  @Test
+  void recoverWithLease_sweepsExpiredHoldsEvenWhenRecoveryFails() {
+    // Expired holds are swept in the recovery finally block using the timer clock.
+    when(jobBulkStore.resetOrphanJobsBefore(any(), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenThrow(new IllegalStateException("recovery failed"));
+    timer.recoverNow();
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+  }
+
+  @Test
+  void expiredHoldSweepFailure_isSwallowedAndStaleExecutionsStillClose() {
+    // A failed expired-hold sweep cannot prevent stale execution cleanup.
+    when(jobBulkStore.deleteExpiredBusinessKeyHolds(
+            FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT))
+        .thenThrow(new IllegalStateException("hold sweep failed"));
+    assertDoesNotThrow(timer::recoverNow);
+    verify(jobBulkStore)
+        .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
+  }
+
+  @Test
+  void releaseOwnBusinessKeyHoldsAtStartup_releasesThisNodesHolds() {
+    // Startup cleanup releases this node's holds and returns the deleted count.
+    when(jobBulkStore.releaseBusinessKeyHolds(List.of("node-1"))).thenReturn(4);
+    assertEquals(4, timer.releaseOwnBusinessKeyHoldsAtStartup("node-1"));
+    verify(jobBulkStore).releaseBusinessKeyHolds(List.of("node-1"));
+  }
+
+  @Test
+  void releaseOwnBusinessKeyHoldsAtStartup_retriesTransientFailureThenSucceeds() {
+    // Startup cleanup retries transient failures up to the same three-try permit budget.
+    when(jobBulkStore.releaseBusinessKeyHolds(List.of("node-1")))
+        .thenThrow(new RatchetTransientStoreException("first"))
+        .thenThrow(new RatchetTransientStoreException("second"))
+        .thenReturn(2);
+    assertEquals(2, timer.releaseOwnBusinessKeyHoldsAtStartup("node-1"));
+    verify(jobBulkStore, times(3)).releaseBusinessKeyHolds(List.of("node-1"));
   }
 }

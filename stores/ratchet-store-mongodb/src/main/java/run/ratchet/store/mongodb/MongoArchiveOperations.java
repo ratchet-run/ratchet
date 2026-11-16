@@ -74,6 +74,7 @@ import run.ratchet.store.util.ExtensionArchiveJson;
 final class MongoArchiveOperations implements ArchiveStore {
 
   private final MongoStoreContext ctx;
+  private final MongoBusinessKeyReservations reservations;
   private final Clock clock;
   private final boolean copyProperties;
   private final boolean copyState;
@@ -88,9 +89,27 @@ final class MongoArchiveOperations implements ArchiveStore {
 
   MongoArchiveOperations(
       MongoStoreContext ctx, Clock clock, boolean copyProperties, boolean copyState) {
+    this(ctx, clock, copyProperties, copyState, new MongoBusinessKeyReservations(ctx));
+  }
+
+  MongoArchiveOperations(
+      MongoStoreContext ctx,
+      boolean copyProperties,
+      boolean copyState,
+      MongoBusinessKeyReservations reservations) {
+    this(ctx, Clock.systemUTC(), copyProperties, copyState, reservations);
+  }
+
+  private MongoArchiveOperations(
+      MongoStoreContext ctx,
+      Clock clock,
+      boolean copyProperties,
+      boolean copyState,
+      MongoBusinessKeyReservations reservations) {
     this.copyProperties = copyProperties;
     this.copyState = copyState;
     this.ctx = ctx;
+    this.reservations = reservations;
     this.clock = Objects.requireNonNull(clock, "clock");
   }
 
@@ -105,6 +124,7 @@ final class MongoArchiveOperations implements ArchiveStore {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {
+            ArchiveHelper.requireNoHeldJobs(reservations.heldOwners(session, List.of(job.getId())));
             populateExtensionData(
                 archive,
                 extensionProperties(session, List.of(job.getId()))
@@ -124,6 +144,7 @@ final class MongoArchiveOperations implements ArchiveStore {
               throw new RatchetTransientStoreException(
                   "Archive raced a status change on job " + job.getId() + "; rolling back");
             }
+            reservations.releaseByOwners(session, List.of(job.getId()));
             deleteExtensionData(session, List.of(job.getId()));
             return Boolean.TRUE;
           },
@@ -148,6 +169,7 @@ final class MongoArchiveOperations implements ArchiveStore {
               currentJobs.add(DocumentMapper.toJobEntity(doc));
             }
             currentJobs = ArchiveHelper.requireCurrentTerminalJobs(ids, currentJobs);
+            ArchiveHelper.requireNoHeldJobs(reservations.heldOwners(session, ids));
             int archived = insertArchiveDocuments(session, currentJobs, reason, archivedBy);
             if (archived > 0) {
               // Guard the delete on terminal status: a job reset to PENDING (e.g. a dashboard
@@ -169,6 +191,7 @@ final class MongoArchiveOperations implements ArchiveStore {
                         + deleted.getDeletedCount()
                         + "; rolling back");
               }
+              reservations.releaseByOwners(session, ids);
               deleteExtensionData(session, ids);
             }
             return archived;
@@ -275,6 +298,7 @@ final class MongoArchiveOperations implements ArchiveStore {
     }
     return and(
         terminalOlderThan(olderThan),
+        nin(ID, reservations.heldOwners()),
         nin("depends_on", unfinished),
         MongoPartitionOperations.unprotectedJobs(ctx));
   }

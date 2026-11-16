@@ -41,7 +41,7 @@ final class SqlserverJobRecurringAndResetOperations {
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-            updated_at = SYSUTCDATETIME()
+            updated_at = SYSUTCDATETIME(), version = version + 1
         WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ? AND claim_seq = ?
         """;
     return ctx.timedStoreOperation(
@@ -63,7 +63,7 @@ final class SqlserverJobRecurringAndResetOperations {
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-            updated_at = SYSUTCDATETIME()
+            updated_at = SYSUTCDATETIME(), version = version + 1
         WHERE status = 'RUNNING' AND picked_by = ?
         """;
     return ctx.timedStoreOperation(

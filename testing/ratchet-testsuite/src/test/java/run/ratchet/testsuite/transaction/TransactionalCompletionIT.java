@@ -33,8 +33,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.BusinessKeyHolder;
+import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.spi.JobAuditStore;
@@ -52,6 +55,7 @@ class TransactionalCompletionIT extends BaseRatchetIT {
   @Inject private JobCrudStore jobs;
   @Inject private JobAuditStore audit;
   @Inject private TransactionalJobProbe probe;
+  @Inject private BusinessKeyLookup lookup;
   private final List<JobHandle> handles = new ArrayList<>();
   private String key;
   private Attempt attempt;
@@ -138,6 +142,40 @@ class TransactionalCompletionIT extends BaseRatchetIT {
     assertEquals(0, probe.count(key));
     assertEquals(1, attempt.bodies.get());
     assertEquals(1, attempt.writes.get());
+    assertEquals(
+        ExecutionStatus.CANCELED, audit.findLatestExecution(handle.id()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void cancelStopsTheBodyAndHoldsItsBusinessKeyUntilTheBodyEnds() throws Exception {
+    // The stop request reaches the body, its write rolls back, and the key waits for the body.
+    String value = key;
+    String businessKey = "transactional-cancel-" + key;
+    JobHandle handle =
+        track(
+            scheduler
+                .enqueue(() -> TransactionalJobProbe.stopWhenCancelled(value))
+                .withBusinessKey(businessKey)
+                .withMaxRetries(0)
+                .submit());
+    try {
+      assertTrue(
+          attempt.written.await(30, TimeUnit.SECONDS), "Body must write before cancellation");
+      assertTrue(scheduler.cancelJob(handle.id()));
+      assertTrue(
+          attempt.stopRequested.await(15, TimeUnit.SECONDS), "Body must see the stop request");
+      assertEquals(
+          new BusinessKeyHolder(handle.id(), JobType.SINGLE, JobStatus.CANCELED),
+          lookup.findBusinessKeyHolder(businessKey).orElseThrow());
+    } finally {
+      attempt.release.countDown();
+    }
+    awaitExecutionClosed(handle);
+    await()
+        .atMost(Duration.ofSeconds(15))
+        .until(() -> lookup.findBusinessKeyHolder(businessKey).isEmpty());
+    assertEquals(JobStatus.CANCELED, jobs.findById(handle.id()).orElseThrow().getStatus());
+    assertEquals(0, probe.count(key));
     assertEquals(
         ExecutionStatus.CANCELED, audit.findLatestExecution(handle.id()).orElseThrow().getStatus());
   }

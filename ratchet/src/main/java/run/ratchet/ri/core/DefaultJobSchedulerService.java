@@ -62,6 +62,7 @@ import run.ratchet.api.internal.ResourceLimitRules;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -194,7 +195,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
       BatchService batchService,
-      ResourcePermitService resourcePermitService) {
+      ResourcePermitService resourcePermitService,
+      WorkflowScheduler workflowScheduler) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -220,7 +222,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         options,
         afterCommitRegistrar,
         batchService,
-        resourcePermitService);
+        resourcePermitService,
+        workflowScheduler);
   }
 
   /**
@@ -253,7 +256,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar,
       BatchService batchService,
-      ResourcePermitService resourcePermitService) {
+      ResourcePermitService resourcePermitService,
+      WorkflowScheduler workflowScheduler) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -292,7 +296,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             wakeupService,
             metricsCollector,
             clock,
-            afterCommitRegistrar);
+            afterCommitRegistrar,
+            jobTerminalStore,
+            workflowScheduler,
+            effectiveOptions);
   }
 
   @Override
@@ -363,7 +370,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     return systemCancellation.cancelLoadedJob(jobId, job);
   }
 
-  /** Cancels as the recovery system, using the same transition, event and cascade path. */
+  /** Cancels as the recovery system, holding the key like a user cancel. */
   @Transactional
   public boolean cancelJobAsSystem(UUID jobId) {
     return systemCancellation.cancel(jobId);
@@ -905,23 +912,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       JobStatus previousStatus = existing.getStatus();
       return jobTerminalStore.cancelJob(jobId) ? previousStatus : null;
     }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
-      return JobStatus.PENDING;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      return JobStatus.RUNNING;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
-      return JobStatus.PAUSED;
-    }
-    if (jobBatchStatusStore.compareAndSwapStatus(
-        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
-      return JobStatus.WAITING;
-    }
-    return null;
+    return systemCancellation.cancelLive(jobId, existing);
   }
 
   private void publishPausedEvent(UUID jobId, JobEntity job) {

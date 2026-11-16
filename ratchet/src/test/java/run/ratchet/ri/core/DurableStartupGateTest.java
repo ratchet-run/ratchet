@@ -166,6 +166,7 @@ class DurableStartupGateTest {
             mock(RecurringScheduler.class),
             mock(OrphanRecoveryTimer.class),
             mock(BatchRecoveryTimer.class),
+            mock(CancelRequestRelay.class),
             mock(JobStateFlusher.class),
             deadLetter,
             durable,
