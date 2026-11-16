@@ -1,0 +1,56 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.ri.core.internal;
+
+import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Supplier;
+import org.jboss.logging.Logger;
+import run.ratchet.ri.core.ResourcePermitService;
+
+/**
+ * Releases the resource permit of an ended attempt through {@link ReleaseRetries}. The release goes
+ * through {@link ResourcePermitService}, so a release that lands on a retry also wakes the
+ * resource's waiters, and it does nothing when the store has no ResourcePermitStore. Each call
+ * names the attempt's claim, so a retry never removes a permit that a newer attempt of the same job
+ * holds. A permit has no expiry. One that is still held when the retries stop, or when the
+ * scheduler refuses them, stays until this node's start-up clean-up or, after its heartbeat stops,
+ * another node's stale-node clean-up removes it.
+ */
+final class PermitReleases {
+  private final ResourcePermitService permits;
+  private final ReleaseRetries retries;
+
+  PermitReleases(ResourcePermitService permits, Supplier<ScheduledExecutorService> scheduler) {
+    this.permits = permits;
+    this.retries = new ReleaseRetries(scheduler);
+  }
+
+  /**
+   * Releases the permit this claim holds on the resource. Never throws for a failed store call.
+   *
+   * @return true when the permit was released on this thread; false when the release went to the
+   *     scheduler
+   */
+  boolean release(String resource, UUID jobId, long claimSeq) {
+    return retries.release(
+        new ReleaseRetries.Release(
+            "resource permit '%s' of job %s claim %s".formatted(resource, jobId, claimSeq),
+            "node clean-up after this node stops or restarts",
+            Logger.Level.WARN,
+            () -> permits.release(resource, jobId, claimSeq)));
+  }
+}

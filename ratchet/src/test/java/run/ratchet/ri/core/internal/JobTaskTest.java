@@ -32,6 +32,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.Serializable;
@@ -153,6 +154,8 @@ class JobTaskTest {
 
   private final ScheduledExecutorService holdReleaseScheduler =
       mock(ScheduledExecutorService.class);
+  private final ScheduledExecutorService permitReleaseScheduler =
+      mock(ScheduledExecutorService.class);
 
   private static final String CONTINUATION_NS = "ratchet.continuation";
   private static final ThreadLocal<Runnable> CONTINUATION_PAYLOAD = new ThreadLocal<>();
@@ -199,6 +202,7 @@ class JobTaskTest {
             jobStateFlusher,
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             FIXED_CLOCK,
             null,
             RatchetOptions.builder().execution(e -> e.maxContinuations(limit)).build());
@@ -1417,6 +1421,7 @@ class JobTaskTest {
                 mock(JobStateFlusher.class),
                 null,
                 new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+                new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
                 null,
                 null,
                 RatchetOptions.builder().build()));
@@ -1469,6 +1474,7 @@ class JobTaskTest {
             jobStateFlusher,
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -2645,6 +2651,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             FIXED_CLOCK,
             null,
             RatchetOptions.defaults());
@@ -2703,6 +2710,7 @@ class JobTaskTest {
         flusher,
         null,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -3989,6 +3997,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -4082,6 +4091,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -4185,6 +4195,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             Clock.systemUTC(),
             resolver,
             RatchetOptions.defaults());
@@ -4305,6 +4316,7 @@ class JobTaskTest {
         jobStateFlusher,
         timeoutHandler,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -4334,6 +4346,7 @@ class JobTaskTest {
         mock(JobStateFlusher.class),
         null,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
         taskClock,
         null,
         RatchetOptions.defaults());
@@ -4624,6 +4637,73 @@ class JobTaskTest {
       Assertions.assertFalse(interruptedAtRelease.get());
       verifyNoInteractions(holdReleaseScheduler);
       Assertions.assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void failedPermitRelease_isRetriedForTheSameClaim() throws Exception {
+    // A store failure in the attempt's one release must not leave the permit until the node
+    // stops. The release is retried on the scheduler for the same resource, job and claim.
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
+    succeedBody();
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+    doThrow(new RatchetTransientStoreException("lock wait timeout"))
+        .doNothing()
+        .when(resourcePermitService)
+        .release("gpu", JOB_UUID, 7L);
+
+    jobTask.call();
+
+    ArgumentCaptor<Runnable> retry = ArgumentCaptor.forClass(Runnable.class);
+    verify(permitReleaseScheduler).schedule(retry.capture(), eq(5_000L), eq(TimeUnit.MILLISECONDS));
+    retry.getValue().run();
+    verify(resourcePermitService, times(2)).release("gpu", JOB_UUID, 7L);
+    verifyNoMoreInteractions(permitReleaseScheduler);
+  }
+
+  @Test
+  void stillInterruptedWorker_handsThePermitReleaseOff() throws Exception {
+    // A timeout or a shutdown supersedes the attempt and interrupts the worker. The mocked body
+    // bypasses the invocation that clears a body's interrupt, so the flag is still set at the
+    // release. The worker does not call the store on an interrupted thread: it hands the release
+    // to the scheduler at once and keeps its interrupt.
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenReturn(AcquireResult.ACQUIRED);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    failBody(
+        () -> {
+          attempt.markSuperseded();
+          Thread.currentThread().interrupt();
+          return new IllegalStateException("interrupted");
+        });
+    try {
+      jobTask.call();
+      verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      ArgumentCaptor<Runnable> release = ArgumentCaptor.forClass(Runnable.class);
+      verify(permitReleaseScheduler).schedule(release.capture(), eq(0L), eq(TimeUnit.MILLISECONDS));
+      Thread.interrupted();
+      release.getValue().run();
+      verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
     } finally {
       Thread.interrupted();
     }
