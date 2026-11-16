@@ -18,6 +18,9 @@ permissions:
 jobs:
   owasp:
     runs-on: ubuntu-latest
+    env:
+      # Keep in step with the digest pinned on the scan steps below.
+      SCANNER_IMAGE: owasp/dependency-check-action@sha256:0b37339a28122edfec1b21e03d169b55d301e3c91bf201801d301b2e567af222
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -44,25 +47,63 @@ jobs:
           python3 infra/ci/stage_owasp.py --repository "$HOME/.m2/repository" --fetch-copied-poms
           mkdir -p target/owasp/reports/{runtime,tooling,tests}
 
+      # The image bundles NVD data from when it was built. Without a cache, every run downloads
+      # all changes since then, and one NVD error partway through fails the job. Restore after
+      # the stage step, because its `mvn clean` removes target/. The key carries the image
+      # digest, so a scanner bump never reuses a database written by another version.
+      - name: Name the NVD data cache
+        id: nvd-cache
+        run: |
+          scanner_digest="${SCANNER_IMAGE##*@sha256:}"
+          echo "prefix=owasp-nvd-${scanner_digest:0:16}-" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore NVD data from an earlier run
+        id: nvd-restore
+        uses: actions/cache/restore@v6
+        with:
+          path: target/owasp/data
+          key: ${{ steps.nvd-cache.outputs.prefix }}${{ steps.nvd-cache.outputs.day }}
+          restore-keys: ${{ steps.nvd-cache.outputs.prefix }}
+
       - name: Refresh vulnerability data once for all reports
+        id: nvd-update
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           set -euo pipefail
-          scanner_image='owasp/dependency-check-action@sha256:0b37339a28122edfec1b21e03d169b55d301e3c91bf201801d301b2e567af222'
           scanner_data="$GITHUB_WORKSPACE/target/owasp/data"
           mkdir -p "$scanner_data"
-          scanner_container="$(docker create "$scanner_image")"
-          trap 'docker rm -f "$scanner_container" >/dev/null 2>&1 || true' EXIT
-          docker cp "$scanner_container:/usr/share/dependency-check/data/." "$scanner_data/"
-          docker rm -f "$scanner_container"
-          trap - EXIT
-          update_args=(--data /data --updateonly --disableRetireJs)
+          if [[ -z "$(ls -A "$scanner_data")" ]]; then
+            # No cached copy: start from the data bundled in the image.
+            scanner_container="$(docker create "$SCANNER_IMAGE")"
+            trap 'docker rm -f "$scanner_container" >/dev/null 2>&1 || true' EXIT
+            docker cp "$scanner_container:/usr/share/dependency-check/data/." "$scanner_data/"
+            docker rm -f "$scanner_container"
+            trap - EXIT
+          fi
+          # NVD often answers 503 in bursts. The client retries each request with this delay
+          # between attempts, so space the retries out enough to outlast a burst.
+          update_args=(--data /data --updateonly --disableRetireJs
+            --nvdApiDelay 10000 --nvdMaxRetryCount 60)
           if [[ -n "${NVD_API_KEY:-}" ]]; then
             update_args+=(--nvdApiKey "$NVD_API_KEY")
           fi
           docker run --rm --user "$(id -u):$(id -g)" \
-            -v "$scanner_data:/data" "$scanner_image" "${update_args[@]}"
+            -v "$scanner_data:/data" "$SCANNER_IMAGE" "${update_args[@]}"
+
+      # Save only a database whose update finished, and before the scans, so a CVSS failure
+      # still saves it. Pull request and merge queue runs read main's cache but do not add their
+      # own, which keeps one entry a day.
+      - name: Save the refreshed NVD data for later runs
+        if: >-
+          ${{ steps.nvd-update.outcome == 'success'
+          && steps.nvd-restore.outputs.cache-hit != 'true'
+          && contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event_name) }}
+        uses: actions/cache/save@v6
+        with:
+          path: target/owasp/data
+          key: ${{ steps.nvd-cache.outputs.prefix }}${{ steps.nvd-cache.outputs.day }}
 
       - name: Scan runtime dependencies
         # Keep each gate blocking, but collect the other reports after a CVSS failure.
