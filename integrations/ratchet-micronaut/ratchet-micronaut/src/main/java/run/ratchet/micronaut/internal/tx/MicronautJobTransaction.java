@@ -19,33 +19,34 @@ import io.micronaut.core.annotation.Creator;
 import io.micronaut.transaction.TransactionOperations;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 import run.ratchet.micronaut.internal.MicronautTransactions;
 import run.ratchet.ri.core.JobTransaction;
 
-/** Micronaut carrier for the job-body transaction boundary. */
+/** Micronaut carrier that detects open transactions on every datasource manager. */
 public class MicronautJobTransaction extends JobTransaction {
-  private final Supplier<? extends TransactionOperations<?>> operations;
+  private final Supplier<? extends Iterable<? extends TransactionOperations<?>>> operations;
 
   // The boundary proxy is built through this constructor and delegates to the factory's instance.
   @Creator
   public MicronautJobTransaction() {
-    this(() -> null);
+    this(() -> List.of());
   }
 
-  public MicronautJobTransaction(Supplier<? extends TransactionOperations<?>> operations) {
+  public MicronautJobTransaction(
+      Supplier<? extends Iterable<? extends TransactionOperations<?>>> operations) {
     this.operations = operations;
   }
 
-  /**
-   * Detects transactions only on the manager selected by ratchet.jpa.datasource. A transaction on
-   * another datasource is not detected.
-   */
+  /** Detects transactions on any manager in the context. */
   @Override
   public boolean hasActiveTransaction() {
-    TransactionOperations<?> manager = operations.get();
-    return manager != null && MicronautTransactions.hasActiveTransaction(manager);
+    for (TransactionOperations<?> manager : operations.get()) {
+      if (MicronautTransactions.hasActiveTransaction(manager)) return true;
+    }
+    return false;
   }
 
   @Override

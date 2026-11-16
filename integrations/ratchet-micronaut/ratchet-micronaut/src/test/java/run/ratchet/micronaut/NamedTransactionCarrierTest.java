@@ -162,7 +162,7 @@ class NamedTransactionCarrierTest {
   }
 
   @Test
-  void unitTransactionCheckSeesOnlyRatchetManager() throws Exception {
+  void unitTransactionCheckSeesEveryManager() throws Exception {
     try (ApplicationContext context =
         TestContexts.engine(
             Map.of(
@@ -198,9 +198,7 @@ class NamedTransactionCarrierTest {
       defaults.execute(
           TransactionDefinition.of(Propagation.REQUIRED),
           status -> {
-            // Another datasource's transaction is not detected. A unit opens its own transaction
-            // on the jobs datasource and holds a second connection. The docs state this limit.
-            assertFalse(carrier.hasActiveTransaction());
+            assertTrue(carrier.hasActiveTransaction());
             try {
               carrier.run(
                   () -> {

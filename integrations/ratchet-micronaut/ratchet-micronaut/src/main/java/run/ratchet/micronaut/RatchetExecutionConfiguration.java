@@ -15,17 +15,18 @@
  */
 package run.ratchet.micronaut;
 
+import io.micronaut.context.BeanContext;
 import io.micronaut.context.BeanProvider;
 import io.micronaut.context.annotation.Factory;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.context.annotation.Secondary;
+import io.micronaut.transaction.TransactionOperations;
 import jakarta.inject.Singleton;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.time.Clock;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
-import run.ratchet.micronaut.internal.RatchetTransactionOperations;
 import run.ratchet.micronaut.internal.tx.MicronautBatchService;
 import run.ratchet.micronaut.internal.tx.MicronautDeadLetterService;
 import run.ratchet.micronaut.internal.tx.MicronautJobStateManager;
@@ -474,8 +475,12 @@ class RatchetExecutionConfiguration {
   @Singleton
   @Secondary
   @RatchetTransactionBoundary
-  MicronautJobTransaction jobTransaction(RatchetTransactionOperations operations) {
-    return new MicronautJobTransaction(operations::operations);
+  MicronautJobTransaction jobTransaction(BeanContext context) {
+    return new MicronautJobTransaction(
+        () ->
+            context.getBeansOfType(TransactionOperations.class).stream()
+                .map(manager -> (TransactionOperations<?>) manager)
+                .toList());
   }
 
   @Singleton
