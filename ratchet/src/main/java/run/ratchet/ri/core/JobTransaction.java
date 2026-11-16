@@ -16,14 +16,55 @@
 package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.transaction.Status;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.util.concurrent.Callable;
+import java.util.function.Supplier;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 
 /** Transaction boundary shared by a job body and its success completion. */
 @ApplicationScoped
 public class JobTransaction {
   private static final ThreadLocal<Integer> DEPTH = new ThreadLocal<>();
+
+  private final Supplier<TransactionSynchronizationRegistry> registrySupplier;
+  private volatile TransactionSynchronizationRegistry txRegistry;
+
+  public JobTransaction() {
+    this.registrySupplier = null;
+  }
+
+  public JobTransaction(Supplier<TransactionSynchronizationRegistry> registry) {
+    this.registrySupplier = registry;
+  }
+
+  /**
+   * Returns whether the calling thread already has a transaction, in any state. Units start their
+   * own transaction and refuse to run inside one.
+   */
+  public boolean hasActiveTransaction() {
+    TransactionSynchronizationRegistry registry = txRegistry;
+    if (registry == null) {
+      synchronized (this) {
+        registry = txRegistry;
+        if (registry == null) {
+          if (registrySupplier == null) {
+            try {
+              registry = JakartaAfterCommitRegistrar.lookupTxRegistry();
+            } catch (RuntimeException | LinkageError unavailable) {
+              registry = null;
+            }
+          } else {
+            registry = registrySupplier.get();
+          }
+          txRegistry = registry;
+        }
+      }
+    }
+    return registry != null && registry.getTransactionStatus() != Status.STATUS_NO_TRANSACTION;
+  }
 
   @Transactional(value = TxType.REQUIRED, rollbackOn = Exception.class)
   public <T> T run(Callable<T> work) throws Exception {

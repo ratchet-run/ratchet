@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -37,6 +38,37 @@ import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.api.internal.ContinuationBindings;
 
 class JobContextTest {
+
+  @Test
+  void boundAttemptRunsUnitWithoutTransaction() throws Exception {
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 7), () -> true, "page-1");
+    assertEquals(
+        "page-2",
+        context.runInTransaction(
+            after -> {
+              assertEquals("page-1", after);
+              return "page-2";
+            }));
+    assertEquals(Optional.of("page-2"), context.lastCheckpoint());
+    IOException failure = new IOException("unit failed");
+    assertSame(
+        failure,
+        assertThrows(
+            IOException.class,
+            () ->
+                context.runInTransaction(
+                    after -> {
+                      throw failure;
+                    })));
+    assertEquals(Optional.of("page-2"), context.lastCheckpoint());
+    assertThrows(NullPointerException.class, () -> context.runInTransaction(after -> null));
+    assertEquals(Optional.of("page-2"), context.lastCheckpoint());
+    assertThrows(NullPointerException.class, () -> context.runInTransaction(null));
+    JobContext plain = JobContext.bind(id, null);
+    assertThrows(IllegalStateException.class, () -> plain.runInTransaction(after -> "x"));
+  }
 
   @Test
   void continuationValidatesAndLastCallWinsInTestAttempt() {

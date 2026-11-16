@@ -16,11 +16,29 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Status;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
 
 class JobTransactionTest {
+  @Test
+  void unitChecksForOpenTransactionBeforeCarrier() {
+    assertFalse(new JobTransaction(() -> null).hasActiveTransaction());
+    TransactionSynchronizationRegistry registry = mock(TransactionSynchronizationRegistry.class);
+    JobTransaction transactions = new JobTransaction(() -> registry);
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    assertFalse(transactions.hasActiveTransaction());
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    assertTrue(transactions.hasActiveTransaction());
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_MARKED_ROLLBACK);
+    assertTrue(transactions.hasActiveTransaction());
+    assertFalse(new JobTransaction().hasActiveTransaction());
+  }
+
   @Test
   void markerIsReentrantAndClearedOnReturn() throws Exception {
     JobTransaction carrier = new JobTransaction();
