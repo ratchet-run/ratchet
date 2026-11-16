@@ -529,6 +529,11 @@ public class JobTimeoutHandler {
     }
 
     if (job.getStatus() != JobStatus.RUNNING) {
+      // The attempt lost its claim, for example to a cancel. A cooperative worker then checks
+      // for the cancel.
+      if (attempt != null) {
+        attempt.markSuperseded();
+      }
       return Optional.empty();
     }
     job.setClaimSeq(expectedClaimSeq);

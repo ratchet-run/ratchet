@@ -557,6 +557,7 @@ public class JobTask implements Callable<Void> {
             }
             if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
               markAttemptSuperseded();
+              if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
             }
           } catch (Throwable finalizationFailure) {
             log.errorf(
@@ -890,6 +891,8 @@ public class JobTask implements Callable<Void> {
           failed = true;
         } else {
           markAttemptSuperseded();
+          // A cancel that was already handled is not counted again.
+          if (!cancelHandled && jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -1033,7 +1036,12 @@ public class JobTask implements Callable<Void> {
         newScheduledTime,
         jobEntity.getAttempts(),
         expectedClaimSeq())) {
-      warnRejectedOwnerWrite();
+      if (jobWasCanceled()) {
+        markAttemptSuperseded();
+        handleCanceledDuringExecution(cancelStart());
+      } else {
+        warnRejectedOwnerWrite();
+      }
     }
   }
 
@@ -1080,10 +1088,30 @@ public class JobTask implements Callable<Void> {
 
     if (currentExecution != null) {
       currentExecution.markCanceled();
-      observabilityFacade.saveExecution(currentExecution);
+      saveCanceledExecution();
     }
 
     observabilityFacade.recordJobCancellation(job);
+  }
+
+  /**
+   * The job row is already CANCELED and no later step rewrites this execution, so a failed save is
+   * retried once and then logged.
+   */
+  private void saveCanceledExecution() {
+    try {
+      observabilityFacade.saveExecution(currentExecution);
+    } catch (RuntimeException failure) {
+      log.warnf(failure, "Job %s could not save its canceled execution; retrying", job.getId());
+      try {
+        observabilityFacade.saveExecution(currentExecution);
+      } catch (RuntimeException retryFailure) {
+        log.errorf(
+            retryFailure,
+            "Job %s could not save its canceled execution; its history keeps the earlier status",
+            job.getId());
+      }
+    }
   }
 
   private Instant cancelStart() {
@@ -1204,6 +1232,10 @@ public class JobTask implements Callable<Void> {
                     + " recovery, which resets it only after this node stops heartbeating",
                 job.getId());
           }
+        }
+        // A cancel that committed after the check above made the timeout transition miss.
+        if (attempt.isSuperseded() && jobWasCanceled()) {
+          handleCanceledDuringExecution(cancelStart());
         }
       } else {
         log.infof(
