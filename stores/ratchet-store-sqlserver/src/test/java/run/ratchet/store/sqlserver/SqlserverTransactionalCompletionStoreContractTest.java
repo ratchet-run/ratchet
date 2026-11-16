@@ -15,9 +15,12 @@
  */
 package run.ratchet.store.sqlserver;
 
+import java.sql.SQLException;
+import java.time.Duration;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractTransactionalCompletionStoreContract;
+import run.ratchet.tck.store.JdbcLockWait;
 
 class SqlserverTransactionalCompletionStoreContractTest
     extends AbstractTransactionalCompletionStoreContract {
@@ -42,5 +45,77 @@ class SqlserverTransactionalCompletionStoreContractTest
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  public void inOwnerTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
+
+  @Override
+  public boolean supportsOwnerTransaction() {
+    return true;
+  }
+
+  @Override
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT CAST(@@SPID AS INT)");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
+    return JdbcLockWait.awaitBlockedSession(
+        fixture::openConnection,
+        "SELECT COUNT(*) FROM sys.dm_exec_requests WHERE session_id = ? AND blocking_session_id ="
+            + " ?",
+        timeout,
+        ((Number) waiter).intValue(),
+        ((Number) holder).intValue());
+  }
+
+  @Override
+  public int countStoreStatements(Runnable work) {
+    return fixture.countStoreStatements(work);
+  }
+
+  @Override
+  public void inOwnerTransactionAtSnapshotIsolation(Runnable work) {
+    enableSnapshotIsolation();
+    fixture.runInTransaction(
+        () -> {
+          fixture.executeInCurrentTransaction("SET TRANSACTION ISOLATION LEVEL SNAPSHOT");
+          try {
+            work.run();
+          } finally {
+            fixture.executeInCurrentTransaction("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+          }
+        });
+  }
+
+  private static boolean snapshotEnabled;
+
+  private void enableSnapshotIsolation() {
+    synchronized (SqlserverTransactionalCompletionStoreContractTest.class) {
+      if (snapshotEnabled) {
+        return;
+      }
+      try (var connection = fixture.openConnection();
+          var statement = connection.createStatement()) {
+        statement.execute("ALTER DATABASE ratchet SET ALLOW_SNAPSHOT_ISOLATION ON");
+        snapshotEnabled = true;
+      } catch (SQLException e) {
+        throw new IllegalStateException("Could not enable snapshot isolation", e);
+      }
+    }
+  }
+
+  @Override
+  public boolean isSerializationFailure(Throwable t) {
+    for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+      if (cause instanceof SQLException sql && sql.getErrorCode() == 3960) {
+        return true;
+      }
+    }
+    return false;
   }
 }

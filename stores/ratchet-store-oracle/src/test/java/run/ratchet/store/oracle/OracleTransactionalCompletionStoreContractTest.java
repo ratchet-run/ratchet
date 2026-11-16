@@ -15,9 +15,13 @@
  */
 package run.ratchet.store.oracle;
 
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.time.Duration;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractTransactionalCompletionStoreContract;
+import run.ratchet.tck.store.JdbcLockWait;
 
 class OracleTransactionalCompletionStoreContractTest
     extends AbstractTransactionalCompletionStoreContract {
@@ -42,5 +46,57 @@ class OracleTransactionalCompletionStoreContractTest
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  public void inOwnerTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
+
+  @Override
+  public boolean supportsOwnerTransaction() {
+    return true;
+  }
+
+  @Override
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'SID')) FROM dual");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
+    // The ratchet user cannot read v$session. The container gives SYSTEM the same password.
+    var container = fixture.container();
+    return JdbcLockWait.awaitBlockedSession(
+        () ->
+            DriverManager.getConnection(container.getJdbcUrl(), "system", container.getPassword()),
+        "SELECT COUNT(*) FROM v$session WHERE sid = ? AND blocking_session = ?",
+        timeout,
+        ((Number) waiter).longValue(),
+        ((Number) holder).longValue());
+  }
+
+  @Override
+  public int countStoreStatements(Runnable work) {
+    return fixture.countStoreStatements(work);
+  }
+
+  @Override
+  public void inOwnerTransactionAtSnapshotIsolation(Runnable work) {
+    fixture.runInTransaction(
+        () -> {
+          fixture.executeInCurrentTransaction("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+          work.run();
+        });
+  }
+
+  @Override
+  public boolean isSerializationFailure(Throwable t) {
+    for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+      if (cause instanceof SQLException sql && sql.getErrorCode() == 8177) {
+        return true;
+      }
+    }
+    return false;
   }
 }

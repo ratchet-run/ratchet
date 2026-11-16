@@ -179,6 +179,16 @@ public interface JobStoreContractFixture {
   }
 
   /**
+   * Runs work in one owner transaction at a snapshot isolation level above the store's default
+   * (PostgreSQL REPEATABLE READ, Oracle SERIALIZABLE, SQL Server SNAPSHOT, MySQL REPEATABLE READ),
+   * then commits. Stores that run the transactional completion contract must override it.
+   */
+  default void inOwnerTransactionAtSnapshotIsolation(Runnable work) {
+    throw new AssertionError(
+        "Override inOwnerTransactionAtSnapshotIsolation(Runnable) on this contract class");
+  }
+
+  /**
    * Runs work in one store transaction that nested store calls join, then commits.
    *
    * <p>A store whose create joins the caller's transaction must override this and {@link
@@ -245,6 +255,14 @@ public interface JobStoreContractFixture {
 
   /** Returns true if the throwable represents this store's optimistic-lock failure. */
   default boolean isStaleWriteException(Throwable t) {
+    return false;
+  }
+
+  /**
+   * Returns true when the throwable or a cause is the database's serialization failure for a
+   * snapshot that saw a concurrent change.
+   */
+  default boolean isSerializationFailure(Throwable t) {
     return false;
   }
 

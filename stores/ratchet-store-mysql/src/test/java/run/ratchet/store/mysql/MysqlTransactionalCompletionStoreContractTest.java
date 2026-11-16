@@ -15,9 +15,12 @@
  */
 package run.ratchet.store.mysql;
 
+import java.sql.DriverManager;
+import java.time.Duration;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractTransactionalCompletionStoreContract;
+import run.ratchet.tck.store.JdbcLockWait;
 
 class MysqlTransactionalCompletionStoreContractTest
     extends AbstractTransactionalCompletionStoreContract {
@@ -42,5 +45,43 @@ class MysqlTransactionalCompletionStoreContractTest
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  public void inOwnerTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
+
+  @Override
+  public boolean supportsOwnerTransaction() {
+    return true;
+  }
+
+  @Override
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT CONNECTION_ID()");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
+    // Root is needed because the view reads INNODB_TRX.
+    return JdbcLockWait.awaitBlockedSession(
+        () ->
+            DriverManager.getConnection(
+                MysqlTestFixture.jdbcUrl(), "root", MysqlTestFixture.password()),
+        "SELECT COUNT(*) FROM sys.innodb_lock_waits WHERE waiting_pid = ? AND blocking_pid = ?",
+        timeout,
+        waiter,
+        holder);
+  }
+
+  @Override
+  public int countStoreStatements(Runnable work) {
+    return fixture.countStoreStatements(work);
+  }
+
+  @Override
+  public void inOwnerTransactionAtSnapshotIsolation(Runnable work) {
+    fixture.runAtSnapshotIsolation(work);
   }
 }

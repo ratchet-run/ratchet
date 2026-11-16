@@ -225,6 +225,26 @@ public final class SqlJobCompletion {
     return new JobCompletionResult(true, progress);
   }
 
+  /**
+   * Flushes the persistence context, then locks the job's queue row with completion's exclusive
+   * lock until the caller's transaction ends. Returns true only when the row is RUNNING under the
+   * claim sequence.
+   */
+  public static boolean lockLiveClaim(
+      EntityManager em, UUID jobId, long claimSeq, boolean sqlServer, Function<UUID, Object> uuid) {
+    em.flush();
+    List<?> rows =
+        em.createNativeQuery(
+                lockSql("scheduler_job_queue", "job_id", "status, claim_seq", sqlServer))
+            .setParameter(1, uuid.apply(jobId))
+            .getResultList();
+    if (rows.isEmpty()) {
+      return false;
+    }
+    Object[] row = (Object[]) rows.get(0);
+    return "RUNNING".equals(row[0]) && ((Number) row[1]).longValue() == claimSeq;
+  }
+
   /** Resolves a lost commit acknowledgement using the same locks as completion. */
   public static TerminalOutcome terminalOutcome(
       EntityManager em, UUID jobId, long claimSeq, boolean sqlServer, Function<UUID, Object> uuid) {

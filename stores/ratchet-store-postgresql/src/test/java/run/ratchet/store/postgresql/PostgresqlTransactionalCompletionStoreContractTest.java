@@ -15,9 +15,12 @@
  */
 package run.ratchet.store.postgresql;
 
+import java.sql.SQLException;
+import java.time.Duration;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractTransactionalCompletionStoreContract;
+import run.ratchet.tck.store.JdbcLockWait;
 
 class PostgresqlTransactionalCompletionStoreContractTest
     extends AbstractTransactionalCompletionStoreContract {
@@ -42,5 +45,54 @@ class PostgresqlTransactionalCompletionStoreContractTest
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  public void inOwnerTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
+
+  @Override
+  public boolean supportsOwnerTransaction() {
+    return true;
+  }
+
+  @Override
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT pg_backend_pid()");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
+    return JdbcLockWait.awaitBlockedSession(
+        fixture::openConnection,
+        "SELECT COUNT(*) FROM pg_stat_activity WHERE pid = ? AND ? = ANY (pg_blocking_pids(pid))",
+        timeout,
+        ((Number) waiter).intValue(),
+        ((Number) holder).intValue());
+  }
+
+  @Override
+  public int countStoreStatements(Runnable work) {
+    return fixture.countStoreStatements(work);
+  }
+
+  @Override
+  public void inOwnerTransactionAtSnapshotIsolation(Runnable work) {
+    fixture.runInTransaction(
+        () -> {
+          fixture.executeInCurrentTransaction("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+          work.run();
+        });
+  }
+
+  @Override
+  public boolean isSerializationFailure(Throwable t) {
+    for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+      if (cause instanceof SQLException sql && "40001".equals(sql.getSQLState())) {
+        return true;
+      }
+    }
+    return false;
   }
 }
