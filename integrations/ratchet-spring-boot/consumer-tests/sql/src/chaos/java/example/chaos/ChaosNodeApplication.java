@@ -96,6 +96,18 @@ public class ChaosNodeApplication {
           create table if not exists chaos_business (
             job_id varchar(36) primary key, node_id varchar(128), incarnation varchar(36))
           """);
+      jdbc.execute(
+          """
+          create table if not exists chaos_unit_business (
+            job_id varchar(36), page integer, node_id varchar(128), incarnation varchar(36),
+            primary key (job_id, page))
+          """);
+      jdbc.execute(
+          """
+          create table if not exists chaos_unit_start (
+            job_id varchar(36), incarnation varchar(36), start_checkpoint varchar(16),
+            observed_us bigint)
+          """);
       System.out.println("RATCHET_RUNTIME_READY " + env.getRequiredProperty("local.server.port"));
     };
   }
@@ -163,14 +175,17 @@ public class ChaosNodeApplication {
         @RequestParam(name = "maxRetries", required = false) Integer maxRetries,
         @RequestParam(name = "gatePoint", defaultValue = "") String gatePoint,
         @RequestParam(name = "gateTimes", defaultValue = "1") int gateTimes,
-        @RequestParam(name = "transactional", defaultValue = "false") boolean transactional) {
+        @RequestParam(name = "transactional", defaultValue = "false") boolean transactional,
+        @RequestParam(name = "units", defaultValue = "false") boolean units) {
       return worker.transaction.execute(
           tx -> {
             String submissionTag = "submit:" + UUID.randomUUID();
             var builder =
-                (transactional
-                        ? scheduler.enqueue(() -> worker.transactionalWork(run, key))
-                        : scheduler.enqueue(() -> worker.work(run, key, durationMs, failTimes)))
+                (units
+                        ? scheduler.enqueue(() -> worker.unitWork(run, key, 3))
+                        : transactional
+                            ? scheduler.enqueue(() -> worker.transactionalWork(run, key))
+                            : scheduler.enqueue(() -> worker.work(run, key, durationMs, failTimes)))
                     .withTags("chaos", "run:" + run, submissionTag);
             if (!idempotencyKey.isEmpty()) builder.withIdempotencyKey(idempotencyKey);
             if (!businessKey.isEmpty()) builder.withBusinessKey(businessKey);
@@ -246,6 +261,63 @@ public class ChaosNodeApplication {
         gate("transactional-write", job);
         // This ledger observation commits independently and can remain ok after a fenced rollback.
         finish(attempt, "ok");
+      } catch (InterruptedException interrupted) {
+        finish(attempt, "interrupted");
+        throw interrupted;
+      }
+    }
+
+    public void unitWork(String runId, String key, int pages) throws Exception {
+      JobContext ctx = JobContext.current();
+      UUID job = ctx.jobId();
+      String attempt = UUID.randomUUID().toString();
+      transaction.executeWithoutResult(
+          tx ->
+              jdbc.update(
+                  "insert into chaos_attempt values (?, ?, ?, ?, ?, ?, "
+                      + clock
+                      + ", null, null, null, null)",
+                  attempt,
+                  runId,
+                  key,
+                  job.toString(),
+                  node,
+                  incarnation));
+      try {
+        boolean first = true;
+        String next;
+        do {
+          boolean recordStart = first;
+          next =
+              ctx.runInTransaction(
+                  after -> {
+                    if (recordStart)
+                      transaction.executeWithoutResult(
+                          tx ->
+                              jdbc.update(
+                                  "insert into chaos_unit_start values (?, ?, ?, " + clock + ")",
+                                  job.toString(),
+                                  incarnation,
+                                  after));
+                    if ("done".equals(after)) return "done";
+                    int page = after == null ? 0 : Integer.parseInt(after);
+                    // JdbcTemplate joins the unit's transaction.
+                    jdbc.update(
+                        "insert into chaos_unit_business values (?, ?, ?, ?)",
+                        job.toString(),
+                        page,
+                        node,
+                        incarnation);
+                    gate("unit-write", job);
+                    return page + 1 == pages ? "done" : Integer.toString(page + 1);
+                  });
+          first = false;
+          if (!"done".equals(next)) gate("unit-between", job);
+        } while (!"done".equals(next));
+        finish(attempt, "ok");
+      } catch (AttemptSupersededException superseded) {
+        finish(attempt, "superseded");
+        throw superseded;
       } catch (InterruptedException interrupted) {
         finish(attempt, "interrupted");
         throw interrupted;

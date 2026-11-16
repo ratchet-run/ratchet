@@ -16,15 +16,37 @@
 package run.ratchet.micronaut.internal.tx;
 
 import io.micronaut.core.annotation.Creator;
+import io.micronaut.transaction.TransactionOperations;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.util.concurrent.Callable;
+import java.util.function.Supplier;
+import run.ratchet.micronaut.internal.MicronautTransactions;
 import run.ratchet.ri.core.JobTransaction;
 
 /** Micronaut carrier for the job-body transaction boundary. */
 public class MicronautJobTransaction extends JobTransaction {
+  private final Supplier<? extends TransactionOperations<?>> operations;
+
+  // The boundary proxy is built through this constructor and delegates to the factory's instance.
   @Creator
-  public MicronautJobTransaction() {}
+  public MicronautJobTransaction() {
+    this(() -> null);
+  }
+
+  public MicronautJobTransaction(Supplier<? extends TransactionOperations<?>> operations) {
+    this.operations = operations;
+  }
+
+  /**
+   * Detects transactions only on the manager selected by ratchet.jpa.datasource. A transaction on
+   * another datasource is not detected.
+   */
+  @Override
+  public boolean hasActiveTransaction() {
+    TransactionOperations<?> manager = operations.get();
+    return manager != null && MicronautTransactions.hasActiveTransaction(manager);
+  }
 
   @Override
   @Transactional(value = TxType.REQUIRED, rollbackOn = Exception.class)

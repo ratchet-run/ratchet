@@ -24,11 +24,14 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
@@ -36,6 +39,18 @@ import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.JobTransaction;
 
 class SpringJobTransactionTest {
+  @Test
+  void unitChecksForOpenTransactionBeforeCarrier() {
+    var manager =
+        new DataSourceTransactionManager(
+            new DriverManagerDataSource("jdbc:h2:mem:unit-check", "sa", ""));
+    var carrier = new SpringJobTransaction(manager);
+    assertFalse(carrier.hasActiveTransaction());
+    new TransactionTemplate(manager)
+        .executeWithoutResult(status -> assertTrue(carrier.hasActiveTransaction()));
+    assertFalse(carrier.hasActiveTransaction());
+  }
+
   @Test
   void nativeJakartaParserPreservesBothSubmissionConflicts() throws Exception {
     var method = DefaultJobCreationService.class.getMethod("submit", JobBuilder.class);

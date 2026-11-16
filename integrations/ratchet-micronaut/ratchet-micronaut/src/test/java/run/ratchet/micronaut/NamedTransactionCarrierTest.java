@@ -162,6 +162,68 @@ class NamedTransactionCarrierTest {
   }
 
   @Test
+  void unitTransactionCheckSeesOnlyRatchetManager() throws Exception {
+    try (ApplicationContext context =
+        TestContexts.engine(
+            Map.of(
+                "ratchet.jpa.datasource", "jobs",
+                "datasources.default.url", "jdbc:h2:mem:default-" + System.nanoTime(),
+                "datasources.default.driver-class-name", "org.h2.Driver",
+                "datasources.default.username", "sa",
+                "datasources.jobs.url", "jdbc:h2:mem:jobs-" + System.nanoTime(),
+                "datasources.jobs.driver-class-name", "org.h2.Driver",
+                "datasources.jobs.username", "sa"))) {
+      Poller poller = mock(Poller.class);
+      context.registerSingleton(Poller.class, poller);
+      context.start();
+      TransactionOperations<?> named =
+          context.getBean(TransactionOperations.class, Qualifiers.byName("jobs"));
+      TransactionOperations<?> defaults =
+          context.getBean(TransactionOperations.class, Qualifiers.byName("default"));
+      JobTransaction carrier = context.getBean(JobTransaction.class);
+      AfterCommitRegistrar registrar = context.getBean(AfterCommitRegistrar.class);
+      assertFalse(carrier.hasActiveTransaction());
+      carrier.run(
+          () -> {
+            assertTrue(carrier.hasActiveTransaction());
+            return null;
+          });
+      named.execute(
+          TransactionDefinition.of(Propagation.REQUIRED),
+          status -> {
+            assertTrue(carrier.hasActiveTransaction());
+            return null;
+          });
+      AtomicInteger callbacks = new AtomicInteger();
+      defaults.execute(
+          TransactionDefinition.of(Propagation.REQUIRED),
+          status -> {
+            // Another datasource's transaction is not detected. A unit opens its own transaction
+            // on the jobs datasource and holds a second connection. The docs state this limit.
+            assertFalse(carrier.hasActiveTransaction());
+            try {
+              carrier.run(
+                  () -> {
+                    assertTrue(MicronautTransactions.hasActiveTransaction(named));
+                    assertTrue(MicronautTransactions.hasActiveTransaction(defaults));
+                    assertEquals(
+                        AfterCommitRegistrar.Result.REGISTERED,
+                        registrar.registerAfterCommit(callbacks::incrementAndGet));
+                    return null;
+                  });
+            } catch (Exception failure) {
+              throw new AssertionError(failure);
+            }
+            assertEquals(1, callbacks.get());
+            assertTrue(MicronautTransactions.hasActiveTransaction(defaults));
+            assertFalse(JobTransaction.active());
+            return null;
+          });
+      assertFalse(carrier.hasActiveTransaction());
+    }
+  }
+
+  @Test
   void defaultSelectionMatchesMicronautRegistryAndIsCached() {
     try (ApplicationContext context =
         TestContexts.engine(

@@ -25,6 +25,7 @@ import jakarta.transaction.Transactional.TxType;
 import java.time.Clock;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.micronaut.internal.RatchetTransactionOperations;
 import run.ratchet.micronaut.internal.tx.MicronautBatchService;
 import run.ratchet.micronaut.internal.tx.MicronautDeadLetterService;
 import run.ratchet.micronaut.internal.tx.MicronautJobStateManager;
@@ -473,8 +474,8 @@ class RatchetExecutionConfiguration {
   @Singleton
   @Secondary
   @RatchetTransactionBoundary
-  MicronautJobTransaction jobTransaction() {
-    return new MicronautJobTransaction();
+  MicronautJobTransaction jobTransaction(RatchetTransactionOperations operations) {
+    return new MicronautJobTransaction(operations::operations);
   }
 
   @Singleton
