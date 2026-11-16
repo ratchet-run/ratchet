@@ -72,6 +72,16 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   }
 
   @Test
+  void tryAcquirePermit_fromAnotherNodeIsSuperseded() {
+    resourcePermitStore().configureResource("res-owner", 1, 1000, "claim owner");
+    var first = claimNewJob("res-owner", "node-1");
+
+    assertEquals(SUPERSEDED, acquire("res-owner", first, "node-2"));
+    var second = claimNewJob("res-owner", "node-1");
+    assertEquals(ACQUIRED, acquire("res-owner", second, "node-1"));
+  }
+
+  @Test
   void tryAcquirePermit_failsAtCapacity() {
     resourcePermitStore().configureResource("res-limited", 1, 1000, "limited resource");
     var firstJob = claimNewJob("res-limited", "node-1");
@@ -290,10 +300,12 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
 
     assertEquals(ACQUIRED, acquire("res-orphan", job, "stale-node"));
 
+    store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500);
     int cleaned = resourcePermitStore().cleanupOrphanedPermits(List.of("stale-node"));
 
     assertTrue(cleaned >= 1, "cleanupOrphanedPermits should remove the stale permit");
 
+    store().cancelJob(job.getId());
     var otherJob = claimNewJob("res-orphan", "node-1");
     assertEquals(
         ACQUIRED,
@@ -306,10 +318,46 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     resourcePermitStore().configureResource("missing-node", 1, 1000, null);
     var first = claimNewJob("missing-node", "missing");
     assertEquals(ACQUIRED, acquire("missing-node", first, "missing"));
+    store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500);
     assertTrue(
         resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60)) >= 1);
+    store().cancelJob(first.getId());
     var second = claimNewJob("missing-node", "other");
     assertEquals(ACQUIRED, acquire("missing-node", second, "other"));
+  }
+
+  @Test
+  void cleanupOrphanedPermits_keepsPermitWhileJobRunsOnStaleNode() {
+    resourcePermitStore().configureResource("kept-claim", 1, 1000, null);
+    var first = claimNewJob("kept-claim", "stale-node");
+    assertEquals(ACQUIRED, acquire("kept-claim", first, "stale-node"));
+    assertEquals(0, resourcePermitStore().cleanupOrphanedPermits(List.of("stale-node")));
+    var other = claimNewJob("kept-claim", "other");
+    assertEquals(AT_CAPACITY, acquire("kept-claim", other, "other"));
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
+    assertEquals(1, resourcePermitStore().cleanupOrphanedPermits(List.of("stale-node")));
+    store().cancelJob(first.getId());
+    resourcePermitStore().wakeWaiters("kept-claim");
+    other = reclaim(other, "other");
+    assertEquals(ACQUIRED, acquire("kept-claim", other, "other"));
+  }
+
+  @Test
+  void missingNodeCleanupKeepsPermitWhileJobRunsOnMissingNode() {
+    resourcePermitStore().configureResource("kept-claim", 1, 1000, null);
+    var first = claimNewJob("kept-claim", "stale-node");
+    assertEquals(ACQUIRED, acquire("kept-claim", first, "stale-node"));
+    assertEquals(
+        0, resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60)));
+    var other = claimNewJob("kept-claim", "other");
+    assertEquals(AT_CAPACITY, acquire("kept-claim", other, "other"));
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
+    assertEquals(
+        1, resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60)));
+    store().cancelJob(first.getId());
+    resourcePermitStore().wakeWaiters("kept-claim");
+    other = reclaim(other, "other");
+    assertEquals(ACQUIRED, acquire("kept-claim", other, "other"));
   }
 
   @Test

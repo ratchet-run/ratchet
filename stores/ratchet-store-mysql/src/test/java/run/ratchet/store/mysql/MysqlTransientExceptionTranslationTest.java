@@ -360,7 +360,8 @@ class MysqlTransientExceptionTranslationTest {
     }
     when(limit.getResultList()).thenReturn(List.<Object[]>of(new Object[] {2, 100}));
     when(claim.getResultList())
-        .thenReturn(List.<Object[]>of(new Object[] {"RUNNING", 7L, 0, null, null, null, null}));
+        .thenReturn(
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 0, null, null, null, null, "node"}));
     when(permits.getResultList()).thenReturn(List.of());
     when(waiters.getResultList()).thenReturn(List.of());
     doThrow(new RuntimeException("flush", new SQLTransientException("deadlock"))).when(em).flush();
@@ -379,11 +380,15 @@ class MysqlTransientExceptionTranslationTest {
     for (String failingSql :
         List.of(
             "SELECT DISTINCT",
-            "SELECT resource_name FROM scheduler_resource_limit",
-            "DELETE FROM scheduler_resource_permit")) {
+            "WHERE resource_name IN",
+            "FOR UPDATE",
+            "LEFT JOIN scheduler_job_queue",
+            "DELETE FROM scheduler_resource_permit WHERE id IN")) {
       EntityManager em = mock(EntityManager.class);
       Query discovery = mock(Query.class);
+      Query keys = mock(Query.class);
       Query lock = mock(Query.class);
+      Query deletable = mock(Query.class);
       Query delete = mock(Query.class);
       when(em.createNativeQuery(any(String.class)))
           .thenAnswer(
@@ -392,15 +397,19 @@ class MysqlTransientExceptionTranslationTest {
                 if (sql.contains(failingSql)) {
                   throw new RuntimeException("jpa", new SQLTransientException("deadlock"));
                 }
+                if (sql.contains("SELECT p.id")) return deletable;
                 if (sql.contains("SELECT DISTINCT")) return discovery;
+                if (sql.contains("WHERE resource_name IN")) return keys;
                 if (sql.contains("FOR UPDATE")) return lock;
                 return delete;
               });
-      for (Query query : List.of(discovery, lock, delete)) {
+      for (Query query : List.of(discovery, keys, lock, deletable, delete)) {
         lenient().when(query.setParameter(anyInt(), any())).thenReturn(query);
       }
       lenient().when(discovery.getResultList()).thenReturn(List.of("api"));
+      lenient().when(keys.getResultList()).thenReturn(List.of("api"));
       lenient().when(lock.getResultList()).thenReturn(List.of("api"));
+      lenient().when(deletable.getResultList()).thenReturn(List.of(new byte[16]));
       var auxiliary = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
       assertThrows(
           RatchetTransientStoreException.class,

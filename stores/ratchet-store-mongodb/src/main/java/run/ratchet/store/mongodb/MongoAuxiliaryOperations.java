@@ -266,7 +266,12 @@ final class MongoAuxiliaryOperations {
             Document job =
                 ctx.jobs()
                     .find(
-                        session, and(eq(ID, jobId), eq(STATUS, "RUNNING"), eq(CLAIM_SEQ, claimSeq)))
+                        session,
+                        and(
+                            eq(ID, jobId),
+                            eq(STATUS, "RUNNING"),
+                            eq(CLAIM_SEQ, claimSeq),
+                            eq(PICKED_BY, nodeId)))
                     .first();
             if (job == null) {
               return AcquireResult.SUPERSEDED;
@@ -680,15 +685,11 @@ final class MongoAuxiliaryOperations {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
-            Map<String, Integer> removedByResource = new HashMap<>();
-            ctx.resourcePermits()
-                .find(session, in(NODE_ID, staleNodeIds))
-                .forEach(
-                    doc -> removedByResource.merge(doc.getString(RESOURCE_NAME), 1, Integer::sum));
-            DeleteResult result =
-                ctx.resourcePermits().deleteMany(session, in(NODE_ID, staleNodeIds));
-            decrementResourceCounts(session, removedByResource);
-            return (int) result.getDeletedCount();
+            List<Document> candidates =
+                ctx.resourcePermits()
+                    .find(session, in(NODE_ID, staleNodeIds))
+                    .into(new ArrayList<>());
+            return deletePermitsWithoutRunningClaim(session, candidates);
           },
           TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
@@ -710,19 +711,35 @@ final class MongoAuxiliaryOperations {
                 .forEach(doc -> missing.remove(doc.getString(ID)));
             if (missing.isEmpty()) return 0;
             var filter = and(age, in(NODE_ID, missing));
-            Map<String, Integer> removedByResource = new HashMap<>();
-            ctx.resourcePermits()
-                .find(session, filter)
-                .forEach(
-                    doc -> removedByResource.merge(doc.getString(RESOURCE_NAME), 1, Integer::sum));
-            DeleteResult result = ctx.resourcePermits().deleteMany(session, filter);
-            decrementResourceCounts(session, removedByResource);
-            return (int) result.getDeletedCount();
+            List<Document> candidates =
+                ctx.resourcePermits().find(session, filter).into(new ArrayList<>());
+            return deletePermitsWithoutRunningClaim(session, candidates);
           },
           TRANSACTION_OPTIONS);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cleanup permits of missing nodes", e);
     }
+  }
+
+  private int deletePermitsWithoutRunningClaim(ClientSession session, List<Document> candidates) {
+    if (candidates.isEmpty()) return 0;
+    List<Object> jobIds = candidates.stream().map(doc -> doc.get(JOB_ID)).toList();
+    Map<Object, String> runningNodes = new HashMap<>();
+    ctx.jobs()
+        .find(session, and(in(ID, jobIds), eq(STATUS, "RUNNING")))
+        .forEach(doc -> runningNodes.put(doc.get(ID), doc.getString(PICKED_BY)));
+    List<Object> ids = new ArrayList<>();
+    Map<String, Integer> removedByResource = new HashMap<>();
+    for (Document permit : candidates) {
+      String runningNode = runningNodes.get(permit.get(JOB_ID));
+      if (runningNode != null && runningNode.equals(permit.getString(NODE_ID))) continue;
+      ids.add(permit.get(ID));
+      removedByResource.merge(permit.getString(RESOURCE_NAME), 1, Integer::sum);
+    }
+    if (ids.isEmpty()) return 0;
+    DeleteResult result = ctx.resourcePermits().deleteMany(session, in(ID, ids));
+    decrementResourceCounts(session, removedByResource);
+    return (int) result.getDeletedCount();
   }
 
   private void decrementResourceCounts(ClientSession session, Map<String, Integer> counts) {

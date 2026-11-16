@@ -264,7 +264,7 @@ final class MysqlAuxiliaryOperations
               .createNativeQuery(
                   """
                   SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
-                         w.priority, w.wait_since, w.resource_name
+                         w.priority, w.wait_since, w.resource_name, q.picked_by
                   FROM scheduler_job_queue q
                   LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
                   WHERE q.job_id = ?
@@ -275,7 +275,9 @@ final class MysqlAuxiliaryOperations
         return AcquireResult.SUPERSEDED;
       }
       Object[] claim = (Object[]) claims.get(0);
-      if (!"RUNNING".equals(claim[0].toString()) || ((Number) claim[1]).longValue() != claimSeq) {
+      if (!"RUNNING".equals(claim[0].toString())
+          || ((Number) claim[1]).longValue() != claimSeq
+          || !nodeId.equals(claim[7])) {
         return AcquireResult.SUPERSEDED;
       }
 
@@ -821,12 +823,32 @@ final class MysqlAuxiliaryOperations
       discovered.addAll(discoverPermitResources(chunk));
     }
     List<String> resources = new ArrayList<>(discovered);
-    // Lock the union across ALL node chunks in one ascending pass before any delete.
-    // The lock set is bounded by resource limit rows, not by node count, matching acquire's
-    // limit-before-permit order.
+    Set<String> storedKeys = new TreeSet<>();
+    if (!resources.isEmpty()) {
+      String placeholders = String.join(",", Collections.nCopies(resources.size(), "?"));
+      Query keys =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT resource_name FROM scheduler_resource_limit
+                  WHERE resource_name IN (%s)
+                  """
+                      .formatted(placeholders));
+      for (int i = 0; i < resources.size(); i++) {
+        keys.setParameter(i + 1, resources.get(i));
+      }
+      for (Object key : keys.getResultList()) {
+        storedKeys.add(key.toString());
+      }
+    }
+    // Lock the union across ALL node chunks in one ascending pass before any delete, matching
+    // acquire's limit-before-permit order. Sort the stored limit keys, not the permit spellings:
+    // the collation ignores case, so "a" and "A" name the same row, and only the stored keys
+    // give every cleanup the same order. The delete read matches the discovered names by
+    // collation, so it covers every case variant and names with no limit row.
     // Late permits are removed by the next stale-node sweep while the row remains, or the
     // missing-node sweep after the row is gone and the permit is older than its cutoff.
-    for (String resource : resources) {
+    for (String resource : storedKeys) {
       ctx.em()
           .createNativeQuery(
               """
@@ -836,28 +858,58 @@ final class MysqlAuxiliaryOperations
           .setParameter(1, resource)
           .getResultList();
     }
-    int deleted = 0;
-    for (List<String> staleNodeIds : chunks) {
-      String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-      for (String resource : resources) {
-        Query delete =
-            ctx.em()
-                .createNativeQuery(
-                    """
-                    DELETE FROM scheduler_resource_permit
-                    WHERE resource_name = ? AND node_id IN (%s)
-                    """
-                            .formatted(placeholders)
-                        + (acquiredBefore == null ? "" : "AND acquired_at < ?\n"));
-        delete.setParameter(1, resource);
-        for (int i = 0; i < staleNodeIds.size(); i++) {
-          delete.setParameter(i + 2, staleNodeIds.get(i));
-        }
-        if (acquiredBefore != null) {
-          delete.setParameter(staleNodeIds.size() + 2, Timestamp.from(acquiredBefore));
-        }
-        deleted += delete.executeUpdate();
+    if (resources.isEmpty()) return 0;
+    // The ids come from one snapshot at either isolation level. A permit is inserted after its
+    // claim commits, so a permit in the snapshot has its claim there too, and a chosen id
+    // belongs to a claim that has ended. Later permits wait for another cleanup. No queue row
+    // is locked.
+    List<Object> deletableIds = new ArrayList<>();
+    String resourcePlaceholders = String.join(",", Collections.nCopies(resources.size(), "?"));
+    for (List<String> chunk : chunks) {
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      Query deletable =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT p.id FROM scheduler_resource_permit p
+                  LEFT JOIN scheduler_job_queue q
+                    ON q.job_id = p.job_id AND q.status = 'RUNNING' AND q.picked_by = p.node_id
+                  WHERE p.node_id IN (%s)
+                  """
+                          .formatted(placeholders)
+                      + (acquiredBefore == null ? "" : "AND p.acquired_at < ?\n")
+                      + """
+                      AND p.resource_name IN (%s) AND q.job_id IS NULL
+                      """
+                          .formatted(resourcePlaceholders));
+      int parameter = 1;
+      for (String nodeId : chunk) {
+        deletable.setParameter(parameter++, nodeId);
       }
+      if (acquiredBefore != null) {
+        deletable.setParameter(parameter++, Timestamp.from(acquiredBefore));
+      }
+      for (String resource : resources) {
+        deletable.setParameter(parameter++, resource);
+      }
+      deletableIds.addAll(deletable.getResultList());
+    }
+    int deleted = 0;
+    for (int start = 0; start < deletableIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
+      List<Object> ids =
+          deletableIds.subList(
+              start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, deletableIds.size()));
+      Query delete =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  DELETE FROM scheduler_resource_permit WHERE id IN (%s)
+                  """
+                      .formatted(String.join(",", Collections.nCopies(ids.size(), "?"))));
+      for (int i = 0; i < ids.size(); i++) {
+        delete.setParameter(i + 1, ids.get(i));
+      }
+      deleted += delete.executeUpdate();
     }
     return deleted;
   }

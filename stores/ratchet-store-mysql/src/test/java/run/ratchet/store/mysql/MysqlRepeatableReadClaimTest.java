@@ -221,10 +221,10 @@ class MysqlRepeatableReadClaimTest {
       em.getTransaction().begin();
       assertEquals(
           AcquireResult.ACQUIRED,
-          permits.tryAcquirePermit("capacity-one", winner, winnerClaim, "other-node"));
+          permits.tryAcquirePermit("capacity-one", winner, winnerClaim, "node-1"));
       assertEquals(
           AcquireResult.AT_CAPACITY,
-          store.tryAcquirePermit("capacity-one", loser, loserClaim, "stale-node"),
+          store.tryAcquirePermit("capacity-one", loser, loserClaim, "node-1"),
           "The first consistent read after the limit lock must see the committed permit");
     } finally {
       if (em.getTransaction().isActive()) em.getTransaction().rollback();

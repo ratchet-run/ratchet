@@ -33,6 +33,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobStatus;
@@ -914,32 +915,56 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  // Retry short lock conflicts without charging a job attempt.
-  static final int PERMIT_ACQUIRE_TRIES = 3;
-  private static final int PERMIT_BACKOFF_MIN_MS = 20;
-  private static final int PERMIT_BACKOFF_MAX_MS = 100;
+  // Retry transient store conflicts for permit acquisition and no-charge reschedules.
+  static final int TRANSIENT_STORE_TRIES = 3;
+  private static final int TRANSIENT_BACKOFF_MIN_MS = 20;
+  private static final int TRANSIENT_BACKOFF_MAX_MS = 100;
 
   private AcquireResult acquireResourcePermit(String resourceName, long claimSeq) {
+    return retryTransientStoreOperation(
+        () ->
+            resourcePermitService.tryAcquire(
+                resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId()));
+  }
+
+  private <T> T retryTransientStoreOperation(Supplier<T> operation) {
     // call() has no transaction: each store REQUIRED call starts a fresh transaction.
     for (int attempt = 1; ; attempt++) {
       try {
-        return resourcePermitService.tryAcquire(
-            resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId());
+        return operation.get();
       } catch (RatchetTransientStoreException failure) {
-        if (attempt == PERMIT_ACQUIRE_TRIES) {
+        if (attempt == TRANSIENT_STORE_TRIES) {
           throw failure;
         }
         try {
           Thread.sleep(
               ThreadLocalRandom.current()
-                  .nextInt(PERMIT_BACKOFF_MIN_MS, PERMIT_BACKOFF_MAX_MS + 1));
+                  .nextInt(TRANSIENT_BACKOFF_MIN_MS, TRANSIENT_BACKOFF_MAX_MS + 1));
         } catch (InterruptedException interrupted) {
-          // The failure path writes to the store; call() restores the interrupt when it ends.
+          // Callers may still write to the store; call() restores the interrupt when it ends.
           workerInterrupted = true;
           throw failure;
         }
       }
     }
+  }
+
+  private boolean rescheduleWithoutChargingAttempt(
+      UUID jobId, String reason, Instant scheduledTime, int attempts, long claimSeq) {
+    try {
+      if (retryTransientStoreOperation(
+          () -> jobStore.scheduleJobRetry(jobId, reason, scheduledTime, attempts, claimSeq))) {
+        return true;
+      }
+      warnRejectedOwnerWrite();
+    } catch (RatchetTransientStoreException failure) {
+      log.errorf(
+          failure,
+          "Job %s could not be rescheduled without charging an attempt; leaving it RUNNING until"
+              + " orphan recovery, which resets it only after this node stops heartbeating",
+          jobId);
+    }
+    return false;
   }
 
   private boolean tryAcquireResourcePermit() {
@@ -965,14 +990,12 @@ public class JobTask implements Callable<Void> {
           throw e;
         }
         int retryDelay = permitRetryDelay(resourceName);
-        if (!jobStore.scheduleJobRetry(
+        rescheduleWithoutChargingAttempt(
             job.getId(),
             "Permit check failed transiently for resource: " + resourceName,
             effective().instant().plusMillis(retryDelay),
             job.getAttempts(),
-            claimSeq)) {
-          warnRejectedOwnerWrite();
-        }
+            claimSeq);
         log.warnf(
             e,
             "Permit check failed transiently for job %s, resource '%s'",
@@ -994,13 +1017,12 @@ public class JobTask implements Callable<Void> {
       // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
       // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
       int retryDelay = permitRetryDelay(resourceName);
-      if (!jobStore.scheduleJobRetry(
+      if (!rescheduleWithoutChargingAttempt(
           job.getId(),
           "Waiting for resource: " + resourceName,
           effective().instant().plusMillis(retryDelay),
           job.getAttempts(),
           claimSeq)) {
-        warnRejectedOwnerWrite();
         return false;
       }
 
@@ -1059,14 +1081,12 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.saveExecution(currentExecution);
     }
 
-    if (!jobStore.scheduleJobRetry(
+    rescheduleWithoutChargingAttempt(
         jobEntity.getId(),
         "Circuit breaker OPEN for service: " + serviceName,
         newScheduledTime,
         jobEntity.getAttempts(),
-        expectedClaimSeq())) {
-      warnRejectedOwnerWrite();
-    }
+        expectedClaimSeq());
   }
 
   private boolean wasJobCanceledDuringExecution() {

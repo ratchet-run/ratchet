@@ -3448,7 +3448,7 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(resourcePermitService, times(JobTask.PERMIT_ACQUIRE_TRIES))
+    verify(resourcePermitService, times(JobTask.TRANSIENT_STORE_TRIES))
         .tryAcquire("gpu", JOB_UUID, 7L, "node-1");
     InOrder order = inOrder(resourcePermitService, jobStore);
     order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
@@ -3466,6 +3466,80 @@ class JobTaskTest {
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
     verify(validationFacade, never()).shouldNotRetry(any());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_transientPermitRescheduleRetriesWithoutChargingAttempt() throws Exception {
+    assertNoChargeRescheduleRetries(false, false, false);
+  }
+
+  @Test
+  void call_transientPermitRescheduleExhaustedLeavesRunning() throws Exception {
+    assertNoChargeRescheduleRetries(false, false, true);
+  }
+
+  @Test
+  void call_supersededPermitRescheduleRetriesWithoutChargingAttempt() throws Exception {
+    assertNoChargeRescheduleRetries(true, false, false);
+  }
+
+  @Test
+  void call_openCircuitRescheduleRetriesWithoutChargingAttempt() throws Exception {
+    assertNoChargeRescheduleRetries(false, true, false);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertNoChargeRescheduleRetries(
+      boolean superseded, boolean circuitOpen, boolean exhausted) throws Exception {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setBusinessKey("held-key");
+    job.setAttempts(2);
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(!circuitOpen);
+    if (circuitOpen) {
+      when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofSeconds(1));
+    } else {
+      if (superseded) {
+        when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+            .thenReturn(AcquireResult.SUPERSEDED);
+      } else {
+        when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+            .thenThrow(new RatchetTransientStoreException("acquire deadlock"));
+      }
+      when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    }
+    var reschedule =
+        when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)));
+    if (exhausted) {
+      reschedule.thenThrow(new RatchetTransientStoreException("reschedule deadlock"));
+    } else {
+      reschedule
+          .thenThrow(new RatchetTransientStoreException("reschedule deadlock"))
+          .thenReturn(true);
+    }
+
+    jobTask.call();
+
+    verify(jobStore, times(exhausted ? JobTask.TRANSIENT_STORE_TRIES : 2))
+        .scheduleJobRetry(
+            eq(JOB_UUID),
+            anyString(),
+            eq(FIXED_NOW.plusMillis(circuitOpen ? 1000 : 250)),
+            eq(2),
+            eq(7L));
+    Assertions.assertEquals(2, job.getAttempts());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+    verify(resourcePermitService, times(!circuitOpen && !superseded ? 1 : 0))
+        .release("gpu", JOB_UUID, 7L);
     verifyNoAttemptRecorded();
   }
 
@@ -3516,7 +3590,7 @@ class JobTaskTest {
 
     InOrder order = inOrder(resourcePermitService, jobStore);
     if (!superseded) {
-      verify(resourcePermitService, times(JobTask.PERMIT_ACQUIRE_TRIES))
+      verify(resourcePermitService, times(JobTask.TRANSIENT_STORE_TRIES))
           .tryAcquire("gpu", JOB_UUID, 7L, "node-1");
       order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
     }

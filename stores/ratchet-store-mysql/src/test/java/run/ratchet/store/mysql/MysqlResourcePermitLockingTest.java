@@ -71,7 +71,7 @@ class MysqlResourcePermitLockingTest {
     fixture.cleanupStore();
   }
 
-  private List<UUID> seed() {
+  private List<UUID> seed(String firstNode, String secondNode) {
     fixture.cleanupStore();
     emf = newFactory();
     var em = emf.createEntityManager();
@@ -88,9 +88,11 @@ class MysqlResourcePermitLockingTest {
       for (UUID id : ids) {
         em.createNativeQuery(
                 """
-                UPDATE scheduler_job_queue SET status = 'RUNNING', claim_seq = 7 WHERE job_id = ?
+                UPDATE scheduler_job_queue SET status = 'RUNNING', claim_seq = 7, picked_by = ?
+                WHERE job_id = ?
                 """)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .setParameter(1, id.equals(ids.get(0)) ? firstNode : secondNode)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
             .executeUpdate();
       }
       em.getTransaction().commit();
@@ -108,7 +110,7 @@ class MysqlResourcePermitLockingTest {
 
   @Test
   void differentResourcesReadBeforeEitherInserts() throws Exception {
-    var ids = seed();
+    var ids = seed("live", "live");
     var readers = new CountDownLatch(2);
     var workers = Executors.newFixedThreadPool(2);
     try {
@@ -150,12 +152,15 @@ class MysqlResourcePermitLockingTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void cleanupWaitsForAcquireThenDeletesOnlyStalePermit(boolean missingNode) throws Exception {
-    var ids = seed();
+    var ids = seed("stale", "live");
     var seed = emf.createEntityManager();
     try {
       begin(seed);
       assertEquals(
           AcquireResult.ACQUIRED, store(seed).tryAcquirePermit("r-a", ids.get(0), 7L, "stale"));
+      seed.createNativeQuery("UPDATE scheduler_job_queue SET status = 'PENDING' WHERE job_id = ?")
+          .setParameter(1, UuidByteArrayConverter.toBytes(ids.get(0)))
+          .executeUpdate();
       seed.getTransaction().commit();
     } finally {
       if (seed.getTransaction().isActive()) seed.getTransaction().rollback();
@@ -177,7 +182,9 @@ class MysqlResourcePermitLockingTest {
                   var observed =
                       observe(
                           em,
-                          sql -> sql.contains("FROM scheduler_resource_limit"),
+                          sql ->
+                              sql.contains("FROM scheduler_resource_limit")
+                                  && sql.contains("FOR UPDATE"),
                           locking::countDown,
                           false);
                   var operations =
@@ -213,10 +220,38 @@ class MysqlResourcePermitLockingTest {
     }
   }
 
+  @Test
+  void missingNodeCleanupDeletesMixedCasePermitsUsingStoredLimitKey() {
+    var ids = seed("missing", "missing");
+    var em = emf.createEntityManager();
+    try {
+      begin(em);
+      var store = store(em);
+      store.configureResource("Res", 3, 100, "mixed case");
+      assertEquals(
+          AcquireResult.ACQUIRED, store.tryAcquirePermit("res", ids.get(0), 7L, "missing"));
+      assertEquals(
+          AcquireResult.ACQUIRED, store.tryAcquirePermit("RES", ids.get(1), 7L, "missing"));
+      em.getTransaction().commit();
+      begin(em);
+      em.createNativeQuery("UPDATE scheduler_job_queue SET status = 'PENDING'").executeUpdate();
+      assertEquals(2, store.cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60)));
+      assertEquals(
+          List.of(),
+          em.createNativeQuery(
+                  "SELECT id FROM scheduler_resource_permit WHERE resource_name = 'Res'")
+              .getResultList());
+      em.getTransaction().commit();
+    } finally {
+      if (em.getTransaction().isActive()) em.getTransaction().rollback();
+      em.close();
+    }
+  }
+
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
   void bulkDeleteAndAcquireDoNotDeadlock(boolean deleteFirst) throws Exception {
-    var ids = seed();
+    var ids = seed("old", "live");
     var holder = emf.createEntityManager();
     var workers = Executors.newSingleThreadExecutor();
     try {

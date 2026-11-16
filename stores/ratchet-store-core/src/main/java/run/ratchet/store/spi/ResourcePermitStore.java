@@ -75,7 +75,9 @@ public interface ResourcePermitStore {
   }
 
   /**
-   * Attempts to acquire capacity for a configured resource.
+   * Attempts to acquire capacity for a configured resource. Returns {@code SUPERSEDED} unless the
+   * job is RUNNING under {@code claimSeq} and picked by {@code nodeId}. The permit records {@code
+   * nodeId}.
    *
    * <p>The resource lock is the first lock in this transaction. An unknown resource throws before
    * the non-locking, point-in-time RUNNING/claim check. A superseded claim writes nothing. A claim
@@ -177,6 +179,9 @@ public interface ResourcePermitStore {
    * <p>Does not wake waiters. The engine calls {@link #wakeWaiters} after commit in a separate
    * transaction, keeping the resource lock first.
    *
+   * <p>A permit whose job is still RUNNING and picked by the node the permit carries is kept. A
+   * later call removes it once the job is no longer RUNNING under that node.
+   *
    * @param staleNodeIds node ids whose permits should be released; never {@code null}, may be empty
    *     (no-op when empty)
    * @return number of permit rows released
@@ -189,8 +194,11 @@ public interface ResourcePermitStore {
    *
    * <p>The runtime maintains a node row for every live node, including custom identity providers.
    * The cutoff keeps recent permits whose node may heartbeat and re-create its row (heartbeat is an
-   * upsert). A node that died after committing a late permit loses it once it ages past the cutoff.
-   * Does not wake waiters; the engine calls {@link #wakeWaiters} after commit.
+   * upsert). A permit from a node that died becomes eligible for cleanup once it ages past the
+   * cutoff. Does not wake waiters; the engine calls {@link #wakeWaiters} after commit.
+   *
+   * <p>A permit whose job is still RUNNING and picked by the node the permit carries is kept. A
+   * later call removes it once the job is no longer RUNNING under that node.
    *
    * @param acquiredBefore exclusive acquisition cutoff
    * @return number of permit rows released

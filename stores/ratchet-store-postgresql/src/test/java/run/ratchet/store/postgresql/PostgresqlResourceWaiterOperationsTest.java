@@ -96,7 +96,7 @@ class PostgresqlResourceWaiterOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, "res", "node"}),
             List.of(id(UUID.randomUUID())),
             List.of(),
             0);
@@ -115,7 +115,7 @@ class PostgresqlResourceWaiterOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res", "node"}),
             List.of(id(UUID.randomUUID())),
             List.of("PAUSED"),
             1,
@@ -144,7 +144,7 @@ class PostgresqlResourceWaiterOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, "res", "node"}),
             List.of(),
             List.of(),
             1);
@@ -162,7 +162,7 @@ class PostgresqlResourceWaiterOperationsTest {
       var sequence =
           new NativeSequence(
               List.<Object[]>of(new Object[] {1, 1000}),
-              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null}),
+              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null, "node"}),
               List.of(id(UUID.randomUUID())),
               List.of(),
               1,
@@ -186,7 +186,7 @@ class PostgresqlResourceWaiterOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res", "node"}),
             List.of(),
             List.of(),
             1,

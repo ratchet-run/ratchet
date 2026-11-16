@@ -102,6 +102,8 @@ When a node crashes while jobs are RUNNING:
 
 5. **The stale node entry is deleted.** The scan releases the business keys still held by jobs that were cancelled while they ran on the crashed node, then removes the node's `scheduler_node` row. If another transaction has one of those holds locked, the scan skips it and keeps the row, and the next scan tries again. Every orphan scan also removes permits whose node row is missing once their acquisition time is older than the orphan cutoff, freeing late permits left by a crashed node.
 
+Neither permit clean-up frees a permit while its job is still RUNNING under the dead node. That happens when a scan stops at its time budget or page cap before it reaches the job. The scan that resets the job frees its permit. If the node comes back first, its running jobs keep their permits.
+
 When a node starts, it also deletes the permits left under its own node id before it claims any job. This only helps when the restarted node keeps its id, which needs `ratchet.node.id` or a custom `NodeIdentityProvider` with a stable id. The default id changes on every start.
 
 **Important:** The recovered job starts from scratch and does not resume from where it left off. If your job performs work that is not idempotent, design it to check for partial completion before proceeding.

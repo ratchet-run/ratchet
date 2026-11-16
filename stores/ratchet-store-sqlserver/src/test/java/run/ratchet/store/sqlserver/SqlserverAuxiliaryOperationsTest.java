@@ -18,6 +18,11 @@ package run.ratchet.store.sqlserver;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -40,6 +45,37 @@ import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 
 class SqlserverAuxiliaryOperationsTest {
+
+  @Test
+  void cleanupProtectsRunningClaimForBothCallers() {
+    for (boolean missing : List.of(false, true)) {
+      EntityManager em = mock(EntityManager.class);
+      Query query = mock(Query.class);
+      when(query.setParameter(anyInt(), any())).thenReturn(query);
+      when(query.executeUpdate()).thenReturn(2);
+      when(em.createNativeQuery(any(String.class)))
+          .thenAnswer(
+              invocation -> {
+                String sql = invocation.getArgument(0);
+                assertTrue(sql.contains("DELETE p FROM scheduler_resource_permit p"));
+                assertTrue(sql.contains("NOT EXISTS ("));
+                assertTrue(sql.contains("q.job_id = p.job_id"));
+                assertTrue(sql.contains("q.status = 'RUNNING'"));
+                assertTrue(sql.contains("q.picked_by = p.node_id"));
+                assertTrue(sql.contains(missing ? "p.acquired_at < ?" : "p.node_id IN (?)"));
+                if (missing) assertTrue(sql.contains("scheduler_node"));
+                return query;
+              });
+      var operations = new SqlserverAuxiliaryOperations(new SqlserverStoreContext(em));
+      assertEquals(
+          2,
+          missing
+              ? operations.cleanupPermitsOfMissingNodes(Instant.EPOCH)
+              : operations.cleanupOrphanedPermits(List.of("stale")));
+      if (!missing) verify(query).setParameter(1, "stale");
+      verify(query).executeUpdate();
+    }
+  }
 
   @Test
   void getPermitRetryDelayUsesDefaultForMissingResource() {
@@ -94,7 +130,7 @@ class SqlserverAuxiliaryOperationsTest {
     NativeSequence sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, 2, DUE, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, 2, DUE, "res", "node"}),
             0,
             0,
             List.of(JOB),
@@ -117,7 +153,7 @@ class SqlserverAuxiliaryOperationsTest {
     NativeSequence sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, 2, DUE, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, 2, DUE, "res", "node"}),
             0,
             0,
             List.of(),
@@ -145,7 +181,7 @@ class SqlserverAuxiliaryOperationsTest {
     NativeSequence sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, null, null, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, null, null, "res", "node"}),
             1);
     assertEquals(
         AcquireResult.ACQUIRED, sequence.operations().tryAcquirePermit("res", JOB, 7, "node"));
@@ -244,7 +280,7 @@ class SqlserverAuxiliaryOperationsTest {
       var sequence =
           new NativeSequence(
               List.<Object[]>of(new Object[] {1, 1000}),
-              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null}),
+              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null, "node"}),
               0,
               1,
               List.of(),
@@ -270,7 +306,7 @@ class SqlserverAuxiliaryOperationsTest {
     NativeSequence sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, null, null, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 2, DUE, null, null, "res", "node"}),
             0,
             held);
     if (inserted != null) {

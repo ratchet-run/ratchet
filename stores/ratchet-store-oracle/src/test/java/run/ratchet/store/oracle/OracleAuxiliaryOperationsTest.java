@@ -17,13 +17,21 @@ package run.ratchet.store.oracle;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -33,6 +41,37 @@ import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 class OracleAuxiliaryOperationsTest {
+
+  @Test
+  void cleanupProtectsRunningClaimForBothCallers() {
+    for (boolean missing : List.of(false, true)) {
+      EntityManager em = mock(EntityManager.class);
+      Query query = mock(Query.class);
+      when(query.setParameter(anyInt(), any())).thenReturn(query);
+      when(query.executeUpdate()).thenReturn(2);
+      when(em.createNativeQuery(any(String.class)))
+          .thenAnswer(
+              invocation -> {
+                String sql = invocation.getArgument(0);
+                assertTrue(sql.contains("DELETE FROM scheduler_resource_permit p"));
+                assertTrue(sql.contains("NOT EXISTS ("));
+                assertTrue(sql.contains("q.job_id = p.job_id"));
+                assertTrue(sql.contains("q.status = 'RUNNING'"));
+                assertTrue(sql.contains("q.picked_by = p.node_id"));
+                assertTrue(sql.contains(missing ? "p.acquired_at < ?" : "p.node_id IN (?)"));
+                if (missing) assertTrue(sql.contains("scheduler_node"));
+                return query;
+              });
+      var operations = new OracleAuxiliaryOperations(new OracleStoreContext(em, null));
+      assertEquals(
+          2,
+          missing
+              ? operations.cleanupPermitsOfMissingNodes(Instant.EPOCH)
+              : operations.cleanupOrphanedPermits(List.of("stale")));
+      if (!missing) verify(query).setParameter(1, "stale");
+      verify(query).executeUpdate();
+    }
+  }
 
   @Test
   void tryAcquirePermit_sameJobExistingPermitIsIdempotent() {
@@ -123,7 +162,7 @@ class OracleAuxiliaryOperationsTest {
                     switch (kind) {
                       case "claim" ->
                           Collections.singletonList(
-                              new Object[] {"RUNNING", 7L, 0, null, null, null});
+                              new Object[] {"RUNNING", 7L, 0, null, null, null, null, "node-1"});
                       case "permits" ->
                           Collections.singletonList(
                               UuidRawConverter.toBytes(
