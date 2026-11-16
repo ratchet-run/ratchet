@@ -253,6 +253,8 @@ On **failure:**
 
 Instead, each database operation (status update, retry scheduling, success marking) is a separate short transaction. The `@Transactional` annotation is on the individual service methods (`PostExecutionHandler`, `DeadLetterService`, etc.), not on `JobTask` itself.
 
+Two features open a transaction around job code on purpose. [`@TransactionalJob`](./transactional-jobs.md) runs the whole body in the transaction that records success. [`JobContext.runInTransaction`](../api-reference/job-context.md#saving-the-checkpoint-with-the-work) runs one unit of work at a time and saves the unit's checkpoint in its transaction. Its connection is held only for that unit. Before the commit, Ratchet locks the job's queue row and checks that the attempt still owns the job, as completion does.
+
 ## Timeout Handling
 
 Each execution attempt has a deadline: the time the attempt started plus the job's timeout. A job without its own timeout uses `ratchet.timeout.default-sla-seconds` (30 minutes by default). A watchdog on the executing node does up to three things for each attempt. When the grace is longer than the soft-warning margin, step 2 happens before step 1.

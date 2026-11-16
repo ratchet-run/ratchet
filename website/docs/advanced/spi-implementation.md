@@ -681,7 +681,7 @@ A store advertises each of these by implementing the interface; the engine probe
 | `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
 | `ResourcePermitStore` | Resource permits and their waiting line | `tryAcquirePermit()`, `releasePermit()`, `wakeWaiters()` |
 | `EventOutboxStore` | Durable terminal delivery | `findEventsCreatedBefore()`, `deleteEvents()` (at most 500 IDs); insert `JobCompletionPlan.outboxEvents()` atomically only when completion wins |
-| `TransactionalCompletionStore` | Completion in an existing SQL transaction | `terminalOutcome()`, `requireJoinedTransaction()`, and current planning reads (SQL stores only) |
+| `TransactionalCompletionStore` | Completion and checkpoint units in an existing SQL transaction | `terminalOutcome()`, `requireJoinedTransaction()`, `writeClaimState()`, and current planning reads (SQL stores only) |
 | `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
 | `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
@@ -721,6 +721,28 @@ The claim fence must be atomic with the state write. Check both RUNNING status a
 Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Return
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
+
+### Claim state in the caller's transaction
+
+`TransactionalCompletionStore.writeClaimState` saves the checkpoint of a
+`JobContext.runInTransaction` unit, as the last step of the unit's transaction:
+
+- Require the caller's transaction (`MANDATORY`) and never start one. Never retry.
+- Validate the namespace, the state size and the version before any SQL.
+- Flush pending entity changes. Then lock the job's queue row with the same exclusive lock as
+  completion (`FOR UPDATE`, or `UPDLOCK, ROWLOCK` on SQL Server) and keep it until the caller's
+  transaction ends. Return `SUPERSEDED` unless the row is RUNNING under the expected claim
+  sequence. A missing row also returns `SUPERSEDED`.
+- Read every row current. An earlier read in the same transaction may have taken a snapshot,
+  as MySQL does at REPEATABLE READ; the write must not use it.
+- With a null expected version, insert at version 0 only when no row exists. Otherwise update
+  only when the stored version matches, and add one to it. Return `VERSION_CONFLICT` when the
+  row does not match, and write nothing.
+- Encrypt the state under the same rules as `JobStateStore`.
+
+`AbstractTransactionalCompletionStoreContract` checks these rules, including the lock hold, a
+concurrent cancel, and a stale snapshot. Its fixture hooks run owner transactions, find lock
+waits, count statements and raise the isolation level.
 
 ### Claim-owned resource permits
 
@@ -1037,7 +1059,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobBulkStoreContract` | Bulk recovery, stale job detection |
 | `AbstractBatchStoreContract` | Batch progress tracking |
 | `AbstractEventOutboxStoreContract` | Atomic completion rows, cutoff reads, bounded idempotent deletion |
-| `AbstractTransactionalCompletionStoreContract` | Claim-specific outcome resolution, success claim copy, and current planning reads (SQL stores) |
+| `AbstractTransactionalCompletionStoreContract` | Claim-specific outcome resolution, success claim copy, current planning reads, and claim state writes in the caller's transaction (SQL stores) |
 | `AbstractLockStoreContract` | Lock acquire, release, expiry |
 | `AbstractNodeStoreContract` | Node registration, heartbeat, dead node detection |
 | `AbstractArchiveStoreContract` | Job archiving and retrieval |

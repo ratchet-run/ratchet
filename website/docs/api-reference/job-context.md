@@ -360,6 +360,16 @@ Returns the latest committed value from this attempt, or the value saved by an e
 attempt. Returns empty if neither exists. It never returns an uncommitted or rolled-back
 value. Call it before doing work to check that the store supports checkpoints.
 
+### runInTransaction
+
+```java
+public String runInTransaction(TransactionalUnit unit) throws Exception
+```
+
+Runs one unit of work in a new transaction on Ratchet's datasource, and saves the unit's
+result as the checkpoint in the same transaction. Returns the result once it has committed.
+See [Saving the checkpoint with the work](#saving-the-checkpoint-with-the-work).
+
 ## Attempt tokens
 
 Every time a node claims a job, the claim gets a sequence number one higher than the job's last claim. An `AttemptToken` holds the job's ID and that sequence. A retry, or a reclaim after a node stops responding, gets a higher sequence. So does a job reset after it failed.
@@ -440,7 +450,9 @@ capability. They throw `IllegalStateException` outside an executing persisted at
 register the commit callback, for example in a Micronaut nested savepoint scope.
 Lifecycle callbacks have no checkpoints. Plain `bind()` contexts have none either.
 `checkpoint(null)` throws `NullPointerException`; an oversized value throws
-`IllegalArgumentException` before Ratchet registers a commit callback.
+`IllegalArgumentException` before Ratchet registers a commit callback. `checkpoint()` also
+throws `IllegalStateException` in an attempt that saves checkpoints with
+[`runInTransaction`](#saving-the-checkpoint-with-the-work).
 
 For example, inject a transaction helper and commit each page separately. The helper's
 `run` method has `@Transactional`; call it through its injected proxy.
@@ -458,6 +470,79 @@ void importPages() {
     }
 }
 ```
+
+In this example the page and its checkpoint commit apart. The checkpoint is saved by a
+later flush, so a crash in between runs the page again.
+
+### Saving the checkpoint with the work
+
+`runInTransaction` saves the checkpoint in the same transaction as the work. Ratchet opens
+a transaction on the datasource of its own store and runs your unit in it. Then it saves
+the unit's result as the checkpoint, and commits. The work and the checkpoint commit
+together or roll back together. A retry resumes after the last unit that committed.
+
+```java
+void importPages() throws Exception {
+    JobContext ctx = JobContext.current();
+    while (!ctx.lastCheckpoint().orElse("").equals("done")) {
+        ctx.runInTransaction(after -> {
+            int page = after == null ? 0 : Integer.parseInt(after);
+            importPage(page); // writes through Ratchet's datasource
+            return page + 1 < pageCount() ? Integer.toString(page + 1) : "done";
+        });
+    }
+}
+```
+
+Ratchet passes the unit the latest committed checkpoint, or null when none is saved. A batch
+child with no saved checkpoint gets its partition's checkpoint. The unit returns the next
+checkpoint and must not return null. After the last unit, return your own end marker, such
+as `"done"` above.
+
+When the unit returns, Ratchet locks the job's queue row and checks that this attempt still
+owns the job. The lock lasts until the commit, so a cancel or a reclaim waits for that short
+window. It does not wait for the unit's work. If the attempt has lost the job, the unit rolls
+back and the call throws `AttemptSupersededException`. Stop work when this happens.
+
+A failure inside the unit rolls it back and reaches your code unchanged. Ratchet does not run
+the unit again. Your job can catch the failure, or let it fail the attempt so the retry
+policy applies. If a commit fails and Ratchet cannot tell whether it committed, the failure
+reaches your code too. Ratchet then reads the stored checkpoint again before the next unit
+or `lastCheckpoint()`.
+
+The unit holds one pooled connection from its start to its commit. Keep units short. Ratchet
+sets no transaction timeout; the default of the container or transaction manager applies.
+`isCurrentAttempt()` inside a unit needs a second connection, so call it between units.
+Progress keeps flushing while a unit runs, outside the unit's transaction.
+
+Limits:
+
+- **SQL stores only.** MySQL, PostgreSQL, Oracle and SQL Server support units. On MongoDB the
+  call throws `UnsupportedOperationException`, and the unit does not run.
+- **Only Ratchet's datasource is inside the transaction.** On Spring, this is the transaction
+  manager Ratchet selects for its store. On Micronaut, it is the datasource set by
+  `ratchet.jpa.datasource`. Writes through another datasource commit on their own, as do
+  nested `REQUIRES_NEW` calls. Under JTA, another XA datasource joins the commit. HTTP calls,
+  messages and other external effects need their own idempotency.
+- **No open transaction.** Ratchet starts the transaction, so call `runInTransaction` with
+  none open. The job method must not be transactional, and it must not have
+  `@TransactionalJob`. Otherwise the call throws `IllegalStateException`, and the unit does not
+  run. On Spring, a transaction on any transaction manager counts. On Micronaut, Ratchet sees
+  only the manager of `ratchet.jpa.datasource`. A transaction open on another Micronaut
+  datasource goes unnoticed, and the unit then holds a second connection.
+- **One unit at a time.** A second call while a unit of the same attempt runs throws
+  `IllegalStateException`.
+- **One kind of checkpoint per attempt.** An attempt uses either `checkpoint()` or
+  `runInTransaction`. The first call decides; a call of the other kind then throws
+  `IllegalStateException`. A retry is a new attempt and can use either.
+- **Isolation.** The unit runs at the default isolation level of the transaction manager.
+  Ratchet's checks read current rows, never an earlier snapshot, so they hold at READ
+  COMMITTED and at MySQL's REPEATABLE READ. At a stricter level on PostgreSQL, Oracle or SQL
+  Server, a cancel or reclaim during the unit can make Ratchet's checkpoint write fail with a
+  serialization error instead of `AttemptSupersededException`. The unit rolls back either way.
+
+Results follow the 1 MiB checkpoint limit. A larger result throws `IllegalArgumentException`,
+and the unit rolls back.
 
 ## Progress
 

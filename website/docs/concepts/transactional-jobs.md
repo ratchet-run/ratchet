@@ -47,7 +47,9 @@ If the transaction manager reports a commit failure after the body and completio
 
 ## Job context
 
-`JobContext.checkpoint(...)` and `requestContinuation(...)` throw `IllegalStateException` for transactional jobs. `lastCheckpoint()` returns empty. Progress remains available and is flushed outside the body's transaction, so it can be visible while the body runs.
+`JobContext.checkpoint(...)`, `runInTransaction(...)` and `requestContinuation(...)` throw `IllegalStateException` for transactional jobs. `lastCheckpoint()` returns empty. Progress remains available and is flushed outside the body's transaction, so it can be visible while the body runs.
+
+A transactional job commits all of its work at once. To commit a long job in steps, leave out the annotation and run each step with [`JobContext.runInTransaction`](../api-reference/job-context.md#saving-the-checkpoint-with-the-work). Each step's writes commit with its checkpoint, and a retry resumes after the last step that committed. The same limits apply: SQL stores only, and only writes through Ratchet's datasource are inside the step's transaction.
 
 ## Connections and timeouts
 
