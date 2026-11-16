@@ -144,6 +144,7 @@ public class JobTask implements Callable<Void> {
   private final PayloadSerializer payloadSerializer;
   private final JobTimeoutHandler timeoutHandler;
   private final HeldKeyReleases holdReleases;
+  private final PermitReleases permitReleases;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
   private @Nullable JobAttemptControl attempt;
@@ -195,6 +196,7 @@ public class JobTask implements Callable<Void> {
     this.payloadSerializer = null;
     this.timeoutHandler = null;
     this.holdReleases = null;
+    this.permitReleases = null;
     this.clock = null;
     this.callbackInvoker = null;
     this.argResolver = null;
@@ -222,6 +224,7 @@ public class JobTask implements Callable<Void> {
       JobStateFlusher jobStateFlusher,
       JobTimeoutHandler timeoutHandler,
       HeldKeyReleases holdReleases,
+      PermitReleases permitReleases,
       Clock clock,
       PreExecutionArgResolver argResolver,
       RatchetOptions options) {
@@ -247,6 +250,7 @@ public class JobTask implements Callable<Void> {
     this.payloadSerializer = payloadSerializer;
     this.timeoutHandler = timeoutHandler;
     this.holdReleases = holdReleases;
+    this.permitReleases = permitReleases;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.callbackInvoker =
         new LifecycleCallbackInvoker(
@@ -993,8 +997,9 @@ public class JobTask implements Callable<Void> {
     String resourceName = job.getResourceName();
     if (resourceName != null) {
       try {
-        resourcePermitService.release(resourceName, job.getId(), expectedClaimSeq());
-        log.infof("Job %s released permit for resource '%s'", job.getId(), resourceName);
+        if (permitReleases.release(resourceName, job.getId(), expectedClaimSeq())) {
+          log.infof("Job %s released permit for resource '%s'", job.getId(), resourceName);
+        }
       } catch (Exception e) {
         log.warnf(e, "Permit release error for job %s", job.getId());
       }

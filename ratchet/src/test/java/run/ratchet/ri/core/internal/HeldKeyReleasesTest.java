@@ -88,7 +88,7 @@ class HeldKeyReleasesTest {
           .thenThrow(new IllegalStateException("store unavailable"))
           .thenReturn(true);
       assertDoesNotThrow(() -> releases().release(JOB_ID, CLAIM_SEQ));
-      scheduled(1, HeldKeyReleases.RETRY_DELAY.toMillis()).run();
+      scheduled(1, ReleaseRetries.RETRY_DELAY.toMillis()).run();
       verify(store, times(2)).releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ);
       verifyNoMoreInteractions(scheduler);
     } finally {
@@ -105,8 +105,8 @@ class HeldKeyReleasesTest {
           .thenThrow(new IllegalStateException("second"))
           .thenReturn(false);
       releases().release(JOB_ID, CLAIM_SEQ);
-      scheduled(1, HeldKeyReleases.RETRY_DELAY.toMillis()).run();
-      scheduled(2, HeldKeyReleases.RETRY_DELAY.toMillis()).run();
+      scheduled(1, ReleaseRetries.RETRY_DELAY.toMillis()).run();
+      scheduled(2, ReleaseRetries.RETRY_DELAY.toMillis()).run();
       verify(store, times(3)).releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ);
       verifyNoMoreInteractions(scheduler);
     } finally {
@@ -121,10 +121,10 @@ class HeldKeyReleasesTest {
       when(store.releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ))
           .thenThrow(new IllegalStateException("store unavailable"));
       releases().release(JOB_ID, CLAIM_SEQ);
-      for (int i = 1; i <= HeldKeyReleases.MAX_RETRIES; i++) {
-        scheduled(i, HeldKeyReleases.RETRY_DELAY.toMillis()).run();
+      for (int i = 1; i <= ReleaseRetries.MAX_RETRIES; i++) {
+        scheduled(i, ReleaseRetries.RETRY_DELAY.toMillis()).run();
       }
-      verify(store, times(1 + HeldKeyReleases.MAX_RETRIES))
+      verify(store, times(1 + ReleaseRetries.MAX_RETRIES))
           .releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ);
       verifyNoMoreInteractions(scheduler);
     } finally {
