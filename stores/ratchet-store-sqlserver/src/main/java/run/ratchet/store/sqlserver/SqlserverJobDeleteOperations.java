@@ -384,7 +384,8 @@ final class SqlserverJobDeleteOperations {
                     """
                     UPDATE q
                     SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-                        crash_count = crash_count + 1, updated_at = SYSUTCDATETIME()
+                        crash_count = crash_count + 1, updated_at = SYSUTCDATETIME(),
+                        version = q.version + 1
                     FROM scheduler_job_queue q WITH (FORCESEEK, INDEX(pk_scheduler_job_queue))
                     WHERE q.job_id IN (
                     """
@@ -398,7 +399,7 @@ final class SqlserverJobDeleteOperations {
             ctx.em()
                 .createNativeQuery(
                     """
-                    UPDATE q SET picked_by = NULL
+                    UPDATE q SET picked_by = NULL, version = q.version + 1
                     FROM scheduler_job_queue q WITH (FORCESEEK, INDEX(pk_scheduler_job_queue))
                     WHERE q.job_id IN (
                     """

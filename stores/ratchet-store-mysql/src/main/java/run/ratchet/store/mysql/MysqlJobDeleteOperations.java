@@ -395,7 +395,7 @@ final class MysqlJobDeleteOperations {
                     """
                     UPDATE scheduler_job_queue FORCE INDEX (PRIMARY)
                     SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-                        crash_count = crash_count + 1, updated_at = NOW(3)
+                        crash_count = crash_count + 1, updated_at = NOW(3), version = version + 1
                     WHERE job_id IN (
                     """
                         + String.join(",", Collections.nCopies(resettable.size(), "?"))
@@ -408,7 +408,8 @@ final class MysqlJobDeleteOperations {
             ctx.em()
                 .createNativeQuery(
                     """
-                    UPDATE scheduler_job_queue FORCE INDEX (PRIMARY) SET picked_by = NULL
+                    UPDATE scheduler_job_queue FORCE INDEX (PRIMARY)
+                    SET picked_by = NULL, version = version + 1
                     WHERE job_id IN (
                     """
                         + String.join(",", Collections.nCopies(exhaustedIds.size(), "?"))

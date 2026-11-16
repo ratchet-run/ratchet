@@ -1076,12 +1076,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     assertEquals(job.getId(), row.jobId());
     Instant deferredPickedAt = store().findById(job.getId()).orElseThrow().getPickedAt();
 
-    RuntimeException failure = assertThrows(RuntimeException.class, () -> store().save(stale));
-    Throwable cause = failure;
-    while (cause != null && !(cause instanceof RatchetOptimisticLockException)) {
-      cause = cause.getCause();
-    }
-    assertTrue(cause instanceof RatchetOptimisticLockException);
+    assertStaleSaveRejected(stale);
 
     JobEntity deferred = store().findById(job.getId()).orElseThrow();
     assertEquals(JobStatus.RUNNING, deferred.getStatus());
@@ -1092,6 +1087,61 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
         OrphanRecovery.none(),
         store().resetOrphanJobsBefore(Instant.now().minusSeconds(30), 1, 10));
     assertTrue(store().markJobFailedTerminal(row.jobId(), "done", 0, row.claimSeq()));
+  }
+
+  @Test
+  void orphanResetRejectsStaleSave() {
+    JobEntity job = agedOrphan("dead", false);
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    OrphanRecovery page = store().resetOrphanJobsBefore(Instant.now().minusSeconds(30), 3, 10);
+    assertEquals(1, page.reset());
+    assertStaleSaveRejected(stale);
+    assertPendingClaimReleased(stale);
+  }
+
+  @Test
+  void startupResetRejectsStaleSave() {
+    JobEntity job = agedOrphan("self", false);
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    OrphanRecovery page = store().resetOrphanJobsForNode("self", 3, 10);
+    assertEquals(1, page.reset());
+    assertStaleSaveRejected(stale);
+    assertPendingClaimReleased(stale);
+  }
+
+  @Test
+  void startupReleaseRejectsStaleSave() {
+    JobEntity job = agedOrphan("self", true);
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    OrphanRecovery page = store().resetOrphanJobsForNode("self", 1, 10);
+    assertEquals(1, page.released());
+    assertEquals(0, page.reset());
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, after.getStatus());
+    assertNull(after.getPickedBy());
+    assertEquals(stale.getPickedAt(), after.getPickedAt());
+    assertEquals(stale.getClaimSeq(), after.getClaimSeq());
+  }
+
+  @Test
+  void shutdownResetOfOneClaimRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().resetRunningJob(job.getId(), "self", stale.getClaimSeq()));
+    assertStaleSaveRejected(stale);
+    assertPendingClaimReleased(stale);
+  }
+
+  @Test
+  void shutdownResetOfAllClaimsRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertEquals(1, store().resetRunningJobs("self"));
+    assertStaleSaveRejected(stale);
+    assertPendingClaimReleased(stale);
   }
 
   @Test
@@ -1171,6 +1221,23 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
         assertRunningExecution(auditStore().findExecutionsByJobId(after.getId(), 100, 0).get(0));
       }
     }
+  }
+
+  private void assertStaleSaveRejected(JobEntity stale) {
+    RuntimeException failure = assertThrows(RuntimeException.class, () -> store().save(stale));
+    Throwable cause = failure;
+    while (cause != null && !(cause instanceof RatchetOptimisticLockException)) {
+      cause = cause.getCause();
+    }
+    assertTrue(cause instanceof RatchetOptimisticLockException);
+  }
+
+  private void assertPendingClaimReleased(JobEntity stale) {
+    JobEntity after = store().findById(stale.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertNull(after.getPickedBy());
+    assertNull(after.getPickedAt());
+    assertEquals(stale.getClaimSeq(), after.getClaimSeq());
   }
 
   private JobEntity agedOrphan(String owner, boolean exhausted) {

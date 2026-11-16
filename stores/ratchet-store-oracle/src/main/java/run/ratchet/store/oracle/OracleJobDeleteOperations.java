@@ -343,7 +343,8 @@ final class OracleJobDeleteOperations {
                   """
                   UPDATE scheduler_job_queue
                   SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-                      crash_count = crash_count + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+                      crash_count = crash_count + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP),
+                      version = version + 1
                   """
                       + restricted
                       + " AND crash_count < ?");
@@ -355,7 +356,7 @@ final class OracleJobDeleteOperations {
         Query release =
             ctx.em()
                 .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                    "UPDATE scheduler_job_queue SET picked_by = NULL, version = version + 1 "
                         + restricted
                         + " AND crash_count >= ?");
         bindRecovery(release, restrictedParameters, maxCrashRedeliveries);
