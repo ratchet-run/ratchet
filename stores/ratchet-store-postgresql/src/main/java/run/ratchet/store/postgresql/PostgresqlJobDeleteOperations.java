@@ -308,7 +308,8 @@ final class PostgresqlJobDeleteOperations {
                   """
                   UPDATE scheduler_job_queue
                   SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-                      crash_count = crash_count + 1, updated_at = statement_timestamp()
+                      crash_count = crash_count + 1, updated_at = statement_timestamp(),
+                      version = version + 1
                   """
                       + restricted
                       + " AND crash_count < ?");
@@ -320,7 +321,7 @@ final class PostgresqlJobDeleteOperations {
         Query release =
             ctx.em()
                 .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                    "UPDATE scheduler_job_queue SET picked_by = NULL, version = version + 1 "
                         + restricted
                         + " AND crash_count >= ?");
         bindRecovery(release, restrictedParameters, maxCrashRedeliveries);

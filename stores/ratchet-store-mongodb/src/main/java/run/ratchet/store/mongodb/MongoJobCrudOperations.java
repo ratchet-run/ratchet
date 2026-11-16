@@ -1006,7 +1006,10 @@ final class MongoJobCrudOperations {
         released =
             (int)
                 ctx.jobs()
-                    .updateMany(session, and(in(ID, exhaustedIds), orphan), set(PICKED_BY, null))
+                    .updateMany(
+                        session,
+                        and(in(ID, exhaustedIds), orphan),
+                        combine(set(PICKED_BY, null), inc(VERSION, 1)))
                     .getModifiedCount();
       } else {
         ctx.jobs()

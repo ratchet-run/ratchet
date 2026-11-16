@@ -69,6 +69,9 @@ public interface JobBatchStatusStore {
   /**
    * Resets one running job owned by a node. Transaction attribute: {@code REQUIRED}.
    *
+   * <p>The reset increments the row version, so a save of an entity read before it fails its
+   * version check. This also applies to {@link #resetRunningJobs}.
+   *
    * @param id job id to reset; never {@code null}
    * @param nodeId stable identity of the owning node; never {@code null} or blank
    * @param expectedClaimSeq claim sequence received by the owner
