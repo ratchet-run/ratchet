@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.sqlserver;
 
+import com.microsoft.sqlserver.jdbc.SQLServerConnection;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
 import run.ratchet.store.entity.JobEntity;
@@ -83,11 +85,13 @@ class SqlserverTransactionalCompletionStoreContractTest
     enableSnapshotIsolation();
     fixture.runInTransaction(
         () -> {
-          fixture.executeInCurrentTransaction("SET TRANSACTION ISOLATION LEVEL SNAPSHOT");
+          // A SET sent as a prepared statement runs inside sp_prepexec, and SQL Server resets
+          // the level when that scope ends. Set it on the connection so it lasts.
+          fixture.setCurrentIsolation(SQLServerConnection.TRANSACTION_SNAPSHOT);
           try {
             work.run();
           } finally {
-            fixture.executeInCurrentTransaction("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+            fixture.setCurrentIsolation(Connection.TRANSACTION_READ_COMMITTED);
           }
         });
   }
