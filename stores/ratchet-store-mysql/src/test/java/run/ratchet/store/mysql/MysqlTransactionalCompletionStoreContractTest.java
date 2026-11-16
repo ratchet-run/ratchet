@@ -16,8 +16,11 @@
 package run.ratchet.store.mysql;
 
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Duration;
+import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractTransactionalCompletionStoreContract;
 import run.ratchet.tck.store.JdbcLockWait;
@@ -83,5 +86,30 @@ class MysqlTransactionalCompletionStoreContractTest
   @Override
   public void inOwnerTransactionAtSnapshotIsolation(Runnable work) {
     fixture.runAtSnapshotIsolation(work);
+  }
+
+  @Override
+  public boolean queueRowUpdateLockRefused(UUID jobId) {
+    try (var connection = fixture.openConnection()) {
+      connection.setAutoCommit(false);
+      try {
+        try (var statement =
+            connection.prepareStatement(
+                "SELECT 1 FROM scheduler_job_queue WHERE job_id = ? FOR SHARE NOWAIT")) {
+          statement.setBytes(1, UuidByteArrayConverter.toBytes(jobId));
+          try (var rows = statement.executeQuery()) {
+            if (!rows.next()) throw new IllegalStateException("Queue row missing: " + jobId);
+            return false;
+          }
+        } catch (SQLException failure) {
+          if (failure.getErrorCode() == 3572) return true;
+          throw failure;
+        }
+      } finally {
+        connection.rollback();
+      }
+    } catch (SQLException failure) {
+      throw new IllegalStateException("Queue-row lock probe failed for " + jobId, failure);
+    }
   }
 }

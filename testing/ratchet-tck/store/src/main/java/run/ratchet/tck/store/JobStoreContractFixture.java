@@ -270,4 +270,13 @@ public interface JobStoreContractFixture {
   default int countStoreStatements(Runnable work) {
     throw new TestAbortedException("fixture cannot count store statements");
   }
+
+  /**
+   * Tries, on a separate connection and without waiting, to take an update lock on the job's queue
+   * row. Returns true if another transaction's lock refused it, false if it was granted. The probe
+   * always ends its own transaction. Stores without a SQL probe abort the test.
+   */
+  default boolean queueRowUpdateLockRefused(UUID jobId) {
+    throw new TestAbortedException("No queue-row lock probe for this store");
+  }
 }

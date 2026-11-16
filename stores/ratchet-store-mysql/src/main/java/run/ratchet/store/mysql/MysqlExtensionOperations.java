@@ -253,14 +253,14 @@ final class MysqlExtensionOperations implements JobPropertyStore, JobStateStore 
               .executeUpdate();
       return updated == 1 ? StateWriteResult.UPDATED : StateWriteResult.VERSION_CONFLICT;
     }
+    // The queue-row lock already orders this job's writers. NOT EXISTS would take a shared gap
+    // lock at REPEATABLE READ, and first writes of different jobs could then deadlock.
     // language=MySQL
     String sql =
         """
         INSERT INTO scheduler_job_extension_state
           (job_id, namespace, state, encrypted_state, encryption_key_id, version, updated_at)
-        SELECT ?, ?, ?, ?, ?, 0, ? FROM DUAL
-        WHERE NOT EXISTS (SELECT 1 FROM scheduler_job_extension_state s
-                          WHERE s.job_id = ? AND s.namespace = ?)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
         """;
     try {
       int inserted =
@@ -272,8 +272,6 @@ final class MysqlExtensionOperations implements JobPropertyStore, JobStateStore 
               .setParameter(4, active)
               .setParameter(5, JobEncryption.keyId(active))
               .setParameter(6, Timestamp.from(Instant.now()))
-              .setParameter(7, UuidByteArrayConverter.toBytes(jobId))
-              .setParameter(8, namespace)
               .executeUpdate();
       if (inserted == 0) {
         return StateWriteResult.VERSION_CONFLICT;

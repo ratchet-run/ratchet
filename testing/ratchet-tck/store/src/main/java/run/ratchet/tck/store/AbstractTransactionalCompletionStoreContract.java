@@ -16,11 +16,13 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
@@ -28,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -359,6 +362,105 @@ public abstract class AbstractTransactionalCompletionStoreContract
     assertTrue(store().commitCompletion(plan(completed, JobStatus.SUCCEEDED, null)).committed());
     assertEquals(StateWriteResult.SUPERSEDED, write(completed, A, null));
     assertTrue(stateStore().getState(completed.getId(), NAMESPACE).isEmpty());
+  }
+
+  @Test
+  void claimStateWriteHoldsUpdateLockOnQueueRowUntilCommit() throws Exception {
+    requireOwnerTransaction();
+    for (boolean update : List.of(false, true)) {
+      JobEntity job = runningJob();
+      if (update) assertEquals(StateWriteResult.UPDATED, write(job, A, null));
+      assertFalse(queueRowUpdateLockRefused(job.getId()));
+      ExecutorService pool = Executors.newSingleThreadExecutor();
+      CountDownLatch written = new CountDownLatch(1);
+      CountDownLatch release = new CountDownLatch(1);
+      try {
+        var owner =
+            pool.submit(
+                () ->
+                    inOwnerTransaction(
+                        () -> {
+                          assertEquals(
+                              StateWriteResult.UPDATED,
+                              transactionalCompletionStore()
+                                  .writeClaimState(
+                                      job.getId(),
+                                      NAMESPACE,
+                                      update ? B : A,
+                                      job.getClaimSeq(),
+                                      update ? 0 : null));
+                          written.countDown();
+                          await(release);
+                        }));
+        assertTrue(written.await(30, TimeUnit.SECONDS), "Owner did not write the checkpoint");
+        assertTrue(
+            queueRowUpdateLockRefused(job.getId()),
+            "Claim state writer must refuse a conflicting queue-row lock; update=" + update);
+        release.countDown();
+        owner.get(30, TimeUnit.SECONDS);
+        assertFalse(queueRowUpdateLockRefused(job.getId()));
+        assertState(job, update ? B : A, update ? 1 : 0);
+      } finally {
+        release.countDown();
+        pool.shutdownNow();
+        terminate(pool);
+      }
+    }
+  }
+
+  @Test
+  void concurrentFirstClaimStateWritesForDifferentJobsAllSucceed() {
+    requireOwnerTransaction();
+    ExecutorService pool = Executors.newFixedThreadPool(8);
+    List<JobEntity> allJobs = new ArrayList<>();
+    List<StateWriteResult> results = new ArrayList<>();
+    List<Throwable> failures = new ArrayList<>();
+    try {
+      for (int round = 0; round < 10; round++) {
+        List<JobEntity> jobs = new ArrayList<>();
+        for (int index = 0; index < 8; index++) jobs.add(runningJob());
+        allJobs.addAll(jobs);
+        CyclicBarrier start = new CyclicBarrier(8);
+        List<Future<StateWriteResult>> writes = new ArrayList<>();
+        for (JobEntity job : jobs) {
+          writes.add(
+              pool.submit(
+                  () -> {
+                    AtomicReference<StateWriteResult> result = new AtomicReference<>();
+                    inOwnerTransaction(
+                        () -> {
+                          cross(start);
+                          result.set(
+                              transactionalCompletionStore()
+                                  .writeClaimState(
+                                      job.getId(), NAMESPACE, A, job.getClaimSeq(), null));
+                        });
+                    return result.get();
+                  }));
+        }
+        for (Future<StateWriteResult> future : writes) {
+          try {
+            results.add(future.get(30, TimeUnit.SECONDS));
+          } catch (Exception failure) {
+            failures.add(new AssertionError("Round " + round, failure));
+          }
+        }
+      }
+      String detail =
+          "First-write failures: "
+              + failures.stream()
+                  .limit(3)
+                  .map(failure -> failure + ": " + failure.getCause())
+                  .toList();
+      assertTrue(failures.isEmpty(), detail);
+      assertEquals(80, results.size(), detail);
+      for (StateWriteResult result : results)
+        assertEquals(StateWriteResult.UPDATED, result, detail);
+      for (JobEntity job : allJobs) assertState(job, A, 0);
+    } finally {
+      pool.shutdownNow();
+      terminate(pool);
+    }
   }
 
   @Test
