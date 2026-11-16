@@ -74,7 +74,8 @@ class MongoAuxiliaryOperationsTest {
               permit("kept", "live-job", "res-kept"),
               permit("moved", "moved-job", "res-removed"),
               permit("gone", "gone-job", "res-removed"));
-      when(permits.find(eq(session), any(Bson.class))).thenReturn(iterable(candidates));
+      FindIterable<Document> candidateRows = iterable(candidates);
+      when(permits.find(eq(session), any(Bson.class))).thenReturn(candidateRows);
       when(jobs.find(eq(session), any(Bson.class)))
           .thenAnswer(
               invocation -> {
@@ -90,7 +91,10 @@ class MongoAuxiliaryOperationsTest {
                             .append(STATUS, "RUNNING")
                             .append(PICKED_BY, "new")));
               });
-      if (missing) when(nodes.find(eq(session), any(Bson.class))).thenReturn(iterable(List.of()));
+      if (missing) {
+        FindIterable<Document> noNodes = iterable(List.of());
+        when(nodes.find(eq(session), any(Bson.class))).thenReturn(noNodes);
+      }
       when(permits.deleteMany(eq(session), any(Bson.class)))
           .thenReturn(DeleteResult.acknowledged(2));
       var operations = new MongoAuxiliaryOperations(ctx);
@@ -123,13 +127,14 @@ class MongoAuxiliaryOperationsTest {
   @SuppressWarnings("unchecked")
   private static FindIterable<Document> iterable(List<Document> documents) {
     FindIterable<Document> iterable = mock(FindIterable.class);
-    when(iterable.into(any(ArrayList.class)))
-        .thenAnswer(
+    doAnswer(
             invocation -> {
               ArrayList<Document> result = invocation.getArgument(0);
               result.addAll(documents);
               return result;
-            });
+            })
+        .when(iterable)
+        .into(any(ArrayList.class));
     doAnswer(
             invocation -> {
               Consumer<Document> consumer = invocation.getArgument(0);
