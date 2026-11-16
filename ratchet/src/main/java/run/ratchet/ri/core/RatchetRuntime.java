@@ -165,14 +165,16 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       beforeWorkers.run();
 
       // Liveness writes scheduler_node for every provider after beforeStart hooks, including
-      // schema migration, succeed. Recovery and the first heartbeat precede permit cleanup and
-      // polling so this node's previous claims and permits are reclaimed before new work starts.
+      // schema migration, succeed. The first heartbeat and the recovery of this node's own claims
+      // run before permit cleanup and polling, so its previous claims and permits are reclaimed
+      // before new work starts. The periodic heartbeat is the first scheduled service to start.
       nodeLiveness.init();
       orphanRecoveryTimer.cleanupOwnPermitsAtStartup(nodeIdentityProvider.getNodeId());
 
       ScheduledExecutorService scheduledExecutor =
           options.events().durable() ? durableExecutor : resolveScheduledExecutorForStartup();
       if (scheduledExecutor != null) {
+        nodeLiveness.startHeartbeat(scheduledExecutor);
         recurringScheduler.configure(
             options.recurring().pollMs(),
             options.recurring().maxPollMs(),
@@ -231,8 +233,9 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       log.errorf(
           e,
           "Managed scheduled executor unavailable during Ratchet startup; scheduled background"
-              + " services are disabled: polling, recurring scheduling, orphan recovery, batch"
-              + " recovery, DLQ purge, job archiving, log purge, and retry-buffer draining."
+              + " services are disabled: periodic node heartbeat, polling, recurring scheduling,"
+              + " orphan recovery, batch recovery, DLQ purge, job archiving, log purge, and"
+              + " retry-buffer draining."
               + " Configure RatchetOptions.execution().scheduledExecutorJndi(...) to a valid"
               + " ManagedScheduledExecutorService (current scheduledExecutorJndi=%s,"
               + " jobExecutorJndi=%s, virtualExecutorJndi=%s).",

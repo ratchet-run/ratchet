@@ -18,9 +18,11 @@ package run.ratchet.ri.cdi.internal;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -271,6 +273,7 @@ class DefaultRatchetLifecycleHookTest {
 
   @Test
   void onStartup_whenScheduledExecutorUnavailable_degradesScheduledServicesAndContinues() {
+    NodeLiveness liveness = mock(NodeLiveness.class);
     Poller poller = mock(Poller.class);
     RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
     OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
@@ -297,7 +300,7 @@ class DefaultRatchetLifecycleHookTest {
             pollerWakeupListener,
             provider,
             mock(NodeIdentityProvider.class),
-            mock(NodeLiveness.class),
+            liveness,
             mock(DrainController.class),
             RatchetOptions.defaults(),
             jobExecutionCoordinator,
@@ -308,6 +311,8 @@ class DefaultRatchetLifecycleHookTest {
 
     assertEquals(List.of("successful.beforeStart", "successful.afterStart"), events);
     verify(provider).getScheduledExecutor();
+    verify(liveness).init();
+    verify(liveness, never()).startHeartbeat(any());
     verify(pollerWakeupListener).init();
     // The start-up permit clean-up is not a scheduled service, so it still runs.
     verify(orphanRecoveryTimer).cleanupOwnPermitsAtStartup(isNull());

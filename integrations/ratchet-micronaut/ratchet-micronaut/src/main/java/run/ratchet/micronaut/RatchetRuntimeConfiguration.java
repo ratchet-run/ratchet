@@ -263,7 +263,6 @@ class RatchetRuntimeConfiguration {
       NodeIdentityProvider node,
       JobStore store,
       DynamicHeartbeatCalculator heartbeat,
-      ExecutorProvider executor,
       RatchetOptions options,
       Clock clock) {
     return new NodeLiveness(
@@ -271,7 +270,6 @@ class RatchetRuntimeConfiguration {
         store,
         store,
         heartbeat,
-        executor,
         options.node().heartbeatIntervalSeconds(),
         options.node().orphanGraceSeconds(),
         options.node().maxCrashRedeliveries(),

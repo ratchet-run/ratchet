@@ -234,7 +234,6 @@ public class RatchetProducer {
         nodeStore,
         jobBulkStore,
         heartbeatCalculator,
-        executorProvider,
         options.node().heartbeatIntervalSeconds(),
         options.node().orphanGraceSeconds(),
         options.node().maxCrashRedeliveries(),

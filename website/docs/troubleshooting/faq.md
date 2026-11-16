@@ -75,7 +75,7 @@ Yes. Ratchet supports multi-node deployment. Each node runs its own poller that 
 
 - **Claim ownership:** Atomic claiming grants one current owner. Every claim advances a sequence, and owner writes must match it. Recovery can overlap job bodies, so execution remains at least once and external side effects need idempotency.
 - **Automatic failover:** If a node crashes, surviving nodes detect stale heartbeats. Orphan recovery returns its jobs to PENDING while they have crash budget left. Exhausted jobs fail and enter the DLQ.
-- **Node identity:** The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. That ID must be unique per live node and stable across restarts. The default heartbeat interval is 10 seconds.
+- **Node identity:** The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. The ID must be unique among live nodes and must not change while the node runs. It may change on restart, as the default ID does. The default heartbeat interval is 10 seconds.
 
 Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrain which jobs a node claims by providing a `NodeTagAffinityProvider` (the default is `DefaultNodeTagAffinityProvider`, consumed by the poller). For fully custom routing or cross-node wakeups, implement the `ClusterCoordinator` SPI.
 

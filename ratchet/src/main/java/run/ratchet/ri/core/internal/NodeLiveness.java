@@ -19,6 +19,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -27,13 +29,19 @@ import java.util.function.LongUnaryOperator;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
 import run.ratchet.store.spi.OrphanRecovery;
 
-/** Maintains node liveness and startup recovery for every node identity provider. */
+/**
+ * Maintains node liveness and startup recovery for every node identity provider.
+ *
+ * <p>{@link #init()} registers the node and recovers its own claims. {@link
+ * #startHeartbeat(ScheduledExecutorService)} runs the periodic heartbeat on the runtime's scheduled
+ * executor. The runtime skips it only when that executor is unavailable. Polling is then off too,
+ * so the node holds no claims while its row goes stale.
+ */
 public class NodeLiveness {
 
   private static final int MAX_STARTUP_RECOVERY_ATTEMPTS = 3;
@@ -57,7 +65,6 @@ public class NodeLiveness {
   private final NodeStore nodeStore;
   private final JobBulkStore jobBulkStore;
   private final DynamicHeartbeatCalculator heartbeatCalculator;
-  private final ExecutorProvider executorProvider;
   private final long heartbeatIntervalSeconds;
   private final long orphanGraceSeconds;
   private final int maxCrashRedeliveries;
@@ -67,6 +74,7 @@ public class NodeLiveness {
   private final LongUnaryOperator retryDelayJitter;
   private final Object heartbeatLifecycleMonitor = new Object();
 
+  private ScheduledExecutorService heartbeatScheduler;
   private volatile ScheduledFuture<?> heartbeatHandle;
   private volatile String nodeId;
 
@@ -74,7 +82,6 @@ public class NodeLiveness {
     this.nodeStore = null;
     this.jobBulkStore = null;
     this.heartbeatCalculator = null;
-    this.executorProvider = null;
     this.heartbeatIntervalSeconds = 0;
     this.orphanGraceSeconds = 0;
     this.maxCrashRedeliveries = 0;
@@ -89,7 +96,6 @@ public class NodeLiveness {
       NodeStore nodeStore,
       JobBulkStore jobBulkStore,
       DynamicHeartbeatCalculator heartbeatCalculator,
-      ExecutorProvider executorProvider,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
       int maxCrashRedeliveries,
@@ -100,7 +106,6 @@ public class NodeLiveness {
         nodeStore,
         jobBulkStore,
         heartbeatCalculator,
-        executorProvider,
         heartbeatIntervalSeconds,
         orphanGraceSeconds,
         maxCrashRedeliveries,
@@ -114,7 +119,6 @@ public class NodeLiveness {
       NodeStore nodeStore,
       JobBulkStore jobBulkStore,
       DynamicHeartbeatCalculator heartbeatCalculator,
-      ExecutorProvider executorProvider,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
       int maxCrashRedeliveries,
@@ -125,7 +129,6 @@ public class NodeLiveness {
     this.nodeStore = nodeStore;
     this.jobBulkStore = jobBulkStore;
     this.heartbeatCalculator = heartbeatCalculator;
-    this.executorProvider = executorProvider;
     this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
     this.orphanGraceSeconds = orphanGraceSeconds;
     this.maxCrashRedeliveries = maxCrashRedeliveries;
@@ -156,7 +159,7 @@ public class NodeLiveness {
     return false;
   }
 
-  /** Resolves the node ID, sends an initial heartbeat, and schedules periodic heartbeats. */
+  /** Resolves the node ID, sends an initial heartbeat, and recovers startup claims. */
   public void init() {
     if (!initialized.compareAndSet(false, true)) {
       log.warn("NodeLiveness already initialized; skipping re-run");
@@ -225,8 +228,22 @@ public class NodeLiveness {
           "Startup orphan recovery failed for node %s; the orphan recovery timer will retry",
           resolvedNodeId);
     }
+  }
 
-    scheduleNextHeartbeat();
+  /** Starts periodic heartbeats on the runtime's scheduled executor after initialization. */
+  public void startHeartbeat(ScheduledExecutorService scheduler) {
+    Objects.requireNonNull(scheduler, "scheduler");
+    synchronized (heartbeatLifecycleMonitor) {
+      if (!initialized.get()) {
+        return;
+      }
+      if (heartbeatScheduler != null) {
+        log.warn("NodeLiveness heartbeat already started; skipping re-run");
+        return;
+      }
+      heartbeatScheduler = scheduler;
+      scheduleNextHeartbeat();
+    }
   }
 
   /**
@@ -264,6 +281,7 @@ public class NodeLiveness {
       }
       // Wait for any in-flight heartbeat callback to observe initialized=false and exit.
       heartbeatHandle = null;
+      heartbeatScheduler = null;
     }
   }
 
@@ -297,12 +315,10 @@ public class NodeLiveness {
       }
 
       heartbeatHandle =
-          executorProvider
-              .getScheduledExecutor()
-              .schedule(
-                  () -> runHeartbeat("Heartbeat retry failed", delaySeconds, false),
-                  delaySeconds,
-                  TimeUnit.SECONDS);
+          heartbeatScheduler.schedule(
+              () -> runHeartbeat("Heartbeat retry failed", delaySeconds, false),
+              delaySeconds,
+              TimeUnit.SECONDS);
     }
   }
 
@@ -324,12 +340,10 @@ public class NodeLiveness {
       }
 
       heartbeatHandle =
-          executorProvider
-              .getScheduledExecutor()
-              .schedule(
-                  () -> runHeartbeat("Heartbeat failed", intervalSeconds, true),
-                  intervalSeconds,
-                  TimeUnit.SECONDS);
+          heartbeatScheduler.schedule(
+              () -> runHeartbeat("Heartbeat failed", intervalSeconds, true),
+              intervalSeconds,
+              TimeUnit.SECONDS);
     }
   }
 

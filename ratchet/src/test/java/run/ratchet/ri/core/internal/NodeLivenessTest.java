@@ -54,7 +54,6 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
 import run.ratchet.store.spi.OrphanRecovery;
@@ -64,7 +63,6 @@ class NodeLivenessTest {
 
   @Mock private NodeStore nodeStore;
   @Mock private JobBulkStore jobBulkStore;
-  @Mock private ExecutorProvider executorProvider;
   @Mock private ScheduledExecutorService scheduledExecutor;
   @Mock private ScheduledFuture<Object> scheduledFuture;
 
@@ -97,13 +95,12 @@ class NodeLivenessTest {
   void setUp() {
     heartbeatCalculator = new TestHeartbeatCalculator();
     clock = Clock.fixed(Instant.parse("2026-05-12T12:00:00Z"), ZoneOffset.UTC);
-    lenient().when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     lenient()
         .doReturn(scheduledFuture)
         .when(scheduledExecutor)
         .schedule(runnableCaptor.capture(), anyLong(), eq(TimeUnit.SECONDS));
 
-    when(nodeStore.getDatabaseTime()).thenReturn(clock.instant());
+    lenient().when(nodeStore.getDatabaseTime()).thenReturn(clock.instant());
 
     lenient()
         .when(
@@ -125,7 +122,6 @@ class NodeLivenessTest {
         nodeStore,
         jobBulkStore,
         heartbeatCalculator,
-        executorProvider,
         5,
         30,
         3,
@@ -135,12 +131,48 @@ class NodeLivenessTest {
   }
 
   @Test
+  void shutdownWithoutHeartbeatSchedulesNothing() {
+    provider.init();
+    provider.shutdown();
+
+    assertFalse(provider.initialized.get());
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+    verify(scheduledFuture, never()).cancel(true);
+  }
+
+  @Test
+  void startHeartbeatBeforeInitSchedulesNothing() {
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void startHeartbeatAfterShutdownSchedulesNothing() {
+    provider.init();
+    provider.shutdown();
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void secondStartHeartbeatSchedulesNothingMore() {
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
   void init_retriesOwnNodeRecoveryAfterTransientFailure() {
     when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
         .thenThrow(new RatchetTransientStoreException("transient conflict"))
         .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
 
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
 
     verify(jobBulkStore, times(2))
         .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
@@ -158,6 +190,7 @@ class NodeLivenessTest {
         .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
 
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
 
     verify(jobBulkStore)
         .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
@@ -174,6 +207,7 @@ class NodeLivenessTest {
         .thenThrow(new RatchetTransientStoreException("transient conflict"));
 
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
 
     verify(jobBulkStore)
         .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
@@ -222,12 +256,13 @@ class NodeLivenessTest {
     verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
     verify(jobBulkStore)
         .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
-    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
   }
 
   @Test
   void shutdown_preventsScheduledHeartbeatFromTouchingStore() {
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
@@ -245,6 +280,7 @@ class NodeLivenessTest {
   @Test
   void scheduledHeartbeatRunsAndReschedulesWhileInitialized() {
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
@@ -258,6 +294,7 @@ class NodeLivenessTest {
   @Test
   void initAndHeartbeat_useInjectedClockForTimestamps() {
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
@@ -271,6 +308,7 @@ class NodeLivenessTest {
   @Test
   void shutdown_suppressesRescheduleFromInFlightHeartbeatFailure() throws Exception {
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     CountDownLatch heartbeatEntered = new CountDownLatch(1);
@@ -311,6 +349,7 @@ class NodeLivenessTest {
   @Test
   void weldShutdownFailure_doesNotRetryHeartbeat() {
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
@@ -333,6 +372,7 @@ class NodeLivenessTest {
     provider = newProvider(true, "test-node", LongUnaryOperator.identity());
 
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(11L), eq(TimeUnit.SECONDS));
@@ -352,6 +392,7 @@ class NodeLivenessTest {
     provider = newProvider(false, "test-node", delay -> delay + 3);
 
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
@@ -372,6 +413,7 @@ class NodeLivenessTest {
     clearInvocations(scheduledExecutor);
 
     provider.init();
+    provider.startHeartbeat(scheduledExecutor);
 
     assertEquals(1, heartbeatCalculator.calls());
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(13L), eq(TimeUnit.SECONDS));

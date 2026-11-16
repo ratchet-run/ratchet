@@ -59,8 +59,6 @@ class RatchetRuntimeTest {
     NodeIdentityProvider node = () -> "custom-1";
     NodeStore nodes = mock(NodeStore.class);
     JobBulkStore jobs = mock(JobBulkStore.class);
-    ExecutorProvider executors = mock(ExecutorProvider.class);
-    when(executors.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
     when(jobs.resetOrphanJobsForNode(eq("custom-1"), eq(3), anyInt()))
         .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
     when(jobs.resetOrphanJobsBefore(any(), eq(3), anyInt()))
@@ -72,7 +70,6 @@ class RatchetRuntimeTest {
                 nodes,
                 jobs,
                 mock(DynamicHeartbeatCalculator.class),
-                executors,
                 10,
                 60,
                 3,
@@ -84,10 +81,11 @@ class RatchetRuntimeTest {
     RatchetRuntime runtime = runtimeWithNode(node, liveness, recovery, poller, claims);
     try {
       runtime.start();
-      var order = inOrder(nodes, jobs, recovery, poller);
+      var order = inOrder(nodes, jobs, recovery, liveness, poller);
       order.verify(nodes).upsertHeartbeat(eq("custom-1"), any());
       order.verify(jobs).resetOrphanJobsForNode(eq("custom-1"), eq(3), anyInt());
       order.verify(recovery).cleanupOwnPermitsAtStartup("custom-1");
+      order.verify(liveness).startHeartbeat(any(ScheduledExecutorService.class));
       order.verify(poller).init();
     } finally {
       runtime.onShutdown();
@@ -95,6 +93,46 @@ class RatchetRuntimeTest {
     var stopOrder = inOrder(claims, liveness);
     stopOrder.verify(claims).shutdown(Duration.ZERO);
     stopOrder.verify(liveness).shutdown();
+  }
+
+  @Test
+  void unavailableScheduledExecutorKeepsStartupRunningWithRealLiveness() {
+    NodeIdentityProvider node = () -> "custom-1";
+    NodeStore nodes = mock(NodeStore.class);
+    JobBulkStore jobs = mock(JobBulkStore.class);
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    when(executors.getScheduledExecutor())
+        .thenThrow(new IllegalStateException("java:comp unbound"));
+    when(jobs.resetOrphanJobsForNode(eq("custom-1"), eq(3), anyInt()))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    when(jobs.resetOrphanJobsBefore(any(), eq(3), anyInt()))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    NodeLiveness liveness =
+        new NodeLiveness(
+            node,
+            nodes,
+            jobs,
+            mock(DynamicHeartbeatCalculator.class),
+            10,
+            60,
+            3,
+            false,
+            Clock.systemUTC());
+    OrphanRecoveryTimer recovery = mock(OrphanRecoveryTimer.class);
+    Poller poller = mock(Poller.class);
+    RatchetRuntime runtime =
+        runtimeWithNode(
+            node, liveness, recovery, poller, mock(JobExecutionCoordinator.class), executors);
+    try {
+      assertDoesNotThrow(runtime::start);
+      verify(nodes).upsertHeartbeat(eq("custom-1"), any());
+      verify(jobs).resetOrphanJobsForNode(eq("custom-1"), eq(3), anyInt());
+      verify(recovery).cleanupOwnPermitsAtStartup("custom-1");
+      verify(poller, never()).init();
+    } finally {
+      runtime.onShutdown();
+    }
+    verify(executors, times(1)).getScheduledExecutor();
   }
 
   @Test
@@ -127,6 +165,16 @@ class RatchetRuntimeTest {
       JobExecutionCoordinator claims) {
     ExecutorProvider executors = mock(ExecutorProvider.class);
     when(executors.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
+    return runtimeWithNode(node, liveness, recovery, poller, claims, executors);
+  }
+
+  private static RatchetRuntime runtimeWithNode(
+      NodeIdentityProvider node,
+      NodeLiveness liveness,
+      OrphanRecoveryTimer recovery,
+      Poller poller,
+      JobExecutionCoordinator claims,
+      ExecutorProvider executors) {
     return new RatchetRuntime(
         poller,
         mock(RecurringScheduler.class),
