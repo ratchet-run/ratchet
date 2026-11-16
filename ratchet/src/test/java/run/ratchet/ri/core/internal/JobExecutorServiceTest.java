@@ -197,7 +197,11 @@ class JobExecutorServiceTest {
     var quiescent = service.onIdle(idle::countDown);
     Method prepare =
         DefaultJobExecutorService.class.getDeclaredMethod(
-            "prepareTask", Callable.class, Runnable.class, JobAttemptControl.class);
+            "prepareTask",
+            Callable.class,
+            Runnable.class,
+            JobAttemptControl.class,
+            AtomicReference.class);
     prepare.setAccessible(true);
     Callable<Void> callable =
         () -> {
@@ -213,7 +217,13 @@ class JobExecutorServiceTest {
           return null;
         };
     FutureTask<?> future =
-        (FutureTask<?>) prepare.invoke(service, callable, (Runnable) () -> {}, attempt);
+        (FutureTask<?>)
+            prepare.invoke(
+                service,
+                callable,
+                (Runnable) () -> {},
+                attempt,
+                new AtomicReference<JobTimeoutHandler.TimeoutHandles>());
     Thread worker = new Thread(future);
     worker.start();
     try {
@@ -291,7 +301,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
 
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     ExecutionResult result = invokeExecute(() -> null, handlesRef);
@@ -342,7 +353,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
 
@@ -367,7 +379,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
     doAnswer(
             invocation -> {
               enteredExecute.countDown();
@@ -410,7 +423,8 @@ class JobExecutorServiceTest {
             any(Future.class),
             eq(scheduledExecutor),
             any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
+        .thenReturn(
+            new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
     AtomicReference<Thread> runner = new AtomicReference<>();
     doAnswer(
             invocation -> {

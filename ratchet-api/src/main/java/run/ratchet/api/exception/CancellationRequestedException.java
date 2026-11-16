@@ -17,6 +17,7 @@ package run.ratchet.api.exception;
 
 import java.io.Serial;
 import run.ratchet.api.JobContext;
+import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.internal.CancellationIdentities;
 
@@ -29,6 +30,11 @@ import run.ratchet.api.internal.CancellationIdentities;
  * timeout and no interrupt, only if it was created after the request in the attempt that fails with
  * it. One created before the request, with no {@link JobContext} bound, or in an earlier attempt
  * and rethrown by a retry is an ordinary failure, even if a request arrives while it unwinds.
+ *
+ * <p>If the request came from {@link JobSchedulerService#cancelJob} or {@code replace}, the job is
+ * already CANCELED and the attempt ends as CANCELED whatever the body throws, with no retry, DLQ
+ * entry or {@code onFailure} callback. If the worker thread is interrupted at that point, the job
+ * still stays CANCELED, but its execution record can show a failure.
  *
  * <p>The constructors read the context bound to the current thread. To create the exception on
  * another thread, use {@link #forContext(String, JobContext)} and pass the job's context.

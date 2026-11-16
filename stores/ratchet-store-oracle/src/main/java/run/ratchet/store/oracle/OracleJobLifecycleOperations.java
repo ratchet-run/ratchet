@@ -41,7 +41,7 @@ final class OracleJobLifecycleOperations
       OracleJobQueryOperations query) {
     this.transitions = new OracleJobStatusTransitions(ctx);
     this.terminals = new OracleJobTerminalOperations(ctx, reservations, batches);
-    this.recurring = new OracleJobRecurringAndResetOperations(ctx);
+    this.recurring = new OracleJobRecurringAndResetOperations(ctx, reservations);
     this.query = query;
   }
 
@@ -158,5 +158,13 @@ final class OracleJobLifecycleOperations
   @Override
   public JobStatus transitionFromPausedAtomic(UUID id) {
     return transitions.transitionFromPausedAtomic(id);
+  }
+
+  public boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return terminals.cancelRunningJob(id, keyHeldUntil);
+  }
+
+  public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return terminals.releaseBusinessKeyHold(jobId, claimSeq);
   }
 }

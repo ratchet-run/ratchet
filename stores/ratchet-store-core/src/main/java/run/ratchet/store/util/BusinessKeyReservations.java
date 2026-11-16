@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.util;
 
+import java.util.List;
 import run.ratchet.store.entity.JobExecutionType;
 
 /** Shared owner-table values for active business-key reservations. */
@@ -31,5 +32,14 @@ public final class BusinessKeyReservations {
 
   public static String ownerTableFor(String jobType) {
     return "RECURRING".equals(jobType) ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE;
+  }
+
+  /**
+   * Returns the order in which every hold sweep deletes its locked keys. Each sweep deletes only
+   * rows it already locked with a skip-locked read, so the sweeps no longer wait on each other. The
+   * sorted order keeps a sweep's own deletes in a stable order.
+   */
+  public static List<String> holdDeleteOrder(List<?> keys) {
+    return keys.stream().map(String.class::cast).sorted().toList();
   }
 }

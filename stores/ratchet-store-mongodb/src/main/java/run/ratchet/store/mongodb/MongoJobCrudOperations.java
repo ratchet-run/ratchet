@@ -42,6 +42,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
+import static run.ratchet.store.mongodb.MongoFieldNames.HELD_UNTIL;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.IS_PAUSED;
@@ -74,10 +75,13 @@ import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -100,6 +104,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExhaustedOrphan;
+import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.util.BusinessKeyReservations;
 import run.ratchet.store.util.RowValues;
@@ -277,6 +282,10 @@ final class MongoJobCrudOperations {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {
+            if (!reservations.heldOwners(session, List.of(id)).isEmpty()) {
+              throw new IllegalStateException(
+                  "Job " + id + " cannot be deleted while its business key is held");
+            }
             reservations.releaseByOwner(session, id);
             ctx.jobs().deleteOne(session, eq(ID, id));
             return true;
@@ -329,6 +338,29 @@ final class MongoJobCrudOperations {
     return JobStatus.valueOf(doc.getString(STATUS));
   }
 
+  Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids) {
+    List<UUID> uniqueIds = List.copyOf(new LinkedHashSet<>(ids));
+    if (uniqueIds.size() > JobCrudStore.STATUS_READ_LIMIT) {
+      throw new IllegalArgumentException("Too many job ids");
+    }
+    if (uniqueIds.isEmpty()) return Map.of();
+    try {
+      Map<UUID, JobStatus> result = new HashMap<>();
+      for (Document doc :
+          ctx.jobs()
+              .withReadPreference(ReadPreference.primary())
+              .withReadConcern(ReadConcern.MAJORITY)
+              .find(in(ID, uniqueIds))
+              .projection(new Document(ID, 1).append(STATUS, 1))) {
+        String status = doc.getString(STATUS);
+        if (status != null) result.put(doc.get(ID, UUID.class), JobStatus.valueOf(status));
+      }
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find job statuses by ids", e);
+    }
+  }
+
   List<JobEntity> findByIds(List<UUID> ids) {
     if (ids.isEmpty()) {
       return List.of();
@@ -349,6 +381,16 @@ final class MongoJobCrudOperations {
     }
     UUID id = reservation.get(OWNER_JOB_ID, UUID.class);
     String owner = reservation.getString(OWNER_TABLE);
+    if (reservation.containsKey(HELD_UNTIL)) {
+      Document job = ctx.jobs().find(eq(ID, id)).projection(new Document(JOB_TYPE, 1)).first();
+      return job == null
+          ? Optional.empty()
+          : Optional.of(
+              new BusinessKeyHolder(
+                  id,
+                  JobExecutionType.valueOf(job.getString(JOB_TYPE)).toPublicType(),
+                  JobStatus.CANCELED));
+    }
     if (BusinessKeyReservations.OWNER_TABLE_RECURRING.equals(owner)) {
       Document master =
           ctx.recurringJobs().find(eq(ID, id)).projection(new Document(IS_PAUSED, 1)).first();
@@ -712,8 +754,11 @@ final class MongoJobCrudOperations {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
-            reservations.releaseByOwners(session, ids);
-            DeleteResult result = ctx.jobs().deleteMany(session, in(ID, ids));
+            List<UUID> held = reservations.heldOwners(session, ids);
+            List<UUID> deletable = ids.stream().filter(id -> !held.contains(id)).toList();
+            if (deletable.isEmpty()) return 0;
+            reservations.releaseByOwners(session, deletable);
+            DeleteResult result = ctx.jobs().deleteMany(session, in(ID, deletable));
             return (int) result.getDeletedCount();
           },
           TRANSACTION_OPTIONS);
@@ -990,5 +1035,13 @@ final class MongoJobCrudOperations {
   private static boolean holdsBusinessKey(JobEntity job) {
     return job.getBusinessKey() != null
         && StatusClassifier.isLiveStatus(StatusClassifier.effectiveStatus(job.getStatus()));
+  }
+
+  int releaseBusinessKeyHolds(List<String> nodeIds) {
+    return reservations.releaseBusinessKeyHolds(nodeIds);
+  }
+
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    return reservations.deleteExpiredBusinessKeyHolds(now, limit);
   }
 }

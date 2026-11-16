@@ -85,7 +85,9 @@ public abstract class AbstractSqlJobSaveLockOrderTest {
                 }
                 if (Thread.currentThread() == caller
                     && event.completed()
-                    && normalized.trim().startsWith("SELECT JOB_ID FROM SCHEDULER_JOB_QUEUE")
+                    && normalized
+                        .trim()
+                        .startsWith("SELECT PICKED_BY, CLAIM_SEQ FROM SCHEDULER_JOB_QUEUE")
                     && normalized.contains("AND STATUS = ?")
                     && fired.compareAndSet(false, true)) {
                   save.set(executor.submit(() -> store.save(loaded)));

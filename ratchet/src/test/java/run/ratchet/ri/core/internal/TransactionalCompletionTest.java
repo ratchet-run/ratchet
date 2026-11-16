@@ -46,7 +46,15 @@ class TransactionalCompletionTest {
   private final BatchCompletionTransaction boundary = mock(BatchCompletionTransaction.class);
   private final WorkflowScheduler scheduler =
       new WorkflowScheduler(
-          jobs, jobs, (WorkflowConditionStore) null, null, Clock.systemUTC(), null, registrar);
+          jobs,
+          jobs,
+          jobs,
+          null,
+          (WorkflowConditionStore) null,
+          null,
+          Clock.systemUTC(),
+          null,
+          registrar);
   private final DeadLetterService deadLetters = mock(DeadLetterService.class);
   private final PostExecutionHandler handler =
       new PostExecutionHandler(batches, scheduler, deadLetters, null, jobs, registrar, boundary);

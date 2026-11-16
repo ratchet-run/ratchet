@@ -18,6 +18,7 @@ package run.ratchet.store.util;
 import jakarta.persistence.EntityManager;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
@@ -65,8 +66,9 @@ public final class SqlJobCompletion {
       boolean sqlServer,
       Function<UUID, Object> uuid,
       Consumer<JobCompletionPlan.DependencyTransition> payloadWriter) {
-    // Flush managed state before locking and reading native projections. Lock all job rows in a
-    // stable order so competing completions of overlapping dependency sets cannot invert locks.
+    // Flush managed state before locking and reading native projections. Lock the queue rows in
+    // job_id byte order, which is UUID string order and the order delete and tag cancel use, so
+    // overlapping lock sets cannot invert. UUID.compareTo is signed and would not match.
     em.flush();
     List<UUID> ids = new ArrayList<>();
     ids.add(plan.jobId());
@@ -74,7 +76,7 @@ public final class SqlJobCompletion {
     var locked = new HashMap<UUID, Object[]>();
     ids.stream()
         .distinct()
-        .sorted()
+        .sorted(Comparator.comparing(UUID::toString))
         .forEach(
             id -> {
               List<?> rows =

@@ -15,7 +15,9 @@
  */
 package run.ratchet.store.spi;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.BusinessKeyHolder;
@@ -87,7 +89,19 @@ public interface JobCrudStore {
    */
   Optional<JobEntity> findByIdLatest(UUID id);
 
-  /** Deletes a job row by primary key. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Deletes a job row by primary key. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>A job whose business key is held after a running cancel (see {@link
+   * JobTerminalStore#cancelRunningJob}) cannot be deleted. The call then throws and writes nothing,
+   * so the hold ends only through {@link JobTerminalStore#releaseBusinessKeyHold}, {@link
+   * JobBulkStore#releaseBusinessKeyHolds} or {@link JobBulkStore#deleteExpiredBusinessKeyHolds}.
+   * Check the hold in this transaction after locking the job's queue row and then its job row, the
+   * order {@code cancelRunningJob} uses, so a delete and a cancel of the same job cannot both win.
+   *
+   * @param id the job to delete
+   * @throws IllegalStateException if the job's business key is held
+   */
   void delete(UUID id);
 
   /**
@@ -112,6 +126,23 @@ public interface JobCrudStore {
    * <p>Transaction attribute: {@code SUPPORTS}.
    */
   List<JobEntity> findByIds(List<UUID> ids);
+
+  /** Largest number of ids one {@link #findStatusesByIds} call accepts. */
+  int STATUS_READ_LIMIT = 500;
+
+  /**
+   * Reads only the status of each job that exists, for a cheap periodic check. Live jobs report
+   * their live status and ended jobs their terminal status. Ids with no job row are absent from the
+   * result; callers treat absence as unknown, never as cancelled. An empty collection returns an
+   * empty map without touching the store.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param ids at most {@link #STATUS_READ_LIMIT} job ids; callers chunk larger sets
+   * @return status by job id for the jobs that exist
+   * @throws IllegalArgumentException if more than {@link #STATUS_READ_LIMIT} ids are passed
+   */
+  Map<UUID, JobStatus> findStatusesByIds(Collection<UUID> ids);
 
   /**
    * Reads the business-key reservation for a QUEUE or RECURRING owner, following {@link

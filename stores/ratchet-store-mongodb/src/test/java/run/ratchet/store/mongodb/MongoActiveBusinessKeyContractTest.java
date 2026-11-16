@@ -15,10 +15,21 @@
  */
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
 import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import run.ratchet.api.BusinessKeyHolder;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractActiveBusinessKeyContract;
@@ -26,6 +37,46 @@ import run.ratchet.tck.store.AbstractActiveBusinessKeyContract;
 class MongoActiveBusinessKeyContractTest extends AbstractActiveBusinessKeyContract {
 
   private static final MongoTestFixture fixture = new MongoTestFixture();
+
+  @Test
+  void archiveJob_heldJob_throwsAndChangesNothing() {
+    // Mongo archiving preserves a held active job and its reservation.
+    var archives = archiveStore();
+    String bk = "abk-" + UUID.randomUUID();
+    var job = persist(keyedJob(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var canceled = store().findById(job.getId()).orElseThrow();
+    assertThrows(
+        RatchetTransientStoreException.class, () -> archives.archiveJob(canceled, "test", "tck"));
+    assertEquals(JobStatus.CANCELED, store().findById(job.getId()).orElseThrow().getStatus());
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+    assertTrue(archives.findArchivedJob(job.getId()).isEmpty());
+  }
+
+  @Test
+  void archiveJob_afterRelease_freesKey() {
+    // Mongo archiving after release allows the key to be reused.
+    var archives = archiveStore();
+    String bk = "abk-" + UUID.randomUUID();
+    var job = persist(keyedJob(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertTrue(store().releaseBusinessKeyHold(job.getId(), claim.getClaimSeq()));
+    archives.archiveJob(store().findById(job.getId()).orElseThrow(), "test", "tck");
+    assertTrue(store().findById(job.getId()).isEmpty());
+    persist(keyedJob(bk));
+  }
+
+  private JobEntity keyedJob(String key) {
+    var job = newPendingJob();
+    job.setBusinessKey(key);
+    return job;
+  }
 
   @AfterAll
   static void closeFixture() {

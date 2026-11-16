@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 
@@ -32,6 +33,11 @@ public interface ArchiveStore {
    *
    * <p>Transaction attribute: {@code REQUIRED}. Implementations must insert the archive row in the
    * same transaction as any caller-managed active-job cleanup.
+   *
+   * <p>A job whose business key is still held after a running cancel must not leave active storage.
+   * An implementation that also deletes the active job here must throw {@link
+   * RatchetTransientStoreException} for a held job and change nothing. One that leaves the delete
+   * to the caller relies on {@link JobCrudStore#delete} refusing the held job.
    *
    * @param job terminal job to archive; never {@code null}
    * @param reason free-form audit reason recorded on the archive row; never {@code null}
@@ -53,6 +59,10 @@ public interface ArchiveStore {
    * roll back: no archive row, active-row delete, or related-data cleanup may remain for any member
    * of the batch.
    *
+   * <p>A job whose business key is still held after a running cancel cannot be moved. Check the
+   * holds after locking the job rows. If any member is held, throw {@link
+   * RatchetTransientStoreException} and change nothing, as for a stale member.
+   *
    * <p>A non-empty call is all-or-nothing: it either returns {@code jobs.size()} or throws. After a
    * failed call, callers may safely retry with a freshly loaded batch.
    *
@@ -67,6 +77,9 @@ public interface ArchiveStore {
   /**
    * Finds active terminal jobs old enough to archive. Transaction attribute: {@code SUPPORTS}.
    *
+   * <p>Leaves out jobs whose business key is still held after a running cancel. Apply this filter
+   * before {@code limit}, so held jobs do not crowd out archivable ones.
+   *
    * @param olderThan jobs whose last-update timestamp is strictly before this instant are
    *     candidates; never {@code null}
    * @param limit maximum number of candidates to return; must be positive
@@ -76,6 +89,7 @@ public interface ArchiveStore {
 
   /**
    * Counts active terminal jobs old enough to archive. Transaction attribute: {@code SUPPORTS}.
+   * Leaves out the same held jobs as {@link #findJobsForArchiving}.
    *
    * @param olderThan jobs whose last-update timestamp is strictly before this instant are counted;
    *     never {@code null}

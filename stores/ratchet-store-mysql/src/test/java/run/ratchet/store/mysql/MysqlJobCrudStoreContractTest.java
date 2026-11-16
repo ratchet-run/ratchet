@@ -52,4 +52,9 @@ class MysqlJobCrudStoreContractTest extends AbstractJobCrudStoreContract {
   public boolean isStaleWriteException(Throwable t) {
     return fixture.isStaleWriteException(t);
   }
+
+  @Override
+  public int countStoreStatements(Runnable work) {
+    return fixture.countStoreStatements(work);
+  }
 }

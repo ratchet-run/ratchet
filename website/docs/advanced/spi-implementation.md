@@ -698,6 +698,21 @@ For a job that has a business key and is not created in a terminal state, `JobCr
 
 `AbstractBusinessKeyReservationContract` checks this contract, including recurring holders, concurrent winners, holders committed after the caller's first read and the key order of bulk inserts.
 
+### Business-key holds after a running cancel
+
+`JobTerminalStore.cancelRunningJob(id, keyHeldUntil)` with a non-null `keyHeldUntil` keeps the job's reservation as a hold, so the key stays taken while the cancelled body still runs. Only `releaseBusinessKeyHold`, `releaseBusinessKeyHolds` and `deleteExpiredBusinessKeyHolds` may remove a hold. Every other write must leave it in place:
+
+- `JobCrudStore.delete` of a held job throws `IllegalStateException` and writes nothing.
+- `JobBulkStore.deleteJobsByIds` skips held jobs and returns the number of jobs it deleted.
+- `ArchiveStore.findJobsForArchiving` and `countJobsForArchiving` leave held jobs out. `archiveAndDeleteJobsBatch` throws `RatchetTransientStoreException` and changes nothing when a member is held. An `archiveJob` that also deletes the active job must do the same.
+- `JobBatchStatusStore.cancelJobsByTag` deletes the reservations of only the jobs that the call cancels.
+
+Make each check in the delete's own transaction, after locking the job's queue row and then its job row. That is the order `cancelRunningJob` locks them in, so a cancel and a delete of the same job cannot both win. `AbstractActiveBusinessKeyContract` checks these rules.
+
+The orphan scan calls `releaseBusinessKeyHolds` and `deleteExpiredBusinessKeyHolds`, so neither should wait for a hold row that another transaction has locked. Skip that row, leave it for a later call, and return only the number of holds the call deleted. The bundled SQL stores lock the candidate rows through the primary key with a skip-locked read (`FOR UPDATE SKIP LOCKED`, or `UPDLOCK, READPAST` on SQL Server) and delete only the rows they locked. A skipped hold should not use up the expiry sweep's `limit`. The bundled SQL stores read the expired holds a page at a time, in expiry order, and read the next page while fewer than `limit` holds are deleted, up to ten pages per call.
+
+`NodeStore.deleteInactiveNodesByIds` must keep the row of a node that still has a hold from one of its claims, so the next orphan scan finds the node again and calls `releaseBusinessKeyHolds` for it once more. Read the remaining holds with a read that neither skips nor waits for a locked hold row, then delete only the other nodes. A transactional store does both in one transaction. `AbstractActiveBusinessKeyContract` checks this rule.
+
 ### Claim-fenced job state
 
 The `JobStateStore` overloads that accept `expectedClaimSeq` return `StateWriteResult`.

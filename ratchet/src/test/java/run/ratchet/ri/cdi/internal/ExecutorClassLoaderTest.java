@@ -526,6 +526,7 @@ public class ExecutorClassLoaderTest {
               mock(RecurringScheduler.class),
               mock(OrphanRecoveryTimer.class),
               mock(BatchRecoveryTimer.class),
+              mock(CancelRequestRelay.class),
               mock(JobStateFlusher.class),
               mock(DeadLetterService.class),
               null,

@@ -259,32 +259,76 @@ final class SqlserverJobTerminalOperations {
   }
 
   private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
+    return lockExpectedQueueClaim(id, expected) != null;
+  }
+
+  private Object[] lockExpectedQueueClaim(UUID id, JobStatus expected) {
     // The terminal cancel path deletes any live queue row after updating the cold row. Lock the
     // expected hot row first so this multi-statement path preserves CAS semantics inside the
     // method transaction: either this caller owns the expected status, or it reports a miss.
     // language=SQL Server
     String gateSql =
         """
-        SELECT job_id
+        SELECT picked_by, claim_seq
         FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK)
         WHERE job_id = ? AND status = ?
         """;
     @SuppressWarnings("unchecked")
-    List<Object> rows =
+    List<Object[]> rows =
         ctx.em()
             .createNativeQuery(gateSql)
             .setParameter(1, UuidByteArrayConverter.toBytes(id))
             .setParameter(2, expected.name())
             .getResultList();
-    return !rows.isEmpty();
+    return rows.isEmpty() ? null : rows.get(0);
+  }
+
+  boolean cancelRunningJob(UUID id, @Nullable Instant keyHeldUntil) {
+    return ctx.timedStoreOperation(
+        "cancel_running_job",
+        () -> {
+          try {
+            Object[] claim = lockExpectedQueueClaim(id, JobStatus.RUNNING);
+            return claim != null && doCancelJob(id, keyHeldUntil, claim);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("cancel running job", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
+  }
+
+  boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return reservations.releaseBusinessKeyHold(jobId, claimSeq);
   }
 
   boolean cancelJob(UUID id) {
     return ctx.timedStoreOperation(
-        "cancel_job", () -> doCancelJob(id), updated -> updated ? "updated" : "miss");
+        "cancel_job",
+        () -> {
+          try {
+            // Lock the queue row before the job row, the order of cancelRunningJob, the terminal
+            // writes, delete and save.
+            if (ctx.em()
+                .createNativeQuery(
+                    "SELECT 1 FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK) WHERE job_id = ?")
+                .setParameter(1, UuidByteArrayConverter.toBytes(id))
+                .getResultList()
+                .isEmpty()) {
+              return false;
+            }
+            return doCancelJob(id);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("cancel job", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   private boolean doCancelJob(UUID id) {
+    return doCancelJob(id, null, null);
+  }
+
+  private boolean doCancelJob(UUID id, @Nullable Instant keyHeldUntil, Object[] claim) {
     try {
       // language=SQL Server
       String selectSql =
@@ -373,7 +417,12 @@ final class SqlserverJobTerminalOperations {
       if (!batchRows.isEmpty() && batchRows.get(0) != null) {
         batches.incrementFailedAtomic(SqlserverJobRowMapper.uuidOrNull(batchRows.get(0)));
       }
-      reservations.deleteReservationByOwner(id);
+      if (keyHeldUntil == null) {
+        reservations.deleteReservationByOwner(id);
+      } else {
+        reservations.holdReservation(
+            id, keyHeldUntil, (String) claim[0], ((Number) claim[1]).longValue());
+      }
       return coldUpdated > 0;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cancel job", e);
@@ -677,6 +726,11 @@ final class SqlserverJobTerminalOperations {
       Integer totalAttempts,
       JobStatus expectedStatus,
       @Nullable Long expectedClaimSeq) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, expectedStatus) == null) {
+      return false;
+    }
+
     String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
     // language=SQL Server
     String updateColdSql =
@@ -756,6 +810,11 @@ final class SqlserverJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=SQL Server
     String sql =
         """
@@ -790,6 +849,11 @@ final class SqlserverJobTerminalOperations {
 
   private boolean doMarkTerminalSuccessMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    // Match the queue-then-job lock order of cancelRunningJob.
+    if (lockExpectedQueueClaim(id, JobStatus.RUNNING) == null) {
+      return false;
+    }
+
     // language=SQL Server
     String sql =
         """

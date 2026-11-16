@@ -17,6 +17,7 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.or;
@@ -25,6 +26,8 @@ import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.setOnInsert;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXPIRES_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
+import static run.ratchet.store.mongodb.MongoFieldNames.HELD_BY_NODE;
+import static run.ratchet.store.mongodb.MongoFieldNames.HELD_UNTIL;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.LOCKED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_NODE;
@@ -44,6 +47,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -186,7 +190,17 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
     if (nodeIds.isEmpty()) {
       return 0;
     }
-    DeleteResult result = ctx.nodes().deleteMany(in(ID, nodeIds));
+    var remaining = new LinkedHashSet<>(nodeIds);
+    List<String> heldNodeIds =
+        ctx.businessKeyReservations()
+            .distinct(
+                HELD_BY_NODE, and(in(HELD_BY_NODE, remaining), exists(HELD_UNTIL)), String.class)
+            .into(new ArrayList<>());
+    remaining.removeAll(heldNodeIds);
+    if (remaining.isEmpty()) {
+      return 0;
+    }
+    DeleteResult result = ctx.nodes().deleteMany(in(ID, remaining));
     return (int) result.getDeletedCount();
   }
 

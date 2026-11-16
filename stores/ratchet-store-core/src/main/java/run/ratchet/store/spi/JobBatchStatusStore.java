@@ -93,6 +93,10 @@ public interface JobBatchStatusStore {
    * <p>Affects only jobs in PENDING, PAUSED, or WAITING. Skips RUNNING and recurring jobs.
    * Implementations MUST execute as a bulk statement, not a per-row loop.
    *
+   * <p>Deletes the business-key reservations of only the jobs this call cancels. A job with the
+   * same tag that an earlier running cancel left CANCELED keeps its held key. Lock the candidates'
+   * queue rows before their job rows, as a running cancel does.
+   *
    * @param tag tag whose jobs should be cancelled; never {@code null} or blank
    * @return the number of non-recurring jobs transitioned to CANCELED
    *     <p>Transaction attribute: {@code REQUIRED}.

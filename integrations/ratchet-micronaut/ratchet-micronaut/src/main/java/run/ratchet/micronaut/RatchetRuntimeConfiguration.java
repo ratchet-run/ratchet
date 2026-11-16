@@ -26,10 +26,12 @@ import io.micronaut.context.env.Environment;
 import io.micronaut.context.event.ApplicationEventPublisher;
 import jakarta.inject.Singleton;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.time.Clock;
 import java.util.Objects;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.micronaut.internal.tx.MicronautCancelStatusReader;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobArchivingService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultRecurringAnnotationMaintenanceService;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
@@ -48,6 +50,8 @@ import run.ratchet.ri.core.RetryBufferDrainer;
 import run.ratchet.ri.core.RetryBufferManager;
 import run.ratchet.ri.core.StoreBackedStartupCoordinator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.CancelRequestRelay;
+import run.ratchet.ri.core.internal.CancelStatusReader;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultDrainController;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
@@ -58,6 +62,7 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobStateFlusher;
+import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
@@ -314,6 +319,7 @@ class RatchetRuntimeConfiguration {
       RecurringScheduler recurring,
       OrphanRecoveryTimer orphanRecovery,
       BatchRecoveryTimer batchRecovery,
+      CancelRequestRelay cancelRequestRelay,
       JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetter,
       DurableTerminalEvents durableEvents,
@@ -339,6 +345,7 @@ class RatchetRuntimeConfiguration {
             recurring,
             orphanRecovery,
             batchRecovery,
+            cancelRequestRelay,
             jobStateFlusher,
             deadLetter,
             durableEvents,
@@ -391,5 +398,23 @@ class RatchetRuntimeConfiguration {
   MicronautRatchetLifecycle micronautRatchetLifecycle(
       RatchetRuntime runtime, RuntimeContextInstallation installation) {
     return new MicronautRatchetLifecycle(runtime, installation);
+  }
+
+  @Singleton
+  @Secondary
+  @RatchetTransactionBoundary
+  @Transactional(TxType.NOT_SUPPORTED)
+  MicronautCancelStatusReader cancelStatusReader(JobStore store) {
+    return new MicronautCancelStatusReader(store);
+  }
+
+  @Singleton
+  @Requires(missingBeans = CancelRequestRelay.class)
+  CancelRequestRelay cancelRequestRelay(
+      JobTimeoutHandler timeoutHandler,
+      CancelStatusReader statusReader,
+      InternalEventPublisher events,
+      Clock clock) {
+    return new CancelRequestRelay(timeoutHandler, statusReader, events, clock);
   }
 }

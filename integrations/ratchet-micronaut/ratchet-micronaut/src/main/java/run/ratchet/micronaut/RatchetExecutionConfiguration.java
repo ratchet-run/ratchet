@@ -282,6 +282,7 @@ class RatchetExecutionConfiguration {
   // WorkflowScheduler also exposes its transactional ChainScheduler superclass, as in Spring.
   MicronautWorkflowScheduler workflowScheduler(
       JobStore store,
+      RatchetOptions options,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
       InternalEventPublisher eventPublisher,
@@ -289,6 +290,8 @@ class RatchetExecutionConfiguration {
     return new MicronautWorkflowScheduler(
         store,
         store,
+        store,
+        options,
         store.capability(WorkflowConditionStore.class).orElse(null),
         conditionEvaluator,
         clock,

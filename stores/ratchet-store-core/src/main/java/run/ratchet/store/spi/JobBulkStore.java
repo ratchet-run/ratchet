@@ -41,7 +41,16 @@ public interface JobBulkStore {
    */
   void bulkInsert(List<JobEntity> jobs);
 
-  /** Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>Skips a job whose business key is held after a running cancel, and leaves that job and its
+   * hold in place. Lock the queue rows and then the job rows before checking the holds, as {@link
+   * JobCrudStore#delete} does.
+   *
+   * @param ids the jobs to delete
+   * @return the number of jobs deleted, which excludes skipped held jobs
+   */
   int deleteJobsByIds(List<UUID> ids);
 
   /** Deletes old DLQ rows. Transaction attribute: {@code REQUIRED}. */
@@ -102,4 +111,34 @@ public interface JobBulkStore {
   default int closeStaleExecutions(Instant cutoff, int limit) {
     return 0;
   }
+
+  /**
+   * Deletes the business-key holds whose cancelled claim ran on one of these nodes. Orphan recovery
+   * calls it for nodes it has judged dead, and a node calls it for its own id at start-up. Normal
+   * reservations are never touched.
+   *
+   * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
+   * and it stays until a later release for that node or the expiry sweep removes it. The bundled
+   * SQL stores lock the candidates with a skip-locked read. {@link
+   * NodeStore#deleteInactiveNodesByIds} keeps the row of a node with a skipped hold, so the orphan
+   * scan calls this again for that node on its next run.
+   *
+   * @return number of holds deleted, counting only holds this call deleted
+   */
+  int releaseBusinessKeyHolds(List<String> nodeIds);
+
+  /**
+   * Deletes up to {@code limit} business-key holds whose expiry is before {@code now}. Normal
+   * reservations are never touched.
+   *
+   * <p>Implementations should not wait for a hold row another transaction has locked. They skip it,
+   * and it stays until a later sweep removes it. A skipped hold should not use up {@code limit}.
+   * The bundled SQL stores read the expired holds in expiry order, one page at a time, and lock
+   * each page with a skip-locked read. They read the next page while fewer than {@code limit} holds
+   * are deleted, up to ten pages per call. So when the first ten times {@code limit} expired holds
+   * are all locked, the holds behind them wait for a later call.
+   *
+   * @return number of holds deleted, counting only holds this call deleted
+   */
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit);
 }

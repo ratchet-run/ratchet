@@ -97,5 +97,15 @@ class LoadTestResetServiceTest {
         String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
       return new OrphanRecovery(0, 0, 0, List.of());
     }
+
+    @Override
+    public int releaseBusinessKeyHolds(List<String> nodeIds) {
+      return 0;
+    }
+
+    @Override
+    public int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+      return 0;
+    }
   }
 }

@@ -18,6 +18,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -35,6 +36,7 @@ import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.RecurringMisfirePolicy;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -385,11 +387,11 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   // ───────────────────────── concurrency races ─────────────────────────
 
   /**
-   * The retry path (background timer in {@code RetryBufferDrainer}) can race with an operator-
-   * triggered {@code cancelJob}. Either outcome — RESET-wins (PENDING, BK held) or CANCEL-wins
-   * (CANCELED, BK released) — is correct, but the BK state MUST match the winner. A torn write (job
-   * reset to PENDING but BK released by cancel, or job CANCELED but BK still reserved) leaks the BK
-   * and silently blocks future enqueues.
+   * The retry path (background timer in {@code RetryBufferDrainer}) can race with an
+   * operator-triggered {@code cancelJob}. Either outcome — RESET-wins (PENDING, BK held) or
+   * CANCEL-wins (CANCELED, BK released) — is correct, but the BK state MUST match the winner. A
+   * torn write (job reset to PENDING but BK released by cancel, or job CANCELED but BK still
+   * reserved) leaks the BK and silently blocks future enqueues.
    */
   @Test
   void concurrentResetAndCancel_BKStateMatchesWinner() {
@@ -587,6 +589,367 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     createRecurringHolder(key);
     assertTrue(recurringStore().cancelRecurringJobByBusinessKey(key));
     assertTrue(store().findBusinessKeyHolder(key).isEmpty());
+  }
+
+  // ───── hold after a running cancel ─────
+
+  @Test
+  void cancelRunningJob_withHold_keepsKeyReserved() {
+    // A running cancel becomes terminal while its key stays reserved.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(job.getId()));
+    assertReservationConflict(
+        assertThrows(RuntimeException.class, () -> persist(jobWithBusinessKey(bk))));
+  }
+
+  @Test
+  void save_canceledHeldJob_keepsHold() {
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var canceled = store().findById(job.getId()).orElseThrow();
+    canceled.setSupersededBy(UUID.randomUUID());
+    store().save(canceled);
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+    assertReservationConflict(
+        assertThrows(RuntimeException.class, () -> persist(jobWithBusinessKey(bk))));
+  }
+
+  @Test
+  void cancelRunningJob_withHold_lookupReturnsCanceledHolder() {
+    // Lookup exposes the canceled owner of a held key.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+  }
+
+  @Test
+  void cancelRunningJob_expiredHoldBeforeSweep_stillReturnsCanceledHolder() {
+    // Expiry alone does not release a hold.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().minusSeconds(60)));
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+    assertReservationConflict(
+        assertThrows(RuntimeException.class, () -> persist(jobWithBusinessKey(bk))));
+  }
+
+  @Test
+  void cancelRunningJob_withoutHold_releasesKey() {
+    // A null expiry cancels and releases the reservation.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), null));
+    assertTrue(store().findBusinessKeyHolder(bk).isEmpty());
+    persist(jobWithBusinessKey(bk));
+  }
+
+  @Test
+  void cancelRunningJob_notRunning_returnsFalse() {
+    // A pending reservation survives an unmatched running cancel.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    assertFalse(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(job.getId()));
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.PENDING),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+  }
+
+  @Test
+  void cancelRunningJob_jobWithoutKey_cancels() {
+    // A keyless running job can be canceled without a reservation.
+    var job = persist(newPendingJob());
+    assertEquals(job.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(job.getId()));
+  }
+
+  @Test
+  void releaseBusinessKeyHold_matchingClaim_freesKey() {
+    // Only the matching canceled claim releases its hold.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertTrue(store().releaseBusinessKeyHold(job.getId(), claim.getClaimSeq()));
+    assertTrue(store().findBusinessKeyHolder(bk).isEmpty());
+    persist(jobWithBusinessKey(bk));
+  }
+
+  @Test
+  void releaseBusinessKeyHold_otherClaim_keepsHold() {
+    // A different claim cannot release the hold.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertFalse(store().releaseBusinessKeyHold(job.getId(), claim.getClaimSeq() + 1));
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+  }
+
+  @Test
+  void releaseBusinessKeyHold_liveReservation_isNotTouched() {
+    // Claim release never removes a normal running reservation.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertFalse(store().releaseBusinessKeyHold(job.getId(), claim.getClaimSeq()));
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.RUNNING),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+  }
+
+  @Test
+  void releaseBusinessKeyHolds_deletesOnlyNamedNodes() {
+    // Node cleanup removes only named holds and preserves normal reservations.
+    String keyA = uniqueBusinessKey();
+    var jobA = persist(jobWithBusinessKey(keyA));
+    assertEquals(jobA.getId(), store().claimNextBatch(1, "hold-node-a").get(0).getId());
+    assertTrue(store().cancelRunningJob(jobA.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    String keyB = uniqueBusinessKey();
+    var jobB = persist(jobWithBusinessKey(keyB));
+    assertEquals(jobB.getId(), store().claimNextBatch(1, "hold-node-b").get(0).getId());
+    assertTrue(store().cancelRunningJob(jobB.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    String keyC = uniqueBusinessKey();
+    var jobC = persist(jobWithBusinessKey(keyC));
+    assertEquals(jobC.getId(), store().claimNextBatch(1, "hold-node-a").get(0).getId());
+    assertEquals(1, store().releaseBusinessKeyHolds(List.of("hold-node-a")));
+    assertTrue(store().findBusinessKeyHolder(keyA).isEmpty());
+    persist(jobWithBusinessKey(keyA));
+    assertEquals(
+        new BusinessKeyHolder(jobB.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(keyB).orElseThrow());
+    assertEquals(
+        new BusinessKeyHolder(jobC.getId(), JobType.SINGLE, JobStatus.RUNNING),
+        store().findBusinessKeyHolder(keyC).orElseThrow());
+  }
+
+  @Test
+  void deleteInactiveNodesByIds_keepsNodeWithHoldUntilItIsReleased() {
+    // A dead node keeps its row while a hold of its cancelled claim is left, so the next orphan
+    // scan can release that hold. A normal running reservation does not keep the row.
+    Instant stale = Instant.now().minus(Duration.ofHours(1));
+    String heldNode = "held-dead-" + UUID.randomUUID();
+    String idleNode = "idle-dead-" + UUID.randomUUID();
+    store().upsertHeartbeat(heldNode, stale);
+    store().upsertHeartbeat(idleNode, stale);
+    var held = persist(jobWithBusinessKey(uniqueBusinessKey()));
+    assertEquals(held.getId(), store().claimNextBatch(1, heldNode).get(0).getId());
+    assertTrue(store().cancelRunningJob(held.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var running = persist(jobWithBusinessKey(uniqueBusinessKey()));
+    assertEquals(running.getId(), store().claimNextBatch(1, idleNode).get(0).getId());
+
+    assertEquals(1, store().deleteInactiveNodesByIds(List.of(heldNode, idleNode)));
+    assertTrue(store().findNodeById(heldNode).isPresent(), "a node with a hold keeps its row");
+    assertTrue(store().findNodeById(idleNode).isEmpty());
+
+    assertEquals(1, store().releaseBusinessKeyHolds(List.of(heldNode)));
+    assertEquals(1, store().deleteInactiveNodesByIds(List.of(heldNode)));
+    assertTrue(store().findNodeById(heldNode).isEmpty());
+  }
+
+  @Test
+  void deleteExpiredBusinessKeyHolds_deletesOnlyExpired() {
+    // Expiry cleanup preserves live holds and normal pending reservations.
+    String expiredKey = uniqueBusinessKey();
+    var expired = persist(jobWithBusinessKey(expiredKey));
+    assertEquals(expired.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(expired.getId(), Instant.now().minusSeconds(60)));
+    String liveKey = uniqueBusinessKey();
+    var live = persist(jobWithBusinessKey(liveKey));
+    assertEquals(live.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(live.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    String pendingKey = uniqueBusinessKey();
+    var pending = persist(jobWithBusinessKey(pendingKey));
+    assertEquals(1, store().deleteExpiredBusinessKeyHolds(Instant.now(), 100));
+    assertTrue(store().findBusinessKeyHolder(expiredKey).isEmpty());
+    persist(jobWithBusinessKey(expiredKey));
+    assertEquals(
+        new BusinessKeyHolder(live.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(liveKey).orElseThrow());
+    assertEquals(
+        new BusinessKeyHolder(pending.getId(), JobType.SINGLE, JobStatus.PENDING),
+        store().findBusinessKeyHolder(pendingKey).orElseThrow());
+  }
+
+  @Test
+  void deleteExpiredBusinessKeyHolds_respectsLimit() {
+    // An expiry sweep deletes no more than its limit.
+    for (int i = 0; i < 3; i++) {
+      var job = persist(jobWithBusinessKey(uniqueBusinessKey()));
+      assertEquals(job.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+      assertTrue(store().cancelRunningJob(job.getId(), Instant.now().minusSeconds(60)));
+    }
+    assertEquals(2, store().deleteExpiredBusinessKeyHolds(Instant.now(), 2));
+    assertEquals(1, store().deleteExpiredBusinessKeyHolds(Instant.now(), 2));
+  }
+
+  @Test
+  void delete_heldJob_failsAndKeepsHold() {
+    // Deleting a held job leaves both the canceled owner and reservation intact.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertThrows(IllegalStateException.class, () -> store().delete(job.getId()));
+    assertEquals(JobStatus.CANCELED, store().findById(job.getId()).orElseThrow().getStatus());
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+    assertReservationConflict(
+        assertThrows(RuntimeException.class, () -> persist(jobWithBusinessKey(bk))));
+  }
+
+  @Test
+  void delete_releasedHold_deletesJob() {
+    // Releasing the hold allows deletion and reuse of the key.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertTrue(store().releaseBusinessKeyHold(job.getId(), claim.getClaimSeq()));
+    store().delete(job.getId());
+    assertTrue(store().findById(job.getId()).isEmpty());
+    persist(jobWithBusinessKey(bk));
+  }
+
+  @Test
+  void deleteJobsByIds_skipsHeldJob() {
+    // Bulk deletion skips held jobs and counts only deleted jobs.
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var other = persist(jobWithBusinessKey(uniqueBusinessKey()));
+    assertEquals(other.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(other.getId(), null));
+    assertEquals(1, store().deleteJobsByIds(List.of(job.getId(), other.getId())));
+    assertTrue(store().findById(other.getId()).isEmpty());
+    assertEquals(JobStatus.CANCELED, store().findById(job.getId()).orElseThrow().getStatus());
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+  }
+
+  @Test
+  void findAndCountJobsForArchiving_skipHeldJob() {
+    // Archive candidates exclude holds until they are released.
+    var archives = archiveStore();
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var other = persist(jobWithBusinessKey(uniqueBusinessKey()));
+    assertEquals(other.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(other.getId(), null));
+    Instant olderThan = Instant.now().plus(Duration.ofDays(1));
+    assertEquals(
+        List.of(other.getId()),
+        archives.findJobsForArchiving(olderThan, 100).stream().map(JobEntity::getId).toList());
+    assertEquals(1, archives.countJobsForArchiving(olderThan));
+    assertTrue(store().releaseBusinessKeyHold(job.getId(), claim.getClaimSeq()));
+    var ids = archives.findJobsForArchiving(olderThan, 100).stream().map(JobEntity::getId).toList();
+    assertTrue(ids.containsAll(List.of(job.getId(), other.getId())));
+    assertEquals(2, archives.countJobsForArchiving(olderThan));
+  }
+
+  @Test
+  void archiveAndDeleteJobsBatch_heldMember_throwsAndChangesNothing() {
+    // One held member prevents every archive insert and active deletion.
+    var archives = archiveStore();
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    var other = persist(jobWithBusinessKey(uniqueBusinessKey()));
+    assertEquals(other.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(other.getId(), null));
+    var batch =
+        List.of(
+            store().findById(other.getId()).orElseThrow(),
+            store().findById(job.getId()).orElseThrow());
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> archives.archiveAndDeleteJobsBatch(batch, "test", "tck"));
+    assertTrue(store().findById(other.getId()).isPresent());
+    assertEquals(JobStatus.CANCELED, store().findById(job.getId()).orElseThrow().getStatus());
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+    assertTrue(archives.findArchivedJob(job.getId()).isEmpty());
+    assertTrue(archives.findArchivedJob(other.getId()).isEmpty());
+  }
+
+  @Test
+  void archiveAndDeleteJobsBatch_afterRelease_movesJobAndFreesKey() {
+    // A released hold permits archiving and key reuse.
+    var archives = archiveStore();
+    String bk = uniqueBusinessKey();
+    var job = persist(jobWithBusinessKey(bk));
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(job.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    assertTrue(store().releaseBusinessKeyHold(job.getId(), claim.getClaimSeq()));
+    assertEquals(
+        1,
+        archives.archiveAndDeleteJobsBatch(
+            List.of(store().findById(job.getId()).orElseThrow()), "test", "tck"));
+    assertTrue(store().findById(job.getId()).isEmpty());
+    persist(jobWithBusinessKey(bk));
+  }
+
+  @Test
+  void cancelJobsByTag_keepsHoldOfEarlierRunningCancel() {
+    // Tag cancellation releases only the reservations it cancels.
+    String tag = "abk-tag-" + UUID.randomUUID();
+    String bk = uniqueBusinessKey();
+    var tagged = newPendingJob(tag);
+    tagged.setBusinessKey(bk);
+    var job = persist(tagged);
+    assertEquals(job.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(job.getId(), Instant.now().plus(Duration.ofMinutes(10))));
+    String otherKey = uniqueBusinessKey();
+    var other = newPendingJob(tag);
+    other.setBusinessKey(otherKey);
+    persist(other);
+    assertEquals(1, store().cancelJobsByTag(tag));
+    assertEquals(
+        new BusinessKeyHolder(job.getId(), JobType.SINGLE, JobStatus.CANCELED),
+        store().findBusinessKeyHolder(bk).orElseThrow());
+    assertReservationConflict(
+        assertThrows(RuntimeException.class, () -> persist(jobWithBusinessKey(bk))));
+    assertTrue(store().findBusinessKeyHolder(otherKey).isEmpty());
+    persist(jobWithBusinessKey(otherKey));
   }
 
   private UUID createRecurringHolder(String key) {

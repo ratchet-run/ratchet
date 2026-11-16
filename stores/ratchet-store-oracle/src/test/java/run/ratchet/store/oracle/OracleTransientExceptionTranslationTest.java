@@ -279,7 +279,9 @@ class OracleTransientExceptionTranslationTest {
 
   @Test
   void markFailedTerminalTranslatesTransientWriteFailure() {
-    OracleStoreContext ctx = throwingContext("executeUpdate");
+    // The queue-row lock finds the expected claim, so the write itself runs.
+    OracleStoreContext ctx =
+        throwingContext("executeUpdate", List.<Object[]>of(new Object[] {"node", 1L}));
     OracleJobTerminalOperations terminals =
         new OracleJobTerminalOperations(
             ctx, new OracleBusinessKeyReservations(ctx), new OracleBatchOperations(ctx));
@@ -334,6 +336,10 @@ class OracleTransientExceptionTranslationTest {
   }
 
   private static OracleStoreContext throwingContext(String throwingQueryMethod) {
+    return throwingContext(throwingQueryMethod, List.of(UuidRawConverter.toBytes(JOB_ID)));
+  }
+
+  private static OracleStoreContext throwingContext(String throwingQueryMethod, List<?> rows) {
     EntityManager em =
         (EntityManager)
             Proxy.newProxyInstance(
@@ -341,14 +347,14 @@ class OracleTransientExceptionTranslationTest {
                 new Class<?>[] {EntityManager.class},
                 (proxy, method, args) -> {
                   if ("createNativeQuery".equals(method.getName())) {
-                    return queryThrowingOn(throwingQueryMethod);
+                    return queryThrowingOn(throwingQueryMethod, rows);
                   }
                   throw new UnsupportedOperationException(method.getName());
                 });
     return new OracleStoreContext(em, null);
   }
 
-  private static Query queryThrowingOn(String throwingMethod) {
+  private static Query queryThrowingOn(String throwingMethod, List<?> rows) {
     RuntimeException failure =
         new RuntimeException("jpa", new SQLTransientException("connection lost"));
     return (Query)
@@ -361,7 +367,7 @@ class OracleTransientExceptionTranslationTest {
               }
               return switch (method.getName()) {
                 case "setParameter", "setFirstResult", "setMaxResults" -> proxy;
-                case "getResultList" -> List.of(UuidRawConverter.toBytes(JOB_ID));
+                case "getResultList" -> rows;
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

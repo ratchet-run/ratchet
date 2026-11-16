@@ -50,6 +50,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
               ArchiveParameterBinder.ARCHIVE_VALUE_PLACEHOLDERS);
 
   private final PostgresqlStoreContext ctx;
+  private final PostgresqlBusinessKeyReservations reservations;
   private final PostgresqlJobReadOperations reads;
   private final PostgresqlJobDeleteOperations deletes;
 
@@ -58,6 +59,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
       PostgresqlJobReadOperations reads,
       PostgresqlJobDeleteOperations deletes) {
     this.ctx = ctx;
+    this.reservations = new PostgresqlBusinessKeyReservations(ctx);
     this.reads = reads;
     this.deletes = deletes;
   }
@@ -107,6 +109,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
       lockJobRowsForArchive(ids);
       List<JobEntity> currentJobs =
           ArchiveHelper.requireCurrentTerminalJobs(ids, reads.findByIds(ids));
+      ArchiveHelper.requireNoHeldJobs(reservations.heldOwners(ids));
       List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
       List<UUID> archiveIds = new ArrayList<>(jobsToArchive.size());
       for (JobEntity hydrated : currentJobs) {
@@ -173,6 +176,8 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
           FROM scheduler_job c
           LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
           WHERE c.terminal_status IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM scheduler_business_key_reservation r
+              WHERE r.owner_job_id = c.job_id AND r.held_until IS NOT NULL)
             AND NOT EXISTS (SELECT 1 FROM scheduler_batch b WHERE b.batch_id = c.depends_on
               AND b.completion_processed = FALSE AND b.reducer IS NOT NULL)
             AND NOT EXISTS (SELECT 1 FROM scheduler_batch pb
@@ -204,7 +209,10 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     String sql =
         """
         SELECT COUNT(*) FROM scheduler_job c
-        WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ?
+        WHERE c.terminal_status IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM scheduler_business_key_reservation r
+              WHERE r.owner_job_id = c.job_id AND r.held_until IS NOT NULL)
+            AND c.terminated_at < ?
             AND NOT EXISTS (SELECT 1 FROM scheduler_batch b WHERE b.batch_id = c.depends_on
               AND b.completion_processed = FALSE AND b.reducer IS NOT NULL)
             AND NOT EXISTS (SELECT 1 FROM scheduler_batch pb

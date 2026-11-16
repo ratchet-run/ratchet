@@ -56,12 +56,14 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
+import run.ratchet.store.spi.JobTerminalStore;
 
 class BatchControlTest {
   private final JobCrudStore jobs = mock(JobCrudStore.class);
   private final JobBatchStatusStore statuses = mock(JobBatchStatusStore.class);
   private final JobPauseStore pauses = mock(JobPauseStore.class);
   private final JobRetryStore retries = mock(JobRetryStore.class);
+  private final JobTerminalStore terminals = mock(JobTerminalStore.class);
   private final BatchStore batches = mock(BatchStore.class);
   private final BatchService batchService = mock(BatchService.class);
   private final InternalEventPublisher events = mock(InternalEventPublisher.class);
@@ -91,7 +93,7 @@ class BatchControlTest {
         statuses,
         pauses,
         retries,
-        null,
+        terminals,
         jobs,
         batchStore,
         null,
@@ -111,6 +113,7 @@ class BatchControlTest {
         null,
         registrar,
         batchService,
+        null,
         null);
   }
 
@@ -297,7 +300,7 @@ class BatchControlTest {
             statuses,
             pauses,
             retries,
-            null,
+            terminals,
             jobs,
             batches,
             null,
@@ -317,10 +320,22 @@ class BatchControlTest {
             null,
             registrar,
             batchService,
+            null,
             null);
     SystemJobCancellation cancellation =
         new SystemJobCancellation(
-            events, statuses, jobs, batchService, null, wakeup, null, clock, registrar);
+            events,
+            statuses,
+            jobs,
+            batchService,
+            null,
+            wakeup,
+            null,
+            clock,
+            registrar,
+            terminals,
+            null,
+            null);
     JobCancelledEvent previous = null;
     for (boolean standalone : List.of(false, true)) {
       reset(statuses, events, batchService);

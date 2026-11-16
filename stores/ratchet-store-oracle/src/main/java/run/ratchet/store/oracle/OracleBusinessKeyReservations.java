@@ -17,8 +17,12 @@ package run.ratchet.store.oracle;
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
@@ -27,7 +31,11 @@ import run.ratchet.store.util.BusinessKeyReservations;
 
 final class OracleBusinessKeyReservations {
 
-  private static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
+  static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
+
+  // At most this many candidate pages per expiry sweep. Expired holds that other transactions
+  // have locked do not use up the limit, and one call stays bounded.
+  private static final int EXPIRED_HOLD_PAGES = 10;
 
   static final String OWNER_TABLE_QUEUE = BusinessKeyReservations.OWNER_TABLE_QUEUE;
   static final String OWNER_TABLE_RECURRING = BusinessKeyReservations.OWNER_TABLE_RECURRING;
@@ -93,6 +101,31 @@ final class OracleBusinessKeyReservations {
         .executeUpdate();
   }
 
+  List<UUID> heldOwners(List<UUID> ids) {
+    List<UUID> held = new ArrayList<>();
+    for (int start = 0; start < ids.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          ids.subList(start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ids.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT owner_job_id FROM scheduler_business_key_reservation
+                  WHERE owner_job_id IN (%s) AND held_until IS NOT NULL
+                  """
+                      .formatted(placeholders));
+      int parameter = 1;
+      for (UUID id : chunk) {
+        query.setParameter(parameter++, UuidRawConverter.toBytes(id));
+      }
+      for (Object row : query.getResultList()) {
+        held.add(OracleJobRowMapper.uuidOrNull(row));
+      }
+    }
+    return held;
+  }
+
   void deleteReservationsByOwners(List<UUID> ownerJobIds) {
     if (ownerJobIds.isEmpty()) {
       return;
@@ -130,4 +163,232 @@ final class OracleBusinessKeyReservations {
     q.setParameter(i, nowTs);
     return i + 1;
   }
+
+  void holdReservation(UUID id, Instant until, String nodeId, long claimSeq) {
+    // language=Oracle
+    String sql =
+        """
+        UPDATE scheduler_business_key_reservation
+        SET held_until = ?, held_by_node = ?, held_claim_seq = ?
+        WHERE owner_job_id = ?
+        """;
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, Timestamp.from(until))
+        .setParameter(2, nodeId)
+        .setParameter(3, claimSeq)
+        .setParameter(4, UuidRawConverter.toBytes(id))
+        .executeUpdate();
+  }
+
+  boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
+    return ctx.timedStoreOperation(
+        "release_business_key_hold",
+        () -> {
+          try {
+            // Read without locking the owner index; delete through the primary key.
+            // language=Oracle
+            String selectSql =
+                """
+                SELECT business_key FROM scheduler_business_key_reservation
+                WHERE owner_job_id = ? AND held_claim_seq = ? AND held_until IS NOT NULL
+                """;
+            List<?> keys =
+                ctx.em()
+                    .createNativeQuery(selectSql)
+                    .setParameter(1, UuidRawConverter.toBytes(jobId))
+                    .setParameter(2, claimSeq)
+                    .getResultList();
+            if (keys.isEmpty()) {
+              return false;
+            }
+            // language=Oracle
+            String deleteSql =
+                """
+                DELETE FROM scheduler_business_key_reservation
+                WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
+                  AND held_until IS NOT NULL
+                """;
+            return ctx.em()
+                    .createNativeQuery(deleteSql)
+                    .setParameter(1, keys.get(0))
+                    .setParameter(2, UuidRawConverter.toBytes(jobId))
+                    .setParameter(3, claimSeq)
+                    .executeUpdate()
+                > 0;
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("release business key hold", e);
+          }
+        },
+        released -> released ? "deleted" : "miss");
+  }
+
+  int releaseBusinessKeyHolds(List<String> nodeIds) {
+    if (nodeIds.isEmpty()) {
+      return 0;
+    }
+    return ctx.timedStoreOperation(
+        "release_business_key_holds",
+        () -> {
+          try {
+            int deleted = 0;
+            for (int start = 0; start < nodeIds.size(); start += 500) {
+              List<String> chunk = nodeIds.subList(start, Math.min(start + 500, nodeIds.size()));
+              String predicate =
+                  "held_until IS NOT NULL AND held_by_node IN ("
+                      + String.join(",", Collections.nCopies(chunk.size(), "?"))
+                      + ")";
+              Query select =
+                  ctx.em()
+                      .createNativeQuery(
+                          """
+                          SELECT business_key, owner_job_id, held_claim_seq
+                          FROM scheduler_business_key_reservation
+                          WHERE %s
+                          """
+                              .formatted(predicate));
+              for (int i = 0; i < chunk.size(); i++) {
+                select.setParameter(i + 1, chunk.get(i));
+              }
+              List<?> keys = select.getResultList();
+              Map<String, Hold> locked = lockHolds(keys, predicate, chunk);
+              for (String key :
+                  BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
+                Query delete =
+                    ctx.em()
+                        .createNativeQuery(
+                            """
+                            DELETE FROM scheduler_business_key_reservation
+                            WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
+                              AND %s
+                            """
+                                .formatted(predicate))
+                        .setParameter(1, key)
+                        .setParameter(2, UuidRawConverter.toBytes(locked.get(key).ownerJobId()))
+                        .setParameter(3, locked.get(key).claimSeq());
+                for (int i = 0; i < chunk.size(); i++) {
+                  delete.setParameter(i + 4, chunk.get(i));
+                }
+                deleted += delete.executeUpdate();
+              }
+            }
+            return deleted;
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("release business key holds", e);
+          }
+        },
+        count -> count > 0 ? "deleted" : "miss");
+  }
+
+  int deleteExpiredBusinessKeyHolds(Instant now, int limit) {
+    if (limit <= 0) {
+      return 0;
+    }
+    return ctx.timedStoreOperation(
+        "delete_expired_business_key_holds",
+        () -> {
+          try {
+            // language=Oracle
+            String selectSql =
+                """
+                SELECT business_key, owner_job_id, held_claim_seq
+                FROM scheduler_business_key_reservation
+                WHERE held_until IS NOT NULL AND held_until < ?
+                ORDER BY held_until, business_key OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+                """;
+            // language=Oracle
+            String deleteSql =
+                """
+                DELETE FROM scheduler_business_key_reservation
+                WHERE business_key = ? AND owner_job_id = ? AND held_claim_seq = ?
+                  AND held_until IS NOT NULL AND held_until < ?
+                """;
+            int deleted = 0;
+            int skipped = 0;
+            // Read the candidates in expiry order, one page at a time. A hold this call did not
+            // delete (locked by another transaction, or changed since the read) stays in front of
+            // the next page, so the offset steps over it.
+            for (int page = 0; page < EXPIRED_HOLD_PAGES && deleted < limit; page++) {
+              int size = limit - deleted;
+              List<?> keys =
+                  ctx.em()
+                      .createNativeQuery(selectSql)
+                      .setParameter(1, Timestamp.from(now))
+                      .setParameter(2, skipped)
+                      .setParameter(3, size)
+                      .getResultList();
+              Map<String, Hold> locked =
+                  lockHolds(
+                      keys,
+                      "held_until IS NOT NULL AND held_until < ?",
+                      List.of(Timestamp.from(now)));
+              int pageDeleted = 0;
+              for (String key :
+                  BusinessKeyReservations.holdDeleteOrder(new ArrayList<>(locked.keySet()))) {
+                pageDeleted +=
+                    ctx.em()
+                        .createNativeQuery(deleteSql)
+                        .setParameter(1, key)
+                        .setParameter(2, UuidRawConverter.toBytes(locked.get(key).ownerJobId()))
+                        .setParameter(3, locked.get(key).claimSeq())
+                        .setParameter(4, Timestamp.from(now))
+                        .executeUpdate();
+              }
+              deleted += pageDeleted;
+              skipped += keys.size() - pageDeleted;
+              if (keys.size() < size) {
+                break;
+              }
+            }
+            return deleted;
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("delete expired business key holds", e);
+          }
+        },
+        count -> count > 0 ? "deleted" : "miss");
+  }
+
+  private Map<String, Hold> lockHolds(List<?> keys, String predicate, List<?> predicateParams) {
+    Map<String, Hold> locked = new HashMap<>();
+    Map<String, Hold> candidates = new HashMap<>();
+    for (Object value : keys) {
+      Object[] row = (Object[]) value;
+      candidates.put(
+          (String) row[0],
+          new Hold(OracleJobRowMapper.uuidOrNull(row[1]), ((Number) row[2]).longValue()));
+    }
+    for (int start = 0; start < keys.size(); start += 500) {
+      List<?> chunk = keys.subList(start, Math.min(start + 500, keys.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      // Lock candidates through the primary key and skip rows another transaction holds, so a
+      // sweep never waits on a frozen or slow writer. Also check that each row is still the hold
+      // the candidate read found. A skipped hold stays for a later call.
+      String sql =
+          """
+          SELECT business_key, owner_job_id, held_claim_seq FROM scheduler_business_key_reservation
+          WHERE business_key IN (%s) AND %s
+          FOR UPDATE SKIP LOCKED
+          """
+              .formatted(placeholders, predicate);
+      Query query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (Object key : chunk) {
+        query.setParameter(parameter++, ((Object[]) key)[0]);
+      }
+      for (Object value : predicateParams) {
+        query.setParameter(parameter++, value);
+      }
+      for (Object value : query.getResultList()) {
+        Object[] row = (Object[]) value;
+        String key = (String) row[0];
+        Hold hold = new Hold(OracleJobRowMapper.uuidOrNull(row[1]), ((Number) row[2]).longValue());
+        if (hold.equals(candidates.get(key))) {
+          locked.put(key, hold);
+        }
+      }
+    }
+    return locked;
+  }
+
+  private record Hold(UUID ownerJobId, long claimSeq) {}
 }
