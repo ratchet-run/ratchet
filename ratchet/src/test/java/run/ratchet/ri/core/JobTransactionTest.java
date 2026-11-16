@@ -22,12 +22,48 @@ import static org.mockito.Mockito.when;
 import jakarta.transaction.Status;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class JobTransactionTest {
   @Test
+  void hasActiveTransactionFailsClosedWithoutRegistry() {
+    assertThrows(
+        IllegalStateException.class, () -> new JobTransaction(() -> null).hasActiveTransaction());
+  }
+
+  @Test
+  void registryLookupRunsOnce() {
+    AtomicInteger lookups = new AtomicInteger();
+    TransactionSynchronizationRegistry registry = mock(TransactionSynchronizationRegistry.class);
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    JobTransaction carrier =
+        new JobTransaction(
+            () -> {
+              lookups.incrementAndGet();
+              return registry;
+            });
+    assertFalse(carrier.hasActiveTransaction());
+    assertFalse(carrier.hasActiveTransaction());
+    assertEquals(1, lookups.get());
+  }
+
+  @Test
+  void missingRegistryLookupRunsOnce() {
+    AtomicInteger lookups = new AtomicInteger();
+    JobTransaction carrier =
+        new JobTransaction(
+            () -> {
+              lookups.incrementAndGet();
+              return null;
+            });
+    assertThrows(IllegalStateException.class, carrier::hasActiveTransaction);
+    assertThrows(IllegalStateException.class, carrier::hasActiveTransaction);
+    assertEquals(1, lookups.get());
+  }
+
+  @Test
   void unitChecksForOpenTransactionBeforeCarrier() {
-    assertFalse(new JobTransaction(() -> null).hasActiveTransaction());
     TransactionSynchronizationRegistry registry = mock(TransactionSynchronizationRegistry.class);
     JobTransaction transactions = new JobTransaction(() -> registry);
     when(registry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
@@ -36,7 +72,6 @@ class JobTransactionTest {
     assertTrue(transactions.hasActiveTransaction());
     when(registry.getTransactionStatus()).thenReturn(Status.STATUS_MARKED_ROLLBACK);
     assertTrue(transactions.hasActiveTransaction());
-    assertFalse(new JobTransaction().hasActiveTransaction());
   }
 
   @Test

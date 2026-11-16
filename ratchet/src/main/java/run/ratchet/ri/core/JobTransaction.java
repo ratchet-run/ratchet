@@ -30,7 +30,8 @@ public class JobTransaction {
   private static final ThreadLocal<Integer> DEPTH = new ThreadLocal<>();
 
   private final Supplier<TransactionSynchronizationRegistry> registrySupplier;
-  private volatile TransactionSynchronizationRegistry txRegistry;
+  private TransactionSynchronizationRegistry txRegistry;
+  private boolean registryLookedUp;
 
   public JobTransaction() {
     this.registrySupplier = null;
@@ -42,28 +43,27 @@ public class JobTransaction {
 
   /**
    * Returns whether the calling thread already has a transaction, in any state. Units start their
-   * own transaction and refuse to run inside one.
+   * own transaction and refuse to run inside one. Looks up the registry at most once per instance.
+   *
+   * @throws IllegalStateException if no TransactionSynchronizationRegistry is available
    */
-  public boolean hasActiveTransaction() {
-    TransactionSynchronizationRegistry registry = txRegistry;
-    if (registry == null) {
-      synchronized (this) {
-        registry = txRegistry;
-        if (registry == null) {
-          if (registrySupplier == null) {
-            try {
-              registry = JakartaAfterCommitRegistrar.lookupTxRegistry();
-            } catch (RuntimeException | LinkageError unavailable) {
-              registry = null;
-            }
-          } else {
-            registry = registrySupplier.get();
-          }
-          txRegistry = registry;
+  public synchronized boolean hasActiveTransaction() {
+    if (!registryLookedUp) {
+      registryLookedUp = true;
+      if (registrySupplier == null) {
+        try {
+          txRegistry = JakartaAfterCommitRegistrar.lookupTxRegistry();
+        } catch (RuntimeException | LinkageError unavailable) {
+          txRegistry = null;
         }
+      } else {
+        txRegistry = registrySupplier.get();
       }
     }
-    return registry != null && registry.getTransactionStatus() != Status.STATUS_NO_TRANSACTION;
+    if (txRegistry == null)
+      throw new IllegalStateException(
+          "cannot tell whether a transaction is open: no TransactionSynchronizationRegistry");
+    return txRegistry.getTransactionStatus() != Status.STATUS_NO_TRANSACTION;
   }
 
   @Transactional(value = TxType.REQUIRED, rollbackOn = Exception.class)

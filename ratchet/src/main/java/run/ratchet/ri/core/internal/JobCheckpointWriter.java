@@ -26,6 +26,7 @@ import run.ratchet.api.TransactionalUnit;
 import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.internal.JobCheckpoints;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Result;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
@@ -159,6 +160,7 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
       }
       if (firstUse && units.firstUse() != null) units.firstUse().run();
       AtomicBoolean storeCalled = new AtomicBoolean();
+      AtomicBoolean committed = new AtomicBoolean();
       try {
         String next =
             units
@@ -175,6 +177,23 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
                       String json =
                           serializer.serialize(
                               Map.of("value", result), ExtensionValidation.MAX_STATE_BYTES);
+                      Result registration =
+                          registrar.registerAfterCommit(() -> committed.set(true));
+                      if (registration != Result.REGISTERED) {
+                        if (registration == Result.ROLLBACK_ONLY)
+                          throw new IllegalStateException(
+                              "Job "
+                                  + jobId
+                                  + " unit's transaction is marked rollback-only, for example by a"
+                                  + " failed nested transactional call that the unit caught;"
+                                  + " the unit rolled back");
+                        throw new IllegalStateException(
+                            "Job "
+                                + jobId
+                                + " unit's commit cannot be confirmed ("
+                                + registration
+                                + "); the unit rolled back");
+                      }
                       storeCalled.set(true);
                       StateWriteResult outcome =
                           units
@@ -199,6 +218,11 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
                       }
                       throw new IllegalStateException("Unknown checkpoint write result");
                     });
+        if (!committed.get())
+          throw new IllegalStateException(
+              "Job "
+                  + jobId
+                  + " unit's transaction rolled back without an error; nothing was saved");
         synchronized (ioLock) {
           synchronized (this) {
             knownVersion = startVersion == null ? 0 : startVersion + 1;
@@ -209,7 +233,7 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
           }
         }
         return next;
-      } catch (Exception failure) {
+      } catch (Throwable failure) {
         if (storeCalled.get() && !attempt.isSuperseded()) {
           synchronized (ioLock) {
             synchronized (this) {

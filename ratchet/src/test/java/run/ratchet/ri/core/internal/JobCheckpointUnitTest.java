@@ -63,6 +63,12 @@ class JobCheckpointUnitTest {
 
   @BeforeEach
   void setup() {
+    when(registrar.registerAfterCommit(any()))
+        .thenAnswer(
+            call -> {
+              commits.add(call.getArgument(0));
+              return Result.REGISTERED;
+            });
     when(serializer.serialize(any(), eq((long) ExtensionValidation.MAX_STATE_BYTES)))
         .thenAnswer(call -> ((Map<?, ?>) call.getArgument(0)).get("value"));
     when(serializer.deserialize(anyString(), eq(Map.class)))
@@ -109,12 +115,13 @@ class JobCheckpointUnitTest {
   }
 
   private void pending() {
-    when(registrar.registerAfterCommit(any()))
-        .thenAnswer(
+    doAnswer(
             call -> {
               commits.add(call.getArgument(0));
               return Result.REGISTERED;
-            });
+            })
+        .when(registrar)
+        .registerAfterCommit(any());
     when(store.initState(eq(id), anyString(), anyString(), eq(7L)))
         .thenReturn(StateWriteResult.UPDATED);
   }
@@ -452,7 +459,8 @@ class JobCheckpointUnitTest {
   void checkpointAndUnitInOneAttemptAreRejected() throws Exception {
     writer.runInTransaction(after -> "b");
     assertThrows(IllegalStateException.class, () -> writer.write("y"));
-    verifyNoInteractions(registrar);
+    // The successful unit registers its commit proof.
+    verify(registrar).registerAfterCommit(any());
     writer = writer(store, transactional, null, () -> {});
     pending();
     writer.write("y");
@@ -467,7 +475,8 @@ class JobCheckpointUnitTest {
                   return "b";
                 }));
     assertEquals("rollback:IllegalStateException", events.get(events.size() - 1));
-    verify(registrar).registerAfterCommit(any());
+    // The deferred checkpoint also registers an action.
+    verify(registrar, times(2)).registerAfterCommit(any());
   }
 
   @Test
@@ -479,9 +488,80 @@ class JobCheckpointUnitTest {
     assertTrue(events.indexOf("firstUse") < events.indexOf("begin"));
   }
 
+  @Test
+  void silentRollbackThrowsAndRereadsBeforeNextUnit() throws Exception {
+    carrier.silentRollback = true;
+    assertThrows(IllegalStateException.class, () -> writer.runInTransaction(after -> "b"));
+    carrier.silentRollback = false;
+    stored("stored", 8);
+    writer.runInTransaction(
+        after -> {
+          assertEquals("stored", after);
+          return "c";
+        });
+    verify(store, times(2)).getState(id, JobCheckpointWriter.NAMESPACE);
+    verify(transactional).writeClaimState(id, JobCheckpointWriter.NAMESPACE, "c", 7L, 8);
+  }
+
+  @Test
+  void rollbackOnlyRegistrationThrowsInsideCarrier() throws Exception {
+    assertRegistrationRejected(Result.ROLLBACK_ONLY);
+  }
+
+  @Test
+  void noActiveTransactionRegistrationThrowsInsideCarrier() throws Exception {
+    assertRegistrationRejected(Result.NO_ACTIVE_TRANSACTION);
+  }
+
+  @Test
+  void failedRegistrationThrowsInsideCarrier() throws Exception {
+    assertRegistrationRejected(Result.REGISTRATION_FAILED);
+  }
+
+  private void assertRegistrationRejected(Result result) throws Exception {
+    doReturn(result).when(registrar).registerAfterCommit(any());
+    assertThrows(IllegalStateException.class, () -> writer.runInTransaction(after -> "b"));
+    assertEquals("rollback:IllegalStateException", events.get(events.size() - 1));
+    verifyNoInteractions(transactional);
+    assertTrue(commits.isEmpty());
+    doAnswer(
+            call -> {
+              commits.add(call.getArgument(0));
+              return Result.REGISTERED;
+            })
+        .when(registrar)
+        .registerAfterCommit(any());
+    writer.runInTransaction(
+        after -> {
+          assertEquals("a", after);
+          return "c";
+        });
+    verify(store).getState(id, JobCheckpointWriter.NAMESPACE);
+  }
+
+  @Test
+  void errorAfterStoreCallMarksOutcomeUnknown() throws Exception {
+    CarrierError failure = new CarrierError();
+    carrier.commitFailure = failure;
+    assertSame(
+        failure, assertThrows(CarrierError.class, () -> writer.runInTransaction(after -> "b")));
+    carrier.commitFailure = null;
+    stored("stored", 8);
+    writer.runInTransaction(
+        after -> {
+          assertEquals("stored", after);
+          return "c";
+        });
+    verify(store, times(2)).getState(id, JobCheckpointWriter.NAMESPACE);
+    verify(transactional).writeClaimState(id, JobCheckpointWriter.NAMESPACE, "c", 7L, 8);
+  }
+
+  private static final class CarrierError extends Error {}
+
   private final class Carrier extends JobTransaction {
     private boolean open;
-    private IOException commitFailure;
+    private Throwable commitFailure;
+    private boolean silentRollback;
 
     @Override
     public boolean hasActiveTransaction() {
@@ -494,11 +574,23 @@ class JobCheckpointUnitTest {
       T result;
       try {
         result = insideCarrier(work);
-      } catch (Exception failure) {
+      } catch (Exception | Error failure) {
+        commits.clear();
         events.add("rollback:" + failure.getClass().getSimpleName());
         throw failure;
       }
-      if (commitFailure != null) throw commitFailure;
+      if (commitFailure != null) {
+        commits.clear();
+        if (commitFailure instanceof Error error) throw error;
+        throw (Exception) commitFailure;
+      }
+      if (silentRollback) {
+        commits.clear();
+        return result;
+      }
+      List<Runnable> actions = new ArrayList<>(commits);
+      commits.clear();
+      actions.forEach(Runnable::run);
       events.add("commit");
       return result;
     }

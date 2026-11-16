@@ -67,7 +67,12 @@ class TransactionalCheckpointIT extends BaseRatchetIT {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(System.getProperty("testsuite.profile", "wildfly-managed"), dbType)
-        .addClasses(TestJobService.class, TransactionalUnitProbe.class, Attempt.class)
+        .addClasses(
+            TestJobService.class,
+            TransactionalUnitProbe.class,
+            Attempt.class,
+            NestedTransactionFailure.class,
+            SwallowedRollbackJobs.class)
         .addStoreInfrastructure()
         .addResource(
             RatchetArchiveBuilder.testRuntimeConfigContent(
@@ -222,6 +227,22 @@ class TransactionalCheckpointIT extends BaseRatchetIT {
     assertEquals(0, probe.countPage(key, 0));
     assertNoCheckpoint(handle);
     assertProgress(handle);
+  }
+
+  @Test
+  void unitThatSwallowsNestedFailureThrowsAndSavesNothing() {
+    String value = key;
+    var handle =
+        scheduler.enqueue(() -> SwallowedRollbackJobs.unit(value)).withMaxRetries(0).submit();
+    handles.add(handle);
+    try {
+      awaitStatus(handle, JobStatus.SUCCEEDED);
+      assertInstanceOf(IllegalStateException.class, SwallowedRollbackJobs.FAILURES.get(key));
+      assertEquals(0, probe.countPage(key, 0));
+      assertNoCheckpoint(handle);
+    } finally {
+      SwallowedRollbackJobs.FAILURES.remove(key);
+    }
   }
 
   @Test

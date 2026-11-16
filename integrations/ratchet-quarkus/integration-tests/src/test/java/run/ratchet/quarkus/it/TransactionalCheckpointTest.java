@@ -44,10 +44,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobContext;
+import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.quarkus.it.tck.QuarkusRatchetTckProfile;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStateStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 @QuarkusTest
@@ -57,6 +60,7 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 class TransactionalCheckpointTest {
   @Inject JobSchedulerService scheduler;
   @Inject JobCrudStore jobs;
+  @Inject JobStore store;
   @Inject Instance<UnitProbe> probes;
   private String key;
   private Observation observation;
@@ -93,6 +97,19 @@ class TransactionalCheckpointTest {
   }
 
   @Test
+  void unitThatSwallowsNestedFailureThrowsAndSavesNothing() {
+    var handle = run("swallowed");
+    assertInstanceOf(IllegalStateException.class, observation.caught);
+    assertEquals(0, probes.get().count(pageKey(key, 0)));
+    assertTrue(
+        store
+            .capability(JobStateStore.class)
+            .orElseThrow()
+            .getState(handle.id(), "ratchet.checkpoint")
+            .isEmpty());
+  }
+
+  @Test
   void enclosingTransactionIsRejected() {
     run("enclosing");
     assertInstanceOf(IllegalStateException.class, observation.caught);
@@ -100,7 +117,7 @@ class TransactionalCheckpointTest {
     assertEquals(0, probes.get().count(pageKey(key, 0)));
   }
 
-  private void run(String scenario) {
+  private JobHandle run(String scenario) {
     String value = key;
     var handle =
         scheduler
@@ -114,6 +131,7 @@ class TransactionalCheckpointTest {
             () ->
                 assertEquals(
                     JobStatus.SUCCEEDED, jobs.findById(handle.id()).orElseThrow().getStatus()));
+    return handle;
   }
 
   static String pageKey(String key, int page) {
@@ -132,6 +150,15 @@ class TransactionalCheckpointTest {
 
   @ApplicationScoped
   @UnlessBuildProfile("mongo")
+  public static class NestedFailure {
+    @Transactional(TxType.REQUIRED)
+    public void fail() {
+      throw new IllegalStateException("Nested service failed");
+    }
+  }
+
+  @ApplicationScoped
+  @UnlessBuildProfile("mongo")
   public static class UnitProbe {
     static final Map<String, Observation> OBSERVED = new ConcurrentHashMap<>();
     @Inject RatchetEntityManagerProvider entityManagers;
@@ -141,6 +168,23 @@ class TransactionalCheckpointTest {
       var observation = OBSERVED.get(key);
       var ctx = JobContext.current();
       int attempt = observation.attempts.incrementAndGet();
+      if (scenario.equals("swallowed")) {
+        try {
+          ctx.runInTransaction(
+              cp -> {
+                probe.insert(pageKey(key, 0));
+                try {
+                  CDI.current().select(NestedFailure.class).get().fail();
+                } catch (RuntimeException expected) {
+                  // Continue with a rollback-only transaction.
+                }
+                return "done";
+              });
+        } catch (IllegalStateException failure) {
+          observation.caught = failure;
+        }
+        return;
+      }
       if (scenario.equals("enclosing")) {
         try {
           probe.runInsideTransaction(key);
