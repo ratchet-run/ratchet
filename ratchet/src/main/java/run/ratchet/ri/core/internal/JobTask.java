@@ -551,6 +551,7 @@ public class JobTask implements Callable<Void> {
             }
             if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
               markAttemptSuperseded();
+              if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
             }
           } catch (Throwable finalizationFailure) {
             log.errorf(
@@ -884,6 +885,8 @@ public class JobTask implements Callable<Void> {
           failed = true;
         } else {
           markAttemptSuperseded();
+          // A cancel that was already handled is not counted again.
+          if (!cancelHandled && jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -950,21 +953,27 @@ public class JobTask implements Callable<Void> {
   }
 
   private boolean rescheduleWithoutChargingAttempt(
-      UUID jobId, String reason, Instant scheduledTime, int attempts, long claimSeq) {
+      UUID jobId,
+      String reason,
+      Instant scheduledTime,
+      int attempts,
+      long claimSeq,
+      Runnable onRejected) {
+    boolean accepted;
     try {
-      if (retryTransientStoreOperation(
-          () -> jobStore.scheduleJobRetry(jobId, reason, scheduledTime, attempts, claimSeq))) {
-        return true;
-      }
-      warnRejectedOwnerWrite();
+      accepted =
+          retryTransientStoreOperation(
+              () -> jobStore.scheduleJobRetry(jobId, reason, scheduledTime, attempts, claimSeq));
     } catch (RatchetTransientStoreException failure) {
       log.errorf(
           failure,
           "Job %s could not be rescheduled without charging an attempt; leaving it RUNNING until"
               + " orphan recovery, which resets it only after this node stops heartbeating",
           jobId);
+      return false;
     }
-    return false;
+    if (!accepted) onRejected.run();
+    return accepted;
   }
 
   private boolean tryAcquireResourcePermit() {
@@ -995,7 +1004,8 @@ public class JobTask implements Callable<Void> {
             "Permit check failed transiently for resource: " + resourceName,
             effective().instant().plusMillis(retryDelay),
             job.getAttempts(),
-            claimSeq);
+            claimSeq,
+            this::warnRejectedOwnerWrite);
         log.warnf(
             e,
             "Permit check failed transiently for job %s, resource '%s'",
@@ -1022,7 +1032,8 @@ public class JobTask implements Callable<Void> {
           "Waiting for resource: " + resourceName,
           effective().instant().plusMillis(retryDelay),
           job.getAttempts(),
-          claimSeq)) {
+          claimSeq,
+          this::warnRejectedOwnerWrite)) {
         return false;
       }
 
@@ -1086,7 +1097,15 @@ public class JobTask implements Callable<Void> {
         "Circuit breaker OPEN for service: " + serviceName,
         newScheduledTime,
         jobEntity.getAttempts(),
-        expectedClaimSeq());
+        expectedClaimSeq(),
+        () -> {
+          if (jobWasCanceled()) {
+            markAttemptSuperseded();
+            handleCanceledDuringExecution(cancelStart());
+          } else {
+            warnRejectedOwnerWrite();
+          }
+        });
   }
 
   private boolean wasJobCanceledDuringExecution() {
@@ -1132,10 +1151,30 @@ public class JobTask implements Callable<Void> {
 
     if (currentExecution != null) {
       currentExecution.markCanceled();
-      observabilityFacade.saveExecution(currentExecution);
+      saveCanceledExecution();
     }
 
     observabilityFacade.recordJobCancellation(job);
+  }
+
+  /**
+   * The job row is already CANCELED and no later step rewrites this execution, so a failed save is
+   * retried once and then logged.
+   */
+  private void saveCanceledExecution() {
+    try {
+      observabilityFacade.saveExecution(currentExecution);
+    } catch (RuntimeException failure) {
+      log.warnf(failure, "Job %s could not save its canceled execution; retrying", job.getId());
+      try {
+        observabilityFacade.saveExecution(currentExecution);
+      } catch (RuntimeException retryFailure) {
+        log.errorf(
+            retryFailure,
+            "Job %s could not save its canceled execution; its history keeps the earlier status",
+            job.getId());
+      }
+    }
   }
 
   private Instant cancelStart() {
@@ -1256,6 +1295,10 @@ public class JobTask implements Callable<Void> {
                     + " recovery, which resets it only after this node stops heartbeating",
                 job.getId());
           }
+        }
+        // A cancel that committed after the check above made the timeout transition miss.
+        if (attempt.isSuperseded() && jobWasCanceled()) {
+          handleCanceledDuringExecution(cancelStart());
         }
       } else {
         log.infof(
