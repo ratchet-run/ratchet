@@ -44,10 +44,10 @@ import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
-import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -123,15 +123,15 @@ class DefaultRatchetLifecycleHookTest {
   }
 
   @Test
-  void beforeStartHooksRunBeforeDefaultNodeRegistration() {
+  void beforeStartHooksRunBeforeNodeLiveness() {
     List<String> events = new ArrayList<>();
-    DefaultNodeIdentityProvider nodeIdentityProvider = mock(DefaultNodeIdentityProvider.class);
+    NodeLiveness liveness = mock(NodeLiveness.class);
     doAnswer(
             invocation -> {
               events.add("node.init");
               return null;
             })
-        .when(nodeIdentityProvider)
+        .when(liveness)
         .init();
 
     DefaultRatchetLifecycle lifecycle =
@@ -146,7 +146,8 @@ class DefaultRatchetLifecycleHookTest {
             mock(LogPurgeTimer.class),
             mock(PollerWakeupListener.class),
             executorProviderWithScheduler(),
-            nodeIdentityProvider,
+            mock(NodeIdentityProvider.class),
+            liveness,
             mock(DrainController.class),
             quietOptions(),
             mock(JobExecutionCoordinator.class),
@@ -296,6 +297,7 @@ class DefaultRatchetLifecycleHookTest {
             pollerWakeupListener,
             provider,
             mock(NodeIdentityProvider.class),
+            mock(NodeLiveness.class),
             mock(DrainController.class),
             RatchetOptions.defaults(),
             jobExecutionCoordinator,
@@ -333,6 +335,7 @@ class DefaultRatchetLifecycleHookTest {
         mock(PollerWakeupListener.class),
         executorProviderWithScheduler(),
         mock(NodeIdentityProvider.class),
+        mock(NodeLiveness.class),
         mock(DrainController.class),
         quietOptions(),
         mock(JobExecutionCoordinator.class),
@@ -353,6 +356,7 @@ class DefaultRatchetLifecycleHookTest {
         mock(PollerWakeupListener.class),
         executorProviderWithScheduler(),
         mock(NodeIdentityProvider.class),
+        mock(NodeLiveness.class),
         mock(DrainController.class),
         quietOptions(),
         mock(JobExecutionCoordinator.class),

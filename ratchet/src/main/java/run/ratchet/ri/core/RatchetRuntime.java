@@ -30,11 +30,11 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RatchetLifecycle;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
-import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -60,6 +60,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
   private final PollerWakeupListener pollerWakeupListener;
   private final ExecutorProvider executorProvider;
   private final NodeIdentityProvider nodeIdentityProvider;
+  private final NodeLiveness nodeLiveness;
   private final DrainController drainController;
   private final RatchetOptions options;
   private final JobExecutionCoordinator jobExecutionCoordinator;
@@ -90,6 +91,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       PollerWakeupListener pollerWakeupListener,
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
+      NodeLiveness nodeLiveness,
       DrainController drainController,
       RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
@@ -109,6 +111,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     this.pollerWakeupListener = pollerWakeupListener;
     this.executorProvider = executorProvider;
     this.nodeIdentityProvider = nodeIdentityProvider;
+    this.nodeLiveness = nodeLiveness;
     this.drainController = drainController;
     this.options = options;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
@@ -161,15 +164,10 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
 
       beforeWorkers.run();
 
-      // Default node init writes scheduler_node, so it must wait until beforeStart hooks, including
-      // Quarkus auto-migration, have succeeded. If migration fails, init is intentionally skipped
-      // for that boot attempt; running it from a finally block would re-hit the missing-schema
-      // failure. Its one-time orphan recovery and heartbeat upsert are coupled to successful
-      // startup,
-      // while cluster peers continue sweeping on their normal orphan-recovery intervals.
-      initializeDefaultNodeIdentityProvider();
-      // Runs for every NodeIdentityProvider after the default reset and before the poller claims.
-      // A custom provider writes no node row, so orphan recovery never cleans its permits.
+      // Liveness writes scheduler_node for every provider after beforeStart hooks, including
+      // schema migration, succeed. Recovery and the first heartbeat precede permit cleanup and
+      // polling so this node's previous claims and permits are reclaimed before new work starts.
+      nodeLiveness.init();
       orphanRecoveryTimer.cleanupOwnPermitsAtStartup(nodeIdentityProvider.getNodeId());
 
       ScheduledExecutorService scheduledExecutor =
@@ -282,9 +280,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     if (durable != null) stopService("durable terminal events", durable::stop);
     // Heartbeat until the claims are released. A draining node that stops heartbeating looks dead,
     // and another node's orphan scan would take its running jobs and charge them a crash.
-    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
-      stopService("node identity", defaultProvider::shutdown);
-    }
+    stopService("node liveness", nodeLiveness::shutdown);
     // Release transport resources after no further notifyNewWork callers can submit.
     // First-party coordinators implement SchedulerLifecycleHook and close themselves via
     // afterStop (invoked below in the hook chain). The direct fallback only fires for
@@ -312,12 +308,6 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       resolvedHooks = List.copyOf(resolved);
     }
     return resolvedHooks;
-  }
-
-  private void initializeDefaultNodeIdentityProvider() {
-    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
-      defaultProvider.init();
-    }
   }
 
   private List<SchedulerLifecycleHook> notifyHooks(

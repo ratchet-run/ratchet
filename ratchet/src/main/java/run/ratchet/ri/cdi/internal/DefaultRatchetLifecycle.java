@@ -38,6 +38,7 @@ import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -70,6 +71,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       PollerWakeupListener pollerWakeupListener,
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
+      NodeLiveness nodeLiveness,
       DrainController drainController,
       RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
@@ -86,6 +88,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         pollerWakeupListener,
         executorProvider,
         nodeIdentityProvider,
+        nodeLiveness,
         drainController,
         options,
         jobExecutionCoordinator,
@@ -105,6 +108,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       PollerWakeupListener pollerWakeupListener,
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
+      NodeLiveness nodeLiveness,
       DrainController drainController,
       RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
@@ -122,6 +126,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         pollerWakeupListener,
         executorProvider,
         nodeIdentityProvider,
+        nodeLiveness,
         drainController,
         options,
         jobExecutionCoordinator,
@@ -143,6 +148,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       PollerWakeupListener pollerWakeupListener,
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
+      NodeLiveness nodeLiveness,
       DrainController drainController,
       RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
@@ -163,6 +169,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
             pollerWakeupListener,
             executorProvider,
             nodeIdentityProvider,
+            nodeLiveness,
             drainController,
             options,
             jobExecutionCoordinator,

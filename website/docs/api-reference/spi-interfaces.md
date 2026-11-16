@@ -854,7 +854,7 @@ public class RedisClusterCoordinator implements ClusterCoordinator {
 
 ## NodeIdentityProvider
 
-Provides the unique identifier for the current node in a cluster. Used for job locking and heartbeat management.
+The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. That ID must be unique per live node and stable across restarts.
 
 :::info
 This interface is marked `@Incubating` and may change.
@@ -873,7 +873,7 @@ public interface NodeIdentityProvider {
 String getNodeId()
 ```
 
-Returns the unique, immutable node identifier. Must be consistent for the node's lifecycle.
+Returns the unique, immutable node identifier. It must be unique per live node and stable across restarts.
 
 ### Example
 

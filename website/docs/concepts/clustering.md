@@ -168,7 +168,7 @@ public interface NodeIdentityProvider {
 
 ### Default: DefaultNodeIdentityProvider
 
-The default implementation constructs the node ID as `hostname-PID-<8-char UUID>` (falling back to a bare random UUID when hostname resolution fails), providing uniqueness across machines and across multiple instances on the same machine.
+The default implementation constructs the node ID as `hostname-PID-<8-char UUID>` (falling back to a bare random UUID when hostname resolution fails), providing uniqueness across machines and across multiple instances on the same machine. This generated ID changes on restart; use `ratchet.node.id` or a custom provider for an ID that stays stable across restarts.
 
 ### Custom Implementation
 
@@ -196,7 +196,7 @@ public class KubernetesNodeIdentityProvider implements NodeIdentityProvider {
 
 The node ID must be:
 - **Unique** across all nodes in the cluster
-- **Stable** for the lifetime of the application instance
+- **Stable** across restarts
 - **Reasonable length** (stored in `VARCHAR(64)` columns)
 
 ## Node Registration and Heartbeat
@@ -227,7 +227,7 @@ The orphan recovery lease is not a fence. A scan can outlive its lease. Without 
 
 On restart, a node pages through all of its own claims before it claims anything. This has no page or time limit, because no periodic scan sees those claims once the restarted node is heartbeating again. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.
 
-Before it claims any job, a starting node also deletes the resource permits left under its node id. This runs for every `NodeIdentityProvider`. A custom provider writes no `scheduler_node` row, so orphan recovery never cleans its permits, and this start-up step is the only clean-up. It needs a node id that stays the same across restarts.
+Before it claims any job, a starting node also deletes the resource permits left under its node id. This runs for every `NodeIdentityProvider`. The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. That ID must be unique per live node and stable across restarts. Startup cleanup follows recovery of the node's own claims. Periodic orphan recovery also cleans stale and missing-node permits.
 
 
 ## Distributed Locking

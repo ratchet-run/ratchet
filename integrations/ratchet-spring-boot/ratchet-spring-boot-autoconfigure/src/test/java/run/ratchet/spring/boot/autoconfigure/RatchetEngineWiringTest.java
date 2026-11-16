@@ -17,6 +17,8 @@ package run.ratchet.spring.boot.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -48,18 +50,48 @@ import run.ratchet.ri.core.internal.DurableTerminalEvents;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.JobTask;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.PartitionSetEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
+  @Test
+  void customNodeIdentityStillGetsRuntimeLiveness() {
+    JobStore store = mock(JobStore.class);
+    when(store.resetOrphanJobsForNode(eq("custom-spring"), eq(3), anyInt()))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    when(store.resetOrphanJobsBefore(any(), eq(3), anyInt()))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    NodeIdentityProvider custom = () -> "custom-spring";
+    runner(store)
+        .withBean(NodeIdentityProvider.class, () -> custom)
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              assertThat(context).hasSingleBean(NodeIdentityProvider.class);
+              assertThat(context.getBean(NodeIdentityProvider.class)).isSameAs(custom);
+              assertThat(context).hasSingleBean(NodeLiveness.class);
+              NodeLiveness liveness = context.getBean(NodeLiveness.class);
+              try {
+                liveness.init();
+                verify(store).upsertHeartbeat(eq("custom-spring"), any());
+                verify(store).resetOrphanJobsForNode(eq("custom-spring"), eq(3), anyInt());
+              } finally {
+                liveness.shutdown();
+              }
+            });
+  }
+
   @Test
   void partitionSweepCancelsWithoutCallingCustomScheduler() {
     JobSchedulerService custom = mock(JobSchedulerService.class);

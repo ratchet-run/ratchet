@@ -48,6 +48,76 @@ import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 class MysqlAuxiliaryOperationsTest {
 
   @Test
+  void cleanupLocksUnionAcrossChunksBeforeDeletesForBothCallers() {
+    for (boolean missingNodes : List.of(false, true)) {
+      List<String> nodes = new ArrayList<>();
+      for (int i = 0; i < 501; i++) nodes.add("stale-" + i);
+      List<String> events = new ArrayList<>();
+      EntityManager em = mock(EntityManager.class);
+      when(em.createNativeQuery(any(String.class)))
+          .thenAnswer(
+              invocation -> {
+                String sql = invocation.getArgument(0);
+                Query query = mock(Query.class);
+                Map<Integer, Object> parameters = new HashMap<>();
+                when(query.setParameter(anyInt(), any()))
+                    .thenAnswer(
+                        binding -> {
+                          parameters.put(binding.getArgument(0), binding.getArgument(1));
+                          return query;
+                        });
+                if (sql.contains("LEFT JOIN scheduler_node")) {
+                  when(query.getResultList()).thenReturn(nodes);
+                } else if (sql.contains("SELECT DISTINCT resource_name")) {
+                  when(query.getResultList())
+                      .thenAnswer(
+                          read -> {
+                            events.add("discover");
+                            return List.of(parameters.get(1).equals("stale-0") ? "r-z" : "r-a");
+                          });
+                } else if (sql.contains("FOR UPDATE")) {
+                  assertTrue(!sql.contains("scheduler_node"));
+                  when(query.getResultList())
+                      .thenAnswer(
+                          read -> {
+                            events.add("lock:" + parameters.get(1));
+                            return List.of(parameters.get(1));
+                          });
+                } else {
+                  when(query.executeUpdate())
+                      .thenAnswer(
+                          delete -> {
+                            events.add("delete:" + parameters.get(1));
+                            if (missingNodes) {
+                              assertTrue(sql.contains("AND acquired_at < ?"));
+                              assertEquals(DUE, parameters.get(parameters.size()));
+                            }
+                            return 1;
+                          });
+                }
+                return query;
+              });
+      var operations = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+      assertEquals(
+          4,
+          missingNodes
+              ? operations.cleanupPermitsOfMissingNodes(DUE.toInstant())
+              : operations.cleanupOrphanedPermits(nodes));
+      assertEquals(
+          List.of(
+              "discover",
+              "discover",
+              "lock:r-a",
+              "lock:r-z",
+              "delete:r-a",
+              "delete:r-z",
+              "delete:r-a",
+              "delete:r-z"),
+          events);
+    }
+  }
+
+  @Test
   void tryAcquirePermit_sameJobExistingPermitIsIdempotent() {
     UUID jobId = UUID.fromString("01900000-0000-7000-8000-000000000001");
     MysqlAuxiliaryOperations operations =

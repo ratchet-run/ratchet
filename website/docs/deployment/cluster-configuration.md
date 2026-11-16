@@ -30,9 +30,13 @@ There is no separate `ratchet.cluster.enabled` switch. A deployment becomes clus
 
 ## Node identity
 
-Each node in the cluster needs a unique, stable identifier. Implement the `NodeIdentityProvider` SPI:
+The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. That ID must be unique per live node and stable across restarts.
+
+Implement the `NodeIdentityProvider` SPI. In CDI, select it with `@Alternative @Priority(APPLICATION)` so it displaces the default producer:
 
 ```java
+@Alternative
+@Priority(APPLICATION)
 @ApplicationScoped
 public class KubernetesNodeProvider implements NodeIdentityProvider {
 
@@ -50,7 +54,7 @@ The default implementation uses `hostname-PID-<8-char-UUID>`. Override it when:
 - Running in Docker Compose (use the `HOSTNAME` environment variable)
 - Running multiple instances on the same host (use a unique port or instance ID)
 
-There is no built-in `ratchet.cluster.node-id` property. Override node identity by providing your own `NodeIdentityProvider` bean when the hostname-based default is not sufficient.
+Set `ratchet.node.id` for an explicit ID, or provide a custom `NodeIdentityProvider` bean when the hostname-based default is not sufficient.
 
 ## ClusterCoordinator SPI
 

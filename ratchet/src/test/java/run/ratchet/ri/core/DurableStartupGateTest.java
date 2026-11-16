@@ -174,6 +174,7 @@ class DurableStartupGateTest {
             mock(PollerWakeupListener.class),
             executor,
             mock(NodeIdentityProvider.class),
+            mock(NodeLiveness.class),
             mock(DrainController.class),
             options,
             mock(JobExecutionCoordinator.class),

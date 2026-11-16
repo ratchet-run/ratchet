@@ -534,6 +534,7 @@ public class ExecutorClassLoaderTest {
               mock(PollerWakeupListener.class),
               provider,
               mock(NodeIdentityProvider.class),
+              mock(NodeLiveness.class),
               mock(DrainController.class),
               RatchetOptions.defaults(),
               mock(JobExecutionCoordinator.class),

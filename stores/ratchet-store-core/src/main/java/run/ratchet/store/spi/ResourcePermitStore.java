@@ -187,9 +187,10 @@ public interface ResourcePermitStore {
    * Removes permits whose node has no node row and whose acquisition is strictly before the cutoff.
    * Transaction attribute: {@code REQUIRED}.
    *
-   * <p>The cutoff keeps recent permits whose node may heartbeat and re-create its row (heartbeat is
-   * an upsert). A node that died after committing a late permit loses it once it ages past the
-   * cutoff. Does not wake waiters; the engine calls {@link #wakeWaiters} after commit.
+   * <p>The runtime maintains a node row for every live node, including custom identity providers.
+   * The cutoff keeps recent permits whose node may heartbeat and re-create its row (heartbeat is an
+   * upsert). A node that died after committing a late permit loses it once it ages past the cutoff.
+   * Does not wake waiters; the engine calls {@link #wakeWaiters} after commit.
    *
    * @param acquiredBefore exclusive acquisition cutoff
    * @return number of permit rows released
