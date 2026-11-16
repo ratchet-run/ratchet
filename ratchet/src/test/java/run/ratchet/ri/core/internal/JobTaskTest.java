@@ -4874,6 +4874,76 @@ class JobTaskTest {
   }
 
   @Test
+  void cooperativeTimeoutCanceledSaveThatFailsOnce_isSavedOnRetry() throws Exception {
+    // A store blip on the canceled execution save is retried, so the history still ends canceled.
+    jobTask = newJobTaskWithTimeoutHandler(realTimeoutHandler());
+    JobEntity job = cancelScenario(true);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    attempt.requestCancellation();
+    failBody(() -> new CancellationRequestedException("grace stop"));
+    List<ExecutionStatus> saved = new ArrayList<>();
+    AtomicBoolean failedOnce = new AtomicBoolean();
+    when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
+        .thenAnswer(
+            invocation -> {
+              JobExecutionEntity execution = invocation.getArgument(0);
+              saved.add(execution.getStatus());
+              if (execution.getStatus() == ExecutionStatus.CANCELED
+                  && failedOnce.compareAndSet(false, true)) {
+                throw new IllegalStateException("execution store blip");
+              }
+              return execution;
+            });
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              status.set(JobStatus.CANCELED);
+              return Optional.of(storedRow(JobStatus.CANCELED));
+            });
+
+    jobTask.call();
+
+    verify(observabilityFacade).recordJobCancellation(job);
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED, ExecutionStatus.CANCELED), saved);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    Assertions.assertTrue(attempt.isSuperseded());
+  }
+
+  @Test
+  void retryIncrementCanceledSaveThatKeepsFailing_stillRecordsTheCancel() throws Exception {
+    // A canceled execution save that fails twice is logged. The cancel still counts, the hold is
+    // released, and the job is not forced to FAILED.
+    JobEntity job = cancelScenario(true);
+    jobTask.attach(cancelAttempt());
+    failBody(() -> new IllegalStateException("body failed"));
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(-1);
+    List<ExecutionStatus> saved = new ArrayList<>();
+    when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
+        .thenAnswer(
+            invocation -> {
+              JobExecutionEntity execution = invocation.getArgument(0);
+              saved.add(execution.getStatus());
+              throw new IllegalStateException("execution store down");
+            });
+
+    jobTask.call();
+
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    Assertions.assertEquals(List.of(ExecutionStatus.CANCELED, ExecutionStatus.CANCELED), saved);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+  }
+
+  @Test
   void cooperativeTimeoutRetryThatLosesItsWriteToACancel_endsCanceled() throws Exception {
     // A cancel after the timeout handler's read makes its retry increment miss.
     // The attempt still ends canceled.

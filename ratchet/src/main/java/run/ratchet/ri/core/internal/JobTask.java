@@ -884,9 +884,8 @@ public class JobTask implements Callable<Void> {
           failed = true;
         } else {
           markAttemptSuperseded();
-          // Cancel handling can only have run already if its execution save failed, so this does
-          // not count the cancel twice.
-          if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
+          // A cancel that was already handled is not counted again.
+          if (!cancelHandled && jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -1082,10 +1081,30 @@ public class JobTask implements Callable<Void> {
 
     if (currentExecution != null) {
       currentExecution.markCanceled();
-      observabilityFacade.saveExecution(currentExecution);
+      saveCanceledExecution();
     }
 
     observabilityFacade.recordJobCancellation(job);
+  }
+
+  /**
+   * The job row is already CANCELED and no later step rewrites this execution, so a failed save is
+   * retried once and then logged.
+   */
+  private void saveCanceledExecution() {
+    try {
+      observabilityFacade.saveExecution(currentExecution);
+    } catch (RuntimeException failure) {
+      log.warnf(failure, "Job %s could not save its canceled execution; retrying", job.getId());
+      try {
+        observabilityFacade.saveExecution(currentExecution);
+      } catch (RuntimeException retryFailure) {
+        log.errorf(
+            retryFailure,
+            "Job %s could not save its canceled execution; its history keeps the earlier status",
+            job.getId());
+      }
+    }
   }
 
   private Instant cancelStart() {
