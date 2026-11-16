@@ -158,8 +158,9 @@ try {
 ```
 
 The overload below seeds `lastCheckpoint()` for a retry test. Both `bindAttempt` overloads
-use an in-memory holder. It ignores transactions and does not write to a store. The
-five-argument overload starts with no checkpoint.
+use an in-memory holder. It ignores transactions and does not write to a store. It does
+apply two rules of a real attempt: one kind of checkpoint per attempt, and one
+`runInTransaction` unit at a time. The five-argument overload starts with no checkpoint.
 
 ```java
 public static JobContext bindAttempt(
@@ -510,6 +511,19 @@ policy applies. If a commit fails and Ratchet cannot tell whether it committed, 
 reaches your code too. Ratchet then reads the stored checkpoint again before the next unit
 or `lastCheckpoint()`.
 
+Do not catch a failure from a transactional call inside the unit and carry on. That failure
+can mark the transaction rollback-only, and the commit then rolls back without an error.
+Ratchet checks that the commit happened. If it did not, the call throws
+`IllegalStateException` and nothing is saved, neither the work nor the checkpoint.
+
+If cancellation was requested, the call throws `CancellationRequestedException` before the
+unit runs.
+
+The unit locks the rows its work writes, then the job's queue row. An application transaction
+that locks the same rows and then cancels the job takes the locks in the opposite order, so the
+two can deadlock, and the database rolls one of them back. Cancel the job before that
+transaction writes those rows, or in a transaction of its own.
+
 The unit holds one pooled connection from its start to its commit. Keep units short. Ratchet
 sets no transaction timeout; the default of the container or transaction manager applies.
 `isCurrentAttempt()` inside a unit needs a second connection, so call it between units.
@@ -526,10 +540,10 @@ Limits:
   messages and other external effects need their own idempotency.
 - **No open transaction.** Ratchet starts the transaction, so call `runInTransaction` with
   none open. The job method must not be transactional, and it must not have
-  `@TransactionalJob`. Otherwise the call throws `IllegalStateException`, and the unit does not
-  run. On Spring, a transaction on any transaction manager counts. On Micronaut, Ratchet sees
-  only the manager of `ratchet.jpa.datasource`. A transaction open on another Micronaut
-  datasource goes unnoticed, and the unit then holds a second connection.
+  `@TransactionalJob`. An EJB method is transactional by default (container-managed
+  `REQUIRED`), so mark it `@TransactionAttribute(TransactionAttributeType.NOT_SUPPORTED)`.
+  Otherwise the call throws `IllegalStateException`, and the unit does not run. On Spring and
+  Micronaut, a transaction on any transaction manager counts.
 - **One unit at a time.** A second call while a unit of the same attempt runs throws
   `IllegalStateException`.
 - **One kind of checkpoint per attempt.** An attempt uses either `checkpoint()` or
