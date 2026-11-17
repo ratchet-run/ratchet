@@ -201,7 +201,11 @@ final class PostgresqlJobTerminalOperations {
   }
 
   boolean releaseClaim(
-      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq) {
+      UUID id,
+      @Nullable String reason,
+      Instant scheduledTime,
+      int expectedAttempts,
+      long claimSeq) {
     return reschedule(id, reason, scheduledTime, expectedAttempts, claimSeq, true);
   }
 

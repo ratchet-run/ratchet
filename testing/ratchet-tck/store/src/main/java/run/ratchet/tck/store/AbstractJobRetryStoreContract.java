@@ -107,6 +107,25 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void releaseClaim_nullReasonClearsLastError() {
+    JobEntity job = newPendingJob();
+    job.setAttempts(2);
+    job.setLastError("previous failure");
+    job = persist(job);
+    assertTrue(store().tryPickUpJob(job.getId(), "node-1"));
+    JobEntity claimed = store().findById(job.getId()).orElseThrow();
+    Instant time = Instant.now().plusSeconds(300).truncatedTo(ChronoUnit.MILLIS);
+    assertTrue(store().releaseClaim(job.getId(), null, time, 2, claimed.getClaimSeq()));
+    JobEntity released = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, released.getStatus());
+    assertEquals(2, released.getAttempts());
+    assertNull(released.getLastError());
+    assertNull(released.getPickedBy());
+    assertNull(released.getPickedAt());
+    assertEquals(time, released.getScheduledTime());
+  }
+
+  @Test
   void releaseClaim_missesStaleClaim() {
     JobEntity claimed = newReleaseClaim();
     assertFalse(
