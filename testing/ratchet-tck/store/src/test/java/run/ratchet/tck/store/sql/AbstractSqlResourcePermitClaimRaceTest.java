@@ -17,6 +17,7 @@ package run.ratchet.tck.store.sql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.ACQUIRED;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.AT_CAPACITY;
@@ -458,9 +459,12 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
-  /** Pins a save that moves the job during its park: it waits, then removes the new waiter row. */
+  /**
+   * Pins a save that moves the job during its park: it waits for the park, then fails as stale
+   * because the park increments the version, and the park stays.
+   */
   @Test
-  void saveThatMovesTheJobWhileItParksWaitsAndRemovesTheNewWaiterRow() throws Exception {
+  void staleSaveThatMovesTheJobWhileItParksWaitsAndFails() throws Exception {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
     permits.configureResource("res-a", 1, 60_000, null);
@@ -513,12 +517,17 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
               });
       assertEquals(AT_CAPACITY, acquire(permits, waiter, "node-a", "res-a"));
       assertTrue(fired.get());
-      awaitFuture(save.get());
-      assertEquals(0, saveReachedTheJobRow.getCount());
+      ExecutionException failure =
+          assertThrows(ExecutionException.class, () -> save.get().get(30, TimeUnit.SECONDS));
+      assertTrue(
+          failure.getCause() instanceof RatchetOptimisticLockException,
+          () -> "expected a stale save, got " + failure.getCause());
       // save() locks the queue row first, which the park holds, so it waits for the park to commit.
       assertFalse(saveReachedBeforeCommit.get(), "the save wrote the job row mid-park");
-      assertTrue(permits.findResourcesWithWaiters(null, 10).isEmpty());
-      assertEquals("res-b", store.findById(waiter.getId()).orElseThrow().getResourceName());
+      assertEquals(List.of("res-a"), permits.findResourcesWithWaiters(null, 10));
+      JobEntity parked = store.findById(waiter.getId()).orElseThrow();
+      assertEquals(JobStatus.PENDING, parked.getStatus());
+      assertEquals("res-a", parked.getResourceName());
     } finally {
       fixture().observeNativeQueries((sql, event) -> {});
       executor.shutdownNow();

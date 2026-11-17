@@ -905,7 +905,7 @@ final class MongoJobLifecycleOperations
           .updateOne(
               session,
               eq(ID, job.get(ID)),
-              combine(set(STATUS, "PAUSED"), set(PAUSED_FROM_STATUS, "PENDING")));
+              combine(set(STATUS, "PAUSED"), set(PAUSED_FROM_STATUS, "PENDING"), inc(VERSION, 1)));
     }
   }
 

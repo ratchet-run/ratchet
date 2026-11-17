@@ -17,12 +17,15 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
 import java.util.List;
@@ -685,5 +688,36 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
       ids.add(UUID.randomUUID());
     }
     assertThrows(IllegalArgumentException.class, () -> store().findStatusesByIds(ids));
+  }
+
+  @Test
+  void scheduledTimeSaveRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    JobEntity current = store().findById(job.getId()).orElseThrow();
+    Instant moved = Instant.now().plusSeconds(3600).truncatedTo(ChronoUnit.MILLIS);
+    current.setScheduledTime(moved);
+    store().save(current);
+    assertNotEquals(stale.getVersion(), store().findById(job.getId()).orElseThrow().getVersion());
+    assertStaleSaveRejected(stale);
+    assertEquals(moved, store().findById(job.getId()).orElseThrow().getScheduledTime());
+    current.setScheduledTime(moved.plusSeconds(60));
+    store().save(current);
+    assertEquals(
+        moved.plusSeconds(60), store().findById(job.getId()).orElseThrow().getScheduledTime());
+  }
+
+  @Test
+  void staleSaveMatchingCurrentHotFieldsIsRejected() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().tryPickUpJob(job.getId(), "node-a"));
+    long claimSeq = store().findById(job.getId()).orElseThrow().getClaimSeq();
+    assertTrue(store().resetRunningJob(job.getId(), "node-a", claimSeq));
+    stale.setSupersededBy(UUID.randomUUID());
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertNull(after.getSupersededBy());
   }
 }

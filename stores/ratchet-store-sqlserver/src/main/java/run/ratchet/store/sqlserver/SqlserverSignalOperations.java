@@ -137,7 +137,7 @@ final class SqlserverSignalOperations implements SignalStore {
               signal_delivered_at = ?,
               signal_delivered_by = ?,
               signal_delivery_id = ?,
-              updated_at = SYSUTCDATETIME()
+              updated_at = SYSUTCDATETIME(), version = version + 1
           WHERE job_id = ? AND status = 'WAITING'
           """;
       int updated =
@@ -187,7 +187,7 @@ final class SqlserverSignalOperations implements SignalStore {
               signal_delivered_at = ?,
               signal_delivered_by = ?,
               signal_delivery_id = ?,
-              updated_at = SYSUTCDATETIME()
+              updated_at = SYSUTCDATETIME(), version = q.version + 1
           FROM scheduler_job_queue q WITH (FORCESEEK, INDEX(idx_signal_key_status))
           WHERE q.signal_key = CAST(? AS VARCHAR(8000)) AND q.signal_key = ? AND q.status = 'WAITING'
           """;

@@ -687,6 +687,30 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
         "addChildExecutionTime for unknown batch should not throw");
   }
 
+  @Test
+  void pauseBatchChildrenRejectsStaleSave() {
+    JobEntity parent = persist(newBatchParentJob());
+    JobEntity child = cascadeChild(parent.getId(), JobStatus.PENDING);
+    JobEntity stale = store().findById(child.getId()).orElseThrow();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().pauseBatchChildren(parent.getId()));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(child.getId()));
+  }
+
+  @Test
+  void resumeBatchChildrenRejectsStaleSave() {
+    JobEntity parent = persist(newBatchParentJob());
+    JobEntity child = cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().pauseBatchChildren(parent.getId()));
+    JobEntity stale = store().findById(child.getId()).orElseThrow();
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().resumeBatchChildren(parent.getId()));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.PENDING, store().getJobStatus(child.getId()));
+  }
+
   private BatchMetricsEntity newMetrics(UUID batchId) {
     BatchMetricsEntity metrics = new BatchMetricsEntity();
     metrics.setBatchId(batchId);

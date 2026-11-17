@@ -17,11 +17,14 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Sorts.ascending;
+import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -34,6 +37,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.TagStore;
 
@@ -62,7 +66,10 @@ final class MongoTagOperations implements TagStore {
     }
     try {
       Document update = new Document("$addToSet", new Document(TAGS, new Document("$each", tags)));
-      UpdateResult primary = ctx.jobs().updateOne(eq(ID, jobId), update);
+      UpdateResult primary =
+          ctx.jobs()
+              .updateOne(
+                  eq(ID, jobId), new Document(update).append("$inc", new Document(VERSION, 1)));
       if (primary.getMatchedCount() == 0) {
         ctx.recurringJobs().updateOne(eq(ID, jobId), update);
       }
@@ -74,11 +81,12 @@ final class MongoTagOperations implements TagStore {
   @Override
   public int deleteTagsByJobId(UUID jobId) {
     try {
-      int removed = clearTagsIn(ctx.jobs(), jobId, -1);
+      int removed =
+          clearTagsIn(ctx.jobs(), jobId, -1, combine(set(TAGS, List.of()), inc(VERSION, 1)));
       if (removed >= 0) {
         return removed;
       }
-      int removedRecurring = clearTagsIn(ctx.recurringJobs(), jobId, -1);
+      int removedRecurring = clearTagsIn(ctx.recurringJobs(), jobId, -1, set(TAGS, List.of()));
       return Math.max(removedRecurring, 0);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete job tags", e);
@@ -90,11 +98,12 @@ final class MongoTagOperations implements TagStore {
    * notFound} when no document matched. Used by {@link #deleteTagsByJobId} to probe both
    * collections without raising on the miss case.
    */
-  private int clearTagsIn(MongoCollection<Document> collection, UUID jobId, int notFound) {
+  private int clearTagsIn(
+      MongoCollection<Document> collection, UUID jobId, int notFound, Bson update) {
     Document before =
         collection.findOneAndUpdate(
             eq(ID, jobId),
-            set(TAGS, List.of()),
+            update,
             new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
     if (before == null) {
       return notFound;

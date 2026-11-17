@@ -141,7 +141,7 @@ final class PostgresqlSignalOperations implements SignalStore {
               signal_delivered_at = ?,
               signal_delivered_by = ?,
               signal_delivery_id = ?,
-              updated_at = NOW()
+              updated_at = NOW(), version = version + 1
           WHERE job_id = ? AND status = 'WAITING'
           """;
       int updated =
@@ -186,7 +186,7 @@ final class PostgresqlSignalOperations implements SignalStore {
               signal_delivered_at = ?,
               signal_delivered_by = ?,
               signal_delivery_id = ?,
-              updated_at = NOW()
+              updated_at = NOW(), version = version + 1
           WHERE signal_key = ? AND status = 'WAITING'
           """;
       int updated =

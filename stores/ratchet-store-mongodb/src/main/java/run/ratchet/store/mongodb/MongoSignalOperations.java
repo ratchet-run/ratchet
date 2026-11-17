@@ -21,6 +21,7 @@ import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_DELIVERED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_DELIVERED_BY;
@@ -33,6 +34,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_REJECTION_REASON;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_TIMEOUT;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import static run.ratchet.store.mongodb.MongoStoreContext.TRANSACTION_OPTIONS;
 
 import com.mongodb.client.ClientSession;
@@ -109,7 +111,8 @@ final class MongoSignalOperations implements SignalStore {
             set(SIGNAL_DELIVERED_AT, deliveredAt != null ? Date.from(deliveredAt) : null),
             set(SIGNAL_DELIVERED_BY, deliveredBy),
             set(SIGNAL_DELIVERY_ID, deliveryId),
-            set(UPDATED_AT, updatedAt));
+            set(UPDATED_AT, updatedAt),
+            inc(VERSION, 1));
 
     try {
       Document found =
@@ -148,7 +151,8 @@ final class MongoSignalOperations implements SignalStore {
             set(SIGNAL_DELIVERED_AT, deliveredAt != null ? Date.from(deliveredAt) : null),
             set(SIGNAL_DELIVERED_BY, deliveredBy),
             set(SIGNAL_DELIVERY_ID, deliveryId),
-            set(UPDATED_AT, updatedAt));
+            set(UPDATED_AT, updatedAt),
+            inc(VERSION, 1));
 
     try (ClientSession session = ctx.startSession()) {
       UpdateResult result =

@@ -36,7 +36,7 @@ final class MysqlJobStatusTransitions {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'RUNNING', claim_seq = claim_seq + 1, picked_by = ?, picked_at = NOW(3), updated_at = NOW(3)
+        SET status = 'RUNNING', claim_seq = claim_seq + 1, picked_by = ?, picked_at = NOW(3), updated_at = NOW(3), version = version + 1
         WHERE job_id = ? AND status = 'PENDING'
         """;
     return ctx.timedStoreOperation(
@@ -77,7 +77,7 @@ final class MysqlJobStatusTransitions {
       String sql =
           """
           UPDATE scheduler_job_queue
-          SET status = 'PAUSED', paused_from_status = ?, updated_at = NOW(3)
+          SET status = 'PAUSED', paused_from_status = ?, updated_at = NOW(3), version = version + 1
           WHERE job_id = ? AND status = ?
           """;
       int updated =
@@ -105,7 +105,7 @@ final class MysqlJobStatusTransitions {
       String sql =
           """
           UPDATE scheduler_job_queue
-          SET status = ?, paused_from_status = NULL, updated_at = NOW(3)
+          SET status = ?, paused_from_status = NULL, updated_at = NOW(3), version = version + 1
           WHERE job_id = ? AND status = 'PAUSED'
           """;
       int updated =
@@ -147,7 +147,7 @@ final class MysqlJobStatusTransitions {
       String updateSql =
           """
           UPDATE scheduler_job_queue
-          SET status = ?, paused_from_status = NULL, updated_at = NOW(3)
+          SET status = ?, paused_from_status = NULL, updated_at = NOW(3), version = version + 1
           WHERE job_id = ? AND status = 'PAUSED'
           """;
       int updated =

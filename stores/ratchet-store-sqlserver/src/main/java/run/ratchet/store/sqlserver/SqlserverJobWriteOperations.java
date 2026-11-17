@@ -533,7 +533,8 @@ final class SqlserverJobWriteOperations {
     if (job.getRowVersion() != ((Number) row[IDX_HOT_ROW_VERSION]).intValue()) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
-    if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
+    boolean scheduledTimeOnly = tryScheduledTimeOnlyHotUpdate(job, row);
+    if (!scheduledTimeOnly && !tryHotMutationDispatch(job, row)) {
       guardAgainstHotMutation(job, row);
     }
     // Fast paths write only the queue row, so always update the job row too.
@@ -573,9 +574,13 @@ final class SqlserverJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
-    job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
     // Under the job-row lock, keep only a waiter on the resource this save stores.
     deleteWaiterOffResource(job.getId(), job.getResourceName());
+    // Advance the entity only after every statement of the save has succeeded.
+    if (scheduledTimeOnly) {
+      job.setVersion(((Number) row[IDX_HOT_VERSION]).intValue() + 1);
+    }
+    job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
@@ -609,7 +614,7 @@ final class SqlserverJobWriteOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
+        SET scheduled_time = ?, updated_at = SYSUTCDATETIME(), version = version + 1
         WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
@@ -788,7 +793,9 @@ final class SqlserverJobWriteOperations {
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
       checkHotField(id, "lastError", incoming.getLastError(), row[IDX_HOT_LAST_ERROR]);
       Integer storedVersion = ((Number) row[IDX_HOT_VERSION]).intValue();
-      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      if (!Objects.equals(incoming.getVersion(), storedVersion)) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       return;
     }
 

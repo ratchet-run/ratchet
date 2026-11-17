@@ -56,7 +56,7 @@ final class PostgresqlJobTerminalOperations {
             String sql =
                 """
                 UPDATE scheduler_job_queue
-                SET status = ?, last_error = ?, updated_at = statement_timestamp()
+                SET status = ?, last_error = ?, updated_at = statement_timestamp(), version = version + 1
                 WHERE job_id = ?
                 """;
             return ctx.em()
@@ -93,7 +93,7 @@ final class PostgresqlJobTerminalOperations {
             String sql =
                 """
                 UPDATE scheduler_job_queue
-                SET status = ?, last_error = ?, updated_at = statement_timestamp()
+                SET status = ?, last_error = ?, updated_at = statement_timestamp(), version = version + 1
                 WHERE job_id = ? AND status = ?
                 """;
             return ctx.em()
@@ -124,7 +124,7 @@ final class PostgresqlJobTerminalOperations {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET attempts = attempts + 1, updated_at = statement_timestamp()
+        SET attempts = attempts + 1, updated_at = statement_timestamp(), version = version + 1
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
         RETURNING attempts
         """
@@ -219,7 +219,7 @@ final class PostgresqlJobTerminalOperations {
         UPDATE scheduler_job_queue
         SET status = '%s', paused_from_status = %s,
             last_error = ?, scheduled_time = ?%s,
-            picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp()
+            picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp(), version = version + 1
         WHERE job_id = ? AND %s%s
         """
             .formatted(
@@ -674,7 +674,7 @@ final class PostgresqlJobTerminalOperations {
     }
     String updateSql =
         """
-        UPDATE scheduler_job_queue SET status = 'PAUSED', paused_from_status = 'PENDING'
+        UPDATE scheduler_job_queue SET status = 'PAUSED', paused_from_status = 'PENDING', version = version + 1
         WHERE job_id IN (%s)
         """
             .formatted(String.join(", ", Collections.nCopies(childIds.size(), "?")));

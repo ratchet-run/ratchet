@@ -37,7 +37,7 @@ final class SqlserverJobStatusTransitions {
         """
         UPDATE scheduler_job_queue
         SET status = 'RUNNING', claim_seq = claim_seq + 1, picked_by = ?, picked_at = SYSUTCDATETIME(),
-            updated_at = SYSUTCDATETIME()
+            updated_at = SYSUTCDATETIME(), version = version + 1
         WHERE job_id = ? AND status = 'PENDING'
         """;
     return ctx.timedStoreOperation(
@@ -72,7 +72,7 @@ final class SqlserverJobStatusTransitions {
       String sql =
           """
           UPDATE scheduler_job_queue
-          SET status = 'PAUSED', paused_from_status = ?, updated_at = SYSUTCDATETIME()
+          SET status = 'PAUSED', paused_from_status = ?, updated_at = SYSUTCDATETIME(), version = version + 1
           WHERE job_id = ? AND status = ?
           """;
       int updated =
@@ -100,7 +100,7 @@ final class SqlserverJobStatusTransitions {
       String sql =
           """
           UPDATE scheduler_job_queue
-          SET status = ?, paused_from_status = NULL, updated_at = SYSUTCDATETIME()
+          SET status = ?, paused_from_status = NULL, updated_at = SYSUTCDATETIME(), version = version + 1
           WHERE job_id = ? AND status = 'PAUSED'
           """;
       int updated =
@@ -138,7 +138,7 @@ final class SqlserverJobStatusTransitions {
       String updateSql =
           """
           UPDATE scheduler_job_queue
-          SET status = ?, paused_from_status = NULL, updated_at = SYSUTCDATETIME()
+          SET status = ?, paused_from_status = NULL, updated_at = SYSUTCDATETIME(), version = version + 1
           WHERE job_id = ? AND status = 'PAUSED'
           """;
       int updated =

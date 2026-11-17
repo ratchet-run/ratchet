@@ -288,15 +288,8 @@ final class MysqlJobWriteOperations {
     if (job.getRowVersion() != ((Number) row[IDX_HOT_ROW_VERSION]).intValue()) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
-    // A resource change or a reschedule leaves the waiting line. A park writes a waiter row only
-    // while the job names its resource, so a job stored with no resource has none to delete.
-    if (row[IDX_HOT_RESOURCE_NAME] != null
-        && (!Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())
-            || (row[0] != null
-                && !Objects.equals(RowValues.instantOrNull(row[1]), job.getScheduledTime())))) {
-      deleteWaiter(job.getId());
-    }
-    if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
+    boolean scheduledTimeOnly = tryScheduledTimeOnlyHotUpdate(job, row);
+    if (!scheduledTimeOnly && !tryHotMutationDispatch(job, row)) {
       guardAgainstHotMutation(job, row);
     }
     // Fast paths write only the queue row, so always update the job row too.
@@ -335,6 +328,18 @@ final class MysqlJobWriteOperations {
             .executeUpdate();
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    // A resource change or a reschedule leaves the waiting line. A park writes a waiter row only
+    // while the job names its resource, so a job stored with no resource has none to delete.
+    if (row[IDX_HOT_RESOURCE_NAME] != null
+        && (!Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())
+            || (row[0] != null
+                && !Objects.equals(RowValues.instantOrNull(row[1]), job.getScheduledTime())))) {
+      deleteWaiter(job.getId());
+    }
+    // Advance the entity only after every statement of the save has succeeded.
+    if (scheduledTimeOnly) {
+      job.setVersion(((Number) row[7]).intValue() + 1);
     }
     job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
   }
@@ -521,7 +526,7 @@ final class MysqlJobWriteOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET scheduled_time = ?, updated_at = NOW(3)
+        SET scheduled_time = ?, updated_at = NOW(3), version = version + 1
         WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
@@ -697,7 +702,9 @@ final class MysqlJobWriteOperations {
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
       checkHotField(id, "lastError", incoming.getLastError(), row[6]);
       Integer storedVersion = ((Number) row[7]).intValue();
-      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      if (!Objects.equals(incoming.getVersion(), storedVersion)) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       return;
     }
 

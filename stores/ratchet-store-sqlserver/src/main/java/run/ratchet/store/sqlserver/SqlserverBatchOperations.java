@@ -206,8 +206,9 @@ final class SqlserverBatchOperations implements BatchStore {
       } else {
         String assignments =
             operation.equals("pause")
-                ? "status = 'PAUSED', paused_from_status = 'PENDING'"
-                : "status = COALESCE(paused_from_status, 'PENDING'), paused_from_status = NULL";
+                ? "status = 'PAUSED', paused_from_status = 'PENDING', version = version + 1"
+                : "status = COALESCE(paused_from_status, 'PENDING'), paused_from_status = NULL,"
+                    + " version = version + 1";
         sql =
             """
             UPDATE q SET %s, updated_at = SYSUTCDATETIME()

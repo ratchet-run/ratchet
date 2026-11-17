@@ -192,7 +192,7 @@ final class OracleSignalOperations implements SignalStore {
             signal_delivered_at = ?,
             signal_delivered_by = ?,
             signal_delivery_id = ?,
-            updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
         """
             + "WHERE "
             + selectorPredicate

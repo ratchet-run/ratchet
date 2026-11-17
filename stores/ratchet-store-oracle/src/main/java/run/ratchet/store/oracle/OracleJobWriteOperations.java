@@ -285,11 +285,8 @@ final class OracleJobWriteOperations {
     if (job.getRowVersion() != ((Number) row[IDX_HOT_ROW_VERSION]).intValue()) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
-    // A job whose resource changes leaves the old resource's waiting line.
-    if (!Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())) {
-      deleteWaiter(job.getId());
-    }
-    if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
+    boolean scheduledTimeOnly = tryScheduledTimeOnlyHotUpdate(job, row);
+    if (!scheduledTimeOnly && !tryHotMutationDispatch(job, row)) {
       guardAgainstHotMutation(job, row);
     }
     // Fast paths write only the queue row, so always update the job row too.
@@ -328,6 +325,14 @@ final class OracleJobWriteOperations {
             .executeUpdate();
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
+    }
+    // A job whose resource changes leaves the old resource's waiting line.
+    if (!Objects.equals(row[IDX_HOT_RESOURCE_NAME], job.getResourceName())) {
+      deleteWaiter(job.getId());
+    }
+    // Advance the entity only after every statement of the save has succeeded.
+    if (scheduledTimeOnly) {
+      job.setVersion(((Number) row[7]).intValue() + 1);
     }
     job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
   }
@@ -514,7 +519,7 @@ final class OracleJobWriteOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
         WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
@@ -675,7 +680,9 @@ final class OracleJobWriteOperations {
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
       checkHotField(id, "lastError", incoming.getLastError(), RowValues.stringOrNull(row[6]));
       Integer storedVersion = ((Number) row[7]).intValue();
-      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      if (!Objects.equals(incoming.getVersion(), storedVersion)) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       return;
     }
 

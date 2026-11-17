@@ -36,7 +36,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
@@ -1221,15 +1220,6 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
         assertRunningExecution(auditStore().findExecutionsByJobId(after.getId(), 100, 0).get(0));
       }
     }
-  }
-
-  private void assertStaleSaveRejected(JobEntity stale) {
-    RuntimeException failure = assertThrows(RuntimeException.class, () -> store().save(stale));
-    Throwable cause = failure;
-    while (cause != null && !(cause instanceof RatchetOptimisticLockException)) {
-      cause = cause.getCause();
-    }
-    assertTrue(cause instanceof RatchetOptimisticLockException);
   }
 
   private void assertPendingClaimReleased(JobEntity stale) {

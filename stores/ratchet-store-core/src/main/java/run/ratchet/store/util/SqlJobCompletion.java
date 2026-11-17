@@ -136,7 +136,9 @@ public final class SqlJobCompletion {
     // The row is already locked. Most completions retain its attempt count, so avoid an
     // extra write while preserving plans that deliberately change terminal history.
     if (((Number) primary[3]).intValue() != plan.attempts()) {
-      em.createNativeQuery("UPDATE scheduler_job_queue SET attempts = ? WHERE job_id = ?")
+      em.createNativeQuery(
+              "UPDATE scheduler_job_queue SET attempts = ?, version = version + 1"
+                  + " WHERE job_id = ?")
           .setParameter(1, plan.attempts())
           .setParameter(2, uuid.apply(plan.jobId()))
           .executeUpdate();
