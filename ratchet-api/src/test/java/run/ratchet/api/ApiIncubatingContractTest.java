@@ -57,6 +57,7 @@ class ApiIncubatingContractTest {
     assertIncubating(JobSchedulerService.class);
     assertIncubating(JobQueryService.class);
     assertIncubating(JobContext.class);
+    assertIncubating(TransactionalUnit.class);
   }
 
   @Test

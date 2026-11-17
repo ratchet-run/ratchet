@@ -40,6 +40,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SignalDecision;
+import run.ratchet.api.TransactionalUnit;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.CancellationRequestedException;
@@ -425,6 +426,12 @@ public class JobTask implements Callable<Void> {
                                                             row.getSetId(),
                                                             row.getPartitionIndex()))))
                         .orElse(null)
+                    : null,
+                jobTransaction != null
+                    ? new UnitCarrier(
+                        jobTransaction,
+                        jobStore.capability(TransactionalCompletionStore.class).orElse(null),
+                        () -> TransactionalPoolWarning.check(connectionPoolSize, connectionPools))
                     : null);
       jobStore
           .capability(JobStateStore.class)
@@ -1462,6 +1469,11 @@ public class JobTask implements Callable<Void> {
         @Override
         public void write(String value) {
           throw new IllegalStateException("@TransactionalJob does not support checkpoint()");
+        }
+
+        @Override
+        public String runInTransaction(TransactionalUnit unit) {
+          throw new IllegalStateException("@TransactionalJob does not support runInTransaction()");
         }
 
         @Override

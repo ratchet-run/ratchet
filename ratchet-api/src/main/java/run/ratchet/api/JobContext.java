@@ -273,8 +273,9 @@ public final class JobContext {
 
   /**
    * Binds a context for unit tests of job code. The supplier decides what {@link
-   * #isCurrentAttempt()} returns. The in-memory checkpoint holder ignores transactions. Always pair
-   * with {@link #clear()} in a finally block.
+   * #isCurrentAttempt()} returns. The in-memory checkpoint holder enforces one checkpoint mode and
+   * one unit at a time, but runs units without a transaction. Always pair with {@link #clear()} in
+   * a finally block.
    */
   public static JobContext bindAttempt(
       UUID jobId,
@@ -286,8 +287,9 @@ public final class JobContext {
   }
 
   /**
-   * Binds a seeded in-memory checkpoint holder for unit tests of job code. This holder ignores
-   * transactions. Always pair with {@link #clear()} in a finally block.
+   * Binds a seeded in-memory checkpoint holder for unit tests of job code. This holder enforces one
+   * checkpoint mode and one unit at a time, but runs units without a transaction. Always pair with
+   * {@link #clear()} in a finally block.
    */
   public static JobContext bindAttempt(
       UUID jobId,
@@ -324,7 +326,8 @@ public final class JobContext {
    * data. Values are encrypted at rest when payload encryption is enabled.
    *
    * @throws IllegalStateException in a {@link TransactionalJob}, or outside an executing persisted
-   *     attempt, including lifecycle callbacks
+   *     attempt, including lifecycle callbacks, or when this attempt saves checkpoints with {@link
+   *     #runInTransaction(TransactionalUnit)}
    * @throws UnsupportedOperationException if the store does not support job state; call {@link
    *     #lastCheckpoint()} before doing work to check support
    * @throws AttemptSupersededException if this attempt has been replaced; stop doing work, as its
@@ -350,6 +353,49 @@ public final class JobContext {
    */
   public Optional<String> lastCheckpoint() {
     return requireCheckpoints().read();
+  }
+
+  /**
+   * Runs one unit of work in a new transaction on Ratchet's datasource, and saves the unit's result
+   * as the checkpoint in that same transaction. The work and the checkpoint commit or roll back
+   * together, so a retry resumes after the last unit that committed.
+   *
+   * <p>Ratchet passes the unit the latest committed checkpoint, or null when none is saved. The
+   * unit returns the next checkpoint and must not return null; return your own end marker after the
+   * last unit. When the unit returns, Ratchet locks the job's queue row and checks that this
+   * attempt still owns the job. The lock lasts until the commit. If the attempt lost the job, the
+   * unit rolls back and this method throws {@link AttemptSupersededException}.
+   *
+   * <p>Call it with no transaction open; Ratchet starts the transaction. Only work done through the
+   * datasource of Ratchet's store is inside it. Run one unit at a time. An attempt that uses this
+   * method cannot use {@link #checkpoint(String)}, and the reverse. A failure inside the unit rolls
+   * it back and reaches the caller unchanged; Ratchet does not rerun the unit. If a commit fails
+   * and its outcome is unknown, Ratchet reads the stored checkpoint again before the next unit or
+   * {@link #lastCheckpoint()}.
+   *
+   * <p>A unit must not swallow a failure from a transactional call it makes. That can mark the
+   * transaction rollback-only. Then nothing is saved and this method throws.
+   *
+   * @return the checkpoint the unit returned, once committed
+   * @throws IllegalStateException before the unit runs if a transaction is open, another unit of
+   *     this attempt is running, this attempt used {@link #checkpoint(String)}, the job is a {@link
+   *     TransactionalJob}, or outside an executing persisted attempt; after the unit ran and rolled
+   *     back if the stored checkpoint changed outside this attempt, or Ratchet could not confirm
+   *     the commit, for example because the unit caught a failure from a nested transactional call
+   *     that marked the transaction rollback-only
+   * @throws CancellationRequestedException if cancellation was requested; the unit does not run
+   * @throws UnsupportedOperationException if the store cannot save a checkpoint in the unit's
+   *     transaction, for example MongoDB; the unit does not run
+   * @throws AttemptSupersededException if this attempt has been replaced; nothing was saved
+   * @throws NullPointerException if {@code unit} is null, or the unit returned null (it rolled
+   *     back)
+   * @throws IllegalArgumentException if the framed result exceeds 1 MiB (the unit rolled back)
+   * @throws Exception whatever the unit throws (the unit rolled back)
+   */
+  public String runInTransaction(TransactionalUnit unit) throws Exception {
+    Objects.requireNonNull(unit);
+    throwIfCancellationRequested();
+    return requireCheckpoints().runInTransaction(unit);
   }
 
   /**
@@ -425,6 +471,9 @@ public final class JobContext {
 
   private static final class InMemoryCheckpoints implements JobCheckpoints {
     private @Nullable String value;
+    private boolean deferred;
+    private boolean units;
+    private boolean unitOpen;
 
     private InMemoryCheckpoints(@Nullable String value) {
       this.value = value;
@@ -432,7 +481,33 @@ public final class JobContext {
 
     @Override
     public synchronized void write(String value) {
+      if (units) throw new IllegalStateException("This attempt used runInTransaction()");
+      deferred = true;
       this.value = value;
+    }
+
+    @Override
+    public String runInTransaction(TransactionalUnit unit) throws Exception {
+      String checkpoint;
+      synchronized (this) {
+        if (deferred) throw new IllegalStateException("This attempt used checkpoint()");
+        if (unitOpen) throw new IllegalStateException("Another unit of this attempt is running");
+        units = true;
+        unitOpen = true;
+        checkpoint = value;
+      }
+      try {
+        String next =
+            Objects.requireNonNull(unit.run(checkpoint), "Unit checkpoint must not be null");
+        synchronized (this) {
+          value = next;
+        }
+        return next;
+      } finally {
+        synchronized (this) {
+          unitOpen = false;
+        }
+      }
     }
 
     @Override

@@ -15,9 +15,15 @@
  */
 package run.ratchet.store.oracle;
 
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.time.Duration;
+import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractTransactionalCompletionStoreContract;
+import run.ratchet.tck.store.JdbcLockWait;
 
 class OracleTransactionalCompletionStoreContractTest
     extends AbstractTransactionalCompletionStoreContract {
@@ -42,5 +48,82 @@ class OracleTransactionalCompletionStoreContractTest
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Override
+  public void inOwnerTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
+
+  @Override
+  public boolean supportsOwnerTransaction() {
+    return true;
+  }
+
+  @Override
+  public Object ownerSessionId() {
+    return fixture.currentSessionId("SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'SID')) FROM dual");
+  }
+
+  @Override
+  public boolean awaitBlockedSession(Object waiter, Object holder, Duration timeout) {
+    // The ratchet user cannot read v$session. The container gives SYSTEM the same password.
+    var container = fixture.container();
+    return JdbcLockWait.awaitBlockedSession(
+        () ->
+            DriverManager.getConnection(container.getJdbcUrl(), "system", container.getPassword()),
+        "SELECT COUNT(*) FROM v$session WHERE sid = ? AND blocking_session = ?",
+        timeout,
+        ((Number) waiter).longValue(),
+        ((Number) holder).longValue());
+  }
+
+  @Override
+  public int countStoreStatements(Runnable work) {
+    return fixture.countStoreStatements(work);
+  }
+
+  @Override
+  public void inOwnerTransactionAtSnapshotIsolation(Runnable work) {
+    fixture.runInTransaction(
+        () -> {
+          fixture.executeInCurrentTransaction("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+          work.run();
+        });
+  }
+
+  @Override
+  public boolean isSerializationFailure(Throwable t) {
+    for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+      if (cause instanceof SQLException sql && sql.getErrorCode() == 8177) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
+  public boolean queueRowUpdateLockRefused(UUID jobId) {
+    try (var connection = fixture.openConnection()) {
+      connection.setAutoCommit(false);
+      try {
+        try (var statement =
+            connection.prepareStatement(
+                "SELECT 1 FROM scheduler_job_queue WHERE job_id = ? FOR UPDATE NOWAIT")) {
+          statement.setBytes(1, UuidRawConverter.toBytes(jobId));
+          try (var rows = statement.executeQuery()) {
+            if (!rows.next()) throw new IllegalStateException("Queue row missing: " + jobId);
+            return false;
+          }
+        } catch (SQLException failure) {
+          if (failure.getErrorCode() == 54) return true;
+          throw failure;
+        }
+      } finally {
+        connection.rollback();
+      }
+    } catch (SQLException failure) {
+      throw new IllegalStateException("Queue-row lock probe failed for " + jobId, failure);
+    }
   }
 }
