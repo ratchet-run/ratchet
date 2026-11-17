@@ -160,8 +160,8 @@ properties also remain `VARCHAR`: an `NVARCHAR` `(property_key, value)` index wo
 Stop writers and apply V018 before starting the updated store. The migration checks all
 seven business-key tables first and fails with the table name if a key exceeds 255
 characters, including trailing spaces. It rebuilds dependent indexes and key constraints,
-so allow a maintenance window for large tables. The database collation and its comparison
-rules remain unchanged. Values SQL Server already changed to `?` or an unaccented letter
+so allow a maintenance window for large tables. Key columns use `Latin1_General_100_BIN2`. Keys compare exactly and are case-sensitive.
+Free-text columns keep their existing collation, normally the database collation. Values SQL Server already changed to `?` or an unaccented letter
 cannot be restored by this migration.
 
 The Spring Boot SQL consumer lane validates Ratchet entities as well as consumer entities.

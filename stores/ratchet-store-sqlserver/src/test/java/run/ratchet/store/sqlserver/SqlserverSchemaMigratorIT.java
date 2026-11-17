@@ -94,6 +94,8 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
           "scheduler_batch_metrics",
           "scheduler_batch",
           "scheduler_job_archive",
+          "scheduler_idempotency_key",
+          "scheduler_dlq_alerts",
           "scheduler_job",
           "scheduler_recurring_job_archive",
           "scheduler_recurring_job",
@@ -219,7 +221,7 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
               """
               SELECT collation_name, CONVERT(NVARCHAR(128), DATABASEPROPERTYEX(DB_NAME(), 'Collation'))
               FROM sys.columns
-              WHERE object_id = OBJECT_ID('scheduler_node') AND name = 'node_id'
+              WHERE object_id = OBJECT_ID('scheduler_partition_set') AND name = 'name'
               """)) {
         assertTrue(rows.next());
         assertEquals(rows.getString(2), rows.getString(1));
@@ -236,6 +238,55 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
         assertTrue(rows.next());
         assertEquals(persistedSample, rows.getBoolean(1));
         assertEquals(0, persistedSamplePercent.compareTo(rows.getBigDecimal(2)));
+      }
+      for (String keyColumn :
+          List.of(
+              "scheduler_node.node_id",
+              "scheduler_lock.lock_name",
+              "scheduler_lock.owner_node",
+              "scheduler_resource_limit.resource_name",
+              "scheduler_recurring_job.business_key",
+              "scheduler_recurring_job.resource_name",
+              "scheduler_recurring_job.execution_target",
+              "scheduler_recurring_job_archive.business_key",
+              "scheduler_recurring_job_archive.execution_target",
+              "scheduler_job.idempotency_key",
+              "scheduler_job.business_key",
+              "scheduler_job.resource_name",
+              "scheduler_job.execution_target",
+              "scheduler_job_queue.business_key",
+              "scheduler_job_queue.picked_by",
+              "scheduler_job_queue.signal_key",
+              "scheduler_job_queue.execution_target",
+              "scheduler_business_key_reservation.business_key",
+              "scheduler_business_key_reservation.held_by_node",
+              "scheduler_job_tag.tag",
+              "scheduler_job_execution.node_id",
+              "scheduler_job_archive.business_key",
+              "scheduler_job_archive.archived_by",
+              "scheduler_job_archive.tags",
+              "scheduler_resource_permit.resource_name",
+              "scheduler_resource_permit.node_id",
+              "scheduler_idempotency_key.idempotency_key",
+              "scheduler_event_outbox.business_key",
+              "scheduler_event_outbox.node_id",
+              "scheduler_partition_set.set_key",
+              "scheduler_resource_waiter.resource_name")) {
+        String[] parts = keyColumn.split("\\.");
+        try (var column =
+            c.prepareStatement(
+                """
+                SELECT collation_name FROM sys.columns
+                WHERE object_id = OBJECT_ID(?) AND name = ?
+                """)) {
+          column.setString(1, parts[0]);
+          column.setString(2, parts[1]);
+          try (var result = column.executeQuery()) {
+            assertTrue(result.next(), keyColumn);
+            assertEquals("Latin1_General_100_BIN2", result.getString(1), keyColumn);
+            assertFalse(result.next(), keyColumn);
+          }
+        }
       }
       for (String expected :
           List.of(

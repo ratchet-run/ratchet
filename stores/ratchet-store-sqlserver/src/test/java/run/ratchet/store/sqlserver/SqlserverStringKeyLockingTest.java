@@ -217,7 +217,7 @@ class SqlserverStringKeyLockingTest {
     }
   }
 
-  // The default collation is accent sensitive, so U+0101 and 'a' name different keys. Each write
+  // The binary key collation treats U+0101 and 'a' as different keys. Each write
   // to the look-alike key must succeed and leave the ASCII key unchanged.
   @Test
   void permitAcquireAndConfigurationDoNotMatchALookAlikeResource() {

@@ -169,7 +169,8 @@ keys on SQL Server; this does not expand the RI's cross-store API contract.
 SQL Server also uses bounded `NVARCHAR` for resource names, tags, signal keys, node ids and
 caller/configured text. The table above uses generic SQL type names; see the
 [SQL Server deployment guide](../deployment/sqlserver.md#unicode-keys-and-migration-v018)
-for its physical types. The migration preserves the database collation. Values already
+for its physical types. The migration gives key columns the binary `Latin1_General_100_BIN2` collation.
+Free-text columns keep their existing collation. Values already
 changed to `?` or an unaccented letter cannot be recovered by changing the column type.
 
 ### Indexes

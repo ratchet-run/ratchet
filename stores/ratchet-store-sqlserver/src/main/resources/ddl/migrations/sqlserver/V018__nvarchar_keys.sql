@@ -1,6 +1,7 @@
 -- ratchet:single-statement
 -- Stop writers before migration. SchemaMigrator executes this batch in one transaction.
--- Keep each column's current collation; Unicode storage does not change comparisons.
+-- Key columns become binary (exact); free-text columns keep their current collation.
+-- BIN2 only makes keys more distinct, so unique keys cannot fail when rebuilt.
 -- Values already replaced by a code-page conversion cannot be recovered here.
 IF EXISTS (SELECT 1 FROM scheduler_recurring_job WHERE LEN(business_key + '#') - 1 > 255)
     THROW 50018, 'V018: scheduler_recurring_job.business_key exceeds 255 characters', 1;
@@ -69,47 +70,48 @@ BEGIN
            N'ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(c.object_id)) + N'.'
                + QUOTENAME(OBJECT_NAME(c.object_id)) + N' ALTER COLUMN ' + QUOTENAME(c.name)
                + N' NVARCHAR(' + CONVERT(NVARCHAR(10), v.length) + N') COLLATE '
-               + c.collation_name + CASE WHEN v.nullable = 1 THEN N' NULL' ELSE N' NOT NULL' END
+               + CASE WHEN v.is_key = 1 THEN N'Latin1_General_100_BIN2' ELSE c.collation_name END
+               + CASE WHEN v.nullable = 1 THEN N' NULL' ELSE N' NOT NULL' END
     FROM (VALUES
-        (1, N'scheduler_node', N'node_id', 64, 0),
-        (2, N'scheduler_lock', N'lock_name', 128, 0),
-        (3, N'scheduler_lock', N'owner_node', 64, 0),
-        (4, N'scheduler_resource_limit', N'resource_name', 100, 0),
-        (5, N'scheduler_resource_limit', N'description', 255, 1),
-        (6, N'scheduler_recurring_job', N'business_key', 255, 1),
-        (7, N'scheduler_recurring_job', N'resource_name', 100, 1),
-        (8, N'scheduler_recurring_job', N'execution_target', 64, 1),
-        (9, N'scheduler_recurring_job', N'caller_principal', 255, 1),
-        (10, N'scheduler_recurring_job_archive', N'business_key', 255, 1),
-        (11, N'scheduler_recurring_job_archive', N'execution_target', 64, 1),
-        (12, N'scheduler_recurring_job_archive', N'caller_principal', 255, 1),
-        (13, N'scheduler_job', N'idempotency_key', 36, 0),
-        (14, N'scheduler_job', N'business_key', 255, 1),
-        (15, N'scheduler_job', N'resource_name', 100, 1),
-        (16, N'scheduler_job', N'execution_target', 64, 1),
-        (17, N'scheduler_job', N'caller_principal', 255, 1),
-        (18, N'scheduler_job_queue', N'business_key', 255, 1),
-        (19, N'scheduler_job_queue', N'picked_by', 64, 1),
-        (20, N'scheduler_job_queue', N'signal_key', 255, 1),
-        (21, N'scheduler_job_queue', N'signal_delivered_by', 255, 1),
-        (22, N'scheduler_job_queue', N'execution_target', 64, 1),
-        (23, N'scheduler_business_key_reservation', N'business_key', 255, 0),
-        (24, N'scheduler_business_key_reservation', N'held_by_node', 64, 1),
-        (25, N'scheduler_job_tag', N'tag', 64, 0),
-        (26, N'scheduler_job_execution', N'node_id', 64, 0),
-        (27, N'scheduler_job_archive', N'business_key', 255, 1),
-        (28, N'scheduler_job_archive', N'archived_by', 64, 1),
-        (29, N'scheduler_job_archive', N'tags', 512, 1),
-        (30, N'scheduler_resource_permit', N'resource_name', 100, 0),
-        (31, N'scheduler_resource_permit', N'node_id', 64, 0),
-        (32, N'scheduler_idempotency_key', N'idempotency_key', 36, 0),
-        (33, N'scheduler_event_outbox', N'business_key', 255, 1),
-        (34, N'scheduler_event_outbox', N'node_id', 64, 1),
-        (35, N'scheduler_partition_set', N'set_key', 36, 0),
-        (36, N'scheduler_partition_set', N'name', 255, 0),
-        (37, N'scheduler_partition_set', N'owner_principal', 255, 1),
-        (38, N'scheduler_resource_waiter', N'resource_name', 100, 0)
-    ) v(sequence, table_name, column_name, length, nullable)
+        (1, N'scheduler_node', N'node_id', 64, 0, 1),
+        (2, N'scheduler_lock', N'lock_name', 128, 0, 1),
+        (3, N'scheduler_lock', N'owner_node', 64, 0, 1),
+        (4, N'scheduler_resource_limit', N'resource_name', 100, 0, 1),
+        (5, N'scheduler_resource_limit', N'description', 255, 1, 0),
+        (6, N'scheduler_recurring_job', N'business_key', 255, 1, 1),
+        (7, N'scheduler_recurring_job', N'resource_name', 100, 1, 1),
+        (8, N'scheduler_recurring_job', N'execution_target', 64, 1, 1),
+        (9, N'scheduler_recurring_job', N'caller_principal', 255, 1, 0),
+        (10, N'scheduler_recurring_job_archive', N'business_key', 255, 1, 1),
+        (11, N'scheduler_recurring_job_archive', N'execution_target', 64, 1, 1),
+        (12, N'scheduler_recurring_job_archive', N'caller_principal', 255, 1, 0),
+        (13, N'scheduler_job', N'idempotency_key', 36, 0, 1),
+        (14, N'scheduler_job', N'business_key', 255, 1, 1),
+        (15, N'scheduler_job', N'resource_name', 100, 1, 1),
+        (16, N'scheduler_job', N'execution_target', 64, 1, 1),
+        (17, N'scheduler_job', N'caller_principal', 255, 1, 0),
+        (18, N'scheduler_job_queue', N'business_key', 255, 1, 1),
+        (19, N'scheduler_job_queue', N'picked_by', 64, 1, 1),
+        (20, N'scheduler_job_queue', N'signal_key', 255, 1, 1),
+        (21, N'scheduler_job_queue', N'signal_delivered_by', 255, 1, 0),
+        (22, N'scheduler_job_queue', N'execution_target', 64, 1, 1),
+        (23, N'scheduler_business_key_reservation', N'business_key', 255, 0, 1),
+        (24, N'scheduler_business_key_reservation', N'held_by_node', 64, 1, 1),
+        (25, N'scheduler_job_tag', N'tag', 64, 0, 1),
+        (26, N'scheduler_job_execution', N'node_id', 64, 0, 1),
+        (27, N'scheduler_job_archive', N'business_key', 255, 1, 1),
+        (28, N'scheduler_job_archive', N'archived_by', 64, 1, 1),
+        (29, N'scheduler_job_archive', N'tags', 512, 1, 1),
+        (30, N'scheduler_resource_permit', N'resource_name', 100, 0, 1),
+        (31, N'scheduler_resource_permit', N'node_id', 64, 0, 1),
+        (32, N'scheduler_idempotency_key', N'idempotency_key', 36, 0, 1),
+        (33, N'scheduler_event_outbox', N'business_key', 255, 1, 1),
+        (34, N'scheduler_event_outbox', N'node_id', 64, 1, 1),
+        (35, N'scheduler_partition_set', N'set_key', 36, 0, 1),
+        (36, N'scheduler_partition_set', N'name', 255, 0, 0),
+        (37, N'scheduler_partition_set', N'owner_principal', 255, 1, 0),
+        (38, N'scheduler_resource_waiter', N'resource_name', 100, 0, 1)
+    ) v(sequence, table_name, column_name, length, nullable, is_key)
     JOIN sys.columns c ON c.object_id = OBJECT_ID(v.table_name) AND c.name = v.column_name;
     IF (SELECT COUNT(*) FROM @columns) < 38
         THROW 50018, 'V018: expected all 38 columns before converting to NVARCHAR', 1;

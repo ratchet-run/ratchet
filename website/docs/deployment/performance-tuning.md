@@ -170,7 +170,7 @@ public class ResourceLimitSetup implements SchedulerLifecycleHook {
 - On SQL stores the call joins the caller's transaction and locks the limit row until commit, which holds up permit requests for that resource. On MongoDB the change applies at once, and a rollback does not undo it.
 - `findResourceLimit(name)` and `listResourceLimits()` read limits back. On a store without the `ResourcePermitStore` capability, `setResourceLimit` throws `UnsupportedOperationException` and the reads return nothing.
 - A hook exception is logged and does not stop start-up. If a limit fails to save there, the first submit that names the resource fails with `ResourceNotConfiguredException`.
-- MySQL, and SQL Server with a case-insensitive collation, treat `GPU` and `gpu` as one resource. PostgreSQL, Oracle and MongoDB do not.
+- MySQL treats `GPU` and `gpu` as one resource. SQL Server, PostgreSQL, Oracle and MongoDB treat them as two resources.
 
 If a limit is deleted with SQL while jobs still name it, each of those jobs fails when it is next claimed. It uses no retry and goes to the dead-letter queue with `ResourceNotConfiguredException`. Set the limit again, then re-run the job with `retryJob`.
 
