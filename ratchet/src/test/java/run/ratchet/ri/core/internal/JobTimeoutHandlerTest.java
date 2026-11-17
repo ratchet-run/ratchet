@@ -2208,6 +2208,23 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void hardTimeoutWriteThatMissesWhileTheWorkerRuns_leavesTheCancelToTheWorker() throws Exception {
+    // The re-read finds the cancel, but the worker still runs, so it finishes the cancel itself.
+    missTimeoutWrite("increment");
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.CANCELED);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+
+    invokeHardTimeout(attempt, mock(Future.class));
+
+    Mockito.verifyNoInteractions(record, release);
+    assertTrue(attempt.workerEnded());
+  }
+
+  @Test
   void cooperativeTimeoutThatLosesToACancel_leavesTheCheckToTheWorker() {
     // The worker checks for the cancel itself once the cooperative transition returns.
     JobEntity job = jobWithMaxRetries(3);

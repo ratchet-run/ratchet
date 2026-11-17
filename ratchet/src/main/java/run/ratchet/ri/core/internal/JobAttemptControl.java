@@ -113,15 +113,15 @@ public final class JobAttemptControl {
   /**
    * Finishes a cancel that the hard-timeout watchdog found after the worker read the job RUNNING. A
    * running worker finishes it when it ends. For an ended worker this records the cancellation and
-   * releases the hold. With no worker yet, it releases the hold, because no body can start after
-   * the watchdog cancelled execution. Never throws.
+   * releases the hold. With no worker yet, it releases the hold only once execution is cancelled,
+   * because no body can start after that. Never throws.
    */
   public void finishCancelFoundByTimeout() {
     while (true) {
       CancelFinish state = cancelFinish.get();
       switch (state) {
         case NO_WORKER -> {
-          runQuietly(holdRelease, "release the business-key hold");
+          if (isExecutionCancelled()) runQuietly(holdRelease, "release the business-key hold");
           return;
         }
         case WORKER_RUNNING -> {
@@ -175,6 +175,12 @@ public final class JobAttemptControl {
   public void markBodyFinished() {
     synchronized (interruptLock) {
       bodyRunning = false;
+    }
+  }
+
+  private boolean isExecutionCancelled() {
+    synchronized (interruptLock) {
+      return executionCancelled;
     }
   }
 

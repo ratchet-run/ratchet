@@ -374,13 +374,30 @@ class JobAttemptControlTest {
     Runnable record = mock(Runnable.class);
     Runnable release = mock(Runnable.class);
     attempt.attachCancelFinish(record, release);
+    attempt.cancelExecution(new FutureTask<>(() -> null));
 
     attempt.finishCancelFoundByTimeout();
 
     verify(release).run();
     verifyNoInteractions(record);
     attempt.workerStarted();
+    assertFalse(attempt.markBodyStarted());
     assertTrue(attempt.claimCancelFinish());
+  }
+
+  @Test
+  void cancelFoundBeforeTheWorkerStarts_keepsTheHoldUntilExecutionIsCancelled() {
+    // Without cancelExecution a worker could still start the body, so the hold must stay.
+    JobAttemptControl attempt = newAttempt();
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+
+    attempt.finishCancelFoundByTimeout();
+
+    verifyNoInteractions(record, release);
+    attempt.workerStarted();
+    assertTrue(attempt.markBodyStarted());
   }
 
   @Test
