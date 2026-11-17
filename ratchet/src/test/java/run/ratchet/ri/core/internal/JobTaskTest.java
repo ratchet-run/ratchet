@@ -322,13 +322,14 @@ class JobTaskTest {
     initJobTaskFromClaimWithDefaultStubs(claim, scenario.job());
     when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
         .thenReturn(StateWriteResult.UPDATED);
-    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 2, 7L)).thenReturn(true);
+    // The watchdog charged before hydration, so the stored count is 3 and a release fenced on the
+    // claim's count of 2 misses.
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 2, 7L)).thenReturn(false);
     jobTask.call();
+    verify(jobStore).releaseClaim(any(), any(), any(), anyInt(), anyLong());
     verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW, 2, 7L);
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-    Assertions.assertEquals(3, scenario.job().getAttempts());
-    Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
-    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
   }
 
   @Test
