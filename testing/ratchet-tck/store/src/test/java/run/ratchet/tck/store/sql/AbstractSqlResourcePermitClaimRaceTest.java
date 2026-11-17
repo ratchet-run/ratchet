@@ -18,7 +18,6 @@ package run.ratchet.tck.store.sql;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.ACQUIRED;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.AT_CAPACITY;
 import static run.ratchet.store.spi.ResourcePermitStore.AcquireResult.SUPERSEDED;
@@ -75,11 +74,6 @@ import run.ratchet.tck.store.JpaContainerFixture;
 public abstract class AbstractSqlResourcePermitClaimRaceTest {
 
   protected abstract JpaContainerFixture fixture();
-
-  /** Whether an acquire's resource lock also holds every other resource until it commits. */
-  protected boolean resourceLockBlocksOtherResources() {
-    return false;
-  }
 
   @BeforeEach
   @AfterEach
@@ -237,9 +231,6 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
   void staleAcquireKeepsTheWaiterANewerClaimParkedOnAnotherResource() throws Exception {
     var permits = fixture().resourcePermitStore();
     var store = fixture().store();
-    assumeFalse(
-        resourceLockBlocksOtherResources(),
-        "a park on res-b waits for the stale acquire to commit");
     permits.configureResource("res-a", 1, 0, null);
     permits.configureResource("res-b", 1, 60_000, null);
     var holderA = claimNewJob("res-a", "holder");

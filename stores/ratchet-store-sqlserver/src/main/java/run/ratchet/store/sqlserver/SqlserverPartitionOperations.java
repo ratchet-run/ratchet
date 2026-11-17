@@ -89,13 +89,17 @@ final class SqlserverPartitionOperations implements PartitionStore {
       jobs.reservePartitionParentKey(write.parent());
       PartitionSetEntity set = write.set();
       if (write.expectedVersion() == null) {
+        // The driver binds strings as NVARCHAR. Cast the key in the NOT EXISTS so SQL Server seeks
+        // the VARCHAR index, since a scan under HOLDLOCK range-locks every set until commit. Keep
+        // the NVARCHAR comparison as a residual check: the cast turns a character outside the
+        // column's code page into '?' or a similar letter.
         int inserted =
             update(
                 """
                 INSERT INTO scheduler_partition_set (set_id, set_key, name, partition_count, latest_generation, latest_batch_id, sealed_generation, generation_started_at, owner_principal, version, created_at, updated_at)
                 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
                 WHERE NOT EXISTS (SELECT 1 FROM scheduler_partition_set WITH (UPDLOCK, HOLDLOCK)
-                WHERE set_key = ?)
+                WHERE set_key = CAST(? AS VARCHAR(8000)) AND set_key = ?)
                 """,
                 id(set.getSetId()),
                 set.getSetKey(),
@@ -108,6 +112,7 @@ final class SqlserverPartitionOperations implements PartitionStore {
                 set.getOwnerPrincipal(),
                 Timestamp.from(set.getCreatedAt()),
                 Timestamp.from(set.getUpdatedAt()),
+                set.getSetKey(),
                 set.getSetKey());
         if (inserted == 0) return false;
         for (PartitionEntity row : write.rows()) {
