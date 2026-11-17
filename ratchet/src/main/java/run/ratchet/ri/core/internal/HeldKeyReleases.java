@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core.internal;
 
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
@@ -30,12 +31,15 @@ import run.ratchet.store.spi.JobTerminalStore;
  * expiry, the stale-node release and the start-up release are the backstops.
  */
 final class HeldKeyReleases {
+  static final Duration RETRY_DELAY = Duration.ofSeconds(5);
+  static final int MAX_RETRIES = 60;
   private final JobTerminalStore store;
   private final ReleaseRetries retries;
 
   HeldKeyReleases(JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler) {
     this.store = store;
-    this.retries = new ReleaseRetries(scheduler);
+    this.retries =
+        new ReleaseRetries(scheduler, ReleaseRetries.Policy.bounded(RETRY_DELAY, MAX_RETRIES));
   }
 
   /** Releases the hold of this claim. */
