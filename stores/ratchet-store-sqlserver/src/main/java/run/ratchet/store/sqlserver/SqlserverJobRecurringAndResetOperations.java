@@ -16,6 +16,7 @@
 package run.ratchet.store.sqlserver;
 
 import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
+import static run.ratchet.store.sqlserver.SqlserverBusinessKeyReservations.DELETE_RESERVATIONS_CHUNK_SIZE;
 
 import jakarta.persistence.Query;
 import java.util.ArrayList;
@@ -31,8 +32,12 @@ final class SqlserverJobRecurringAndResetOperations {
 
   private final SqlserverStoreContext ctx;
 
-  SqlserverJobRecurringAndResetOperations(SqlserverStoreContext ctx) {
+  private final SqlserverBusinessKeyReservations reservations;
+
+  SqlserverJobRecurringAndResetOperations(
+      SqlserverStoreContext ctx, SqlserverBusinessKeyReservations reservations) {
     this.ctx = ctx;
+    this.reservations = reservations;
   }
 
   boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
@@ -96,68 +101,111 @@ final class SqlserverJobRecurringAndResetOperations {
   }
 
   private int doCancelJobsByTag(String tag) {
-    // Lock the candidate hot rows first, inside the method transaction, before touching the cold
-    // row. SQL Server's UPDATE ... FROM does NOT lock the FROM-referenced rows, so a cold UPDATE
-    // alone leaves the queue row free for a concurrent poller to claim into RUNNING between the
-    // cancel and the hot DELETE — the DELETE (which only matches PENDING/PAUSED/WAITING) would then
-    // skip the now-RUNNING row, stranding it forever while the reservation is still freed. Holding
-    // UPDLOCK on each queue row makes the claim path's READPAST step past it, so a
-    // claim cannot interleave. Mirrors the single-job cancel gate in
-    // SqlserverJobTerminalOperations.
+    // UPDATE ... FROM does not lock the queue row. Lock queue rows before the cold update so a
+    // poller cannot claim one between the cold update and hot delete and strand it RUNNING. The
+    // claim path's READPAST skips these locked rows. Read candidates without locks, then lock them
+    // by primary key so cancellation locks only the queue rows of the jobs it cancels, whatever
+    // plan SQL Server picks for the join. Lock ids in job_id byte order, the order of the other
+    // multi-row queue writes, and lock every chunk before the first write. Chunks keep statements
+    // under SQL Server's 2,100-parameter limit. Cast the tag so SQL Server can seek
+    // idx_job_tag_tag_job. Keep the NVARCHAR comparison as a second predicate so a look-alike tag
+    // never matches. The writes seek the primary key, as the batch cancel's do: a scan would wait
+    // on rows that an open cancel of another tag has written. SQL Server rejects FORCESEEK on the
+    // target of an UPDATE or DELETE, so each write puts the hint on an alias.
     // language=SQL Server
-    String lockSql =
+    String candidatesSql =
         """
         SELECT q.job_id
-        FROM scheduler_job_queue q WITH (UPDLOCK, ROWLOCK)
-        JOIN scheduler_job j ON j.job_id = q.job_id
-        JOIN scheduler_job_tag t ON t.job_id = q.job_id
-        WHERE t.tag = ?
+        FROM scheduler_job_tag t
+        JOIN scheduler_job_queue q ON q.job_id = t.job_id
+        JOIN scheduler_job j ON j.job_id = t.job_id
+        WHERE t.tag = CAST(? AS VARCHAR(8000)) AND t.tag = ?
           AND j.job_type <> 'RECURRING'
           AND j.terminal_status IS NULL
           AND q.status IN ('PENDING','PAUSED','WAITING')
+        ORDER BY q.job_id
         """;
-    @SuppressWarnings("unchecked")
-    List<Object> lockedRows =
-        ctx.em().createNativeQuery(lockSql).setParameter(1, tag).getResultList();
-    if (lockedRows.isEmpty()) {
+    List<?> candidateRows =
+        ctx.em()
+            .createNativeQuery(candidatesSql)
+            .setParameter(1, tag)
+            .setParameter(2, tag)
+            .getResultList();
+    List<UUID> candidates = new ArrayList<>(candidateRows.size());
+    for (Object row : candidateRows) {
+      candidates.add(SqlserverJobRowMapper.uuidOrNull(row));
+    }
+    if (candidates.isEmpty()) {
       return 0;
     }
-    List<UUID> ids = new ArrayList<>(lockedRows.size());
-    for (Object row : lockedRows) {
-      ids.add(SqlserverJobRowMapper.uuidOrNull(row));
+
+    List<UUID> ids = new ArrayList<>(candidates.size());
+    for (int start = 0; start < candidates.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          candidates.subList(
+              start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, candidates.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      // language=SQL Server
+      String lockSql =
+          """
+          SELECT q.job_id
+          FROM scheduler_job_queue q WITH (UPDLOCK, ROWLOCK, FORCESEEK(pk_scheduler_job_queue(job_id)))
+          JOIN scheduler_job j ON j.job_id = q.job_id
+          WHERE q.job_id IN (%s)
+            AND q.status IN ('PENDING','PAUSED','WAITING')
+            AND j.job_type <> 'RECURRING'
+            AND j.terminal_status IS NULL
+          ORDER BY q.job_id
+          """
+              .formatted(placeholders);
+      for (Object row : bindIds(lockSql, chunk).getResultList()) {
+        ids.add(SqlserverJobRowMapper.uuidOrNull(row));
+      }
     }
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-
-    // language=SQL Server
-    String coldSql =
-        """
-        UPDATE scheduler_job
-        SET row_version = row_version + 1, terminal_status = 'CANCELED',
-            terminated_at = SYSUTCDATETIME()
-        WHERE job_id IN (%s)
-          AND terminal_status IS NULL
-        """
-            .formatted(placeholders);
-    int cancelled = bindIds(coldSql, ids).executeUpdate();
-
-    // language=SQL Server
-    String hotSql = "DELETE FROM scheduler_job_queue WHERE job_id IN (%s)".formatted(placeholders);
-    int hotDeleted = bindIds(hotSql, ids).executeUpdate();
-    if (hotDeleted != cancelled) {
-      throw new IllegalStateException(
-          "cancel-by-tag canceled "
-              + cancelled
-              + " cold rows but removed "
-              + hotDeleted
-              + " hot rows for tag "
-              + tag);
+    if (ids.isEmpty()) {
+      return 0;
     }
 
-    // language=SQL Server
-    String reservationsSql =
-        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN (%s)"
-            .formatted(placeholders);
-    bindIds(reservationsSql, ids).executeUpdate();
+    int cancelled = 0;
+    for (int start = 0; start < ids.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      List<UUID> chunk =
+          ids.subList(start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ids.size()));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      // language=SQL Server
+      String coldSql =
+          """
+          UPDATE c
+          SET row_version = c.row_version + 1, terminal_status = 'CANCELED',
+              terminated_at = SYSUTCDATETIME()
+          FROM scheduler_job c WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job))
+          WHERE c.job_id IN (%s)
+            AND c.terminal_status IS NULL
+          """
+              .formatted(placeholders);
+      int updated = bindIds(coldSql, chunk).executeUpdate();
+
+      // language=SQL Server
+      String hotSql =
+          """
+          DELETE q
+          FROM scheduler_job_queue q WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job_queue))
+          WHERE q.job_id IN (%s)
+          """
+              .formatted(placeholders);
+      int deleted = bindIds(hotSql, chunk).executeUpdate();
+      if (updated != deleted) {
+        throw new IllegalStateException(
+            "cancel-by-tag canceled "
+                + updated
+                + " cold rows but removed "
+                + deleted
+                + " hot rows for tag "
+                + tag);
+      }
+      cancelled += updated;
+    }
+
+    reservations.deleteReservationsByOwners(ids);
     return cancelled;
   }
 

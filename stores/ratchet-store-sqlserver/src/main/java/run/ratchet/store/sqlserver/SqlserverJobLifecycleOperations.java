@@ -41,7 +41,7 @@ final class SqlserverJobLifecycleOperations
       SqlserverJobQueryOperations query) {
     this.transitions = new SqlserverJobStatusTransitions(ctx);
     this.terminals = new SqlserverJobTerminalOperations(ctx, reservations, batches);
-    this.recurring = new SqlserverJobRecurringAndResetOperations(ctx);
+    this.recurring = new SqlserverJobRecurringAndResetOperations(ctx, reservations);
     this.query = query;
   }
 

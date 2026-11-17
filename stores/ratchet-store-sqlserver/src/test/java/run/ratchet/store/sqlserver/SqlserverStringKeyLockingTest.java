@@ -26,21 +26,34 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.LockTimeoutException;
 import jakarta.persistence.Persistence;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import org.hibernate.Session;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.ResourceNotConfiguredException;
@@ -288,6 +301,249 @@ class SqlserverStringKeyLockingTest {
           assertTrue(s.findNodeById(ids.get(2150)).isEmpty());
           assertTrue(s.findNodeById(ids.get(2190)).isPresent());
         });
+  }
+
+  // Which plan SQL Server picks for a joined lock read depends on the row count and the
+  // statistics, so each case clears the plan cache first.
+  @ParameterizedTest(name = "{0} jobs, statistics updated: {1}")
+  @CsvSource({"2, true", "2, false", "3, true", "3, false", "50, true", "50, false"})
+  void tagCancelDoesNotWaitForAnOpenCancelOfAnotherTag(int jobs, boolean updateStatistics) {
+    inSeed(
+        s -> {
+          for (int n = 1; n <= jobs; n++) {
+            var job = fixture.newPendingJob("tag-" + n);
+            job.setBusinessKey("tag-key-" + n);
+            s.create(job);
+          }
+        });
+    if (updateStatistics) {
+      runAdmin(
+          "UPDATE STATISTICS scheduler_job_queue WITH FULLSCAN",
+          "UPDATE STATISTICS scheduler_job WITH FULLSCAN",
+          "UPDATE STATISTICS scheduler_job_tag WITH FULLSCAN",
+          "UPDATE STATISTICS scheduler_business_key_reservation WITH FULLSCAN");
+    }
+    runAdmin("ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE");
+
+    holder.getTransaction().begin();
+    assertEquals(1, store(holder).cancelJobsByTag("tag-1"));
+    // The cancel deletes the rows it locked, which turns their U locks into X locks. A U lock
+    // left over is on a row the cancel read but did not cancel.
+    assertEquals(
+        List.of(),
+        updateLocksHeldBy(holder),
+        "indexes whose keys the open cancel of tag-1 U-locked without cancelling them");
+    var operations = new LinkedHashMap<String, Consumer<SqlserverJobStoreImpl>>();
+    operations.put("cancelJobsByTag tag-2", s -> assertEquals(1, s.cancelJobsByTag("tag-2")));
+    assertEquals(
+        List.of(), waited(operations), "tag cancels that waited for the open cancel of tag-1");
+  }
+
+  @Test
+  void tagCancelTakesMoreJobsThanTheParameterLimit() {
+    inSeed(
+        s -> {
+          for (int i = 0; i < 2200; i++) {
+            var job = fixture.newPendingJob("bulk-tag");
+            if (i % 500 == 0) job.setBusinessKey("bulk-key-" + i);
+            s.create(job);
+          }
+          s.create(fixture.newPendingJob("other-tag"));
+        });
+    inSeed(s -> assertEquals(2200, s.cancelJobsByTag("bulk-tag")));
+    String taggedQueueRows =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue q
+        JOIN scheduler_job_tag t ON t.job_id = q.job_id WHERE t.tag = ?
+        """;
+    assertEquals(0, count(taggedQueueRows, "bulk-tag"), "queue rows left for the tag");
+    assertEquals(
+        2200,
+        count(
+            """
+            SELECT COUNT(*) FROM scheduler_job j
+            JOIN scheduler_job_tag t ON t.job_id = j.job_id
+            WHERE t.tag = ? AND j.terminal_status = 'CANCELED'
+            """,
+            "bulk-tag"),
+        "cancelled jobs");
+    assertEquals(1, count(taggedQueueRows, "other-tag"), "queue rows of another tag");
+    assertEquals(
+        0,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key LIKE ?",
+            "bulk-key-%"),
+        "reservations of the cancelled jobs");
+  }
+
+  // Guards the order that the other multi-row queue writes use, across lock chunks, and checks
+  // that the cancel locks every chunk before it writes a job row.
+  @Test
+  void tagCancelLocksQueueRowsInJobIdByteOrder() throws Exception {
+    var ids = new ArrayList<UUID>();
+    inSeed(
+        s -> {
+          for (int i = 0; i < 600; i++) {
+            ids.add(s.create(fixture.newPendingJob("order-tag")).getId());
+          }
+        });
+    ids.sort(Comparator.comparing(UUID::toString));
+    UUID blocked = ids.get(550);
+
+    other.getTransaction().begin();
+    other
+        .createNativeQuery(
+            "SELECT job_id FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK) WHERE job_id = ?1")
+        .setParameter(1, UuidByteArrayConverter.toBytes(blocked))
+        .getResultList();
+
+    holder.getTransaction().begin();
+    // A prepared statement runs in sp_executesql scope, which undoes SET when it returns, so set
+    // the session's lock timeout through a plain statement.
+    holder
+        .unwrap(Session.class)
+        .doWork(
+            connection -> {
+              try (Statement statement = connection.createStatement()) {
+                statement.execute("SET LOCK_TIMEOUT 30000");
+              }
+            });
+    int holderSession =
+        ((Number) holder.createNativeQuery("SELECT @@SPID").getSingleResult()).intValue();
+    var holderStore = store(holder);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try (Connection observer = fixture.openConnection()) {
+      Future<Integer> cancel = executor.submit(() -> holderStore.cancelJobsByTag("order-tag"));
+      Map<String, UUID> byLockResource = queueLockResources(observer);
+      List<UUID> waitingOn = List.of();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+      while (waitingOn.isEmpty() && System.nanoTime() < deadline) {
+        waitingOn = queueKeysLockedBy(observer, holderSession, "WAIT", byLockResource);
+        if (waitingOn.isEmpty()) Thread.sleep(20);
+      }
+      assertEquals(List.of(blocked), waitingOn, "the queue row the cancel waits on");
+      var granted =
+          new HashSet<>(queueKeysLockedBy(observer, holderSession, "GRANT", byLockResource));
+      assertEquals(
+          new HashSet<>(ids.subList(0, 550)),
+          granted,
+          "queue rows the cancel locked before it reached the blocked row");
+      assertEquals(
+          0, jobKeyLocksHeldBy(observer, holderSession), "job rows written before every lock");
+      other.getTransaction().rollback();
+      assertEquals(600, cancel.get(30, TimeUnit.SECONDS));
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  private void runAdmin(String... statements) {
+    try (Connection connection = fixture.openConnection();
+        Statement statement = connection.createStatement()) {
+      for (String sql : statements) {
+        statement.execute(sql);
+      }
+    } catch (SQLException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  private int count(String sql, String parameter) {
+    try (Connection connection = fixture.openConnection();
+        PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, parameter);
+      try (ResultSet rows = statement.executeQuery()) {
+        rows.next();
+        return rows.getInt(1);
+      }
+    } catch (SQLException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  // Lists "index: count" for the U key locks the session holds.
+  private static List<String> updateLocksHeldBy(EntityManager em) {
+    @SuppressWarnings("unchecked")
+    List<Object> indexes =
+        em.createNativeQuery(
+                """
+                SELECT i.name + ': ' + CAST(COUNT(*) AS VARCHAR(10))
+                FROM sys.dm_tran_locks l
+                JOIN sys.partitions p ON p.hobt_id = l.resource_associated_entity_id
+                JOIN sys.indexes i ON i.object_id = p.object_id AND i.index_id = p.index_id
+                WHERE l.request_session_id = @@SPID AND l.resource_type = 'KEY'
+                  AND l.request_mode = 'U'
+                GROUP BY i.name
+                ORDER BY i.name
+                """)
+            .getResultList();
+    return indexes.stream().map(String::valueOf).toList();
+  }
+
+  // Maps each queue row's primary-key lock resource to its job id.
+  private static Map<String, UUID> queueLockResources(Connection connection) throws SQLException {
+    var resources = new HashMap<String, UUID>();
+    try (Statement statement = connection.createStatement();
+        ResultSet rows =
+            statement.executeQuery(
+                """
+                SELECT %%lockres%%, job_id
+                FROM scheduler_job_queue WITH (NOLOCK, INDEX(pk_scheduler_job_queue))
+                """)) {
+      while (rows.next()) {
+        resources.put(
+            rows.getString(1).strip(), UuidByteArrayConverter.fromBytes(rows.getBytes(2)));
+      }
+    }
+    return resources;
+  }
+
+  private static List<UUID> queueKeysLockedBy(
+      Connection connection, int session, String status, Map<String, UUID> byLockResource)
+      throws SQLException {
+    var ids = new ArrayList<UUID>();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT l.resource_description
+            FROM sys.dm_tran_locks l
+            JOIN sys.partitions p ON p.hobt_id = l.resource_associated_entity_id
+            JOIN sys.indexes i ON i.object_id = p.object_id AND i.index_id = p.index_id
+            WHERE l.request_session_id = ? AND l.resource_type = 'KEY'
+              AND l.request_status = ? AND i.name = 'pk_scheduler_job_queue'
+            """)) {
+      statement.setInt(1, session);
+      statement.setString(2, status);
+      try (ResultSet rows = statement.executeQuery()) {
+        while (rows.next()) {
+          String resource = rows.getString(1).strip();
+          UUID id = byLockResource.get(resource);
+          if (id == null) {
+            throw new IllegalStateException("no queue row for lock resource " + resource);
+          }
+          ids.add(id);
+        }
+      }
+    }
+    return ids;
+  }
+
+  private static int jobKeyLocksHeldBy(Connection connection, int session) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            SELECT COUNT(*)
+            FROM sys.dm_tran_locks l
+            JOIN sys.partitions p ON p.hobt_id = l.resource_associated_entity_id
+            WHERE l.request_session_id = ? AND l.resource_type = 'KEY'
+              AND p.object_id = OBJECT_ID('scheduler_job')
+            """)) {
+      statement.setInt(1, session);
+      try (ResultSet rows = statement.executeQuery()) {
+        rows.next();
+        return rows.getInt(1);
+      }
+    }
   }
 
   @Test
