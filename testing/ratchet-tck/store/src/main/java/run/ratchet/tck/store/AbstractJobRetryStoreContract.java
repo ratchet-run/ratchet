@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -88,6 +89,124 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertTrue(retried, "scheduleJobRetry should succeed for a WAITING timeout");
     var reloaded = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.PENDING, reloaded.getStatus(), "Job should be back to PENDING");
+  }
+
+  @Test
+  void releaseClaim_returnsRunningClaimToPendingWithoutCharging() {
+    JobEntity claimed = newReleaseClaim();
+    Instant time = Instant.now().plusSeconds(300).truncatedTo(ChronoUnit.MILLIS);
+    assertTrue(store().releaseClaim(claimed.getId(), "release", time, 2, claimed.getClaimSeq()));
+    JobEntity released = store().findById(claimed.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, released.getStatus());
+    assertEquals(time, released.getScheduledTime());
+    assertEquals("release", released.getLastError());
+    assertNull(released.getPickedBy());
+    assertNull(released.getPickedAt());
+    assertEquals(2, released.getAttempts());
+    assertEquals(claimed.getClaimSeq(), released.getClaimSeq());
+  }
+
+  @Test
+  void releaseClaim_missesStaleClaim() {
+    JobEntity claimed = newReleaseClaim();
+    assertFalse(
+        store()
+            .releaseClaim(claimed.getId(), "stale", Instant.now(), 2, claimed.getClaimSeq() - 1));
+    assertReleaseUnchanged(claimed);
+  }
+
+  @Test
+  void releaseClaim_missesAfterChargeUnderSameClaim() {
+    JobEntity claimed = newReleaseClaim();
+    assertEquals(3, store().incrementRetryAttempt(claimed.getId(), claimed.getClaimSeq()));
+    assertFalse(
+        store().releaseClaim(claimed.getId(), "release", Instant.now(), 2, claimed.getClaimSeq()));
+    JobEntity charged = store().findById(claimed.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, charged.getStatus());
+    assertEquals(3, charged.getAttempts());
+    assertEquals(claimed.getPickedBy(), charged.getPickedBy());
+    assertEquals(claimed.getClaimSeq(), charged.getClaimSeq());
+    assertTrue(
+        store()
+            .scheduleJobRetry(claimed.getId(), "timeout", Instant.now(), 3, claimed.getClaimSeq()));
+    JobEntity retried = store().findById(claimed.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, retried.getStatus());
+    assertEquals(3, retried.getAttempts());
+  }
+
+  @Test
+  void releaseClaim_rejectsWaitingAndNonRunningRows() {
+    JobEntity waiting = newPendingJob();
+    waiting.setStatus(JobStatus.WAITING);
+    waiting.setSignalKey("approval");
+    waiting.setSignalTimeout(Instant.now().minusSeconds(1));
+    waiting = persist(waiting);
+    JobEntity pending = persist(newPendingJob());
+    for (JobEntity job : List.of(waiting, pending)) {
+      JobEntity before = store().findById(job.getId()).orElseThrow();
+      assertFalse(
+          store()
+              .releaseClaim(
+                  job.getId(),
+                  "release",
+                  Instant.now(),
+                  before.getAttempts(),
+                  before.getClaimSeq()));
+      assertReleaseUnchanged(before);
+    }
+    assertFalse(store().releaseClaim(UUID.randomUUID(), "missing", Instant.now(), 0, 0L));
+  }
+
+  @Test
+  void releaseClaim_releasesIntoPausedBatchUntilResume() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    JobEntity child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child.setAttempts(2);
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    long claimSeq = store().findById(child.getId()).orElseThrow().getClaimSeq();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+
+    assertFalse(store().releaseClaim(child.getId(), "stale", Instant.now(), 99, claimSeq - 1));
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(child.getId()));
+    Instant retryTime = Instant.now().minusSeconds(1);
+    assertTrue(store().releaseClaim(child.getId(), "parent check failed", retryTime, 2, claimSeq));
+
+    JobEntity released = store().findById(child.getId()).orElseThrow();
+    assertEquals(JobStatus.PAUSED, released.getStatus());
+    assertEquals(JobStatus.PENDING, released.getPausedFromStatus());
+    assertEquals(2, released.getAttempts());
+    assertEquals(claimSeq, released.getClaimSeq().longValue());
+    assertNull(released.getPickedBy());
+    assertNull(released.getPickedAt());
+    assertFalse(store().tryPickUpJob(child.getId(), "node-2"));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1, batchStore().resumeBatchChildren(parent.getId()));
+    assertTrue(store().tryPickUpJob(child.getId(), "node-2"));
+  }
+
+  private JobEntity newReleaseClaim() {
+    JobEntity job = newPendingJob();
+    job.setAttempts(2);
+    job = persist(job);
+    assertTrue(store().tryPickUpJob(job.getId(), "node-1"));
+    return store().findById(job.getId()).orElseThrow();
+  }
+
+  private void assertReleaseUnchanged(JobEntity before) {
+    JobEntity after = store().findById(before.getId()).orElseThrow();
+    assertEquals(before.getStatus(), after.getStatus());
+    assertEquals(before.getAttempts(), after.getAttempts());
+    assertEquals(before.getScheduledTime(), after.getScheduledTime());
+    assertEquals(before.getLastError(), after.getLastError());
+    assertEquals(before.getPickedBy(), after.getPickedBy());
+    assertEquals(before.getPickedAt(), after.getPickedAt());
+    assertEquals(before.getClaimSeq(), after.getClaimSeq());
+    assertEquals(before.getPausedFromStatus(), after.getPausedFromStatus());
   }
 
   @Test

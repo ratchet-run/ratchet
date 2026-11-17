@@ -123,6 +123,7 @@ class JobTaskAuthorizationTest {
             null,
             new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
             new PermitReleases(resourcePermitService, () -> mock(ScheduledExecutorService.class)),
+            new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class)),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -228,6 +229,7 @@ class JobTaskAuthorizationTest {
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
     verify(retryPolicy).shouldRetry(1, failure);
     verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L));
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
     verify(lifecycleFacade, never()).completeFailure(any(JobEntity.class), any(), eq(false));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
   }
@@ -273,6 +275,7 @@ class JobTaskAuthorizationTest {
             null,
             new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
             new PermitReleases(resourcePermitService, () -> mock(ScheduledExecutorService.class)),
+            new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class)),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());

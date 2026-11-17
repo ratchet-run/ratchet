@@ -312,6 +312,12 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public boolean releaseClaim(
+      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq) {
+    return fail("releaseClaim");
+  }
+
+  @Override
   public boolean scheduleJobRetry(
       UUID id,
       String error,

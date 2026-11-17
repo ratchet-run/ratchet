@@ -662,7 +662,7 @@ Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations
 | `JobCrudStore` | Create, read, update, delete jobs | `save()`, `findById()`, `delete()` |
 | `JobClaimStore` | Atomic job claiming for execution, and the current claim of a job | `claimNextBatch()`, `claimNextBatchOptimized()`, `currentClaim()` |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions | `markJobSucceeded()`, `markJobFailedTerminal()`, `cancelJob()` |
-| `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `incrementRetryAttempt()` |
+| `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `releaseClaim()`, `incrementRetryAttempt()` |
 | `JobPauseStore` | Pause and resume transitions | `transitionToPaused()`, `transitionFromPausedAtomic()` |
 | `JobBatchStatusStore` | Non-terminal status, pickup, and orphan operations | `updateJobStatus()`, `compareAndSwapStatus()`, `resetRunningJobs()` |
 | `JobBulkStore` | Bulk operations | `bulkInsert()`, `resetOrphanJobs()`, `closeStaleExecutions()`, `deleteDlqOlderThan()` |
@@ -721,6 +721,19 @@ The claim fence must be atomic with the state write. Check both RUNNING status a
 Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Return
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
+
+### No-charge claim release
+
+`JobRetryStore.releaseClaim(id, reason, scheduledTime, expectedAttempts, claimSeq)` returns a
+claim a worker gives back before running its payload. Atomically require RUNNING status,
+matching `claim_seq`, and `attempts == expectedAttempts`. WAITING jobs are rejected. Do not
+write attempts: a timeout charge committed by `incrementRetryAttempt` under the same claim
+must make the release return false, leaving the watchdog free to schedule its charged retry
+with `scheduleJobRetry`. Set the reason and scheduled time and clear `picked_by`/`picked_at`.
+For batch children, serialize the parent-status check and child update with pause/resume,
+releasing into PAUSED with paused-from PENDING when the parent is PAUSED. The entire operation
+uses one REQUIRED transaction. The background drainer's revoked check only avoids a write;
+the attempt-count and claim-sequence fences enforce ownership.
 
 ### Claim-owned resource permits
 

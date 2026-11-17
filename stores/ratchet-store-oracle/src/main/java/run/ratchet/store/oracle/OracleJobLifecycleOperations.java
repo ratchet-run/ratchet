@@ -97,6 +97,12 @@ final class OracleJobLifecycleOperations
   }
 
   @Override
+  public boolean releaseClaim(
+      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq) {
+    return terminals.releaseClaim(id, reason, scheduledTime, expectedAttempts, claimSeq);
+  }
+
+  @Override
   public boolean scheduleJobRetry(
       UUID id,
       String error,

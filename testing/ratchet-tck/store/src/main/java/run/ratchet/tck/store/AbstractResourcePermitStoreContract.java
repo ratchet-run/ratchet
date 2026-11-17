@@ -366,7 +366,10 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     store().upsertHeartbeat("existing", Instant.now().minusSeconds(3600));
     var first = claimNewJob("existing-node", "existing");
     assertEquals(ACQUIRED, acquire("existing-node", first, "existing"));
-    resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60));
+    // Cancel moves the holder out of RUNNING without releasing its permit or claiming it again.
+    assertTrue(store().cancelJob(first.getId()));
+    assertEquals(
+        0, resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().plusSeconds(60)));
     var second = claimNewJob("existing-node", "other");
     assertEquals(AT_CAPACITY, acquire("existing-node", second, "other"));
   }
@@ -376,7 +379,10 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     resourcePermitStore().configureResource("recent-node", 1, 1000, null);
     var first = claimNewJob("recent-node", "missing");
     assertEquals(ACQUIRED, acquire("recent-node", first, "missing"));
-    resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().minusSeconds(60));
+    // Cancel moves the holder out of RUNNING without releasing its permit or claiming it again.
+    assertTrue(store().cancelJob(first.getId()));
+    assertEquals(
+        0, resourcePermitStore().cleanupPermitsOfMissingNodes(Instant.now().minusSeconds(60)));
     var second = claimNewJob("recent-node", "other");
     assertEquals(AT_CAPACITY, acquire("recent-node", second, "other"));
   }
