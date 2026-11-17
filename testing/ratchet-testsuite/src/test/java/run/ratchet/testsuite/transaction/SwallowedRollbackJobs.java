@@ -18,12 +18,40 @@ package run.ratchet.testsuite.transaction;
 import jakarta.enterprise.inject.spi.CDI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import run.ratchet.api.JobContext;
+import run.ratchet.api.TransactionalJob;
 import run.ratchet.testsuite.app.TransactionalUnitProbe;
 
 /** Jobs used only by the swallowed rollback integration tests. */
 public class SwallowedRollbackJobs {
   public static final Map<String, Exception> FAILURES = new ConcurrentHashMap<>();
+
+  public static final Map<String, AtomicInteger> ATTEMPTS = new ConcurrentHashMap<>();
+
+  public static int attempts(String key) {
+    AtomicInteger count = ATTEMPTS.get(key);
+    return count == null ? 0 : count.get();
+  }
+
+  @TransactionalJob
+  public static void body(String key) {
+    ATTEMPTS.computeIfAbsent(key, ignored -> new AtomicInteger()).incrementAndGet();
+    writeAndSwallow(key);
+  }
+
+  @TransactionalJob
+  public static void bodyOnce(String key) {
+    int attempt = ATTEMPTS.computeIfAbsent(key, ignored -> new AtomicInteger()).incrementAndGet();
+    if (attempt == 1) {
+      writeAndSwallow(key);
+      return;
+    }
+    CDI.current()
+        .select(TransactionalUnitProbe.class)
+        .get()
+        .insert(TransactionalUnitProbe.pageKey(key, 0));
+  }
 
   public static void unit(String key) throws Exception {
     try {

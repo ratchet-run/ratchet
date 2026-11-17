@@ -662,7 +662,7 @@ Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations
 | `JobCrudStore` | Create, read, update, delete jobs | `save()`, `findById()`, `delete()` |
 | `JobClaimStore` | Atomic job claiming for execution, and the current claim of a job | `claimNextBatch()`, `claimNextBatchOptimized()`, `currentClaim()` |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions | `markJobSucceeded()`, `markJobFailedTerminal()`, `cancelJob()` |
-| `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `incrementRetryAttempt()` |
+| `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `releaseClaim()`, `incrementRetryAttempt()` |
 | `JobPauseStore` | Pause and resume transitions | `transitionToPaused()`, `transitionFromPausedAtomic()` |
 | `JobBatchStatusStore` | Non-terminal status, pickup, and orphan operations | `updateJobStatus()`, `compareAndSwapStatus()`, `resetRunningJobs()` |
 | `JobBulkStore` | Bulk operations | `bulkInsert()`, `resetOrphanJobs()`, `closeStaleExecutions()`, `deleteDlqOlderThan()` |
@@ -698,7 +698,7 @@ On a live job, every other write that changes a field `save()` writes back must 
 
 - claims, `tryPickUpJob`, and the orphan, startup and shutdown resets
 - `updateJobStatus` and `compareAndSwapStatus` to a live status, and the pause and resume transitions
-- `incrementRetryAttempt` and `scheduleJobRetry`, including a retried batch child that goes back to `PAUSED`
+- `incrementRetryAttempt`, `scheduleJobRetry` and `releaseClaim`, including a retried or released batch child that goes back to `PAUSED`
 - permit parking in `tryAcquirePermit`, and `wakeWaiters`
 - signal delivery, and batch pause and resume
 - a `save()` that changes a scheduling or status field and leaves the job live
@@ -757,6 +757,19 @@ Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Re
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
 
+### No-charge claim release
+
+`JobRetryStore.releaseClaim(id, reason, scheduledTime, expectedAttempts, claimSeq)` returns a
+claim a worker gives back before running its payload. Atomically require RUNNING status,
+matching `claim_seq`, and `attempts == expectedAttempts`. WAITING jobs are rejected. Do not
+write attempts: a timeout charge committed by `incrementRetryAttempt` under the same claim
+must make the release return false, leaving the watchdog free to schedule its charged retry
+with `scheduleJobRetry`. Set the reason and scheduled time, clear `picked_by`/`picked_at`, and
+add one to the job version. For batch children, serialize the parent-status check and child update with pause/resume,
+releasing into PAUSED with paused-from PENDING when the parent is PAUSED. The entire operation
+uses one REQUIRED transaction. The background drainer's revoked check only avoids a write;
+the attempt-count and claim-sequence fences enforce ownership.
+
 ### Claim state in the caller's transaction
 
 `TransactionalCompletionStore.writeClaimState` saves the checkpoint of a
@@ -787,7 +800,9 @@ waits, count statements and raise the isolation level.
 that claim:
 
 - Check that the resource is configured first, and throw `IllegalArgumentException` when it is not.
-- Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq`. This is
+- Return `SUPERSEDED`, and write nothing, unless the job is RUNNING with that `claim_seq` and
+  picked by the `nodeId` passed in. The permit records that node, and the permit clean-ups rely on
+  it matching the job's `picked_by`. This is
   a point-in-time check. Unlike the job-state fence above, it need not be atomic with the write:
   a claim change that commits after it does not fence the permit write, so the earlier claim can
   still get `ACQUIRED`. That claim then holds the permit until it releases it. If that leaves the
@@ -800,7 +815,10 @@ that claim:
   full, the retry waits until that permit is released or cleaned up. When a slot is free, the
   retry takes it, and the job holds two permits until the older one goes.
 - `releasePermit` removes only the permit that belongs to the given claim.
-- `cleanupOrphanedPermits` removes permits by the node id they carry.
+- `cleanupOrphanedPermits` removes permits by the node id they carry, and
+  `cleanupPermitsOfMissingNodes` removes old permits whose node has no row. Both keep a permit
+  while its job is still RUNNING and picked by the node the permit carries. A later call removes
+  it once the job is no longer RUNNING under that node.
 
 The bundled stores record the claim in the permit's id, a name-based UUID of resource, job and
 claim, so the permit table needs no claim column. Do not add a unique key on resource and job:

@@ -1,0 +1,506 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.ri.core.internal;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongUnaryOperator;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.NodeStore;
+import run.ratchet.store.spi.OrphanRecovery;
+
+@ExtendWith(MockitoExtension.class)
+class NodeLivenessTest {
+
+  @Mock private NodeStore nodeStore;
+  @Mock private JobBulkStore jobBulkStore;
+  @Mock private ScheduledExecutorService scheduledExecutor;
+  @Mock private ScheduledFuture<Object> scheduledFuture;
+
+  @Captor private ArgumentCaptor<Runnable> runnableCaptor;
+
+  private NodeLiveness provider;
+  private TestHeartbeatCalculator heartbeatCalculator;
+  private Clock clock;
+
+  private static class TestHeartbeatCalculator extends DynamicHeartbeatCalculator {
+    private final AtomicInteger calls = new AtomicInteger();
+    private long intervalSeconds = 5L;
+
+    void intervalSeconds(long intervalSeconds) {
+      this.intervalSeconds = intervalSeconds;
+    }
+
+    int calls() {
+      return calls.get();
+    }
+
+    @Override
+    public long calculateHeartbeatInterval() {
+      calls.incrementAndGet();
+      return intervalSeconds;
+    }
+  }
+
+  @BeforeEach
+  void setUp() {
+    heartbeatCalculator = new TestHeartbeatCalculator();
+    clock = Clock.fixed(Instant.parse("2026-05-12T12:00:00Z"), ZoneOffset.UTC);
+    lenient()
+        .doReturn(scheduledFuture)
+        .when(scheduledExecutor)
+        .schedule(runnableCaptor.capture(), anyLong(), eq(TimeUnit.SECONDS));
+
+    lenient().when(nodeStore.getDatabaseTime()).thenReturn(clock.instant());
+
+    lenient()
+        .when(
+            jobBulkStore.resetOrphanJobsForNode(
+                anyString(), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    lenient()
+        .when(
+            jobBulkStore.resetOrphanJobsBefore(
+                any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    provider = newProvider(false, "test-node", LongUnaryOperator.identity());
+  }
+
+  private NodeLiveness newProvider(
+      boolean dynamicHeartbeatEnabled, String explicitNodeId, LongUnaryOperator retryDelayJitter) {
+    return new NodeLiveness(
+        () -> explicitNodeId,
+        nodeStore,
+        jobBulkStore,
+        heartbeatCalculator,
+        5,
+        30,
+        3,
+        dynamicHeartbeatEnabled,
+        clock,
+        retryDelayJitter);
+  }
+
+  @Test
+  void shutdownWithoutHeartbeatSchedulesNothing() {
+    provider.init();
+    provider.shutdown();
+
+    assertFalse(provider.initialized.get());
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+    verify(scheduledFuture, never()).cancel(true);
+  }
+
+  @Test
+  void startHeartbeatBeforeInitSchedulesNothing() {
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void startHeartbeatAfterShutdownSchedulesNothing() {
+    provider.init();
+    provider.shutdown();
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void secondStartHeartbeatSchedulesNothingMore() {
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void init_retriesOwnNodeRecoveryAfterTransientFailure() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenThrow(new RatchetTransientStoreException("transient conflict"))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(jobBulkStore, times(2))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void init_retriesOtherNodeRecoveryAfterTransientFailure() {
+    when(jobBulkStore.resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenThrow(new RatchetTransientStoreException("transient conflict"))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, times(2))
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void init_continuesWhenOtherNodeRecoveryExhaustsRetries() {
+    when(jobBulkStore.resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenThrow(new RatchetTransientStoreException("transient conflict"));
+
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, times(3))
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void init_propagatesExhaustedOwnNodeRecoveryFailure() {
+    RatchetTransientStoreException failure =
+        new RatchetTransientStoreException("transient conflict");
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenThrow(failure);
+
+    assertSame(failure, assertThrows(RatchetTransientStoreException.class, provider::init));
+
+    verify(jobBulkStore, times(3))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, never())
+        .resetOrphanJobsBefore(any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void init_propagatesNonTransientRecoveryFailureWithoutRetry() {
+    RuntimeException failure = new IllegalStateException("recovery failed");
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenThrow(failure);
+
+    assertSame(failure, assertThrows(IllegalStateException.class, provider::init));
+
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, never())
+        .resetOrphanJobsBefore(any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void initUsesProviderIdentity() {
+
+    provider.init();
+
+    verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void shutdown_preventsScheduledHeartbeatFromTouchingStore() {
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+
+    provider.shutdown();
+    assertFalse(provider.initialized.get(), "shutdown must lower the heartbeat guard");
+    scheduledHeartbeat.run();
+
+    verify(scheduledFuture).cancel(true);
+    verify(nodeStore, never()).upsertHeartbeat(any(), any(Instant.class));
+    verify(scheduledExecutor, never())
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void scheduledHeartbeatRunsAndReschedulesWhileInitialized() {
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+
+    scheduledHeartbeat.run();
+
+    verify(nodeStore).upsertHeartbeat(eq("test-node"), any(Instant.class));
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void initAndHeartbeat_useInjectedClockForTimestamps() {
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+
+    clearInvocations(nodeStore);
+    scheduledHeartbeat.run();
+
+    verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+  }
+
+  @Test
+  void shutdown_suppressesRescheduleFromInFlightHeartbeatFailure() throws Exception {
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    CountDownLatch heartbeatEntered = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              heartbeatEntered.countDown();
+              // Spin until shutdown sets initialized=false before throwing, guaranteeing the
+              // catch block observes the shutdown state without a release-before-signal race.
+              long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+              while (provider.initialized.get() && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+              }
+              throw new IllegalStateException("container stopping");
+            })
+        .when(nodeStore)
+        .upsertHeartbeat(any(), any(Instant.class));
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+
+    Thread heartbeatThread = new Thread(scheduledHeartbeat, "heartbeat-test");
+    heartbeatThread.start();
+    assertTrue(heartbeatEntered.await(5, TimeUnit.SECONDS));
+
+    Thread shutdownThread = new Thread(provider::shutdown, "heartbeat-shutdown");
+    shutdownThread.start();
+
+    shutdownThread.join(TimeUnit.SECONDS.toMillis(5));
+    heartbeatThread.join(TimeUnit.SECONDS.toMillis(5));
+
+    assertFalse(shutdownThread.isAlive(), "shutdown should finish");
+    assertFalse(heartbeatThread.isAlive(), "heartbeat callback should finish");
+
+    verify(scheduledFuture).cancel(true);
+    verify(scheduledExecutor, never())
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void weldShutdownFailure_doesNotRetryHeartbeat() {
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+    doThrow(
+            new IllegalStateException(
+                "WELD-000229: Contextual reference is not valid after container shutdown"))
+        .when(nodeStore)
+        .upsertHeartbeat(any(), any(Instant.class));
+
+    scheduledHeartbeat.run();
+
+    verify(nodeStore).upsertHeartbeat(any(), any(Instant.class));
+    verify(scheduledExecutor, never())
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void dynamicHeartbeatFailure_retriesFromDynamicInterval() {
+    heartbeatCalculator.intervalSeconds(11L);
+    provider = newProvider(true, "test-node", LongUnaryOperator.identity());
+
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(11L), eq(TimeUnit.SECONDS));
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+    doThrow(new IllegalStateException("store unavailable"))
+        .when(nodeStore)
+        .upsertHeartbeat(any(), any(Instant.class));
+
+    scheduledHeartbeat.run();
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(22L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void heartbeatFailure_appliesRetryJitterAfterCapping() {
+    provider = newProvider(false, "test-node", delay -> delay + 3);
+
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+    doThrow(new IllegalStateException("store unavailable"))
+        .when(nodeStore)
+        .upsertHeartbeat(any(), any(Instant.class));
+
+    scheduledHeartbeat.run();
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(13L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void dynamicHeartbeatEnabledUsesCalculatorForInitialSchedule() {
+    heartbeatCalculator.intervalSeconds(13L);
+    provider = newProvider(true, "test-node", LongUnaryOperator.identity());
+
+    clearInvocations(scheduledExecutor);
+
+    provider.init();
+    provider.startHeartbeat(scheduledExecutor);
+
+    assertEquals(1, heartbeatCalculator.calls());
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(13L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void startupPassesCrashBudgetAndLeavesExhaustedFailuresForTimer() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(new OrphanRecovery(2, 1, 1, List.of()));
+
+    provider.init();
+
+    verify(jobBulkStore)
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, never()).findOrphanCompletionSnapshot(any(UUID.class));
+  }
+
+  @Test
+  void ownRowsArePagedToEndAfterHeartbeat() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(
+            new OrphanRecovery(500, 400, 100, List.of()),
+            new OrphanRecovery(500, 500, 0, List.of()),
+            new OrphanRecovery(12, 10, 2, List.of()));
+    provider.init();
+    InOrder order = inOrder(nodeStore, jobBulkStore);
+    order.verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+    order
+        .verify(jobBulkStore, times(3))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+  }
+
+  @Test
+  void transientFailureOnSecondPageIsRetriedAndPagingContinues() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(new OrphanRecovery(500, 500, 0, List.of()))
+        .thenThrow(new RatchetTransientStoreException("page two", null))
+        .thenReturn(
+            new OrphanRecovery(500, 400, 100, List.of()), new OrphanRecovery(12, 10, 2, List.of()));
+    provider.init();
+    verify(jobBulkStore, times(4))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+  }
+
+  @Test
+  void thirdTransientFailureOnSecondPagePropagates() {
+    RatchetTransientStoreException failure = new RatchetTransientStoreException("page two", null);
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(new OrphanRecovery(500, 500, 0, List.of()))
+        .thenThrow(failure);
+    assertSame(failure, assertThrows(RatchetTransientStoreException.class, provider::init));
+    verify(jobBulkStore, times(4))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore, never())
+        .resetOrphanJobsBefore(any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE));
+  }
+
+  @Test
+  void fullOwnPageThatChangesNothingIsReadAgain() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE))
+        .thenReturn(
+            new OrphanRecovery(500, 0, 0, List.of()),
+            new OrphanRecovery(500, 0, 0, List.of()),
+            new OrphanRecovery(2, 2, 0, List.of()));
+    provider.init();
+    InOrder order = inOrder(nodeStore, jobBulkStore);
+    order.verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+    order
+        .verify(jobBulkStore, times(3))
+        .resetOrphanJobsForNode("test-node", 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    order
+        .verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+  }
+
+  @Test
+  void otherNodesPassUsesInjectedClockAndOnePage() {
+    provider.init();
+    verify(jobBulkStore)
+        .resetOrphanJobsBefore(
+            clock.instant().minusSeconds(30), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
+  }
+}

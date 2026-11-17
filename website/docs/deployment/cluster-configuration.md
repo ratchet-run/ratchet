@@ -30,27 +30,33 @@ There is no separate `ratchet.cluster.enabled` switch. A deployment becomes clus
 
 ## Node identity
 
-Each node in the cluster needs a unique, stable identifier. Implement the `NodeIdentityProvider` SPI:
+The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. The ID must be unique among live nodes and must not change while the node runs. It may change on restart, as the default ID does. A node that restarts under the same ID recovers its previous claims and permits as it starts. Under a new ID, orphan recovery reclaims them and deletes the old row once the old heartbeat is older than the orphan grace period (`node.orphanGraceSeconds`, 60 seconds by default).
+
+Implement the `NodeIdentityProvider` SPI. In CDI, select it with `@Alternative @Priority(APPLICATION)` so it displaces the default producer:
 
 ```java
+@Alternative
+@Priority(APPLICATION)
 @ApplicationScoped
 public class KubernetesNodeProvider implements NodeIdentityProvider {
 
   @Override
   public String getNodeId() {
-    // Kubernetes pod name is stable within a StatefulSet
+    // A StatefulSet pod keeps its name across restarts
     String podName = System.getenv("HOSTNAME");
-    return podName != null ? podName : InetAddress.getLocalHost().getHostName();
+    if (podName == null || podName.isBlank()) {
+      throw new IllegalStateException("HOSTNAME is not set");
+    }
+    return podName;
   }
 }
 ```
 
-The default implementation uses `hostname-PID-<8-char-UUID>`. Override it when:
-- Running in Kubernetes (use the pod name from `metadata.name`)
-- Running in Docker Compose (use the `HOSTNAME` environment variable)
-- Running multiple instances on the same host (use a unique port or instance ID)
+The default implementation uses `hostname-PID-<8-char-UUID>`. The PID and the random suffix keep it unique across machines and across instances on one host, and they change it on every restart. Override it when you want a node to keep its ID across restarts:
+- In Kubernetes, use the pod name from `metadata.name`. A StatefulSet pod keeps its name.
+- In Docker Compose, use the `HOSTNAME` environment variable.
 
-There is no built-in `ratchet.cluster.node-id` property. Override node identity by providing your own `NodeIdentityProvider` bean when the hostname-based default is not sufficient.
+Set `ratchet.node.id` for an explicit ID, or provide a custom `NodeIdentityProvider` bean when the hostname-based default is not sufficient.
 
 ## ClusterCoordinator SPI
 

@@ -169,11 +169,13 @@ class SqlserverStringKeyLockingTest {
         .intValue();
   }
 
-  private JobEntity claimedJob(SqlserverJobStoreImpl store, String resource) {
+  // Claims under the node that later acquires the permit: an acquire from another node is
+  // SUPERSEDED.
+  private JobEntity claimedJob(SqlserverJobStoreImpl store, String resource, String node) {
     var job = fixture.newPendingJob();
     job.setResourceName(resource);
     var created = store.create(job);
-    var claimed = store.claimNextBatch(1, "seed");
+    var claimed = store.claimNextBatch(1, node);
     assertEquals(1, claimed.size());
     assertEquals(created.getId(), claimed.get(0).getId());
     return claimed.get(0);
@@ -219,7 +221,7 @@ class SqlserverStringKeyLockingTest {
       seed.getTransaction().begin();
       var seedStore = store(seed);
       seedStore.configureResource("res-a", 1, 0, null);
-      job = claimedJob(seedStore, "res-a");
+      job = claimedJob(seedStore, "res-a", "node-a");
       seed.getTransaction().commit();
     } finally {
       if (seed.getTransaction().isActive()) seed.getTransaction().rollback();
@@ -308,8 +310,8 @@ class SqlserverStringKeyLockingTest {
     seedStore.configureResource("res-a", 1, 0, null);
     seedStore.configureResource("res-b", 1, 0, null);
     seedStore.configureResource("res-c", 1, 0, null);
-    var jobA = claimedJob(seedStore, "res-a");
-    var jobB = claimedJob(seedStore, "res-b");
+    var jobA = claimedJob(seedStore, "res-a", "node-a");
+    var jobB = claimedJob(seedStore, "res-b", "node-b");
     seed.getTransaction().commit();
 
     holder.getTransaction().begin();
@@ -335,7 +337,7 @@ class SqlserverStringKeyLockingTest {
     seedStore.configureResource("res-a", 1, 0, null);
     seedStore.configureResource("res-b", 1, 0, null);
     seedStore.configureResource("res-c", 1, 0, null);
-    var jobB = claimedJob(seedStore, "res-b");
+    var jobB = claimedJob(seedStore, "res-b", "node-b");
     seed.getTransaction().commit();
 
     holder.getTransaction().begin();
@@ -358,7 +360,7 @@ class SqlserverStringKeyLockingTest {
     seedStore.configureResource("res-a", 1, 0, null);
     seedStore.configureResource("res-b", 1, 0, null);
     seedStore.configureResource("res-c", 1, 0, null);
-    var jobB = claimedJob(seedStore, "res-b");
+    var jobB = claimedJob(seedStore, "res-b", "node-b");
     seed.getTransaction().commit();
 
     holder.getTransaction().begin();

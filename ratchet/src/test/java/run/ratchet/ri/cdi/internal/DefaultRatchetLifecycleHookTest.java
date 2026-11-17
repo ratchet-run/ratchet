@@ -18,9 +18,11 @@ package run.ratchet.ri.cdi.internal;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -45,10 +47,10 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.CancelRequestRelay;
 import run.ratchet.ri.core.internal.DeadLetterService;
-import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -124,15 +126,15 @@ class DefaultRatchetLifecycleHookTest {
   }
 
   @Test
-  void beforeStartHooksRunBeforeDefaultNodeRegistration() {
+  void beforeStartHooksRunBeforeNodeLiveness() {
     List<String> events = new ArrayList<>();
-    DefaultNodeIdentityProvider nodeIdentityProvider = mock(DefaultNodeIdentityProvider.class);
+    NodeLiveness liveness = mock(NodeLiveness.class);
     doAnswer(
             invocation -> {
               events.add("node.init");
               return null;
             })
-        .when(nodeIdentityProvider)
+        .when(liveness)
         .init();
 
     DefaultRatchetLifecycle lifecycle =
@@ -148,7 +150,8 @@ class DefaultRatchetLifecycleHookTest {
             mock(LogPurgeTimer.class),
             mock(PollerWakeupListener.class),
             executorProviderWithScheduler(),
-            nodeIdentityProvider,
+            mock(NodeIdentityProvider.class),
+            liveness,
             mock(DrainController.class),
             quietOptions(),
             mock(JobExecutionCoordinator.class),
@@ -272,6 +275,7 @@ class DefaultRatchetLifecycleHookTest {
 
   @Test
   void onStartup_whenScheduledExecutorUnavailable_degradesScheduledServicesAndContinues() {
+    NodeLiveness liveness = mock(NodeLiveness.class);
     Poller poller = mock(Poller.class);
     RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
     OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
@@ -299,6 +303,7 @@ class DefaultRatchetLifecycleHookTest {
             pollerWakeupListener,
             provider,
             mock(NodeIdentityProvider.class),
+            liveness,
             mock(DrainController.class),
             RatchetOptions.defaults(),
             jobExecutionCoordinator,
@@ -309,6 +314,8 @@ class DefaultRatchetLifecycleHookTest {
 
     assertEquals(List.of("successful.beforeStart", "successful.afterStart"), events);
     verify(provider).getScheduledExecutor();
+    verify(liveness).init();
+    verify(liveness, never()).startHeartbeat(any());
     verify(pollerWakeupListener).init();
     // The start-up permit and hold clean-ups are not scheduled services, so they still run.
     verify(orphanRecoveryTimer).cleanupOwnPermitsAtStartup(isNull());
@@ -338,6 +345,7 @@ class DefaultRatchetLifecycleHookTest {
         mock(PollerWakeupListener.class),
         executorProviderWithScheduler(),
         mock(NodeIdentityProvider.class),
+        mock(NodeLiveness.class),
         mock(DrainController.class),
         quietOptions(),
         mock(JobExecutionCoordinator.class),
@@ -359,6 +367,7 @@ class DefaultRatchetLifecycleHookTest {
         mock(PollerWakeupListener.class),
         executorProviderWithScheduler(),
         mock(NodeIdentityProvider.class),
+        mock(NodeLiveness.class),
         mock(DrainController.class),
         quietOptions(),
         mock(JobExecutionCoordinator.class),

@@ -23,12 +23,9 @@ import org.junit.jupiter.api.Test;
 class DefaultNodeIdentityProviderVisibilityTest {
 
   @Test
-  void lifecycleFieldsReadByHeartbeatThreads_areVolatile() throws Exception {
+  void resolvedIdentityIsVolatile() throws Exception {
     assertTrue(
         Modifier.isVolatile(
             DefaultNodeIdentityProvider.class.getDeclaredField("nodeId").getModifiers()));
-    assertTrue(
-        Modifier.isVolatile(
-            DefaultNodeIdentityProvider.class.getDeclaredField("heartbeatHandle").getModifiers()));
   }
 }

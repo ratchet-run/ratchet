@@ -33,6 +33,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobStatus;
@@ -146,6 +147,7 @@ public class JobTask implements Callable<Void> {
   private final JobTimeoutHandler timeoutHandler;
   private final HeldKeyReleases holdReleases;
   private final PermitReleases permitReleases;
+  private final ClaimReschedules claimReschedules;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
   private @Nullable JobAttemptControl attempt;
@@ -173,6 +175,9 @@ public class JobTask implements Callable<Void> {
   private volatile boolean permitAcquired;
   // Set when this worker recorded a cancel, so the finally block releases the business-key hold.
   private volatile boolean cancelHandled;
+  // Set once this worker's own fenced outcome write commits. A cancel that the watchdog finds later
+  // belongs to an attempt that wrote no outcome.
+  private volatile boolean outcomeWritten;
   private Instant executionStart;
 
   protected JobTask() {
@@ -198,6 +203,7 @@ public class JobTask implements Callable<Void> {
     this.timeoutHandler = null;
     this.holdReleases = null;
     this.permitReleases = null;
+    this.claimReschedules = null;
     this.clock = null;
     this.callbackInvoker = null;
     this.argResolver = null;
@@ -226,6 +232,7 @@ public class JobTask implements Callable<Void> {
       JobTimeoutHandler timeoutHandler,
       HeldKeyReleases holdReleases,
       PermitReleases permitReleases,
+      ClaimReschedules claimReschedules,
       Clock clock,
       PreExecutionArgResolver argResolver,
       RatchetOptions options) {
@@ -252,6 +259,7 @@ public class JobTask implements Callable<Void> {
     this.timeoutHandler = timeoutHandler;
     this.holdReleases = holdReleases;
     this.permitReleases = permitReleases;
+    this.claimReschedules = claimReschedules;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.callbackInvoker =
         new LifecycleCallbackInvoker(
@@ -268,8 +276,17 @@ public class JobTask implements Callable<Void> {
    * the JobTransaction carrier; ordinary jobs use separate short transactions for store updates.
    */
   @Override
-  @SuppressWarnings("java:S1181")
   public Void call() {
+    if (attempt != null) attempt.workerStarted();
+    try {
+      return runAttempt();
+    } finally {
+      if (attempt != null && attempt.workerEnded()) finishCancelLeftToWorker();
+    }
+  }
+
+  @SuppressWarnings("java:S1181")
+  private Void runAttempt() {
     UUID jobId = getJobId();
 
     JobEntity jobEntity;
@@ -296,6 +313,8 @@ public class JobTask implements Callable<Void> {
       }
       releaseHoldIfAttemptEnded(jobId, claim != null ? claim.businessKey() : null);
       JobMdcContext.clear();
+      // This early exit precedes the execution cleanup finally that normally restores it.
+      if (workerInterrupted) Thread.currentThread().interrupt();
       return null;
     }
 
@@ -319,7 +338,7 @@ public class JobTask implements Callable<Void> {
         // Completion fences the worker claim and atomically releases its reservation and
         // counts the child. An older task must not cancel a recovered RUNNING attempt.
         Instant now = effective().instant();
-        if (!jobStore
+        if (jobStore
             .commitCompletion(
                 new JobCompletionPlan(
                     jobId,
@@ -339,6 +358,8 @@ public class JobTask implements Callable<Void> {
                     expectedClaimSeq(),
                     List.of()))
             .committed()) {
+          outcomeWritten = true;
+        } else {
           warnRejectedOwnerWrite();
         }
         log.infof(
@@ -357,13 +378,14 @@ public class JobTask implements Callable<Void> {
           jobId,
           jobEntity.getDependsOn());
       try {
-        if (!jobStore.scheduleJobRetry(
+        if (rescheduleWithoutChargingAttempt(
             jobId,
             sanitizeError(e),
             effective().instant().plus(BATCH_CHECK_RETRY_BACKOFF),
             claim != null ? claim.attempts() : jobEntity.getAttempts(),
-            expectedClaimSeq())) {
-          warnRejectedOwnerWrite();
+            expectedClaimSeq(),
+            this::warnRejectedOwnerWrite)) {
+          outcomeWritten = true;
         }
       } catch (RuntimeException releaseFailure) {
         log.errorf(
@@ -371,6 +393,8 @@ public class JobTask implements Callable<Void> {
       }
       releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
       JobMdcContext.clear();
+      // This early exit precedes the execution cleanup finally that normally restores it.
+      if (workerInterrupted) Thread.currentThread().interrupt();
       return null;
     }
     JobLogger logger =
@@ -395,6 +419,8 @@ public class JobTask implements Callable<Void> {
       }
       releaseHoldIfAttemptEnded(jobId, jobEntity.getBusinessKey());
       JobMdcContext.clear();
+      // This early exit precedes the execution cleanup finally that normally restores it.
+      if (workerInterrupted) Thread.currentThread().interrupt();
       return null;
     }
 
@@ -559,7 +585,9 @@ public class JobTask implements Callable<Void> {
               currentExecution.markFailed(unbound.getClass().getName(), sanitizeError(unbound));
               observabilityFacade.saveExecution(currentExecution);
             }
-            if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
+            if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
+              outcomeWritten = true;
+            } else {
               markAttemptSuperseded();
               if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
             }
@@ -651,6 +679,9 @@ public class JobTask implements Callable<Void> {
 
   public void attach(@Nullable JobAttemptControl attempt) {
     this.attempt = attempt;
+    if (attempt != null) {
+      attempt.attachCancelFinish(this::recordCancelFoundByTimeout, this::releaseClaimHold);
+    }
   }
 
   public void init(JobEntity job) {
@@ -754,7 +785,9 @@ public class JobTask implements Callable<Void> {
         jobId);
     JobEntity poisonedJob = poisonedJobSnapshot(jobId);
     try {
-      if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex)) {
+      if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex)) {
+        outcomeWritten = true;
+      } else {
         markAttemptSuperseded();
         log.infof("Job %s already left RUNNING while poison handling was in progress", jobId);
       }
@@ -804,9 +837,14 @@ public class JobTask implements Callable<Void> {
     // contract this method documents.
     int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
     try {
-      if (!jobStore.scheduleJobRetry(
-          jobId, sanitizeError(ex), newScheduledTime, attempts, expectedClaimSeq())) {
-        warnRejectedOwnerWrite();
+      if (rescheduleWithoutChargingAttempt(
+          jobId,
+          sanitizeError(ex),
+          newScheduledTime,
+          attempts,
+          expectedClaimSeq(),
+          this::warnRejectedOwnerWrite)) {
+        outcomeWritten = true;
       }
     } catch (Throwable t) {
       log.errorf(
@@ -891,6 +929,7 @@ public class JobTask implements Callable<Void> {
       try {
         job.setLastError(safeError);
         if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+          outcomeWritten = true;
           job.setStatus(JobStatus.FAILED);
           failed = true;
         } else {
@@ -928,32 +967,145 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  // Retry short lock conflicts without charging a job attempt.
-  static final int PERMIT_ACQUIRE_TRIES = 3;
-  private static final int PERMIT_BACKOFF_MIN_MS = 20;
-  private static final int PERMIT_BACKOFF_MAX_MS = 100;
+  // Retry transient store conflicts for permit acquisition and no-charge reschedules.
+  static final int TRANSIENT_STORE_TRIES = 3;
+  private static final int TRANSIENT_BACKOFF_MIN_MS = 20;
+  private static final int TRANSIENT_BACKOFF_MAX_MS = 100;
 
   private AcquireResult acquireResourcePermit(String resourceName, long claimSeq) {
+    return retryTransientStoreOperation(
+        () ->
+            resourcePermitService.tryAcquire(
+                resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId()));
+  }
+
+  private <T> T retryTransientStoreOperation(Supplier<T> operation) {
     // call() has no transaction: each store REQUIRED call starts a fresh transaction.
     for (int attempt = 1; ; attempt++) {
       try {
-        return resourcePermitService.tryAcquire(
-            resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId());
+        return operation.get();
       } catch (RatchetTransientStoreException failure) {
-        if (attempt == PERMIT_ACQUIRE_TRIES) {
+        if (attempt == TRANSIENT_STORE_TRIES) {
           throw failure;
         }
         try {
           Thread.sleep(
               ThreadLocalRandom.current()
-                  .nextInt(PERMIT_BACKOFF_MIN_MS, PERMIT_BACKOFF_MAX_MS + 1));
+                  .nextInt(TRANSIENT_BACKOFF_MIN_MS, TRANSIENT_BACKOFF_MAX_MS + 1));
         } catch (InterruptedException interrupted) {
-          // The failure path writes to the store; call() restores the interrupt when it ends.
+          // Callers may still write to the store; call() restores the interrupt when it ends.
           workerInterrupted = true;
           throw failure;
         }
       }
     }
+  }
+
+  private boolean rescheduleWithoutChargingAttempt(
+      UUID jobId,
+      String reason,
+      Instant scheduledTime,
+      int attempts,
+      long claimSeq,
+      Runnable onRejected) {
+    return rescheduleWithoutChargingAttempt(
+        jobId, reason, scheduledTime, attempts, claimSeq, onRejected, false);
+  }
+
+  private boolean rescheduleWithoutChargingAttempt(
+      UUID jobId,
+      String reason,
+      Instant scheduledTime,
+      int attempts,
+      long claimSeq,
+      Runnable onRejected,
+      boolean reconcileCancellation) {
+    Supplier<Boolean> write =
+        () -> jobStore.releaseClaim(jobId, reason, scheduledTime, attempts, claimSeq);
+    boolean accepted;
+    try {
+      recordInterrupt(Thread.interrupted());
+      accepted = retryTransientStoreOperation(write);
+    } catch (RatchetTransientStoreException failure) {
+      String businessKey =
+          job != null ? job.getBusinessKey() : claim != null ? claim.businessKey() : null;
+      Runnable afterRejected =
+          () -> {
+            // Runs on the drainer thread after the hand-off. The worker ends the attempt right
+            // after it and no longer changes the fields read here.
+            try {
+              // The claim has moved on, as in warnRejectedOwnerWrite.
+              markAttemptSuperseded();
+              if (reconcileCancellation && jobWasCanceled()) {
+                handleCanceledDuringExecution(cancelStart());
+              } else {
+                log.warnf(
+                    "Rejected owner write for job %s, stale claimSeq %s, node %s",
+                    jobId, claimSeq, nodeIdProvider.getNodeId());
+              }
+            } finally {
+              if (businessKey != null) {
+                holdReleases.release(jobId, claimSeq);
+              }
+            }
+          };
+      if (claimRescheduleRevoked(jobId)) return false;
+      if (claimReschedules != null
+          && claimReschedules.handOff(
+              jobId,
+              claimSeq,
+              reason,
+              scheduledTime,
+              attempts,
+              () -> attempt != null && attempt.isRevoked(),
+              afterRejected)) return false;
+      while (true) {
+        recordInterrupt(Thread.interrupted());
+        if (workerInterrupted) {
+          log.errorf(
+              "Job %s stays RUNNING for shutdown reset or orphan recovery after interruption",
+              jobId);
+          return false;
+        }
+        if (claimRescheduleRevoked(jobId)) return false;
+        try {
+          Thread.sleep(5000);
+        } catch (InterruptedException interrupted) {
+          workerInterrupted = true;
+          continue;
+        }
+        recordInterrupt(Thread.interrupted());
+        if (workerInterrupted) continue;
+        if (claimRescheduleRevoked(jobId)) return false;
+        try {
+          accepted = write.get();
+        } catch (RatchetTransientStoreException retryFailure) {
+          if (claimRescheduleRevoked(jobId)) return false;
+          if (claimReschedules != null
+              && claimReschedules.handOff(
+                  jobId,
+                  claimSeq,
+                  reason,
+                  scheduledTime,
+                  attempts,
+                  () -> attempt != null && attempt.isRevoked(),
+                  afterRejected)) return false;
+          continue;
+        }
+        if (!accepted) onRejected.run();
+        return accepted;
+      }
+    }
+    if (!accepted) onRejected.run();
+    return accepted;
+  }
+
+  private boolean claimRescheduleRevoked(UUID jobId) {
+    if (attempt != null && attempt.isRevoked()) {
+      log.infof("Job %s claim reschedule belongs to the timeout watchdog", jobId);
+      return true;
+    }
+    return false;
   }
 
   private boolean tryAcquireResourcePermit() {
@@ -964,7 +1116,37 @@ public class JobTask implements Callable<Void> {
 
     try {
       long claimSeq = expectedClaimSeq();
-      AcquireResult result = acquireResourcePermit(resourceName, claimSeq);
+      AcquireResult result;
+      try {
+        result = acquireResourcePermit(resourceName, claimSeq);
+      } catch (RatchetTransientStoreException e) {
+        // The store calls below run with the interrupt flag clear; call() restores it at the end.
+        recordInterrupt(Thread.interrupted());
+        // The failure can come after the permit insert committed. permitAcquired stays false, so
+        // call() would not release it. Releasing a permit this claim does not hold is a no-op.
+        releaseResourcePermit();
+        // An interrupted acquire or backoff keeps the failure path; only exhausted tries
+        // reschedule.
+        if (workerInterrupted) {
+          throw e;
+        }
+        int retryDelay = permitRetryDelay(resourceName);
+        if (rescheduleWithoutChargingAttempt(
+            job.getId(),
+            "Permit check failed transiently for resource: " + resourceName,
+            effective().instant().plusMillis(retryDelay),
+            claim != null ? claim.attempts() : job.getAttempts(),
+            claimSeq,
+            this::warnRejectedOwnerWrite)) {
+          outcomeWritten = true;
+        }
+        log.warnf(
+            e,
+            "Permit check failed transiently for job %s, resource '%s'",
+            job.getId(),
+            resourceName);
+        return false;
+      }
 
       if (result == AcquireResult.ACQUIRED) {
         permitAcquired = true;
@@ -974,20 +1156,23 @@ public class JobTask implements Callable<Void> {
 
       if (result == AcquireResult.AT_CAPACITY) {
         log.debugf("Job %s parked waiting for resource '%s'", job.getId(), resourceName);
+        // The store parked the claim, which is this attempt's outcome.
+        outcomeWritten = true;
         return false;
       }
       // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
       // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
-      int retryDelay = resourcePermitService.getRetryDelay(resourceName);
-      if (!jobStore.scheduleJobRetry(
+      int retryDelay = permitRetryDelay(resourceName);
+      if (!rescheduleWithoutChargingAttempt(
           job.getId(),
           "Waiting for resource: " + resourceName,
           effective().instant().plusMillis(retryDelay),
-          job.getAttempts(),
-          claimSeq)) {
-        warnRejectedOwnerWrite();
+          claim != null ? claim.attempts() : job.getAttempts(),
+          claimSeq,
+          this::warnRejectedOwnerWrite)) {
         return false;
       }
+      outcomeWritten = true;
 
       log.warnf(
           "Store reported job %s claim %s superseded but its reschedule succeeded",
@@ -997,6 +1182,16 @@ public class JobTask implements Callable<Void> {
       log.errorf(e, "Job %s references unconfigured resource: %s", job.getId(), resourceName);
       handleFailure(e);
       return false;
+    }
+  }
+
+  private int permitRetryDelay(String resourceName) {
+    try {
+      return resourcePermitService.getRetryDelay(resourceName);
+    } catch (RatchetTransientStoreException e) {
+      log.warnf(
+          e, "Permit retry delay lookup failed for resource '%s'; using default", resourceName);
+      return ResourcePermitService.DEFAULT_RETRY_DELAY_MS;
     }
   }
 
@@ -1035,18 +1230,22 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.saveExecution(currentExecution);
     }
 
-    if (!jobStore.scheduleJobRetry(
+    if (rescheduleWithoutChargingAttempt(
         jobEntity.getId(),
         "Circuit breaker OPEN for service: " + serviceName,
         newScheduledTime,
-        jobEntity.getAttempts(),
-        expectedClaimSeq())) {
-      if (jobWasCanceled()) {
-        markAttemptSuperseded();
-        handleCanceledDuringExecution(cancelStart());
-      } else {
-        warnRejectedOwnerWrite();
-      }
+        claim != null ? claim.attempts() : jobEntity.getAttempts(),
+        expectedClaimSeq(),
+        () -> {
+          if (jobWasCanceled()) {
+            markAttemptSuperseded();
+            handleCanceledDuringExecution(cancelStart());
+          } else {
+            warnRejectedOwnerWrite();
+          }
+        },
+        true)) {
+      outcomeWritten = true;
     }
   }
 
@@ -1082,6 +1281,12 @@ public class JobTask implements Callable<Void> {
    */
   private void handleCanceledDuringExecution(Instant start) {
     cancelHandled = true;
+    if (attempt != null && !attempt.claimCancelFinish()) return;
+    recordCanceledAttempt(start);
+  }
+
+  /** Ends this attempt's execution CANCELED and records the cancellation. */
+  private void recordCanceledAttempt(Instant start) {
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = effective().instant();
@@ -1097,6 +1302,40 @@ public class JobTask implements Callable<Void> {
     }
 
     observabilityFacade.recordJobCancellation(job);
+  }
+
+  /**
+   * Finishes a cancel that the hard-timeout watchdog found, for an attempt that wrote no outcome of
+   * its own. An attempt that wrote its own outcome, such as a retry, was not the one canceled.
+   */
+  private void recordCancelFoundByTimeout() {
+    if (job != null && !outcomeWritten) recordCanceledAttempt(cancelStart());
+  }
+
+  /** Releases the business-key hold of the claim this attempt runs under. */
+  private void releaseClaimHold() {
+    JobAttemptControl current = attempt;
+    String key = claim != null ? claim.businessKey() : job != null ? job.getBusinessKey() : null;
+    if (current != null) releaseHeldBusinessKey(current.jobId(), key, current.claimSeq());
+  }
+
+  /**
+   * Finishes a cancel that the watchdog found while this worker ran. The interrupt is cleared for
+   * the store calls, since some drivers close the connection of an interrupted thread.
+   */
+  private void finishCancelLeftToWorker() {
+    boolean interrupted = Thread.interrupted();
+    try {
+      recordCancelFoundByTimeout();
+    } catch (RuntimeException failure) {
+      log.errorf(failure, "Job %s could not record its cancellation", attempt.jobId());
+    } finally {
+      try {
+        releaseClaimHold();
+      } finally {
+        if (interrupted) Thread.currentThread().interrupt();
+      }
+    }
   }
 
   /**
@@ -1436,6 +1675,7 @@ public class JobTask implements Callable<Void> {
     Instant scheduled = effective().instant().plus(delay);
     if (jobStore.scheduleJobRetry(
         job.getId(), null, scheduled, job.getAttempts(), expectedClaimSeq())) {
+      outcomeWritten = true;
       job.setStatus(JobStatus.PENDING);
       job.setScheduledTime(scheduled);
       job.setLastError(null);
@@ -1492,6 +1732,8 @@ public class JobTask implements Callable<Void> {
   private static final class TransactionOutcome {
     private TransactionState state;
     private boolean workDone;
+    // Set by the after-commit proof when the transaction commits.
+    private volatile boolean committed;
     private TransactionalCompletion completion;
     private SerializedJobResult serializedResult;
     private Instant end;
@@ -1500,6 +1742,7 @@ public class JobTask implements Callable<Void> {
     private void reset() {
       state = null;
       workDone = false;
+      committed = false;
       completion = null;
       serializedResult = null;
       end = null;
@@ -1516,12 +1759,10 @@ public class JobTask implements Callable<Void> {
             .merge(
                 new CircuitBreakerExceptionFilter(
                     List.of(), List.of(TransactionalOutcomeException.class), null));
-    Object result = null;
     Throwable failure = null;
     try {
-      result =
-          resilienceStrategy.execute(
-              target.serviceName(), filter, () -> runTransactionalPayload(start, payload, outcome));
+      resilienceStrategy.execute(
+          target.serviceName(), filter, () -> runTransactionalPayload(start, payload, outcome));
     } catch (Throwable thrown) {
       // Unwrap before inspecting exception types, including circuit-open rejection.
       failure = thrown instanceof TransactionalOutcomeException ? thrown.getCause() : thrown;
@@ -1544,9 +1785,17 @@ public class JobTask implements Callable<Void> {
       return;
     }
     if (failure == null) {
-      // A custom strategy can return a fallback after a rolled-back supplier invocation.
-      handleSuccess(start, result);
-    } else if (failure instanceof CircuitBreakerOpenException rejection) {
+      // A custom strategy returned a fallback, but nothing committed, so the attempt still fails.
+      failure =
+          outcome.failure != null
+              ? outcome.failure
+              : new IllegalStateException(
+                  "Job "
+                      + job.getId()
+                      + " resilience strategy returned without a committed transaction, so the"
+                      + " job's work was not saved");
+    }
+    if (failure instanceof CircuitBreakerOpenException rejection) {
       flushStateQuietly();
       rescheduleForCircuitBreaker(job, target.serviceName(), rejection);
     } else {
@@ -1558,14 +1807,16 @@ public class JobTask implements Callable<Void> {
       Instant start, JobPayload payload, TransactionOutcome outcome) throws Exception {
     outcome.reset();
     for (int transactionAttempt = 1; ; transactionAttempt++) {
+      Object result;
       try {
-        Object result =
+        result =
             jobTransaction.run(
                 () -> {
                   Object value = runPayload(payload);
                   if (attempt != null && attempt.isSuperseded()) {
                     throw new CompletionRejectedException();
                   }
+                  registerCommitProof(outcome);
                   SerializedJobResult serialized =
                       resultPersistenceStrategy.serialize(job.getId(), value);
                   Instant end = effective().instant();
@@ -1584,8 +1835,6 @@ public class JobTask implements Callable<Void> {
                   outcome.workDone = true;
                   return value;
                 });
-        outcome.state = TransactionState.COMMITTED;
-        return result;
       } catch (CompletionRejectedException rejected) {
         outcome.state = TransactionState.FENCE_REJECTED;
         outcome.failure = rejected;
@@ -1616,7 +1865,41 @@ public class JobTask implements Callable<Void> {
         if (failure instanceof Error error) throw error;
         throw new IllegalStateException(failure);
       }
+      if (!outcome.committed) {
+        outcome.reset();
+        outcome.state = TransactionState.ROLLED_BACK;
+        IllegalStateException failure =
+            new IllegalStateException(
+                "Job "
+                    + job.getId()
+                    + " transaction rolled back without an error, so the job's work was not saved");
+        outcome.failure = failure;
+        throw failure;
+      }
+      outcome.state = TransactionState.COMMITTED;
+      return result;
     }
+  }
+
+  private void registerCommitProof(TransactionOutcome outcome) {
+    if (!jobTransaction.isRollbackOnly()) {
+      AfterCommitRegistrar.Result result =
+          afterCommitRegistrar.registerAfterCommit(() -> outcome.committed = true);
+      if (result == AfterCommitRegistrar.Result.REGISTERED) return;
+      if (result != AfterCommitRegistrar.Result.ROLLBACK_ONLY) {
+        throw new IllegalStateException(
+            "Job "
+                + job.getId()
+                + " transaction commit cannot be confirmed ("
+                + result
+                + "), so the job's work was rolled back");
+      }
+    }
+    throw new IllegalStateException(
+        "Job "
+            + job.getId()
+            + " transaction is marked for rollback, so the job's work was not saved. A common cause"
+            + " is a job that catches an exception from a nested transactional call.");
   }
 
   private boolean sleepTransactionBackoff(int attempt) {
@@ -1758,6 +2041,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleTransactionalSuccess(Instant start, TransactionOutcome outcome) {
+    outcomeWritten = true;
     lifecycleFacade.runFollowups(outcome.completion);
     flushStateQuietly();
     long executionMs = Duration.between(start, outcome.end).toMillis();
@@ -1836,6 +2120,7 @@ public class JobTask implements Callable<Void> {
     if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
       return;
     }
+    outcomeWritten = true;
 
     observabilityFacade.recordJobSuccess(job, executionMs);
     currentScope.success(executionMs);
@@ -1907,6 +2192,7 @@ public class JobTask implements Callable<Void> {
     job.setAttempts(attempt);
     job.setLastError(sanitized);
     if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+      outcomeWritten = true;
       job.setStatus(JobStatus.FAILED);
       callbackInvoker.invokeOnFailure(job, ex);
       return true;
@@ -2012,6 +2298,7 @@ public class JobTask implements Callable<Void> {
 
     if (jobStore.scheduleJobRetry(
         job.getId(), sanitized, newScheduledTime, attempt, expectedClaimSeq())) {
+      outcomeWritten = true;
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);
       job.setLastError(sanitized);

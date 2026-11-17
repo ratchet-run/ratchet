@@ -81,6 +81,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final JobTimeoutHandler timeoutHandler;
   private final HeldKeyReleases holdReleases;
   private final PermitReleases permitReleases;
+  private final ClaimReschedules claimReschedules;
   private final ExecutorProvider executorProvider;
   private final RatchetOptions options;
   private final JobStore jobStore;
@@ -113,6 +114,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.timeoutHandler = null;
     this.holdReleases = null;
     this.permitReleases = null;
+    this.claimReschedules = null;
     this.executorProvider = null;
     this.options = null;
     this.jobStore = null;
@@ -285,6 +287,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         new HeldKeyReleases(jobStore, () -> executorProvider.getScheduledExecutor());
     this.permitReleases =
         new PermitReleases(resourcePermitService, () -> executorProvider.getScheduledExecutor());
+    this.claimReschedules =
+        new ClaimReschedules(jobStore, () -> executorProvider.getScheduledExecutor());
     this.executorProvider = executorProvider;
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
@@ -554,6 +558,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
             timeoutHandler,
             holdReleases,
             permitReleases,
+            claimReschedules,
             effective(),
             argResolver,
             options);

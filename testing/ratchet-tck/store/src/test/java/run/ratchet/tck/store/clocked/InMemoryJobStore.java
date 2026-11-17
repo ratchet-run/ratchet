@@ -682,6 +682,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
+  public synchronized int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    return 0;
+  }
+
+  @Override
   public synchronized int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return 0;
   }

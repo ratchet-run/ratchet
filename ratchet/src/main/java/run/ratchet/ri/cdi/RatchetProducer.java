@@ -40,6 +40,7 @@ import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PoolRegistry;
@@ -216,18 +217,27 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public DefaultNodeIdentityProvider nodeIdentityProvider(
-      DynamicHeartbeatCalculator heartbeatCalculator, JobBulkStore jobBulkStore, Clock clock) {
+  public DefaultNodeIdentityProvider nodeIdentityProvider() {
     return new DefaultNodeIdentityProvider(
+        executorProvider, options.node().explicitNodeId().orElse(null));
+  }
+
+  @Produces
+  @ApplicationScoped
+  public NodeLiveness nodeLiveness(
+      NodeIdentityProvider nodeIdentityProvider,
+      DynamicHeartbeatCalculator heartbeatCalculator,
+      JobBulkStore jobBulkStore,
+      Clock clock) {
+    return new NodeLiveness(
+        nodeIdentityProvider,
         nodeStore,
         jobBulkStore,
         heartbeatCalculator,
-        executorProvider,
         options.node().heartbeatIntervalSeconds(),
         options.node().orphanGraceSeconds(),
         options.node().maxCrashRedeliveries(),
         options.node().dynamicHeartbeatEnabled(),
-        options.node().explicitNodeId().orElse(null),
         clock);
   }
 

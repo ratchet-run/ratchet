@@ -369,6 +369,20 @@ class SqlserverExceptionTranslationTest {
   }
 
   @Test
+  void releaseClaimTranslatesDeadlock() {
+    var ctx =
+        new SqlserverStoreContext(
+            entityManager(queryReturning(List.of()), queryThrowingOnExecute()));
+    var terminals =
+        new SqlserverJobTerminalOperations(
+            ctx, new SqlserverBusinessKeyReservations(ctx), new SqlserverBatchOperations(ctx));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> terminals.releaseClaim(JOB_ID, "boom", Instant.now(), 1, 7L));
+  }
+
+  @Test
   void tagOperationsTranslateDeadlock() {
     var tags =
         new SqlserverTagOperations(

@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.ResourceLimit;
@@ -262,7 +264,7 @@ final class MysqlAuxiliaryOperations
               .createNativeQuery(
                   """
                   SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
-                         w.priority, w.wait_since, w.resource_name
+                         w.priority, w.wait_since, w.resource_name, q.picked_by
                   FROM scheduler_job_queue q
                   LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
                   WHERE q.job_id = ?
@@ -273,22 +275,25 @@ final class MysqlAuxiliaryOperations
         return AcquireResult.SUPERSEDED;
       }
       Object[] claim = (Object[]) claims.get(0);
-      if (!"RUNNING".equals(claim[0].toString()) || ((Number) claim[1]).longValue() != claimSeq) {
+      if (!"RUNNING".equals(claim[0].toString())
+          || ((Number) claim[1]).longValue() != claimSeq
+          || !nodeId.equals(claim[7])) {
         return AcquireResult.SUPERSEDED;
       }
 
       Object[] limit = (Object[]) limits.get(0);
       int maxConcurrent = ((Number) limit[0]).intValue();
       int retryDelayMs = ((Number) limit[1]).intValue();
-      // The resource row serializes acquisitions. Read permits after taking that lock, using a
-      // current read: a REPEATABLE READ snapshot may predate a different owner's committed permit.
+      // The claim read above created the REPEATABLE READ view after the limit lock, so this
+      // read sees permits committed by earlier acquirers. A locking read took next-key and gap
+      // locks on idx_resource_permit_resource, blocking other resources' inserts and deadlocking.
       // language=MySQL
       List<?> permits =
           ctx.em()
               .createNativeQuery(
                   """
                   SELECT id FROM scheduler_resource_permit
-                  WHERE resource_name = ? FOR UPDATE
+                  WHERE resource_name = ?
                   """)
               .setParameter(1, resource)
               .getResultList();
@@ -306,6 +311,7 @@ final class MysqlAuxiliaryOperations
 
       ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, claimSeq, nodeId);
       ctx.em().persist(permit);
+      ctx.em().flush();
       if (claim[4] != null) {
         // The claim may have moved to another resource and parked there since the claim read.
         deleteWaiter(resource, jobId);
@@ -763,29 +769,149 @@ final class MysqlAuxiliaryOperations
       return 0;
     }
     try {
-      int deleted = 0;
-      for (int start = 0; start < staleNodeIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
-        deleted +=
-            cleanupOrphanedPermitsChunk(
-                staleNodeIds.subList(
-                    start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, staleNodeIds.size())));
-      }
-      return deleted;
+      return cleanupPermits(staleNodeIds, null);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
     }
   }
 
-  private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
-    String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
-    Query query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (String nodeId : staleNodeIds) {
-      query.setParameter(parameter++, nodeId);
+  @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    try {
+      // Keep scheduler_node out of locking statements to avoid heartbeat-upsert gap locks.
+      List<String> missing =
+          ((List<?>)
+                  ctx.em()
+                      .createNativeQuery(
+                          """
+                          SELECT DISTINCT p.node_id FROM scheduler_resource_permit p
+                          LEFT JOIN scheduler_node n ON n.node_id = p.node_id
+                          WHERE n.node_id IS NULL AND p.acquired_at < ?
+                          """)
+                      .setParameter(1, Timestamp.from(acquiredBefore))
+                      .getResultList())
+              .stream().map(Object::toString).toList();
+      return cleanupPermits(missing, acquiredBefore);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup permits of missing nodes", e);
     }
-    return query.executeUpdate();
+  }
+
+  private List<String> discoverPermitResources(List<String> staleNodeIds) {
+    String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
+    Query discovery =
+        ctx.em()
+            .createNativeQuery(
+                """
+                SELECT DISTINCT resource_name FROM scheduler_resource_permit
+                WHERE node_id IN (%s)
+                """
+                    .formatted(placeholders));
+    for (int i = 0; i < staleNodeIds.size(); i++) {
+      discovery.setParameter(i + 1, staleNodeIds.get(i));
+    }
+    return ((List<?>) discovery.getResultList()).stream().map(Object::toString).toList();
+  }
+
+  private int cleanupPermits(List<String> nodeIds, Instant acquiredBefore) {
+    List<List<String>> chunks = new ArrayList<>();
+    Set<String> discovered = new TreeSet<>();
+    for (int start = 0; start < nodeIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
+      List<String> chunk =
+          nodeIds.subList(start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, nodeIds.size()));
+      chunks.add(chunk);
+      discovered.addAll(discoverPermitResources(chunk));
+    }
+    List<String> resources = new ArrayList<>(discovered);
+    Set<String> storedKeys = new TreeSet<>();
+    if (!resources.isEmpty()) {
+      String placeholders = String.join(",", Collections.nCopies(resources.size(), "?"));
+      Query keys =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT resource_name FROM scheduler_resource_limit
+                  WHERE resource_name IN (%s)
+                  """
+                      .formatted(placeholders));
+      for (int i = 0; i < resources.size(); i++) {
+        keys.setParameter(i + 1, resources.get(i));
+      }
+      for (Object key : keys.getResultList()) {
+        storedKeys.add(key.toString());
+      }
+    }
+    // Lock the union across ALL node chunks in one ascending pass before any delete, matching
+    // acquire's limit-before-permit order. Sort the stored limit keys, not the permit spellings:
+    // the collation ignores case, so "a" and "A" name the same row, and only the stored keys
+    // give every cleanup the same order. The delete read matches the discovered names by
+    // collation, so it covers every case variant and names with no limit row.
+    // Late permits are removed by the next stale-node sweep while the row remains, or the
+    // missing-node sweep after the row is gone and the permit is older than its cutoff.
+    for (String resource : storedKeys) {
+      ctx.em()
+          .createNativeQuery(
+              """
+              SELECT resource_name FROM scheduler_resource_limit
+              WHERE resource_name = ? FOR UPDATE
+              """)
+          .setParameter(1, resource)
+          .getResultList();
+    }
+    if (resources.isEmpty()) return 0;
+    // The ids come from one snapshot at either isolation level. A permit is inserted after its
+    // claim commits, so a permit in the snapshot has its claim there too, and a chosen id
+    // belongs to a claim that has ended. Later permits wait for another cleanup. No queue row
+    // is locked.
+    List<Object> deletableIds = new ArrayList<>();
+    String resourcePlaceholders = String.join(",", Collections.nCopies(resources.size(), "?"));
+    for (List<String> chunk : chunks) {
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+      Query deletable =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  SELECT p.id FROM scheduler_resource_permit p
+                  LEFT JOIN scheduler_job_queue q
+                    ON q.job_id = p.job_id AND q.status = 'RUNNING' AND q.picked_by = p.node_id
+                  WHERE p.node_id IN (%s)
+                  """
+                          .formatted(placeholders)
+                      + (acquiredBefore == null ? "" : "AND p.acquired_at < ?\n")
+                      + """
+                      AND p.resource_name IN (%s) AND q.job_id IS NULL
+                      """
+                          .formatted(resourcePlaceholders));
+      int parameter = 1;
+      for (String nodeId : chunk) {
+        deletable.setParameter(parameter++, nodeId);
+      }
+      if (acquiredBefore != null) {
+        deletable.setParameter(parameter++, Timestamp.from(acquiredBefore));
+      }
+      for (String resource : resources) {
+        deletable.setParameter(parameter++, resource);
+      }
+      deletableIds.addAll(deletable.getResultList());
+    }
+    int deleted = 0;
+    for (int start = 0; start < deletableIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
+      List<Object> ids =
+          deletableIds.subList(
+              start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, deletableIds.size()));
+      Query delete =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  DELETE FROM scheduler_resource_permit WHERE id IN (%s)
+                  """
+                      .formatted(String.join(",", Collections.nCopies(ids.size(), "?"))));
+      for (int i = 0; i < ids.size(); i++) {
+        delete.setParameter(i + 1, ids.get(i));
+      }
+      deleted += delete.executeUpdate();
+    }
+    return deleted;
   }
 
   private void prepareCondition(WorkflowConditionEntity condition) {

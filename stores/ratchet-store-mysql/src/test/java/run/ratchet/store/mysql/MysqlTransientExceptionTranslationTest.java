@@ -19,6 +19,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
@@ -405,6 +413,86 @@ class MysqlTransientExceptionTranslationTest {
         new MysqlJobCountOperations(throwingContext("getSingleResult"));
 
     assertThrows(RatchetTransientStoreException.class, counts::countActiveNodes);
+  }
+
+  @Test
+  void permitInsertFlushTranslatesTransientFailureBeforeCommit() {
+    EntityManager em = mock(EntityManager.class);
+    Query limit = mock(Query.class);
+    Query permits = mock(Query.class);
+    Query claim = mock(Query.class);
+    Query waiters = mock(Query.class);
+    when(em.createNativeQuery(contains("SELECT max_concurrent"))).thenReturn(limit);
+    when(em.createNativeQuery(contains("SELECT id FROM scheduler_resource_permit")))
+        .thenReturn(permits);
+    when(em.createNativeQuery(contains("SELECT q.status, q.claim_seq"))).thenReturn(claim);
+    when(em.createNativeQuery(contains("SELECT w.job_id FROM scheduler_resource_waiter")))
+        .thenReturn(waiters);
+    for (Query query : List.of(limit, permits, claim, waiters)) {
+      when(query.setParameter(anyInt(), any())).thenReturn(query);
+    }
+    when(limit.getResultList()).thenReturn(List.<Object[]>of(new Object[] {2, 100}));
+    when(claim.getResultList())
+        .thenReturn(
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 0, null, null, null, null, "node"}));
+    when(permits.getResultList()).thenReturn(List.of());
+    when(waiters.getResultList()).thenReturn(List.of());
+    doThrow(new RuntimeException("flush", new SQLTransientException("deadlock"))).when(em).flush();
+    var auxiliary = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> auxiliary.tryAcquirePermit("api", JOB_ID, 7L, "node"));
+    var order = inOrder(em);
+    order.verify(em).persist(any());
+    order.verify(em).flush();
+  }
+
+  @Test
+  void permitCleanupTranslatesTransientFailureAtEveryStatement() {
+    for (String failingSql :
+        List.of(
+            "SELECT DISTINCT",
+            "WHERE resource_name IN",
+            "FOR UPDATE",
+            "LEFT JOIN scheduler_job_queue",
+            "DELETE FROM scheduler_resource_permit WHERE id IN")) {
+      EntityManager em = mock(EntityManager.class);
+      Query discovery = mock(Query.class);
+      Query keys = mock(Query.class);
+      Query lock = mock(Query.class);
+      Query deletable = mock(Query.class);
+      Query delete = mock(Query.class);
+      when(em.createNativeQuery(any(String.class)))
+          .thenAnswer(
+              invocation -> {
+                String sql = invocation.getArgument(0);
+                if (sql.contains(failingSql)) {
+                  throw new RuntimeException("jpa", new SQLTransientException("deadlock"));
+                }
+                if (sql.contains("SELECT p.id")) return deletable;
+                if (sql.contains("SELECT DISTINCT")) return discovery;
+                if (sql.contains("WHERE resource_name IN")) return keys;
+                if (sql.contains("FOR UPDATE")) return lock;
+                return delete;
+              });
+      for (Query query : List.of(discovery, keys, lock, deletable, delete)) {
+        lenient().when(query.setParameter(anyInt(), any())).thenReturn(query);
+      }
+      lenient().when(discovery.getResultList()).thenReturn(List.of("api"));
+      lenient().when(keys.getResultList()).thenReturn(List.of("api"));
+      lenient().when(lock.getResultList()).thenReturn(List.of("api"));
+      lenient().when(deletable.getResultList()).thenReturn(List.of(new byte[16]));
+      var auxiliary = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+      assertThrows(
+          RatchetTransientStoreException.class,
+          () -> auxiliary.cleanupOrphanedPermits(List.of("stale")),
+          failingSql);
+      assertThrows(
+          RatchetTransientStoreException.class,
+          () -> auxiliary.cleanupPermitsOfMissingNodes(Instant.EPOCH),
+          failingSql);
+    }
   }
 
   private static MysqlStoreContext throwingContext(String throwingQueryMethod) {

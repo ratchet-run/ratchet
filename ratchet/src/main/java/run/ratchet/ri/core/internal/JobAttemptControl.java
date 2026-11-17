@@ -53,6 +53,103 @@ public final class JobAttemptControl {
     }
   }
 
+  /** Who finishes a cancel that the hard-timeout watchdog found. */
+  private enum CancelFinish {
+    NO_WORKER,
+    WORKER_RUNNING,
+    LEFT_TO_WORKER,
+    WORKER_ENDED,
+    FINISHED
+  }
+
+  private final AtomicReference<CancelFinish> cancelFinish =
+      new AtomicReference<>(CancelFinish.NO_WORKER);
+  private volatile @Nullable Runnable cancelRecord;
+  private volatile @Nullable Runnable holdRelease;
+
+  /**
+   * Registers how the worker records this attempt's cancellation and releases its claim's
+   * business-key hold, for a cancel that the watchdog finds.
+   */
+  public void attachCancelFinish(Runnable record, Runnable release) {
+    cancelRecord = record;
+    holdRelease = release;
+  }
+
+  /** Records that the worker started running this attempt. */
+  public void workerStarted() {
+    cancelFinish.compareAndSet(CancelFinish.NO_WORKER, CancelFinish.WORKER_RUNNING);
+  }
+
+  /**
+   * Claims the cancel for the worker's own cancel handling. Returns false when the cancel was
+   * already finished, so it is not recorded twice.
+   */
+  public boolean claimCancelFinish() {
+    return cancelFinish.getAndSet(CancelFinish.FINISHED) != CancelFinish.FINISHED;
+  }
+
+  /**
+   * Records that the worker has ended. Returns true when the watchdog found the job canceled while
+   * the worker ran, so the worker must now finish the cancel.
+   */
+  public boolean workerEnded() {
+    while (true) {
+      CancelFinish state = cancelFinish.get();
+      switch (state) {
+        case NO_WORKER, WORKER_RUNNING -> {
+          if (cancelFinish.compareAndSet(state, CancelFinish.WORKER_ENDED)) return false;
+        }
+        case LEFT_TO_WORKER -> {
+          if (cancelFinish.compareAndSet(state, CancelFinish.FINISHED)) return true;
+        }
+        default -> {
+          return false;
+        }
+      }
+    }
+  }
+
+  /**
+   * Finishes a cancel that the hard-timeout watchdog found after the worker read the job RUNNING. A
+   * running worker finishes it when it ends. For an ended worker this records the cancellation and
+   * releases the hold. With no worker yet, it releases the hold only once execution is cancelled,
+   * because no body can start after that. Never throws.
+   */
+  public void finishCancelFoundByTimeout() {
+    while (true) {
+      CancelFinish state = cancelFinish.get();
+      switch (state) {
+        case NO_WORKER -> {
+          if (isExecutionCancelled()) runQuietly(holdRelease, "release the business-key hold");
+          return;
+        }
+        case WORKER_RUNNING -> {
+          if (cancelFinish.compareAndSet(state, CancelFinish.LEFT_TO_WORKER)) return;
+        }
+        case WORKER_ENDED -> {
+          if (cancelFinish.compareAndSet(state, CancelFinish.FINISHED)) {
+            runQuietly(cancelRecord, "record the cancellation");
+            runQuietly(holdRelease, "release the business-key hold");
+            return;
+          }
+        }
+        default -> {
+          return;
+        }
+      }
+    }
+  }
+
+  private void runQuietly(@Nullable Runnable action, String what) {
+    if (action == null) return;
+    try {
+      action.run();
+    } catch (Throwable failure) {
+      log.warnf(failure, "Could not %s for job %s", what, jobId);
+    }
+  }
+
   private final Object interruptLock = new Object();
   private boolean bodyRunning;
   private boolean executionCancelled;
@@ -78,6 +175,12 @@ public final class JobAttemptControl {
   public void markBodyFinished() {
     synchronized (interruptLock) {
       bodyRunning = false;
+    }
+  }
+
+  private boolean isExecutionCancelled() {
+    synchronized (interruptLock) {
+      return executionCancelled;
     }
   }
 

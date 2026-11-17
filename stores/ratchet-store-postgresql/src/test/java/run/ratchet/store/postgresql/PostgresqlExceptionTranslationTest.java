@@ -370,6 +370,20 @@ class PostgresqlExceptionTranslationTest {
   }
 
   @Test
+  void releaseClaimTranslatesDeadlock() {
+    var ctx =
+        new PostgresqlStoreContext(
+            entityManager(queryReturning(List.of()), queryThrowingOnExecute()));
+    var terminals =
+        new PostgresqlJobTerminalOperations(
+            ctx, new PostgresqlBusinessKeyReservations(ctx), new PostgresqlBatchOperations(ctx));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> terminals.releaseClaim(JOB_ID, "boom", Instant.now(), 1, 7L));
+  }
+
+  @Test
   void tagOperationsTranslateDeadlock() {
     var tags =
         new PostgresqlTagOperations(

@@ -797,6 +797,45 @@ public abstract class AbstractSqlResourcePermitClaimRaceTest {
     }
   }
 
+  /** Resumes a child whose retry recreated its paused queue row after the resume snapshot. */
+  @Test
+  void resumeSeesChildQueueRowRecreatedAfterSnapshot() throws Exception {
+    var store = fixture().store();
+    var batches = fixture().batchStore();
+    var parent = store.create(fixture().newBatchParentJob());
+    fixture().persistBatch(parent.getId(), 1);
+    var child = fixture().newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child.setStatus(JobStatus.FAILED);
+    child.setLastError("batch retry fixture");
+    UUID childId = store.create(child).getId();
+    batches.incrementFailedAtomic(parent.getId());
+    assertTrue(store.transitionToPaused(parent.getId(), JobStatus.PENDING));
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      fixture()
+          .runInTransaction(
+              () -> {
+                // Fix MySQL's REPEATABLE READ snapshot before the retry takes the parent lock.
+                assertEquals(JobStatus.FAILED, store.findById(childId).orElseThrow().getStatus());
+                awaitFuture(
+                    executor.submit(
+                        () -> {
+                          assertTrue(store.resetFailedToPending(childId));
+                          assertEquals(JobStatus.PAUSED, store.getJobStatus(childId));
+                        }));
+                assertTrue(store.transitionFromPaused(parent.getId(), JobStatus.PENDING));
+                assertEquals(1, batches.resumeBatchChildren(parent.getId()));
+              });
+      assertEquals(JobStatus.PENDING, store.getJobStatus(parent.getId()));
+      assertEquals(JobStatus.PENDING, store.getJobStatus(childId));
+    } finally {
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
   @Test
   void wakeSweepAndWaiterRowsDoNotDeadlockWithTerminalWritesResetsAndBatchSweeps()
       throws Exception {

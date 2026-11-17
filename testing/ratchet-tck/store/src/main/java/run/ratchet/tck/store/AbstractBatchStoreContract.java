@@ -179,18 +179,52 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
   }
 
   @Test
-  void cancelBatchChildrenDrainsMultipleChunks() {
+  void pauseResumeAndCancelBatchChildrenDrainMultipleChunks() {
     var parent = persist(newBatchParentJob());
-    persistBatch(parent.getId(), 1200);
+    persistBatch(parent.getId(), 1_001);
     List<UUID> ids = new ArrayList<>();
-    for (int i = 0; i < 1200; i++) {
+    for (int i = 0; i < 1_001; i++) {
       ids.add(cascadeChild(parent.getId(), JobStatus.PENDING).getId());
     }
-    assertEquals(1200, batchStore().cancelBatchChildren(parent.getId()));
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1_001, batchStore().pauseBatchChildren(parent.getId()));
+    for (UUID id : ids) {
+      assertEquals(JobStatus.PAUSED, store().getJobStatus(id));
+    }
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(1_001, batchStore().resumeBatchChildren(parent.getId()));
+    for (UUID id : ids) {
+      assertEquals(JobStatus.PENDING, store().getJobStatus(id));
+    }
+    assertTrue(store().cancelJob(parent.getId()));
+    assertEquals(1_001, batchStore().cancelBatchChildren(parent.getId()));
     for (UUID id : ids) {
       assertEquals(JobStatus.CANCELED, store().getJobStatus(id));
     }
-    assertEquals(1200, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertEquals(1_001, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+  }
+
+  @Test
+  void pauseResumeAndCancelIncludeNilChildId() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 4);
+    var nil = newPendingJob();
+    nil.setId(new UUID(0L, 0L));
+    nil.setDependsOn(parent.getId());
+    nil.setJobType(JobExecutionType.BATCH_CHILD);
+    // save() treats a job with an id as an update; bulkInsert keeps a caller-supplied id.
+    store().bulkInsert(List.of(nil));
+    for (int i = 0; i < 3; i++) cascadeChild(parent.getId(), JobStatus.PENDING);
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(4, batchStore().pauseBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(nil.getId()));
+    assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(4, batchStore().resumeBatchChildren(parent.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(nil.getId()));
+    assertTrue(store().cancelJob(parent.getId()));
+    assertEquals(4, batchStore().cancelBatchChildren(parent.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(nil.getId()));
+    assertEquals(4, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
   }
 
   @Test

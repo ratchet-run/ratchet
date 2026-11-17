@@ -271,7 +271,7 @@ final class OracleAuxiliaryOperations
               .createNativeQuery(
                   """
                   SELECT q.status, q.claim_seq, q.priority, q.scheduled_time,
-                         w.priority, w.wait_since, w.resource_name
+                         w.priority, w.wait_since, w.resource_name, q.picked_by
                   FROM scheduler_job_queue q
                   LEFT JOIN scheduler_resource_waiter w ON w.job_id = q.job_id
                   WHERE q.job_id = ?
@@ -282,7 +282,9 @@ final class OracleAuxiliaryOperations
         return AcquireResult.SUPERSEDED;
       }
       Object[] claim = (Object[]) claims.get(0);
-      if (!"RUNNING".equals(claim[0].toString()) || ((Number) claim[1]).longValue() != claimSeq) {
+      if (!"RUNNING".equals(claim[0].toString())
+          || ((Number) claim[1]).longValue() != claimSeq
+          || !nodeId.equals(claim[7])) {
         return AcquireResult.SUPERSEDED;
       }
 
@@ -830,10 +832,37 @@ final class OracleAuxiliaryOperations
     }
   }
 
+  @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    try {
+      return ctx.em()
+          .createNativeQuery(
+              """
+              DELETE FROM scheduler_resource_permit p
+              WHERE p.acquired_at < ? AND NOT EXISTS (
+                SELECT 1 FROM scheduler_node n WHERE n.node_id = p.node_id)
+              AND NOT EXISTS (
+                SELECT 1 FROM scheduler_job_queue q
+                WHERE q.job_id = p.job_id AND q.status = 'RUNNING' AND q.picked_by = p.node_id)
+              """)
+          .setParameter(1, OracleTimestamps.microTimestamp(acquiredBefore))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup permits of missing nodes", e);
+    }
+  }
+
   private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
     String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
     // language=Oracle
-    String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
+    String sql =
+        """
+        DELETE FROM scheduler_resource_permit p
+        WHERE p.node_id IN (%s) AND NOT EXISTS (
+          SELECT 1 FROM scheduler_job_queue q
+          WHERE q.job_id = p.job_id AND q.status = 'RUNNING' AND q.picked_by = p.node_id)
+        """
+            .formatted(placeholders);
     Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (String nodeId : staleNodeIds) {

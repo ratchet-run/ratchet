@@ -47,7 +47,35 @@ public class JobTransaction {
    *
    * @throws IllegalStateException if no TransactionSynchronizationRegistry is available
    */
-  public synchronized boolean hasActiveTransaction() {
+  public boolean hasActiveTransaction() {
+    TransactionSynchronizationRegistry registry = registry();
+    if (registry == null)
+      throw new IllegalStateException(
+          "cannot tell whether a transaction is open: no TransactionSynchronizationRegistry");
+    return registry.getTransactionStatus() != Status.STATUS_NO_TRANSACTION;
+  }
+
+  /**
+   * Returns whether the transaction on the calling thread is marked for rollback or is already
+   * rolling back or rolled back; false when there is no transaction. Ratchet calls this inside
+   * {@link #run(Callable)} before it records the result.
+   *
+   * @throws IllegalStateException if no TransactionSynchronizationRegistry is available
+   */
+  public boolean isRollbackOnly() {
+    TransactionSynchronizationRegistry registry = registry();
+    if (registry == null)
+      throw new IllegalStateException(
+          "cannot tell whether the transaction is marked for rollback: no"
+              + " TransactionSynchronizationRegistry");
+    return switch (registry.getTransactionStatus()) {
+      case Status.STATUS_MARKED_ROLLBACK, Status.STATUS_ROLLING_BACK, Status.STATUS_ROLLEDBACK ->
+          true;
+      default -> false;
+    };
+  }
+
+  private synchronized TransactionSynchronizationRegistry registry() {
     if (!registryLookedUp) {
       registryLookedUp = true;
       if (registrySupplier == null) {
@@ -60,10 +88,7 @@ public class JobTransaction {
         txRegistry = registrySupplier.get();
       }
     }
-    if (txRegistry == null)
-      throw new IllegalStateException(
-          "cannot tell whether a transaction is open: no TransactionSynchronizationRegistry");
-    return txRegistry.getTransactionStatus() != Status.STATUS_NO_TRANSACTION;
+    return txRegistry;
   }
 
   @Transactional(value = TxType.REQUIRED, rollbackOn = Exception.class)
