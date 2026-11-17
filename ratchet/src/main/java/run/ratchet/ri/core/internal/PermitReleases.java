@@ -15,8 +15,10 @@
  */
 package run.ratchet.ri.core.internal;
 
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.ri.core.ResourcePermitService;
@@ -26,17 +28,33 @@ import run.ratchet.ri.core.ResourcePermitService;
  * through {@link ResourcePermitService}, so a release that lands on a retry also wakes the
  * resource's waiters, and it does nothing when the store has no ResourcePermitStore. Each call
  * names the attempt's claim, so a retry never removes a permit that a newer attempt of the same job
- * holds. A permit has no expiry. One that is still held when the retries stop, or when the
- * scheduler refuses them, stays until this node's start-up clean-up or, after its heartbeat stops,
- * another node's stale-node clean-up removes it.
+ * holds. A permit has no expiry, so a failed release is retried with backoff, from {@link
+ * #FIRST_RETRY_DELAY} up to {@link #MAX_RETRY_DELAY} between tries, until it lands or the node
+ * stops. A permit still held when the scheduler refuses a retry, as it does once the node stops,
+ * stays until this node's start-up clean-up or, after its heartbeat stops, another node's
+ * stale-node clean-up removes it.
  */
 final class PermitReleases {
+  static final Duration FIRST_RETRY_DELAY = Duration.ofSeconds(5);
+  static final Duration MAX_RETRY_DELAY = Duration.ofMinutes(1);
   private final ResourcePermitService permits;
   private final ReleaseRetries retries;
 
   PermitReleases(ResourcePermitService permits, Supplier<ScheduledExecutorService> scheduler) {
+    this(permits, scheduler, System::nanoTime);
+  }
+
+  /** Takes the monotonic clock that times the repeated warnings, so tests can move it. */
+  PermitReleases(
+      ResourcePermitService permits,
+      Supplier<ScheduledExecutorService> scheduler,
+      LongSupplier nanoTime) {
     this.permits = permits;
-    this.retries = new ReleaseRetries(scheduler);
+    this.retries =
+        new ReleaseRetries(
+            scheduler,
+            ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),
+            nanoTime);
   }
 
   /**
