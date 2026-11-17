@@ -690,6 +690,27 @@ A store advertises each of these by implementing the interface; the engine probe
 | `JobPropertyStore` | Indexed plaintext extension metadata | `putProperty()`, `getProperty()`, `getPropertiesByPrefix()` |
 | `JobStateStore` | Mutable per-job, per-namespace JSON state with version CAS | `getState()`, `initState()`, `updateState()`, `VersionedState` |
 
+### Saves and the job version
+
+`JobCrudStore.save()` is an optimistic write. It compares the entity's version with the stored job's version. In the SQL stores that is the queue row's `version` column; in MongoDB it is the document's `version` field. If the two differ, `save()` throws `RatchetOptimisticLockException` and writes nothing, even when every field it would write matches the stored job.
+
+Every other write that changes a field `save()` writes back must therefore add one to that version in the same statement. In the bundled stores this covers:
+
+- claims, `tryPickUpJob`, and the orphan, startup and shutdown resets
+- `updateJobStatus` and `compareAndSwapStatus` to a live status, and the pause and resume transitions
+- `incrementRetryAttempt` and `scheduleJobRetry`, including a retried batch child that goes back to `PAUSED`
+- permit parking in `tryAcquirePermit`, and `wakeWaiters`
+- signal delivery, and batch pause and resume
+- the path inside `save()` that changes only the scheduled time
+
+A store whose `save()` replaces the whole job, as MongoDB does, must also add one for tag inserts and deletes, and for any other write to a field the entity carries. A write that changes nothing `save()` writes back, such as `writeClaimState` or a job state row, leaves the version alone. Terminal transitions remove the live row, so a stale save fails against the stored terminal status.
+
+Bulk writes stay as one statement. Add `version = version + 1` to the `SET` list, or `$inc` the field in MongoDB, and do not read the rows first.
+
+Without the increment, a caller holding an entity read before the write could save it and put back the old status, owner, attempt count or schedule. For example, it could undo a pause or a delivered signal. To change a job after any of these writes, read it again and save the new entity.
+
+The TCK checks each write on its own. It reads a job, runs the write, saves the stale entity, and expects `RatchetOptimisticLockException` with the write's effect still in place.
+
 ### Business-key reservation contract
 
 For a job that has a business key and is not created in a terminal state, `JobCrudStore.create()` must reserve the key before writing the idempotency key or job rows. A job created in a terminal state does not reserve its key, so it can be created while another job holds that key. A held key must raise `BusinessKeyReservationConflictException` without writing anything for the losing job. The caller's transaction must remain usable. Never raise this exception after writing job data.
