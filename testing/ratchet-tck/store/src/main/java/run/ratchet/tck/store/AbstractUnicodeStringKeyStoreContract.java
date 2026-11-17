@@ -41,14 +41,14 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
     var signals = signalStore();
     var job = newPendingJob();
     job.setStatus(JobStatus.WAITING);
-    job.setSignalKey("sig-ā中");
+    job.setSignalKey("sig-ā中😀");
     job.setSignalTimeout(Instant.now().plusSeconds(600));
     var saved = persist(job);
-    assertEquals("sig-ā中", store().findById(saved.getId()).orElseThrow().getSignalKey());
+    assertEquals("sig-ā中😀", store().findById(saved.getId()).orElseThrow().getSignalKey());
     assertEquals(
         1,
         signals.deliverSignalByKey(
-            "sig-ā中",
+            "sig-ā中😀",
             null,
             null,
             "APPROVED",
@@ -63,19 +63,19 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
   void unicodeTagIsFoundAndCancelled() {
     var queries = queryStore();
     var saved = persist(newPendingJob());
-    store().insertTags(saved.getId(), List.of("tag-ā中"));
-    assertEquals(List.of(saved.getId()), queries.findJobIdsByTag("tag-ā中", 10, 0));
-    assertEquals(1, store().cancelJobsByTag("tag-ā中"));
+    store().insertTags(saved.getId(), List.of("tag-ā中😀"));
+    assertEquals(List.of(saved.getId()), queries.findJobIdsByTag("tag-ā中😀", 10, 0));
+    assertEquals(1, store().cancelJobsByTag("tag-ā中😀"));
     assertEquals(JobStatus.CANCELED, store().findById(saved.getId()).orElseThrow().getStatus());
   }
 
   @Test
   void unicodeNodeHeartbeatRenewsOneRow() {
     Instant first = Instant.parse("2026-05-12T12:00:00Z");
-    store().upsertHeartbeat("node-ā中", first);
-    store().upsertHeartbeat("node-ā中", first.plusSeconds(10));
-    var node = store().findNodeById("node-ā中").orElseThrow();
-    assertEquals("node-ā中", node.getId());
+    store().upsertHeartbeat("node-ā中😀", first);
+    store().upsertHeartbeat("node-ā中😀", first.plusSeconds(10));
+    var node = store().findNodeById("node-ā中😀").orElseThrow();
+    assertEquals("node-ā中😀", node.getId());
     assertEquals(first.plusSeconds(10), node.getLastHeartbeat());
     assertEquals(1, store().findAllNodes(10).size());
   }
@@ -83,10 +83,41 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
   @Test
   void unicodeLockIsAcquiredRenewedAndReleased() {
     var locks = lockStore();
-    assertTrue(locks.tryLock("lock-ā中", Duration.ofMinutes(5), "owner"));
-    assertTrue(locks.renewLock("lock-ā中", Duration.ofMinutes(10), "owner"));
-    assertFalse(locks.tryLock("lock-ā中", Duration.ofMinutes(5), "other"));
-    locks.unlock("lock-ā中", "owner");
-    assertTrue(locks.tryLock("lock-ā中", Duration.ofMinutes(5), "other"));
+    assertTrue(locks.tryLock("lock-ā中😀", Duration.ofMinutes(5), "owner"));
+    assertTrue(locks.renewLock("lock-ā中😀", Duration.ofMinutes(10), "owner"));
+    assertFalse(locks.tryLock("lock-ā中😀", Duration.ofMinutes(5), "other"));
+    locks.unlock("lock-ā中😀", "owner");
+    assertTrue(locks.tryLock("lock-ā中😀", Duration.ofMinutes(5), "other"));
+  }
+
+  @Test
+  void unicodeBusinessKeyHoldIsReleasedByMatchingClaim() {
+    var job = newPendingJob();
+    job.setBusinessKey("bk-ā中😀");
+    var saved = persist(job);
+    var claim = store().claimNextBatch(1, "hold-node").get(0);
+    assertEquals(saved.getId(), claim.getId());
+    assertTrue(store().cancelRunningJob(saved.getId(), Instant.now().plusSeconds(600)));
+    assertTrue(store().findBusinessKeyHolder("bk-ā中😀").isPresent());
+    assertTrue(store().releaseBusinessKeyHold(saved.getId(), claim.getClaimSeq()));
+    assertTrue(store().findBusinessKeyHolder("bk-ā中😀").isEmpty());
+    var replacement = newPendingJob();
+    replacement.setBusinessKey("bk-ā中😀");
+    persist(replacement);
+  }
+
+  @Test
+  void unicodeBusinessKeyHoldIsReleasedByExpiredHoldSweep() {
+    var job = newPendingJob();
+    job.setBusinessKey("bk-ā中😀");
+    var saved = persist(job);
+    assertEquals(saved.getId(), store().claimNextBatch(1, "hold-node").get(0).getId());
+    assertTrue(store().cancelRunningJob(saved.getId(), Instant.now().minusSeconds(60)));
+    assertTrue(store().findBusinessKeyHolder("bk-ā中😀").isPresent());
+    assertEquals(1, store().deleteExpiredBusinessKeyHolds(Instant.now(), 100));
+    assertTrue(store().findBusinessKeyHolder("bk-ā中😀").isEmpty());
+    var replacement = newPendingJob();
+    replacement.setBusinessKey("bk-ā中😀");
+    persist(replacement);
   }
 }

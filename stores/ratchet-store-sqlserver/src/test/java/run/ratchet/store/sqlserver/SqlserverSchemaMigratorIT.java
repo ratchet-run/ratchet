@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -126,8 +127,17 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
     migrateThrough17();
     if (!table.equals("scheduler_business_key_reservation"))
       insertBusinessKeyRow(table, "ascii-key");
+    boolean persistedSample;
+    BigDecimal persistedSamplePercent;
+    int primaryKeyId;
+    int statisticsId;
     try (var c = newJdbcConnection();
         var statement = c.createStatement()) {
+      statement.executeUpdate(
+          """
+          ALTER TABLE scheduler_job ALTER COLUMN caller_principal VARCHAR(255)
+          COLLATE Latin1_General_100_CS_AS NULL
+          """);
       statement.executeUpdate(
           """
           INSERT INTO scheduler_business_key_reservation
@@ -137,6 +147,25 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
       statement.executeUpdate(
           "CREATE STATISTICS unicode_key_stats ON scheduler_business_key_reservation (business_key,"
               + " held_by_node) WITH NORECOMPUTE");
+      statement.executeUpdate(
+          """
+          CREATE STATISTICS unicode_sample_stats ON scheduler_business_key_reservation (held_by_node)
+          WITH SAMPLE 50 PERCENT, PERSIST_SAMPLE_PERCENT = ON
+          """);
+      try (var rows =
+          statement.executeQuery(
+              """
+              SELECT s.has_persisted_sample, p.persisted_sample_percent
+              FROM sys.stats s
+              CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) p
+              WHERE s.object_id = OBJECT_ID('scheduler_business_key_reservation')
+                AND s.name = 'unicode_sample_stats'
+              """)) {
+        assertTrue(rows.next());
+        persistedSample = rows.getBoolean(1);
+        persistedSamplePercent = rows.getBigDecimal(2);
+        assertTrue(persistedSample);
+      }
     }
     var migrator = new SchemaMigrator(dataSource(), dialect());
     assertEquals(
@@ -174,6 +203,39 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
         assertTrue(rows.next());
         assertEquals("nvarchar", rows.getString(1));
         assertEquals(510, rows.getInt(2));
+      }
+      try (var rows =
+          statement.executeQuery(
+              """
+              SELECT TYPE_NAME(system_type_id), collation_name FROM sys.columns
+              WHERE object_id = OBJECT_ID('scheduler_job') AND name = 'caller_principal'
+              """)) {
+        assertTrue(rows.next());
+        assertEquals("nvarchar", rows.getString(1));
+        assertEquals("Latin1_General_100_CS_AS", rows.getString(2));
+      }
+      try (var rows =
+          statement.executeQuery(
+              """
+              SELECT collation_name, CONVERT(NVARCHAR(128), DATABASEPROPERTYEX(DB_NAME(), 'Collation'))
+              FROM sys.columns
+              WHERE object_id = OBJECT_ID('scheduler_node') AND name = 'node_id'
+              """)) {
+        assertTrue(rows.next());
+        assertEquals(rows.getString(2), rows.getString(1));
+      }
+      try (var rows =
+          statement.executeQuery(
+              """
+              SELECT s.has_persisted_sample, p.persisted_sample_percent
+              FROM sys.stats s
+              CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) p
+              WHERE s.object_id = OBJECT_ID('scheduler_business_key_reservation')
+                AND s.name = 'unicode_sample_stats'
+              """)) {
+        assertTrue(rows.next());
+        assertEquals(persistedSample, rows.getBoolean(1));
+        assertEquals(0, persistedSamplePercent.compareTo(rows.getBigDecimal(2)));
       }
       for (String expected :
           List.of(
@@ -232,10 +294,40 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
           }
         }
       }
+      try (var rows =
+          statement.executeQuery(
+              """
+              SELECT
+                (SELECT object_id FROM sys.key_constraints
+                 WHERE parent_object_id = OBJECT_ID('scheduler_node') AND name = 'pk_scheduler_node'),
+                (SELECT stats_id FROM sys.stats
+                 WHERE object_id = OBJECT_ID('scheduler_business_key_reservation')
+                   AND name = 'unicode_key_stats')
+              """)) {
+        assertTrue(rows.next());
+        primaryKeyId = rows.getInt(1);
+        statisticsId = rows.getInt(2);
+      }
       statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '018'");
     }
     assertEquals(1, migrator.migrate().appliedCount());
     assertEquals(0, migrator.migrate().appliedCount());
+    try (var c = newJdbcConnection();
+        var statement = c.createStatement();
+        var rows =
+            statement.executeQuery(
+                """
+                SELECT
+                  (SELECT object_id FROM sys.key_constraints
+                   WHERE parent_object_id = OBJECT_ID('scheduler_node') AND name = 'pk_scheduler_node'),
+                  (SELECT stats_id FROM sys.stats
+                   WHERE object_id = OBJECT_ID('scheduler_business_key_reservation')
+                     AND name = 'unicode_key_stats')
+                """)) {
+      assertTrue(rows.next());
+      assertEquals(primaryKeyId, rows.getInt(1));
+      assertEquals(statisticsId, rows.getInt(2));
+    }
   }
 
   @ParameterizedTest

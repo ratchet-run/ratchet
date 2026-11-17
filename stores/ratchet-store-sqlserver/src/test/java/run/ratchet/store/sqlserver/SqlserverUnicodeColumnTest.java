@@ -42,40 +42,40 @@ class SqlserverUnicodeColumnTest {
   void callerKeysAreStoredWithoutCodePageLoss() throws Exception {
     var store = fixture.store();
     var job = fixture.newPendingJob();
-    job.setBusinessKey("business-ā中");
-    job.setIdempotencyKey("idem-ā中");
-    job.setResourceName("resource-ā中");
+    job.setBusinessKey("business-ā中😀");
+    job.setIdempotencyKey("idem-ā中😀");
+    job.setResourceName("resource-ā中😀");
     job.setStatus(JobStatus.WAITING);
-    job.setSignalKey("sig-ā中");
+    job.setSignalKey("sig-ā中😀");
     job.setSignalTimeout(Instant.now().plusSeconds(600));
     store.create(job);
-    store.insertTags(job.getId(), List.of("tag-ā中"));
-    store.upsertHeartbeat("node-ā中", Instant.now());
+    store.insertTags(job.getId(), List.of("tag-ā中😀"));
+    store.upsertHeartbeat("node-ā中😀", Instant.now());
     store
         .capability(ResourcePermitStore.class)
         .orElseThrow()
-        .configureResource("resource-ā中", 1, 1000, "description-ā中");
+        .configureResource("resource-ā中😀", 1, 1000, "description-ā中😀");
     assertTrue(
         store
             .capability(LockStore.class)
             .orElseThrow()
-            .tryLock("lock-ā中", Duration.ofMinutes(5), "node-ā中"));
+            .tryLock("lock-ā中😀", Duration.ofMinutes(5), "node-ā中😀"));
 
     try (var connection = fixture.openConnection();
         var statement = connection.createStatement()) {
       for (String[] expected :
           List.of(
-              new String[] {"scheduler_job", "business_key", "business-ā中"},
-              new String[] {"scheduler_job_queue", "business_key", "business-ā中"},
-              new String[] {"scheduler_job", "idempotency_key", "idem-ā中"},
-              new String[] {"scheduler_idempotency_key", "idempotency_key", "idem-ā中"},
-              new String[] {"scheduler_job", "resource_name", "resource-ā中"},
-              new String[] {"scheduler_resource_limit", "resource_name", "resource-ā中"},
-              new String[] {"scheduler_job_queue", "signal_key", "sig-ā中"},
-              new String[] {"scheduler_job_tag", "tag", "tag-ā中"},
-              new String[] {"scheduler_node", "node_id", "node-ā中"},
-              new String[] {"scheduler_lock", "lock_name", "lock-ā中"},
-              new String[] {"scheduler_lock", "owner_node", "node-ā中"})) {
+              new String[] {"scheduler_job", "business_key", "business-ā中😀"},
+              new String[] {"scheduler_job_queue", "business_key", "business-ā中😀"},
+              new String[] {"scheduler_job", "idempotency_key", "idem-ā中😀"},
+              new String[] {"scheduler_idempotency_key", "idempotency_key", "idem-ā中😀"},
+              new String[] {"scheduler_job", "resource_name", "resource-ā中😀"},
+              new String[] {"scheduler_resource_limit", "resource_name", "resource-ā中😀"},
+              new String[] {"scheduler_job_queue", "signal_key", "sig-ā中😀"},
+              new String[] {"scheduler_job_tag", "tag", "tag-ā中😀"},
+              new String[] {"scheduler_node", "node_id", "node-ā中😀"},
+              new String[] {"scheduler_lock", "lock_name", "lock-ā中😀"},
+              new String[] {"scheduler_lock", "owner_node", "node-ā中😀"})) {
         try (var rows = statement.executeQuery("SELECT " + expected[1] + " FROM " + expected[0])) {
           assertTrue(rows.next(), expected[0]);
           assertEquals(expected[2], rows.getString(1), expected[0] + "." + expected[1]);

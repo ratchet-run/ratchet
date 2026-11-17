@@ -1,6 +1,6 @@
 -- ratchet:single-statement
 -- Stop writers before migration. SchemaMigrator executes this batch in one transaction.
--- Preserve the database collation; Unicode storage does not change comparison semantics.
+-- Keep each column's current collation; Unicode storage does not change comparisons.
 -- Values already replaced by a code-page conversion cannot be recovered here.
 IF EXISTS (SELECT 1 FROM scheduler_recurring_job WHERE LEN(business_key + '#') - 1 > 255)
     THROW 50018, 'V018: scheduler_recurring_job.business_key exceeds 255 characters', 1;
@@ -37,28 +37,82 @@ BEGIN
                     ON c.object_id = sc.object_id AND c.column_id = sc.column_id
                   WHERE sc.object_id = s.object_id AND sc.stats_id = s.stats_id)
                + N')' + CASE WHEN s.has_filter = 1 THEN N' WHERE ' + s.filter_definition ELSE N'' END
-               + N' WITH FULLSCAN' + CASE WHEN s.no_recompute = 1 THEN N', NORECOMPUTE' ELSE N'' END
+               + CASE WHEN s.has_persisted_sample = 1
+                      THEN N' WITH SAMPLE ' + CONVERT(NVARCHAR(32), p.persisted_sample_percent)
+                          + N' PERCENT, PERSIST_SAMPLE_PERCENT = ON'
+                      ELSE N' WITH FULLSCAN' END
+               + CASE WHEN s.no_recompute = 1 THEN N', NORECOMPUTE' ELSE N'' END
                + CASE WHEN s.is_incremental = 1 THEN N', INCREMENTAL = ON' ELSE N'' END
     FROM sys.stats s
-    WHERE s.user_created = 1 AND OBJECT_SCHEMA_NAME(s.object_id) = N'dbo'
-      AND OBJECT_NAME(s.object_id) IN (
-          N'scheduler_node',
-          N'scheduler_lock',
-          N'scheduler_resource_limit',
-          N'scheduler_recurring_job',
-          N'scheduler_recurring_job_archive',
-          N'scheduler_job',
-          N'scheduler_job_queue',
-          N'scheduler_business_key_reservation',
-          N'scheduler_job_tag',
-          N'scheduler_job_execution',
-          N'scheduler_job_archive',
-          N'scheduler_resource_permit',
-          N'scheduler_idempotency_key',
-          N'scheduler_event_outbox',
-          N'scheduler_partition_set',
-          N'scheduler_resource_waiter');
+    OUTER APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) p
+    WHERE s.user_created = 1 AND s.object_id IN (
+          OBJECT_ID(N'scheduler_node'),
+          OBJECT_ID(N'scheduler_lock'),
+          OBJECT_ID(N'scheduler_resource_limit'),
+          OBJECT_ID(N'scheduler_recurring_job'),
+          OBJECT_ID(N'scheduler_recurring_job_archive'),
+          OBJECT_ID(N'scheduler_job'),
+          OBJECT_ID(N'scheduler_job_queue'),
+          OBJECT_ID(N'scheduler_business_key_reservation'),
+          OBJECT_ID(N'scheduler_job_tag'),
+          OBJECT_ID(N'scheduler_job_execution'),
+          OBJECT_ID(N'scheduler_job_archive'),
+          OBJECT_ID(N'scheduler_resource_permit'),
+          OBJECT_ID(N'scheduler_idempotency_key'),
+          OBJECT_ID(N'scheduler_event_outbox'),
+          OBJECT_ID(N'scheduler_partition_set'),
+          OBJECT_ID(N'scheduler_resource_waiter'));
     DECLARE @sql NVARCHAR(MAX), @sequence INT = 1;
+    DECLARE @columns TABLE (sequence INT PRIMARY KEY, alter_sql NVARCHAR(MAX));
+    INSERT INTO @columns (sequence, alter_sql)
+    SELECT v.sequence,
+           N'ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(c.object_id)) + N'.'
+               + QUOTENAME(OBJECT_NAME(c.object_id)) + N' ALTER COLUMN ' + QUOTENAME(c.name)
+               + N' NVARCHAR(' + CONVERT(NVARCHAR(10), v.length) + N') COLLATE '
+               + c.collation_name + CASE WHEN v.nullable = 1 THEN N' NULL' ELSE N' NOT NULL' END
+    FROM (VALUES
+        (1, N'scheduler_node', N'node_id', 64, 0),
+        (2, N'scheduler_lock', N'lock_name', 128, 0),
+        (3, N'scheduler_lock', N'owner_node', 64, 0),
+        (4, N'scheduler_resource_limit', N'resource_name', 100, 0),
+        (5, N'scheduler_resource_limit', N'description', 255, 1),
+        (6, N'scheduler_recurring_job', N'business_key', 255, 1),
+        (7, N'scheduler_recurring_job', N'resource_name', 100, 1),
+        (8, N'scheduler_recurring_job', N'execution_target', 64, 1),
+        (9, N'scheduler_recurring_job', N'caller_principal', 255, 1),
+        (10, N'scheduler_recurring_job_archive', N'business_key', 255, 1),
+        (11, N'scheduler_recurring_job_archive', N'execution_target', 64, 1),
+        (12, N'scheduler_recurring_job_archive', N'caller_principal', 255, 1),
+        (13, N'scheduler_job', N'idempotency_key', 36, 0),
+        (14, N'scheduler_job', N'business_key', 255, 1),
+        (15, N'scheduler_job', N'resource_name', 100, 1),
+        (16, N'scheduler_job', N'execution_target', 64, 1),
+        (17, N'scheduler_job', N'caller_principal', 255, 1),
+        (18, N'scheduler_job_queue', N'business_key', 255, 1),
+        (19, N'scheduler_job_queue', N'picked_by', 64, 1),
+        (20, N'scheduler_job_queue', N'signal_key', 255, 1),
+        (21, N'scheduler_job_queue', N'signal_delivered_by', 255, 1),
+        (22, N'scheduler_job_queue', N'execution_target', 64, 1),
+        (23, N'scheduler_business_key_reservation', N'business_key', 255, 0),
+        (24, N'scheduler_business_key_reservation', N'held_by_node', 64, 1),
+        (25, N'scheduler_job_tag', N'tag', 64, 0),
+        (26, N'scheduler_job_execution', N'node_id', 64, 0),
+        (27, N'scheduler_job_archive', N'business_key', 255, 1),
+        (28, N'scheduler_job_archive', N'archived_by', 64, 1),
+        (29, N'scheduler_job_archive', N'tags', 512, 1),
+        (30, N'scheduler_resource_permit', N'resource_name', 100, 0),
+        (31, N'scheduler_resource_permit', N'node_id', 64, 0),
+        (32, N'scheduler_idempotency_key', N'idempotency_key', 36, 0),
+        (33, N'scheduler_event_outbox', N'business_key', 255, 1),
+        (34, N'scheduler_event_outbox', N'node_id', 64, 1),
+        (35, N'scheduler_partition_set', N'set_key', 36, 0),
+        (36, N'scheduler_partition_set', N'name', 255, 0),
+        (37, N'scheduler_partition_set', N'owner_principal', 255, 1),
+        (38, N'scheduler_resource_waiter', N'resource_name', 100, 0)
+    ) v(sequence, table_name, column_name, length, nullable)
+    JOIN sys.columns c ON c.object_id = OBJECT_ID(v.table_name) AND c.name = v.column_name;
+    IF (SELECT COUNT(*) FROM @columns) < 38
+        THROW 50018, 'V018: expected all 38 columns before converting to NVARCHAR', 1;
     WHILE @sequence <= (SELECT COUNT(*) FROM @statistics)
     BEGIN
         SELECT @sql = drop_sql FROM @statistics WHERE sequence = @sequence;
@@ -83,44 +137,13 @@ BEGIN
     ALTER TABLE scheduler_job_tag DROP CONSTRAINT pk_scheduler_job_tag;
     ALTER TABLE scheduler_idempotency_key DROP CONSTRAINT pk_scheduler_idempotency;
     ALTER TABLE scheduler_partition_set DROP CONSTRAINT uq_partition_set_key;
-    ALTER TABLE scheduler_node ALTER COLUMN node_id NVARCHAR(64) NOT NULL;
-    ALTER TABLE scheduler_lock ALTER COLUMN lock_name NVARCHAR(128) NOT NULL;
-    ALTER TABLE scheduler_lock ALTER COLUMN owner_node NVARCHAR(64) NOT NULL;
-    ALTER TABLE scheduler_resource_limit ALTER COLUMN resource_name NVARCHAR(100) NOT NULL;
-    ALTER TABLE scheduler_resource_limit ALTER COLUMN description NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_recurring_job ALTER COLUMN business_key NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_recurring_job ALTER COLUMN resource_name NVARCHAR(100) NULL;
-    ALTER TABLE scheduler_recurring_job ALTER COLUMN execution_target NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_recurring_job ALTER COLUMN caller_principal NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_recurring_job_archive ALTER COLUMN business_key NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_recurring_job_archive ALTER COLUMN execution_target NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_recurring_job_archive ALTER COLUMN caller_principal NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_job ALTER COLUMN idempotency_key NVARCHAR(36) NOT NULL;
-    ALTER TABLE scheduler_job ALTER COLUMN business_key NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_job ALTER COLUMN resource_name NVARCHAR(100) NULL;
-    ALTER TABLE scheduler_job ALTER COLUMN execution_target NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_job ALTER COLUMN caller_principal NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_job_queue ALTER COLUMN business_key NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_job_queue ALTER COLUMN picked_by NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_job_queue ALTER COLUMN signal_key NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_job_queue ALTER COLUMN signal_delivered_by NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_job_queue ALTER COLUMN execution_target NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_business_key_reservation ALTER COLUMN business_key NVARCHAR(255) NOT NULL;
-    ALTER TABLE scheduler_business_key_reservation ALTER COLUMN held_by_node NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_job_tag ALTER COLUMN tag NVARCHAR(64) NOT NULL;
-    ALTER TABLE scheduler_job_execution ALTER COLUMN node_id NVARCHAR(64) NOT NULL;
-    ALTER TABLE scheduler_job_archive ALTER COLUMN business_key NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_job_archive ALTER COLUMN archived_by NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_job_archive ALTER COLUMN tags NVARCHAR(512) NULL;
-    ALTER TABLE scheduler_resource_permit ALTER COLUMN resource_name NVARCHAR(100) NOT NULL;
-    ALTER TABLE scheduler_resource_permit ALTER COLUMN node_id NVARCHAR(64) NOT NULL;
-    ALTER TABLE scheduler_idempotency_key ALTER COLUMN idempotency_key NVARCHAR(36) NOT NULL;
-    ALTER TABLE scheduler_event_outbox ALTER COLUMN business_key NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_event_outbox ALTER COLUMN node_id NVARCHAR(64) NULL;
-    ALTER TABLE scheduler_partition_set ALTER COLUMN set_key NVARCHAR(36) NOT NULL;
-    ALTER TABLE scheduler_partition_set ALTER COLUMN name NVARCHAR(255) NOT NULL;
-    ALTER TABLE scheduler_partition_set ALTER COLUMN owner_principal NVARCHAR(255) NULL;
-    ALTER TABLE scheduler_resource_waiter ALTER COLUMN resource_name NVARCHAR(100) NOT NULL;
+    SET @sequence = 1;
+    WHILE @sequence <= (SELECT COUNT(*) FROM @columns)
+    BEGIN
+        SELECT @sql = alter_sql FROM @columns WHERE sequence = @sequence;
+        EXEC sys.sp_executesql @sql;
+        SET @sequence += 1;
+    END;
     EXEC(N'CREATE INDEX idx_rec_business_key ON scheduler_recurring_job (business_key);');
     EXEC(N'CREATE INDEX idx_archive_rec_business_key ON scheduler_recurring_job_archive (business_key);');
     EXEC(N'CREATE INDEX idx_queue_orphan ON scheduler_job_queue (status, picked_at, picked_by);');

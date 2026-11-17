@@ -217,15 +217,8 @@ class SqlserverStringKeyLockingTest {
     }
   }
 
-  private void inSeedAllowingFailure(Consumer<SqlserverJobStoreImpl> work) {
-    try {
-      inSeed(work);
-    } catch (RuntimeException ignored) {
-      // A failed write must not change the existing key.
-    }
-  }
-
-  // The default accent-sensitive collation preserves these keys independently.
+  // The default collation is accent sensitive, so U+0101 and 'a' name different keys. Each write
+  // to the look-alike key must succeed and leave the ASCII key unchanged.
   @Test
   void permitAcquireAndConfigurationDoNotMatchALookAlikeResource() {
     JobEntity job;
@@ -247,8 +240,9 @@ class SqlserverStringKeyLockingTest {
     } finally {
       if (seed.getTransaction().isActive()) seed.getTransaction().rollback();
     }
-    inSeedAllowingFailure(s -> s.configureResource("res-\u0101", 5, 0, "other"));
+    inSeed(s -> s.configureResource("res-\u0101", 5, 0, "other"));
     inSeed(s -> assertEquals(1, s.findResourceLimit("res-a").orElseThrow().maxConcurrent()));
+    inSeed(s -> assertEquals(5, s.findResourceLimit("res-\u0101").orElseThrow().maxConcurrent()));
   }
 
   @Test
@@ -257,8 +251,7 @@ class SqlserverStringKeyLockingTest {
     inSeed(s -> assertFalse(s.renewLock("lock-\u0101", Duration.ofHours(1), "node-a")));
     inSeed(s -> s.unlock("lock-\u0101", "node-a"));
     inSeed(s -> assertTrue(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-b")));
-    inSeedAllowingFailure(
-        s -> assertFalse(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-a")));
+    inSeed(s -> assertFalse(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-a")));
     inSeed(s -> assertFalse(s.tryLock("lock-a", Duration.ofHours(1), "node-b")));
   }
 
@@ -267,8 +260,9 @@ class SqlserverStringKeyLockingTest {
     Instant t0 = Instant.now().minusSeconds(3600).truncatedTo(ChronoUnit.SECONDS);
     inSeed(s -> s.upsertHeartbeat("node-a", t0));
     inSeed(s -> assertEquals(0, s.deleteInactiveNodesByIds(List.of("node-\u0101"))));
-    inSeedAllowingFailure(s -> s.upsertHeartbeat("node-\u0101", Instant.now()));
+    inSeed(s -> s.upsertHeartbeat("node-\u0101", Instant.now()));
     inSeed(s -> assertEquals(t0, s.findNodeById("node-a").orElseThrow().getLastHeartbeat()));
+    inSeed(s -> assertTrue(s.findNodeById("node-\u0101").isPresent()));
   }
 
   @Test
