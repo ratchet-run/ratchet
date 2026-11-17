@@ -645,6 +645,142 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertResetKeepsClaimSequence(false, false, true);
   }
 
+  @Test
+  void incrementRetryAttemptRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "node-a"));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertEquals(1, store().incrementRetryAttempt(job.getId(), stale.getClaimSeq()));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(1, after.getAttempts());
+    assertEquals(JobStatus.RUNNING, after.getStatus());
+    assertEquals("node-a", after.getPickedBy());
+  }
+
+  @Test
+  void scheduleJobRetryRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "node-a"));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    Instant retryTime = Instant.now().plusSeconds(300);
+    assertTrue(
+        store()
+            .scheduleJobRetry(job.getId(), "transient error", retryTime, 1, stale.getClaimSeq()));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertEquals(1, after.getAttempts());
+    assertNull(after.getPickedBy());
+    assertEquals("transient error", after.getLastError());
+  }
+
+  @Test
+  void retryIntoPausedBatchRejectsStaleSave() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    JobEntity child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child.setAttempts(2);
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    JobEntity stale = store().findById(child.getId()).orElseThrow();
+    long claimSeq = stale.getClaimSeq();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+    assertTrue(
+        store()
+            .scheduleJobRetry(
+                child.getId(), "parent paused", Instant.now().minusSeconds(1), 1, claimSeq));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(child.getId()));
+  }
+
+  @Test
+  void releaseClaimRejectsStaleSave() {
+    JobEntity stale = newReleaseClaim();
+    Instant releaseTime = Instant.now().plusSeconds(300).truncatedTo(ChronoUnit.MILLIS);
+    assertTrue(
+        store().releaseClaim(stale.getId(), "released", releaseTime, 2, stale.getClaimSeq()));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(stale.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertEquals(releaseTime, after.getScheduledTime());
+    assertEquals(2, after.getAttempts());
+    assertNull(after.getPickedBy());
+    assertEquals("released", after.getLastError());
+  }
+
+  @Test
+  void releaseIntoPausedBatchRejectsStaleSave() {
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    JobEntity child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child.setAttempts(2);
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    JobEntity stale = store().findById(child.getId()).orElseThrow();
+    long claimSeq = stale.getClaimSeq();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertEquals(0, batchStore().pauseBatchChildren(parent.getId()));
+    assertTrue(
+        store()
+            .releaseClaim(
+                child.getId(), "parent paused", Instant.now().minusSeconds(1), 2, claimSeq));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(child.getId()));
+  }
+
+  @Test
+  void retryIntoPausedBatchIncrementsTheVersionForThePause() {
+    // The reset and the pause of the retried child run in one transaction, so no stale save can
+    // tell the pause's increment apart from the reset's. The stored version can: a child reset into
+    // a paused batch ends one version past a child reset while its batch runs.
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 3);
+    JobEntity running =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    JobEntity single =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    JobEntity bulk =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    Integer failedVersion = store().findById(running.getId()).orElseThrow().getVersion();
+    for (JobEntity child : List.of(single, bulk)) {
+      assertEquals(failedVersion, store().findById(child.getId()).orElseThrow().getVersion());
+    }
+
+    assertTrue(store().resetFailedToPending(running.getId()));
+    int runningReset = store().findById(running.getId()).orElseThrow().getVersion();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertTrue(store().resetFailedToPending(single.getId()));
+    assertEquals(
+        1,
+        store().resetFailedToPending(JobFilter.builder().parentJobId(parent.getId()).build(), 100));
+
+    for (JobEntity child : List.of(single, bulk)) {
+      JobEntity reset = store().findById(child.getId()).orElseThrow();
+      assertEquals(JobStatus.PAUSED, reset.getStatus());
+      assertEquals(runningReset + 1, reset.getVersion().intValue());
+    }
+  }
+
+  @Test
+  void resetFailedToPendingRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(
+        store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    assertTrue(
+        store().compareAndSwapStatus(job.getId(), JobStatus.RUNNING, JobStatus.FAILED, "boom"));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().resetFailedToPending(job.getId()));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.PENDING, store().getJobStatus(job.getId()));
+  }
+
   private void assertResetKeepsClaimSequence(boolean viaSave, boolean bulk, boolean viaCas) {
     var saved = persist(newPendingJob());
     var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);

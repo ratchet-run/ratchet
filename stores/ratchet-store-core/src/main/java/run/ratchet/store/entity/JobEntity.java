@@ -646,6 +646,10 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.rowVersion = rowVersion;
   }
 
+  /**
+   * Job version. save() rejects an entity whose job version is stale. On a live job, every store
+   * write that changes a field save() writes back increments it.
+   */
   public Integer getVersion() {
     return version;
   }
@@ -658,6 +662,10 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.claimSeq = claimSeq;
   }
 
+  /**
+   * Job version. save() rejects an entity whose job version is stale. On a live job, every store
+   * write that changes a field save() writes back increments it.
+   */
   public void setVersion(Integer version) {
     this.version = version;
   }

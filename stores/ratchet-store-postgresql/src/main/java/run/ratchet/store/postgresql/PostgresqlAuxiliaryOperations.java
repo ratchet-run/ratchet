@@ -362,7 +362,7 @@ final class PostgresqlAuxiliaryOperations
         UPDATE scheduler_job_queue
         SET status = ?, paused_from_status = ?, last_error = ?,
             scheduled_time = statement_timestamp() + (? * INTERVAL '1 millisecond'),
-            picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp()
+            picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp(), version = version + 1
         WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
         """;
     int updated =
@@ -542,7 +542,7 @@ final class PostgresqlAuxiliaryOperations
         // language=PostgreSQL
         String wake =
             """
-            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = statement_timestamp()
+            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = statement_timestamp(), version = version + 1
             WHERE job_id = ? AND status = 'PENDING'
             """;
         if (ctx.em()

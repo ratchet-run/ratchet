@@ -751,4 +751,23 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     assertFalse(store().cancelJob(childId));
     assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
   }
+
+  @Test
+  void cancelRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().cancelJob(job.getId()));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(job.getId()));
+  }
+
+  @Test
+  void terminalFailureRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "node-a"));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().markJobFailedTerminal(job.getId(), "boom", 1, stale.getClaimSeq()));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.FAILED, store().getJobStatus(job.getId()));
+  }
 }

@@ -19,11 +19,15 @@ import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Pause / resume transitions for executable jobs.
  *
  * <p>Recurring-master pause/resume lives on {@link RecurringJobStore}.
+ *
+ * <p>Every transition here increments the job version ({@link JobEntity#getVersion()}), so a save
+ * of an entity read before it fails its version check.
  */
 @Incubating
 public interface JobPauseStore {

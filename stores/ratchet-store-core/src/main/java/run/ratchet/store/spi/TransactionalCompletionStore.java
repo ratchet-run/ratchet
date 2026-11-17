@@ -54,6 +54,10 @@ public interface TransactionalCompletionStore {
    * increments the version by one. State is encrypted at rest under the same rules as {@link
    * JobStateStore}.
    *
+   * <p>The job's queue row is locked but not changed, so the job version ({@link
+   * JobEntity#getVersion()}) stays as it is. The write changes no field that {@link
+   * JobCrudStore#save} writes back.
+   *
    * <p>After {@code VERSION_CONFLICT} the caller must roll back its transaction and run nothing
    * more in it. The store may already have marked the transaction rollback-only, for example when
    * an insert fails on the existing row.

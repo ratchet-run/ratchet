@@ -626,4 +626,17 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     var otherNode = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-2").get(0);
     assertTrue(otherNode.claimSeq() > sameNode.claimSeq());
   }
+
+  @Test
+  void claimRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    List<JobEntity> claimed = store().claimNextBatch(1, "node-a");
+    assertEquals(1, claimed.size());
+    assertEquals(job.getId(), claimed.get(0).getId());
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, after.getStatus());
+    assertEquals("node-a", after.getPickedBy());
+  }
 }

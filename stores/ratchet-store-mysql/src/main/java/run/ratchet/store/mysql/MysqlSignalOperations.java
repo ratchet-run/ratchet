@@ -188,7 +188,7 @@ final class MysqlSignalOperations implements SignalStore {
             signal_delivered_at = ?,
             signal_delivered_by = ?,
             signal_delivery_id = ?,
-            updated_at = NOW(3)
+            updated_at = NOW(3), version = version + 1
         """
             + "WHERE "
             + selectorPredicate

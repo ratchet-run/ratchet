@@ -872,6 +872,39 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     assertTrue(resourcePermitStore().wakeWaiters("new-res").isEmpty());
   }
 
+  @Test
+  void parkRejectsStaleSave() {
+    String resource = "res-stale-park";
+    resourcePermitStore().configureResource(resource, 1, 60_000, "stale save");
+    JobEntity holder = claimNewJob(resource, "node-a");
+    assertEquals(ACQUIRED, acquire(resource, holder, "node-a"));
+    JobEntity waiter = claimNewJob(resource, "node-b");
+    JobEntity stale = store().findById(waiter.getId()).orElseThrow();
+    assertEquals(AT_CAPACITY, acquire(resource, waiter, "node-b"));
+    assertStaleSaveRejected(stale);
+    JobEntity parked = store().findById(waiter.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, parked.getStatus());
+    assertNull(parked.getPickedBy());
+    assertEquals(List.of(resource), resourcePermitStore().findResourcesWithWaiters(null, 10));
+  }
+
+  @Test
+  void wakeRejectsStaleSave() {
+    String resource = "res-stale-wake";
+    resourcePermitStore().configureResource(resource, 1, 60_000, "stale save");
+    JobEntity holder = claimNewJob(resource, "node-a");
+    assertEquals(ACQUIRED, acquire(resource, holder, "node-a"));
+    JobEntity waiter = claimNewJob(resource, "node-b");
+    assertEquals(AT_CAPACITY, acquire(resource, waiter, "node-b"));
+    JobEntity stale = store().findById(waiter.getId()).orElseThrow();
+    release(resource, holder);
+    assertEquals(1, resourcePermitStore().wakeWaiters(resource).size());
+    assertStaleSaveRejected(stale);
+    JobEntity woken = store().findById(waiter.getId()).orElseThrow();
+    assertTrue(woken.getScheduledTime().isBefore(stale.getScheduledTime()));
+    assertEquals(List.of(resource), resourcePermitStore().findResourcesWithWaiters(null, 10));
+  }
+
   private JobEntity claimDueJob(String resource, Instant due, JobPriority priority) {
     var job = pendingJob(resource);
     job.setScheduledTime(due);

@@ -26,6 +26,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 
 /** Base contract tests for {@code JobPauseStore}. */
 public abstract class AbstractJobPauseStoreContract implements JobStoreContractFixture {
@@ -125,5 +126,40 @@ public abstract class AbstractJobPauseStoreContract implements JobStoreContractF
     assertThrows(
         IllegalArgumentException.class,
         () -> store().transitionFromPaused(saved.getId(), JobStatus.FAILED));
+  }
+
+  @Test
+  void pauseRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().transitionToPaused(job.getId(), JobStatus.PENDING));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PAUSED, after.getStatus());
+    assertEquals(JobStatus.PENDING, after.getPausedFromStatus());
+  }
+
+  @Test
+  void resumeRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().transitionToPaused(job.getId(), JobStatus.PENDING));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().transitionFromPaused(job.getId(), JobStatus.PENDING));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertNull(after.getPausedFromStatus());
+  }
+
+  @Test
+  void atomicResumeRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().transitionToPaused(job.getId(), JobStatus.PENDING));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, store().transitionFromPausedAtomic(job.getId()));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertNull(after.getPausedFromStatus());
   }
 }

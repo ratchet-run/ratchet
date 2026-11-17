@@ -24,6 +24,7 @@ import run.ratchet.api.Nullable;
 import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.exception.ResourceNotConfiguredException;
+import run.ratchet.store.entity.JobEntity;
 
 /** Resource permit management operations for concurrency limiting. */
 @Incubating
@@ -44,6 +45,9 @@ public interface ResourcePermitStore {
    * own retry time, at a later wake-up or at the sweep, so its share of capacity can stay unused
    * until then. A store whose transactions abort on a write conflict retries the whole wake
    * instead.
+   *
+   * <p>A wake increments the job version ({@link JobEntity#getVersion()}) of each job it wakes, so
+   * a save of an entity read before it fails its version check.
    *
    * <p>Transaction attribute: {@code REQUIRES_NEW}. The resource lock must be the first lock of the
    * transaction, and the release or clean-up that freed the capacity must already be committed.
@@ -91,6 +95,9 @@ public interface ResourcePermitStore {
    * clock its claim compares against plus retry delay (PAUSED in a paused batch), preserving
    * attempts and its first wait key, and renews the lease. A fenced park miss returns SUPERSEDED
    * and parks nothing.
+   *
+   * <p>A park increments the job version ({@link JobEntity#getVersion()}), so a save of an entity
+   * read before it fails its version check.
    *
    * <p>A waiter row is written only while {@code resource} is the job's stored resource, checked
    * under a job-row lock or write conflict that a resource change must also take. An attempt for a

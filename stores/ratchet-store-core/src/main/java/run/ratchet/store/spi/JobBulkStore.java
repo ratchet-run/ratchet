@@ -70,10 +70,10 @@ public interface JobBulkStore {
    * owner and picked_at cleared, crash count incremented and updated_at set to now. Exhausted rows
    * stay RUNNING with the same owner, crash count and claim_seq; picked_at and updated_at are both
    * set to the current JVM time ({@link Instant#now()}). This defers them for one grace period.
-   * Both changes increment the row version, so a save of an entity read before the page fails its
-   * version check. Every confirmed row leaves the candidate window for this cutoff. Returns
-   * (scanned, reset, 0, exhausted), with the page's exhausted claims in original picked_at order
-   * for the engine to fail.
+   * Both changes increment the job version ({@link JobEntity#getVersion()}), so a save of an entity
+   * read before the page fails its version check. Every confirmed row leaves the candidate window
+   * for this cutoff. Returns (scanned, reset, 0, exhausted), with the page's exhausted claims in
+   * original picked_at order for the engine to fail.
    *
    * <p>One transaction per call, never joined to a caller's transaction. A nonpositive limit
    * touches nothing and returns {@link OrphanRecovery#none()}.
@@ -86,8 +86,9 @@ public interface JobBulkStore {
    * {@code JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE}. Resets rows below the maximum to
    * PENDING, clears owner and picked_at, increments crash count (missing means zero), and sets
    * updated_at to now. For rows at or above the maximum, clears the owner, preserving status,
-   * picked_at and claim_seq so a later periodic page can fail them. Both changes increment the row
-   * version, so a save of an entity read before the call fails its version check.
+   * picked_at and claim_seq so a later periodic page can fail them. Both changes increment the job
+   * version ({@link JobEntity#getVersion()}), so a save of an entity read before the call fails its
+   * version check.
    *
    * <p>Returns (scanned, reset, released, empty exhausted list). One transaction per call, never
    * joined to a caller's transaction. A nonpositive limit touches nothing and returns {@link
