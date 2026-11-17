@@ -52,21 +52,15 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     this.reads = reads;
   }
 
-  // Overdue minutes since the row was due: DATEDIFF(SECOND, ...) is seconds, /60.0 converts to
-  // minutes.
-  private static String overdueMinutes(String timeColumn) {
-    return "DATEDIFF(SECOND, " + timeColumn + ", SYSUTCDATETIME())/60.0";
-  }
-
   /**
-   * Selects due PENDING rows in effective-priority order, locking them with {@code WITH (UPDLOCK,
-   * READPAST, ROWLOCK)} so concurrent claimers skip the already-locked rows. The caller transitions
-   * the locked rows to RUNNING via a separate UPDATE; the priority ordering established here is
+   * Selects due PENDING rows in priority order, locking them with {@code WITH (UPDLOCK, READPAST,
+   * ROWLOCK)} so concurrent claimers skip the already-locked rows. The caller transitions the
+   * locked rows to RUNNING via a separate UPDATE; the priority ordering established here is
    * preserved through that UPDATE because the caller iterates the SELECT rows directly. A single
    * {@code UPDATE … OUTPUT} from a CTE would emit rows in heap order instead.
    *
    * <p>Placeholder order: typeFilter params → executionTargetFilter params → tagFilter params →
-   * boostInterval (if &gt; 0) → limit.
+   * limit.
    */
   // language=SQL Server
   private static String buildQueueSelectSql(
@@ -74,15 +68,14 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
       String typeFilter,
       String executionTargetFilterSql,
       String tagFilterSql,
-      String timeColumn,
-      int boostInterval) {
+      String timeColumn) {
     return """
     SELECT %s
     FROM scheduler_job_queue WITH (UPDLOCK, READPAST, ROWLOCK)
     WHERE status = 'PENDING'
       AND %s <= SYSUTCDATETIME()
       AND %s%s%s
-    ORDER BY %s
+    ORDER BY priority DESC, %s ASC, job_id ASC
     OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
     """
         .formatted(
@@ -91,17 +84,12 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
             typeFilter,
             executionTargetFilterSql,
             tagFilterSql,
-            JobClaimSqlSupport.buildBoostedOrderBy(
-                timeColumn, overdueMinutes(timeColumn), boostInterval));
+            timeColumn);
   }
 
   // language=SQL Server
   private static String buildHydratedQueueSelectSql(
-      String selectColumns,
-      String typeFilter,
-      String tagFilterSql,
-      String timeColumn,
-      int boostInterval) {
+      String selectColumns, String typeFilter, String tagFilterSql, String timeColumn) {
     return """
     SELECT %s
     FROM scheduler_job c
@@ -109,16 +97,10 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     WHERE q.status = 'PENDING'
       AND %s <= SYSUTCDATETIME()
       AND %s%s
-    ORDER BY %s
+    ORDER BY q.priority DESC, %s ASC, q.job_id ASC
     OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
     """
-        .formatted(
-            selectColumns,
-            timeColumn,
-            typeFilter,
-            tagFilterSql,
-            JobClaimSqlSupport.buildBoostedOrderBy(
-                timeColumn, overdueMinutes(timeColumn), boostInterval, "q."));
+        .formatted(selectColumns, timeColumn, typeFilter, tagFilterSql, timeColumn);
   }
 
   // SQL template is a compile-time constant defined in this package; runtime values are bound as
@@ -147,13 +129,9 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
                       SqlserverJobRowMapper.hydrationSelect(),
                       "q.job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')",
                       tagSql,
-                      "q.scheduled_time",
-                      boostInterval));
+                      "q.scheduled_time"));
       int parameter = 1;
       parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
-      if (boostInterval > 0) {
-        selectQuery.setParameter(parameter++, boostInterval);
-      }
       selectQuery.setParameter(parameter, limit);
       @SuppressWarnings("unchecked")
       List<Object[]> rows =
@@ -223,17 +201,13 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
                       "job_type = CAST(? AS VARCHAR(8000))",
                       executionTargetSql,
                       tagSql,
-                      "scheduled_time",
-                      boostInterval));
+                      "scheduled_time"));
       int parameter = 1;
       selectQuery.setParameter(parameter++, jobType.name());
       parameter =
           JobClaimSqlSupport.bindExecutionTargetFilter(
               selectQuery, executionTargetFilter, parameter);
       parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
-      if (boostInterval > 0) {
-        selectQuery.setParameter(parameter++, boostInterval);
-      }
       selectQuery.setParameter(parameter, limit);
       @SuppressWarnings("unchecked")
       List<Object[]> rows = selectQuery.getResultList();
