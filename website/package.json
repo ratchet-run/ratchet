@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
-    "playwright": "^1.65.0",
+    "playwright": "^1.65.1",
     "shiki": "^4.6.0",
     "vitepress": "^1.6.0",
     "vitepress-plugin-llms": "^1.15.0"
