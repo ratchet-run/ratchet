@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -796,9 +797,24 @@ class JobTaskTest {
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     JobStateStore state = pendingCheckpointStore();
-    lenient()
-        .when(checkpointRegistrar.registerAfterCommit(any()))
-        .thenReturn(AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION);
+    // The carrier has no container here: report no open transaction, and run the unit's
+    // commit proof after the work, as a real commit would.
+    List<Runnable> commits = new ArrayList<>();
+    when(checkpointRegistrar.registerAfterCommit(any()))
+        .thenAnswer(
+            call -> {
+              commits.add(call.getArgument(0));
+              return AfterCommitRegistrar.Result.REGISTERED;
+            });
+    doReturn(false).when(unitTransactions).hasActiveTransaction();
+    doAnswer(
+            call -> {
+              Object result = call.callRealMethod();
+              commits.forEach(Runnable::run);
+              return result;
+            })
+        .when(unitTransactions)
+        .run(any());
     TransactionalCompletionStore transactions = mock(TransactionalCompletionStore.class);
     when(jobStore.capability(TransactionalCompletionStore.class))
         .thenReturn(Optional.of(transactions));
