@@ -79,6 +79,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -6416,6 +6417,94 @@ class JobTaskTest {
     verify(observabilityFacade, never()).recordJobCancellation(any());
   }
 
+  private enum NoChargeReleaseSite {
+    TRANSIENT_PERMIT,
+    SUPERSEDED_PERMIT,
+    OPEN_CIRCUIT,
+    UPGRADE,
+    BATCH_CHECK
+  }
+
+  @ParameterizedTest
+  @EnumSource(NoChargeReleaseSite.class)
+  void noChargeReleaseWrittenAndThenCanceledFromPending_recordsNoCancel(NoChargeReleaseSite site)
+      throws Exception {
+    assertNoChargeReleaseThenCanceled(site, true);
+  }
+
+  @Test
+  void noChargeReleaseRejectedAndThenCanceled_recordsCancel() throws Exception {
+    assertNoChargeReleaseThenCanceled(NoChargeReleaseSite.TRANSIENT_PERMIT, false);
+  }
+
+  private void assertNoChargeReleaseThenCanceled(NoChargeReleaseSite site, boolean released)
+      throws Exception {
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    job.setAttempts(2);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    if (site == NoChargeReleaseSite.UPGRADE || site == NoChargeReleaseSite.BATCH_CHECK) {
+      // These gates return before service availability is checked.
+      lenient().when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    }
+    switch (site) {
+      case TRANSIENT_PERMIT, SUPERSEDED_PERMIT -> {
+        job.setResourceName("gpu");
+        if (site == NoChargeReleaseSite.TRANSIENT_PERMIT) {
+          when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+              .thenThrow(new RatchetTransientStoreException("acquire deadlock"));
+        } else {
+          when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+              .thenReturn(AcquireResult.SUPERSEDED);
+        }
+        when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+      }
+      case OPEN_CIRCUIT -> {
+        failBody(() -> new CircuitBreakerOpenException("Circuit breaker OPEN"));
+        when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofSeconds(1));
+      }
+      case UPGRADE -> {
+        job = spy(job);
+        jobTask.init(job);
+        UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
+        doThrow(skew).when(job).getSignalPayload();
+        when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
+      }
+      case BATCH_CHECK -> {
+        UUID parentId = UUID.randomUUID();
+        job.setJobType(JobExecutionType.BATCH_CHILD);
+        job.setDependsOn(parentId);
+        IllegalStateException unavailable = new IllegalStateException("parent unavailable");
+        when(jobStore.getJobStatus(parentId)).thenThrow(unavailable);
+        when(errorSanitizer.sanitize(unavailable)).thenReturn("sanitized parent failure");
+      }
+    }
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(7L)))
+        .thenReturn(released);
+    recordSaves(race, status -> {});
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(invocation -> Optional.of(storedRow(race.status().get())));
+
+    jobTask.call();
+    race.status().set(JobStatus.CANCELED);
+    runWatchdog(handler, attempt, new FutureTask<>(() -> null));
+
+    verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L));
+    verify(jobStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    if (released) {
+      verify(observabilityFacade, never()).recordJobCancellation(any());
+    } else {
+      verify(observabilityFacade).recordJobCancellation(job);
+    }
+    Assertions.assertEquals(
+        site == NoChargeReleaseSite.OPEN_CIRCUIT ? List.of(ExecutionStatus.FAILED) : List.of(),
+        race.saved());
+  }
+
   @Test
   void watchdogInterruptOfARunningBody_endsTheCancelOnceEndToEnd() throws Exception {
     // A real FutureTask runs the worker, and a cancel commits while the body runs. The watchdog
@@ -6533,7 +6622,9 @@ class JobTaskTest {
   }
 
   private void recordSaves(CancelRace race, Consumer<ExecutionStatus> onSave) {
-    when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
+    // Pre-execution releases legitimately save no execution; still capture an unexpected save.
+    lenient()
+        .when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
         .thenAnswer(
             invocation -> {
               JobExecutionEntity execution = invocation.getArgument(0);
