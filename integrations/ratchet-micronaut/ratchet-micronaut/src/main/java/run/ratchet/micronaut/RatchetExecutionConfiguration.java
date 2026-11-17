@@ -30,6 +30,7 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.micronaut.internal.RatchetTransactionOperations;
 import run.ratchet.micronaut.internal.tx.MicronautBatchService;
 import run.ratchet.micronaut.internal.tx.MicronautDeadLetterService;
 import run.ratchet.micronaut.internal.tx.MicronautJobStateManager;
@@ -478,8 +479,10 @@ class RatchetExecutionConfiguration {
   @Singleton
   @Secondary
   @RatchetTransactionBoundary
-  MicronautJobTransaction jobTransaction(BeanContext context) {
-    return new MicronautJobTransaction(() -> transactionManagers(context));
+  MicronautJobTransaction jobTransaction(
+      BeanContext context, RatchetTransactionOperations transactions) {
+    return new MicronautJobTransaction(
+        () -> transactionManagers(context), transactions::operations);
   }
 
   // A type lookup can drop a datasource's JDBC manager, because Micronaut checks its condition

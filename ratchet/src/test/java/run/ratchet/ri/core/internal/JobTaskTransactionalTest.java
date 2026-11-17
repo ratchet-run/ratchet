@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
@@ -110,7 +111,8 @@ class JobTaskTransactionalTest {
   private final ExecutionObserver observer = mock(ExecutionObserver.class);
   private final PreExecutionValidator validator = mock(PreExecutionValidator.class);
   private final JobSuccessFinalizer finalizer = mock(JobSuccessFinalizer.class);
-  private final JobTransaction carrier = spy(new JobTransaction());
+  private final FakeCarrier carrier = spy(new FakeCarrier());
+  private final AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
   private final ResilienceStrategy resilience = mock(ResilienceStrategy.class);
   private final ResultPersistenceStrategy results = mock(ResultPersistenceStrategy.class);
   private final RetryPolicy retries = mock(RetryPolicy.class);
@@ -169,7 +171,7 @@ class JobTaskTransactionalTest {
             results,
             null,
             new JsonbTestPayloadSerializer(),
-            mock(AfterCommitRegistrar.class),
+            registrar,
             flusher,
             timeoutHandler,
             new HeldKeyReleases(store, () -> mock(ScheduledExecutorService.class)),
@@ -202,6 +204,8 @@ class JobTaskTransactionalTest {
     when(lifecycle.completeSuccessInCurrentTransaction(
             eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(completion);
+    when(registrar.registerAfterCommit(any()))
+        .thenAnswer(inv -> carrier.register(inv.getArgument(0)));
     BODY.set(() -> 42);
   }
 
@@ -954,7 +958,7 @@ class JobTaskTransactionalTest {
     IllegalStateException lostAck = new IllegalStateException("lost commit acknowledgement");
     doAnswer(
             inv -> {
-              ((Callable<?>) inv.getArgument(0)).call();
+              inv.callRealMethod();
               Thread.currentThread().interrupt();
               throw lostAck;
             })
@@ -1145,7 +1149,7 @@ class JobTaskTransactionalTest {
   private void loseCommitAcknowledgement() throws Exception {
     doAnswer(
             inv -> {
-              ((Callable<?>) inv.getArgument(0)).call();
+              inv.callRealMethod();
               throw new IllegalStateException("lost acknowledgement");
             })
         .when(carrier)
@@ -1272,6 +1276,201 @@ class JobTaskTransactionalTest {
         .completeSuccessInCurrentTransaction(
             any(), any(), any(), any(), any(), anyLong(), anyLong());
     assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+  }
+
+  static class FakeCarrier extends JobTransaction {
+    final List<Runnable> pending = new CopyOnWriteArrayList<>();
+    final AtomicBoolean rollbackOnly = new AtomicBoolean();
+    final AtomicBoolean silentRollback = new AtomicBoolean();
+
+    void markRollbackOnly() {
+      rollbackOnly.set(true);
+    }
+
+    void rollBackSilently() {
+      silentRollback.set(true);
+    }
+
+    @Override
+    public boolean isRollbackOnly() {
+      return rollbackOnly.get();
+    }
+
+    AfterCommitRegistrar.Result register(Runnable action) {
+      if (!JobTransaction.active()) return AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION;
+      pending.add(action);
+      return AfterCommitRegistrar.Result.REGISTERED;
+    }
+
+    @Override
+    public <T> T run(Callable<T> work) throws Exception {
+      pending.clear();
+      rollbackOnly.set(false);
+      try {
+        T value = insideCarrier(work);
+        if (!rollbackOnly.get() && !silentRollback.get()) {
+          for (Runnable action : List.copyOf(pending)) action.run();
+        }
+        return value;
+      } finally {
+        rollbackOnly.set(false);
+        pending.clear();
+      }
+    }
+  }
+
+  @Test
+  void rollbackOnlyBodyFailsAttemptBeforeCompletionWrite() throws Exception {
+    assertRejectedTransaction("marked for rollback", true, false);
+  }
+
+  @Test
+  void registrarRollbackOnlyFailsAttemptBeforeCompletionWrite() throws Exception {
+    when(registrar.registerAfterCommit(any()))
+        .thenReturn(AfterCommitRegistrar.Result.ROLLBACK_ONLY);
+    assertRejectedTransaction("marked for rollback", false, false);
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = AfterCommitRegistrar.Result.class,
+      names = {"REGISTRATION_FAILED", "NO_ACTIVE_TRANSACTION"})
+  void unconfirmableCommitFailsAttemptBeforeCompletionWrite(AfterCommitRegistrar.Result result)
+      throws Exception {
+    when(registrar.registerAfterCommit(any())).thenReturn(result);
+    assertRejectedTransaction("cannot be confirmed", false, false);
+  }
+
+  @Test
+  void silentRollbackAfterCompletionFailsAttemptWithoutReadingOutcome() throws Exception {
+    carrier.rollBackSilently();
+    assertRejectedTransaction("rolled back without an error", false, true);
+  }
+
+  private void assertRejectedTransaction(String phrase, boolean markRollback, boolean completed)
+      throws Exception {
+    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    AtomicInteger bodies = new AtomicInteger();
+    AtomicInteger successCallbacks = new AtomicInteger();
+    job.setOnSuccessPayload(payload("afterCommit", "()V"));
+    CALLBACK.set(() -> successCallbacks.incrementAndGet());
+    BODY.set(
+        () -> {
+          bodies.incrementAndGet();
+          if (markRollback) carrier.markRollbackOnly();
+          return 42;
+        });
+    try {
+      task.call();
+      assertEquals(1, bodies.get());
+      verify(carrier, times(1)).run(any());
+      verify(lifecycle, times(completed ? 1 : 0))
+          .completeSuccessInCurrentTransaction(
+              any(), any(), any(), any(), any(), anyLong(), anyLong());
+      if (!completed) verifyNoInteractions(results);
+      verify(transactions, never()).terminalOutcome(any(), anyLong());
+      verify(lifecycle, never()).runFollowups(any());
+      verify(observer, never()).recordJobSuccess(any(), anyLong());
+      verify(observer, times(1))
+          .recordJobFailure(eq(job), any(IllegalStateException.class), anyInt());
+      verify(store, times(1)).incrementRetryAttempt(job.getId(), 7L);
+      assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+      assertEquals(IllegalStateException.class.getName(), execution.getErrorClass());
+      assertTrue(execution.getErrorMessage().contains(phrase), execution.getErrorMessage());
+      assertTrue(supplierFailure.get() instanceof IllegalStateException);
+      assertEquals(
+          CircuitBreakerExceptionFilter.Outcome.RECORDED,
+          callFilter.get().classify(supplierFailure.get()));
+      assertEquals(0, successCallbacks.get());
+      verifyNoInteractions(finalizer);
+    } finally {
+      CALLBACK.remove();
+    }
+  }
+
+  @Test
+  void cancelRequestedBodyLeftRollbackOnlyEndsCanceled() {
+    job.setBusinessKey("transactional-key");
+    BODY.set(
+        () -> {
+          attempt.requestUserCancel();
+          when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          carrier.markRollbackOnly();
+          return 42;
+        });
+    task.call();
+    assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+    verify(observer).recordJobCancellation(job);
+    verify(observer, never()).recordJobFailure(any(), any(), anyInt());
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(lifecycle, never())
+        .completeSuccessInCurrentTransaction(
+            any(), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(lifecycle, never()).runFollowups(any());
+    verify(store, times(1)).releaseBusinessKeyHold(job.getId(), 7L);
+    verifyNoInteractions(finalizer);
+  }
+
+  @Test
+  void commitFailureAfterProofStillReadsOutcome() throws Exception {
+    doAnswer(
+            inv -> {
+              inv.callRealMethod();
+              throw new IllegalStateException("after-commit listener failed");
+            })
+        .when(carrier)
+        .run(any());
+    when(transactions.terminalOutcome(job.getId(), 7L)).thenReturn(TerminalOutcome.COMMITTED);
+    task.call();
+    verify(transactions, times(1)).terminalOutcome(job.getId(), 7L);
+    verify(lifecycle, times(1)).runFollowups(completion);
+    assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+    verify(store, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = JobStatus.class,
+      names = {"CANCELED", "RUNNING"})
+  void supersededBodyLeftRollbackOnlyKeepsSupersededPath(JobStatus status) throws Exception {
+    AtomicBoolean rolledBack = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              try {
+                return invocation.callRealMethod();
+              } catch (CompletionRejectedException failure) {
+                rolledBack.set(true);
+                throw failure;
+              }
+            })
+        .when(carrier)
+        .run(any());
+    BODY.set(
+        () -> {
+          attempt.markSuperseded();
+          carrier.markRollbackOnly();
+          when(store.getJobStatus(job.getId())).thenReturn(status);
+          return 42;
+        });
+    // setUp leaves completion accepting this still-intact claim.
+    task.call();
+    assertTrue(rolledBack.get());
+    verify(carrier).run(any());
+    verify(lifecycle, never())
+        .completeSuccessInCurrentTransaction(
+            any(), any(), any(), any(), any(), anyLong(), anyLong());
+    verifyNoInteractions(results);
+    assertEquals(
+        CircuitBreakerExceptionFilter.Outcome.IGNORED,
+        callFilter.get().classify(supplierFailure.get()));
+    verify(store, never()).incrementRetryAttempt(any(), any());
+    if (status == JobStatus.CANCELED) {
+      assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+      verify(observer).recordJobCancellation(job);
+    } else {
+      assertEquals(JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, execution.getErrorMessage());
+    }
+    verify(lifecycle, never()).runFollowups(any());
   }
 
   private static JobPayload payload(String method, String descriptor) {

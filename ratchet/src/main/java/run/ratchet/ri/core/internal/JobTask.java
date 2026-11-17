@@ -1492,6 +1492,8 @@ public class JobTask implements Callable<Void> {
   private static final class TransactionOutcome {
     private TransactionState state;
     private boolean workDone;
+    // Set by the after-commit proof when the transaction commits.
+    private volatile boolean committed;
     private TransactionalCompletion completion;
     private SerializedJobResult serializedResult;
     private Instant end;
@@ -1500,6 +1502,7 @@ public class JobTask implements Callable<Void> {
     private void reset() {
       state = null;
       workDone = false;
+      committed = false;
       completion = null;
       serializedResult = null;
       end = null;
@@ -1558,14 +1561,16 @@ public class JobTask implements Callable<Void> {
       Instant start, JobPayload payload, TransactionOutcome outcome) throws Exception {
     outcome.reset();
     for (int transactionAttempt = 1; ; transactionAttempt++) {
+      Object result;
       try {
-        Object result =
+        result =
             jobTransaction.run(
                 () -> {
                   Object value = runPayload(payload);
                   if (attempt != null && attempt.isSuperseded()) {
                     throw new CompletionRejectedException();
                   }
+                  registerCommitProof(outcome);
                   SerializedJobResult serialized =
                       resultPersistenceStrategy.serialize(job.getId(), value);
                   Instant end = effective().instant();
@@ -1584,8 +1589,6 @@ public class JobTask implements Callable<Void> {
                   outcome.workDone = true;
                   return value;
                 });
-        outcome.state = TransactionState.COMMITTED;
-        return result;
       } catch (CompletionRejectedException rejected) {
         outcome.state = TransactionState.FENCE_REJECTED;
         outcome.failure = rejected;
@@ -1616,7 +1619,42 @@ public class JobTask implements Callable<Void> {
         if (failure instanceof Error error) throw error;
         throw new IllegalStateException(failure);
       }
+      if (!outcome.committed) {
+        outcome.reset();
+        outcome.state = TransactionState.ROLLED_BACK;
+        IllegalStateException failure =
+            new IllegalStateException(
+                "Job "
+                    + job.getId()
+                    + " transaction rolled back without an error, so the job's work was not saved");
+        outcome.failure = failure;
+        throw failure;
+      }
+      outcome.state = TransactionState.COMMITTED;
+      return result;
     }
+  }
+
+  private void registerCommitProof(TransactionOutcome outcome) {
+    if (!jobTransaction.isRollbackOnly()) {
+      AfterCommitRegistrar.Result result =
+          afterCommitRegistrar.registerAfterCommit(() -> outcome.committed = true);
+      if (result == AfterCommitRegistrar.Result.REGISTERED) return;
+      if (result != AfterCommitRegistrar.Result.ROLLBACK_ONLY) {
+        throw new IllegalStateException(
+            "Job "
+                + job.getId()
+                + " transaction commit cannot be confirmed ("
+                + result
+                + "), so the job's work was rolled back");
+      }
+    }
+    throw new IllegalStateException(
+        "Job "
+            + job.getId()
+            + " transaction is marked for rollback, so the job's work was not saved. A common cause"
+            + " is a job that catches an exception from a nested transactional call; a transaction"
+            + " timeout has the same effect.");
   }
 
   private boolean sleepTransactionBackoff(int attempt) {

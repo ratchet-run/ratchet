@@ -17,6 +17,7 @@ package run.ratchet.quarkus.it;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.quarkus.arc.profile.UnlessBuildProfile;
@@ -84,11 +85,26 @@ class TransactionalCompletionTest {
     assertEquals(0, probes.get().count(key));
   }
 
+  @Test
+  void swallowedNestedFailureFailsAttemptAndSavesNothing() {
+    String value = key;
+    JobHandle handle = scheduler.enqueue(() -> SqlProbe.swallow(value)).withMaxRetries(0).submit();
+    awaitStatus(handle, JobStatus.FAILED);
+    assertTrue(probes.get().wrote(key));
+    assertEquals(0, probes.get().count(key));
+    String error = jobs.findById(handle.id()).orElseThrow().getLastError();
+    assertNotNull(error);
+    assertTrue(error.contains("marked for rollback"), error);
+  }
+
   private void awaitStatus(JobHandle handle, JobStatus expected) {
     await()
         .atMost(Duration.ofSeconds(30))
         .untilAsserted(
-            () -> assertEquals(expected, jobs.findById(handle.id()).orElseThrow().getStatus()));
+            () -> {
+              var job = jobs.findById(handle.id()).orElseThrow();
+              assertEquals(expected, job.getStatus(), "lastError=" + job.getLastError());
+            });
   }
 
   @ApplicationScoped
@@ -110,6 +126,16 @@ class TransactionalCompletionTest {
     public static void fail(String key) {
       CDI.current().select(SqlProbe.class).get().insert(key);
       throw new IllegalStateException("Roll back the application's write");
+    }
+
+    @TransactionalJob
+    public static void swallow(String key) {
+      CDI.current().select(SqlProbe.class).get().insert(key);
+      try {
+        CDI.current().select(TransactionalCheckpointTest.NestedFailure.class).get().fail();
+      } catch (RuntimeException expected) {
+        // The job carries on with a transaction marked for rollback.
+      }
     }
 
     // The extension's named persistence unit uses the same datasource as Ratchet's SQL store.

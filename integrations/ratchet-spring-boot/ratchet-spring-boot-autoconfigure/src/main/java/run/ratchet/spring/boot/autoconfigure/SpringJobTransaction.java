@@ -20,6 +20,7 @@ import java.util.function.Supplier;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import run.ratchet.ri.core.JobTransaction;
@@ -27,6 +28,7 @@ import run.ratchet.ri.core.JobTransaction;
 /** Explicit transaction template; excluded from automatic transaction proxying. */
 public class SpringJobTransaction extends JobTransaction implements AopInfrastructureBean {
   private final Supplier<PlatformTransactionManager> manager;
+  private final ThreadLocal<TransactionStatus> currentStatus = new ThreadLocal<>();
 
   public SpringJobTransaction(PlatformTransactionManager manager) {
     this(() -> manager);
@@ -46,16 +48,27 @@ public class SpringJobTransaction extends JobTransaction implements AopInfrastru
   }
 
   @Override
+  public boolean isRollbackOnly() {
+    TransactionStatus status = currentStatus.get();
+    return status != null && status.isRollbackOnly();
+  }
+
+  @Override
   public <T> T run(Callable<T> work) throws Exception {
     TransactionTemplate transactions = new TransactionTemplate(manager.get());
     transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
     try {
       return transactions.execute(
           status -> {
+            TransactionStatus previous = currentStatus.get();
+            currentStatus.set(status);
             try {
               return insideCarrier(work);
             } catch (Exception failure) {
               throw new WorkFailure(failure);
+            } finally {
+              if (previous == null) currentStatus.remove();
+              else currentStatus.set(previous);
             }
           });
     } catch (WorkFailure failure) {

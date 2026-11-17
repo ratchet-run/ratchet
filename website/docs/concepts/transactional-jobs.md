@@ -45,6 +45,20 @@ A transient store failure during completion retries the entire transaction, **in
 
 If the transaction manager reports a commit failure after the body and completion finished, Ratchet reads the store to resolve the outcome. A committed result runs follow-ups and success callbacks; a rolled-back result uses ordinary failure handling without an inline rerun. If the outcome cannot be read, orphan recovery or restart resolves the job. Without [durable terminal events](../api-reference/event-system.md#delivery-guarantees), a terminal event may be lost when a commit acknowledgement is lost.
 
+Ratchet counts an attempt as successful only when it sees the transaction commit. If the transaction manager returns without committing and without an error, the attempt fails with `IllegalStateException` ("rolled back without an error"), and ordinary job failure and retry policy applies.
+
+## A body that leaves its transaction marked for rollback
+
+Do not catch an exception from a nested transactional call and carry on. A nested call that joins the job's transaction, such as a `@Transactional` bean method, marks the whole transaction for rollback when it throws, before the body sees the exception. After that, nothing in the transaction can commit, even if the body returns normally.
+
+Before Ratchet records success, it checks whether the transaction is marked for rollback. If it is, the attempt fails with `IllegalStateException` ("transaction is marked for rollback") and the body's writes roll back. Ordinary job failure and retry policy then applies, so a retry runs the body again. A transaction that times out while the body runs also fails the attempt. Ratchet makes this check itself, so the result does not depend on how the server or framework handles a transaction marked for rollback.
+
+Do one of these instead:
+
+- Let the exception propagate. The attempt fails, its writes roll back, and the job's retry policy decides whether it runs again.
+- If the nested work may fail without failing the job, run it in its own transaction (`REQUIRES_NEW`). Its writes commit or roll back separately from the job's, and it holds a second connection while it runs.
+- To end the job without a retry, throw an exception whose class is annotated with [`@DoNotRetry`](../api-reference/annotations.md#donotretry).
+
 ## Job context
 
 `JobContext.checkpoint(...)`, `runInTransaction(...)` and `requestContinuation(...)` throw `IllegalStateException` for transactional jobs. `lastCheckpoint()` returns empty. Progress remains available and is flushed outside the body's transaction, so it can be visible while the body runs.

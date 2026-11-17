@@ -27,6 +27,28 @@ import org.junit.jupiter.api.Test;
 
 class JobTransactionTest {
   @Test
+  void rollbackOnlyFollowsRegistryStatus() {
+    TransactionSynchronizationRegistry registry = mock(TransactionSynchronizationRegistry.class);
+    JobTransaction carrier = new JobTransaction(() -> registry);
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    assertFalse(carrier.isRollbackOnly());
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    assertFalse(carrier.isRollbackOnly());
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_MARKED_ROLLBACK);
+    assertTrue(carrier.isRollbackOnly());
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_ROLLING_BACK);
+    assertTrue(carrier.isRollbackOnly());
+    when(registry.getTransactionStatus()).thenReturn(Status.STATUS_ROLLEDBACK);
+    assertTrue(carrier.isRollbackOnly());
+  }
+
+  @Test
+  void rollbackOnlyFailsClosedWithoutRegistry() {
+    assertThrows(
+        IllegalStateException.class, () -> new JobTransaction(() -> null).isRollbackOnly());
+  }
+
+  @Test
   void hasActiveTransactionFailsClosedWithoutRegistry() {
     assertThrows(
         IllegalStateException.class, () -> new JobTransaction(() -> null).hasActiveTransaction());
