@@ -17,6 +17,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -240,12 +241,37 @@ public abstract class AbstractTransactionalCompletionStoreContract
 
   private StateWriteResult write(JobEntity job, String value, Integer version) {
     AtomicReference<StateWriteResult> result = new AtomicReference<>();
-    inOwnerTransaction(
-        () ->
-            result.set(
-                transactionalCompletionStore()
-                    .writeClaimState(job.getId(), NAMESPACE, value, job.getClaimSeq(), version)));
+    inOwnerTransaction(() -> result.set(claimStateWrite(job, value, version)));
     return result.get();
+  }
+
+  private StateWriteResult claimStateWrite(JobEntity job, String value, Integer version) {
+    return transactionalCompletionStore()
+        .writeClaimState(job.getId(), NAMESPACE, value, job.getClaimSeq(), version);
+  }
+
+  /**
+   * Runs work in an owner transaction, then rolls that transaction back. A caller must roll back
+   * after VERSION_CONFLICT, and the store may already have marked the transaction rollback-only.
+   */
+  private void inRolledBackOwnerTransaction(Runnable work) {
+    RollBack rollBack = new RollBack();
+    assertSame(
+        rollBack,
+        assertThrows(
+            RollBack.class,
+            () ->
+                inOwnerTransaction(
+                    () -> {
+                      work.run();
+                      throw rollBack;
+                    })));
+  }
+
+  private static final class RollBack extends RuntimeException {
+    RollBack() {
+      super("Roll back the owner transaction", null, false, false);
+    }
   }
 
   private void assertState(JobEntity job, String value, int version) {
@@ -279,7 +305,8 @@ public abstract class AbstractTransactionalCompletionStoreContract
     JobEntity job = runningJob();
     assertEquals(StateWriteResult.UPDATED, write(job, A, null));
     assertEquals(StateWriteResult.UPDATED, write(job, B, 0));
-    assertEquals(StateWriteResult.VERSION_CONFLICT, write(job, A, 0));
+    inRolledBackOwnerTransaction(
+        () -> assertEquals(StateWriteResult.VERSION_CONFLICT, claimStateWrite(job, A, 0)));
     assertState(job, B, 1);
   }
 
@@ -288,7 +315,8 @@ public abstract class AbstractTransactionalCompletionStoreContract
     requireOwnerTransaction();
     JobEntity job = runningJob();
     assertEquals(StateWriteResult.UPDATED, write(job, A, null));
-    assertEquals(StateWriteResult.VERSION_CONFLICT, write(job, B, null));
+    inRolledBackOwnerTransaction(
+        () -> assertEquals(StateWriteResult.VERSION_CONFLICT, claimStateWrite(job, B, null)));
     assertState(job, A, 0);
   }
 
@@ -296,7 +324,8 @@ public abstract class AbstractTransactionalCompletionStoreContract
   void claimStateWriteExpectingVersionConflictsWithMissingRow() {
     requireOwnerTransaction();
     JobEntity job = runningJob();
-    assertEquals(StateWriteResult.VERSION_CONFLICT, write(job, A, 0));
+    inRolledBackOwnerTransaction(
+        () -> assertEquals(StateWriteResult.VERSION_CONFLICT, claimStateWrite(job, A, 0)));
     assertTrue(stateStore().getState(job.getId(), NAMESPACE).isEmpty());
   }
 
@@ -552,30 +581,26 @@ public abstract class AbstractTransactionalCompletionStoreContract
     }
     JobEntity job = runningJob();
     assertEquals(StateWriteResult.UPDATED, write(job, A, null));
-    inOwnerTransaction(
+    // The caller rolls back after a conflict, so each stale snapshot gets its own transaction.
+    inRolledBackOwnerTransaction(
         () -> {
           assertState(job, A, 0);
-          elsewhere(
-              () ->
-                  assertEquals(
-                      StateWriteResult.UPDATED,
-                      stateStore()
-                          .updateState(
-                              job.getId(),
-                              NAMESPACE,
-                              "{\"value\":\"other\"}",
-                              0,
-                              job.getClaimSeq())));
-          assertEquals(
-              StateWriteResult.VERSION_CONFLICT,
-              transactionalCompletionStore()
-                  .writeClaimState(job.getId(), NAMESPACE, B, job.getClaimSeq(), 0));
-          assertEquals(
-              StateWriteResult.UPDATED,
-              transactionalCompletionStore()
-                  .writeClaimState(job.getId(), NAMESPACE, B, job.getClaimSeq(), 1));
+          elsewhere(() -> updateElsewhere(job, B, 0));
+          assertEquals(StateWriteResult.VERSION_CONFLICT, claimStateWrite(job, A, 0));
         });
-    assertState(job, B, 2);
+    inOwnerTransaction(
+        () -> {
+          assertState(job, B, 1);
+          elsewhere(() -> updateElsewhere(job, A, 1));
+          assertEquals(StateWriteResult.UPDATED, claimStateWrite(job, B, 2));
+        });
+    assertState(job, B, 3);
+  }
+
+  private void updateElsewhere(JobEntity job, String value, int version) {
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, value, version, job.getClaimSeq()));
   }
 
   @Test

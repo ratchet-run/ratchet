@@ -54,6 +54,10 @@ public interface TransactionalCompletionStore {
    * increments the version by one. State is encrypted at rest under the same rules as {@link
    * JobStateStore}.
    *
+   * <p>After {@code VERSION_CONFLICT} the caller must roll back its transaction and run nothing
+   * more in it. The store may already have marked the transaction rollback-only, for example when
+   * an insert fails on the existing row.
+   *
    * @param jobId owning job id; never {@code null}
    * @param namespace state namespace; never {@code null} or blank, at most 64 characters
    * @param state serialized JSON blob; never {@code null}

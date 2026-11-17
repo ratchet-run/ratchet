@@ -738,6 +738,8 @@ Preserve validation and encryption behavior, and increment only the state versio
 - With a null expected version, insert at version 0 only when no row exists. Otherwise update
   only when the stored version matches, and add one to it. Return `VERSION_CONFLICT` when the
   row does not match, and write nothing.
+- The caller rolls back its transaction after `VERSION_CONFLICT` and runs nothing more in it.
+  So the conflict may leave the transaction rollback-only, as a failed insert does on MySQL.
 - Encrypt the state under the same rules as `JobStateStore`.
 
 `AbstractTransactionalCompletionStoreContract` checks these rules, including the lock hold, a
