@@ -253,26 +253,28 @@ class TransactionalCheckpointTest {
       boolean first = true;
       while (true) {
         boolean firstUnit = first;
-        String next =
-            ctx.runInTransaction(
-                cp -> {
-                  received.add(Optional.ofNullable(cp));
-                  if (attempt == 2 && firstUnit) retryFirst = cp;
-                  int page = cp == null ? 0 : Integer.parseInt(cp);
-                  // A unit must not need a second connection, or a full pool would deadlock.
-                  ConnectionCounts counts = CountingDataSource.COUNTS.get();
-                  counts.maximum = counts.open;
-                  counts.measuring = true;
-                  try {
+        // A unit must not need a second connection, or a full pool would deadlock. Measure the
+        // whole call, because Ratchet saves the checkpoint and commits after the unit returns.
+        ConnectionCounts counts = CountingDataSource.COUNTS.get();
+        counts.maximum = counts.open;
+        counts.measuring = true;
+        String next;
+        try {
+          next =
+              ctx.runInTransaction(
+                  cp -> {
+                    received.add(Optional.ofNullable(cp));
+                    if (attempt == 2 && firstUnit) retryFirst = cp;
+                    int page = cp == null ? 0 : Integer.parseInt(cp);
                     insert(jdbc, prefix + "-" + page);
                     ctx.lastCheckpoint();
                     ctx.progress(page + 1, 3);
-                    maximum = Math.max(maximum, counts.maximum);
                     return page == 2 ? "done" : Integer.toString(page + 1);
-                  } finally {
-                    counts.measuring = false;
-                  }
-                });
+                  });
+        } finally {
+          counts.measuring = false;
+        }
+        maximum = Math.max(maximum, counts.maximum);
         first = false;
         if (scenario.equals("retry") && attempt == 1 && next.equals("2"))
           throw new IOException("Retry after the committed unit");
