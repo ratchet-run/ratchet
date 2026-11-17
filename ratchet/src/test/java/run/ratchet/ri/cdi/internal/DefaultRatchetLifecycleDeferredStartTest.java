@@ -36,6 +36,7 @@ import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -135,6 +136,7 @@ class DefaultRatchetLifecycleDeferredStartTest {
         mock(PollerWakeupListener.class),
         executors,
         mock(NodeIdentityProvider.class),
+        mock(NodeLiveness.class),
         mock(DrainController.class),
         quietOptions(),
         mock(JobExecutionCoordinator.class),

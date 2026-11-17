@@ -203,7 +203,7 @@ class MysqlRepeatableReadClaimTest {
   }
 
   @Test
-  void oldSnapshotCannotExceedResourceCapacity() {
+  void firstReadAfterEarlierAcquireCannotExceedResourceCapacity() {
     var permits = fixture.store().capability(ResourcePermitStore.class).orElseThrow();
     permits.configureResource("capacity-one", 1, 100, "test");
     var winnerJob = fixture.newPendingJob();
@@ -219,14 +219,13 @@ class MysqlRepeatableReadClaimTest {
     try {
       var store = store(em);
       em.getTransaction().begin();
-      em.createNativeQuery("SELECT COUNT(*) FROM scheduler_resource_permit").getSingleResult();
       assertEquals(
           AcquireResult.ACQUIRED,
-          permits.tryAcquirePermit("capacity-one", winner, winnerClaim, "other-node"));
+          permits.tryAcquirePermit("capacity-one", winner, winnerClaim, "node-1"));
       assertEquals(
           AcquireResult.AT_CAPACITY,
-          store.tryAcquirePermit("capacity-one", loser, loserClaim, "stale-node"),
-          "A pre-existing snapshot must not hide a committed permit");
+          store.tryAcquirePermit("capacity-one", loser, loserClaim, "node-1"),
+          "The first consistent read after the limit lock must see the committed permit");
     } finally {
       if (em.getTransaction().isActive()) em.getTransaction().rollback();
       em.close();

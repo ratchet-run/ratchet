@@ -191,7 +191,7 @@ Before doing any work, the task re-reads the job's status from the database. If 
 
 **5. Circuit Breaker Gate**
 
-The `ResilienceStrategy` SPI is consulted to check if the target service is available. If the circuit breaker is OPEN, the job is rescheduled with a delay (matching the circuit breaker's OPEN-to-HALF_OPEN transition window) without counting as a retry attempt.
+The `ResilienceStrategy` SPI is consulted to check if the target service is available. If the circuit breaker is OPEN, the job is rescheduled with a delay (matching the circuit breaker's OPEN-to-HALF_OPEN transition window) without counting as a retry attempt. The worker uses `JobRetryStore.releaseClaim`, which requires RUNNING status, the same claim sequence and the attempt count read with the claim. It never writes attempts, so a timeout charge committed under the same claim makes the release miss. The same release handles transient or superseded permits, envelope upgrades and failed batch checks; children of a paused batch remain PAUSED until resume.
 
 **6. Resource Permit**
 

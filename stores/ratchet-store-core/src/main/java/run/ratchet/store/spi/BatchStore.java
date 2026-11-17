@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.entity.BatchEntity;
@@ -46,9 +47,12 @@ public interface BatchStore {
 
   /**
    * Cancels PENDING, PAUSED and WAITING batch children, removing hot rows and reservations. SQL
-   * joins the REQUIRED transaction: lock parent, sorted child hot rows, then batch row last. Mongo
-   * uses a transaction per chunk. Never interrupts RUNNING children. Adds the cancelled count to
-   * failed_items. A re-run after a partial cancel counts each child once.
+   * joins the REQUIRED transaction: sorted child hot rows, then batch row last, without a parent
+   * lock. Mongo uses a transaction per chunk. Never interrupts RUNNING children. Adds the cancelled
+   * count to failed_items. A re-run after a partial cancel counts each child once.
+   *
+   * @throws RatchetTransientStoreException if a store's transaction snapshot predates the batch;
+   *     retry in a new transaction
    */
   int cancelBatchChildren(UUID batchId);
 
@@ -57,6 +61,9 @@ public interface BatchStore {
    * still PAUSED. REQUIRED; locks and rechecks the parent before sorted child hot rows, holding
    * that lock through the updates. Mongo fences the expected parent status in each chunk's
    * transaction. Never touches callbacks or the batch row.
+   *
+   * @throws RatchetTransientStoreException if a store's transaction snapshot predates the batch;
+   *     retry in a new transaction
    */
   int pauseBatchChildren(UUID batchId);
 
@@ -65,6 +72,9 @@ public interface BatchStore {
    * is still PENDING. REQUIRED; locks and rechecks the parent before sorted child hot rows, holding
    * that lock through the updates. Mongo fences the expected parent status in each chunk's
    * transaction. Never touches callbacks or batch rows.
+   *
+   * @throws RatchetTransientStoreException if a store's transaction snapshot predates the batch;
+   *     retry in a new transaction
    */
   int resumeBatchChildren(UUID batchId);
 

@@ -405,15 +405,35 @@ final class MongoJobLifecycleOperations
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
+    return reschedule(id, error, newScheduledTime, attempts, expectedClaimSeq, false);
+  }
+
+  @Override
+  public boolean releaseClaim(
+      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq) {
+    return reschedule(id, reason, scheduledTime, expectedAttempts, claimSeq, true);
+  }
+
+  private boolean reschedule(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq,
+      boolean release) {
     return booleanMutation(
-        "schedule_retry",
+        release ? "release_claim" : "schedule_retry",
         () -> {
           try (ClientSession session = ctx.startSession()) {
             return session.withTransaction(
                 () -> {
                   Bson filter =
                       fenced(
-                          and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
+                          and(
+                              eq(ID, id),
+                              release
+                                  ? and(eq(STATUS, "RUNNING"), eq(ATTEMPTS, attempts))
+                                  : in(STATUS, List.of("RUNNING", "WAITING"))),
                           expectedClaimSeq);
                   Document job =
                       ctx.jobs()
@@ -437,22 +457,20 @@ final class MongoJobLifecycleOperations
                                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
                     paused = parent != null && "PAUSED".equals(parent.getString(STATUS));
                   }
-                  UpdateResult result =
-                      ctx.jobs()
-                          .updateOne(
-                              session,
-                              filter,
-                              combine(
-                                  set(STATUS, paused ? "PAUSED" : "PENDING"),
-                                  set(PAUSED_FROM_STATUS, paused ? "PENDING" : null),
-                                  set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
-                                  set(ATTEMPTS, attempts),
-                                  set(LAST_ERROR, error),
-                                  set(PICKED_BY, null),
-                                  set(PICKED_AT, null),
-                                  unset(TERMINATED_AT),
-                                  set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                                  inc(VERSION, 1)));
+                  List<Bson> updates = new ArrayList<>();
+                  updates.add(set(STATUS, paused ? "PAUSED" : "PENDING"));
+                  updates.add(set(PAUSED_FROM_STATUS, paused ? "PENDING" : null));
+                  updates.add(set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)));
+                  if (!release) {
+                    updates.add(set(ATTEMPTS, attempts));
+                  }
+                  updates.add(set(LAST_ERROR, error));
+                  updates.add(set(PICKED_BY, null));
+                  updates.add(set(PICKED_AT, null));
+                  updates.add(unset(TERMINATED_AT));
+                  updates.add(set(UPDATED_AT, DocumentMapper.toDate(Instant.now())));
+                  updates.add(inc(VERSION, 1));
+                  UpdateResult result = ctx.jobs().updateOne(session, filter, combine(updates));
                   return result.getModifiedCount() > 0;
                 },
                 TRANSACTION_OPTIONS);

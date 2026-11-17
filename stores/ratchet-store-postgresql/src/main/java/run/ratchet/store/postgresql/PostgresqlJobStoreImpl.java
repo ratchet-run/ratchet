@@ -503,6 +503,12 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public boolean releaseClaim(
+      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq) {
+    return lifecycle.releaseClaim(id, reason, scheduledTime, expectedAttempts, claimSeq);
+  }
+
+  @Override
   public boolean scheduleJobRetry(
       UUID id,
       String error,
@@ -923,6 +929,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
     auxiliary.configureResource(name, maxConcurrent, retryDelayMs, description);
+  }
+
+  @Override
+  public int cleanupPermitsOfMissingNodes(Instant acquiredBefore) {
+    return auxiliary.cleanupPermitsOfMissingNodes(acquiredBefore);
   }
 
   @Override

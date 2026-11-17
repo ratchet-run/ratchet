@@ -39,7 +39,7 @@ class PostgresqlJobStoreImplTransactionTest extends AbstractJobStoreTransactionB
     // before returning the connection to the pool.
     //
     // getDatabaseTime is the specific read that triggered the original hang -- it runs during
-    // startup via DefaultNodeIdentityProvider.checkClockSkew before any outer JTA tx exists.
+    // startup via NodeLiveness.checkClockSkew before any outer JTA tx exists.
     assertNoMethodLevelTransactional("getDatabaseTime");
     assertNoMethodLevelTransactional("searchJobs", JobFilter.class, int.class, int.class);
     assertNoMethodLevelTransactional("countJobs", JobFilter.class);

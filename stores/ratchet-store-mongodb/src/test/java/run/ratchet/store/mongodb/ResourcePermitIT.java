@@ -24,6 +24,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 
+import java.time.Instant;
 import java.util.List;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
@@ -87,7 +88,7 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     store().configureResource("disk", 1, 5000, "Disk slot");
 
     JobEntity first = claimNewJob("api");
-    JobEntity second = claimNewJob("api");
+    JobEntity second = claimNewJob("api", "node-2");
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -125,7 +126,7 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     store().configureResource("cpu", 1, 5000, "CPU slot");
 
     JobEntity first = claimNewJob("cpu");
-    JobEntity second = claimNewJob("cpu");
+    JobEntity second = claimNewJob("cpu", "node-2");
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -153,11 +154,11 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     store().configureResource("cleanup-api", 4, 5000, "API slots");
     store().configureResource("cleanup-disk", 3, 5000, "Disk slots");
 
-    JobEntity staleApiOne = claimNewJob();
-    JobEntity staleApiTwo = claimNewJob();
-    JobEntity staleDisk = claimNewJob();
-    JobEntity liveApi = claimNewJob();
-    JobEntity liveDisk = claimNewJob();
+    JobEntity staleApiOne = claimNewJob(null, "stale-node-1");
+    JobEntity staleApiTwo = claimNewJob(null, "stale-node-2");
+    JobEntity staleDisk = claimNewJob(null, "stale-node-1");
+    JobEntity liveApi = claimNewJob(null, "live-node");
+    JobEntity liveDisk = claimNewJob(null, "live-node");
 
     assertEquals(
         AcquireResult.ACQUIRED,
@@ -183,6 +184,8 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
         store()
             .tryAcquirePermit(
                 "cleanup-disk", liveDisk.getId(), liveDisk.getClaimSeq(), "live-node"));
+
+    assertEquals(5, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
 
     int cleaned = store().cleanupOrphanedPermits(List.of("stale-node-1", "stale-node-2"));
 
@@ -211,16 +214,20 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     assertEquals(
         List.of(waiter.getId()),
         store().wakeWaiters(resource).stream().map(w -> w.jobId()).toList());
-    JobEntity claimed = store().claimNextBatch(1, "retry").get(0);
+    JobEntity claimed = store().claimNextBatch(1, waiter.getPickedBy()).get(0);
     assertEquals(waiter.getId(), claimed.getId());
     return claimed;
   }
 
   private JobEntity claimNewJob(String resource) {
+    return claimNewJob(resource, "node-1");
+  }
+
+  private JobEntity claimNewJob(String resource, String nodeId) {
     var job = newPendingJob();
     job.setResourceName(resource);
     store().save(job);
-    return store().claimNextBatch(1, "node-1").get(0);
+    return store().claimNextBatch(1, nodeId).get(0);
   }
 
   private JobEntity claimNewJob() {
