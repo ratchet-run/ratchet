@@ -207,6 +207,31 @@ class PermitReleasesTest {
   }
 
   @Test
+  void failedHandoff_warnsOnceAndReportsTheSuccess() {
+    // A release handed off by an interrupted worker has not warned yet, so its first failure on
+    // the scheduler warns, and the release that lands after it is reported.
+    String resource = "handoff-" + UUID.randomUUID();
+    doThrow(new RatchetTransientStoreException("store unavailable"))
+        .doNothing()
+        .when(permits)
+        .release(resource, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+
+    try (LogCapture logs = LogCapture.start(ReleaseRetries.class)) {
+      Thread.currentThread().interrupt();
+      releases().release(resource, JOB_ID, CLAIM_SEQ);
+      Thread.interrupted();
+      runNext();
+      runNext();
+
+      List<LogRecord> records = logs.recordsMentioning(resource);
+      assertEquals(1, count(records, Level.WARNING));
+      assertEquals(1, count(records, Level.INFO));
+    }
+    assertTrue(pending.isEmpty());
+  }
+
+  @Test
   void longOutage_warnsAtTheFirstFailureThenSparselyAndReportsTheSuccess() {
     // Over a long outage the release warns once at the first failure, then once per warning
     // interval of waiting, and reports at INFO when it finally lands. The tries in between log at
