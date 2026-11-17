@@ -172,6 +172,9 @@ public class JobTask implements Callable<Void> {
   private volatile boolean permitAcquired;
   // Set when this worker recorded a cancel, so the finally block releases the business-key hold.
   private volatile boolean cancelHandled;
+  // This attempt ended without writing its own outcome, so a cancel that the watchdog finds later
+  // belongs to it.
+  private volatile boolean outcomeDeferred;
   private Instant executionStart;
 
   protected JobTask() {
@@ -267,8 +270,17 @@ public class JobTask implements Callable<Void> {
    * the JobTransaction carrier; ordinary jobs use separate short transactions for store updates.
    */
   @Override
-  @SuppressWarnings("java:S1181")
   public Void call() {
+    if (attempt != null) attempt.workerStarted();
+    try {
+      return runAttempt();
+    } finally {
+      if (attempt != null && attempt.workerEnded()) finishCancelLeftToWorker();
+    }
+  }
+
+  @SuppressWarnings("java:S1181")
+  private Void runAttempt() {
     UUID jobId = getJobId();
 
     JobEntity jobEntity;
@@ -644,6 +656,9 @@ public class JobTask implements Callable<Void> {
 
   public void attach(@Nullable JobAttemptControl attempt) {
     this.attempt = attempt;
+    if (attempt != null) {
+      attempt.attachCancelFinish(this::recordCancelFoundByTimeout, this::releaseClaimHold);
+    }
   }
 
   public void init(JobEntity job) {
@@ -1075,6 +1090,12 @@ public class JobTask implements Callable<Void> {
    */
   private void handleCanceledDuringExecution(Instant start) {
     cancelHandled = true;
+    if (attempt != null && !attempt.claimCancelFinish()) return;
+    recordCanceledAttempt(start);
+  }
+
+  /** Ends this attempt's execution CANCELED and records the cancellation. */
+  private void recordCanceledAttempt(Instant start) {
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = effective().instant();
@@ -1090,6 +1111,40 @@ public class JobTask implements Callable<Void> {
     }
 
     observabilityFacade.recordJobCancellation(job);
+  }
+
+  /**
+   * Finishes a cancel that the hard-timeout watchdog found, for an attempt that left its outcome to
+   * another path. An attempt that wrote its own outcome, such as a retry, was not the one canceled.
+   */
+  private void recordCancelFoundByTimeout() {
+    if (job != null && outcomeDeferred) recordCanceledAttempt(cancelStart());
+  }
+
+  /** Releases the business-key hold of the claim this attempt runs under. */
+  private void releaseClaimHold() {
+    JobAttemptControl current = attempt;
+    String key = claim != null ? claim.businessKey() : job != null ? job.getBusinessKey() : null;
+    if (current != null) releaseHeldBusinessKey(current.jobId(), key, current.claimSeq());
+  }
+
+  /**
+   * Finishes a cancel that the watchdog found while this worker ran. The interrupt is cleared for
+   * the store calls, since some drivers close the connection of an interrupted thread.
+   */
+  private void finishCancelLeftToWorker() {
+    boolean interrupted = Thread.interrupted();
+    try {
+      recordCancelFoundByTimeout();
+    } catch (RuntimeException failure) {
+      log.errorf(failure, "Job %s could not record its cancellation", attempt.jobId());
+    } finally {
+      try {
+        releaseClaimHold();
+      } finally {
+        if (interrupted) Thread.currentThread().interrupt();
+      }
+    }
   }
 
   /**
@@ -1213,6 +1268,7 @@ public class JobTask implements Callable<Void> {
                   + " watchdog",
               job.getId());
           if (attempt.handBackTimeoutToWatchdog()) {
+            outcomeDeferred = true;
             return;
           }
           try {
@@ -1320,6 +1376,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private void saveDeferredExecutionFailure(String errorClass, String errorMessage) {
+    outcomeDeferred = true;
     if (currentExecution == null || currentExecution.getStatus() != ExecutionStatus.RUNNING) {
       return;
     }

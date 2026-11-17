@@ -459,12 +459,15 @@ public class JobTimeoutHandler {
     TimeoutException timeoutEx = hardTimeoutException(timeoutSec);
     // The interrupted worker cannot also run onFailure: it defers to the watchdog marker, gets
     // incrementRetryAttempt == -1, or loses completeFailure's CAS in transitionToDlq.
-    runTimeoutTransition(
-        timeoutEx,
-        false,
-        workerContextBound,
-        () ->
-            applyHardTimeoutTransition(
+    AtomicReference<TimeoutMiss> miss = new AtomicReference<>();
+    try {
+      runTimeoutTransition(
+          timeoutEx,
+          false,
+          workerContextBound,
+          () -> {
+            miss.set(null);
+            return applyHardTimeoutTransition(
                 jobId,
                 timeoutEx,
                 timeoutSec,
@@ -472,7 +475,13 @@ public class JobTimeoutHandler {
                 baselineAttempts,
                 expectedClaimSeq,
                 nodeId,
-                attempt));
+                attempt,
+                miss);
+          });
+    } finally {
+      // The cooperative worker checks for the cancel itself once this returns.
+      if (!workerContextBound) finishCanceledAttempt(attempt, miss.get());
+    }
   }
 
   /**
@@ -512,6 +521,14 @@ public class JobTimeoutHandler {
     }
   }
 
+  /** Why a hard-timeout transition left the attempt's outcome alone. */
+  private enum TimeoutMiss {
+    /** The read found the job CANCELED. */
+    CANCELED,
+    /** A fenced write missed, so a cancel may have committed after the read. */
+    WRITE_MISSED
+  }
+
   private Optional<TerminalTimeoutTransition> applyHardTimeoutTransition(
       UUID jobId,
       TimeoutException timeoutEx,
@@ -520,7 +537,8 @@ public class JobTimeoutHandler {
       @Nullable Integer baselineAttempts,
       long expectedClaimSeq,
       @Nullable String nodeId,
-      @Nullable JobAttemptControl attempt) {
+      @Nullable JobAttemptControl attempt,
+      AtomicReference<TimeoutMiss> miss) {
     String sanitizedError = sanitizeTimeoutError(timeoutEx);
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -534,6 +552,7 @@ public class JobTimeoutHandler {
       if (attempt != null) {
         attempt.markSuperseded();
       }
+      if (job.getStatus() == JobStatus.CANCELED) miss.set(TimeoutMiss.CANCELED);
       return Optional.empty();
     }
     job.setClaimSeq(expectedClaimSeq);
@@ -561,6 +580,7 @@ public class JobTimeoutHandler {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq);
       if (newAttempts < 0) {
         warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId, attempt);
+        miss.set(TimeoutMiss.WRITE_MISSED);
         return Optional.empty();
       }
     }
@@ -581,6 +601,7 @@ public class JobTimeoutHandler {
       // increment and the reschedule. Do NOT escalate to DLQ; the job already has a terminal
       // state set by the competing path.
       warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId, attempt);
+      miss.set(TimeoutMiss.WRITE_MISSED);
       return Optional.empty();
     }
 
@@ -597,6 +618,7 @@ public class JobTimeoutHandler {
       if (attempt != null) {
         attempt.markSuperseded();
       }
+      miss.set(TimeoutMiss.WRITE_MISSED);
       return Optional.empty();
     }
     log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
@@ -604,6 +626,31 @@ public class JobTimeoutHandler {
     job.setStatus(JobStatus.FAILED);
     job.setLastError(sanitizedError);
     return Optional.of(outcome);
+  }
+
+  /**
+   * Finishes a cancel that beat this hard timeout. It runs after the timeout transaction, so the
+   * re-read after a missed write sees a cancel that committed in the meantime. The interrupt is
+   * cleared for the store calls, since some drivers close the connection of an interrupted thread.
+   * Never throws.
+   */
+  private void finishCanceledAttempt(
+      @Nullable JobAttemptControl attempt, @Nullable TimeoutMiss miss) {
+    if (attempt == null || miss == null) return;
+    boolean interrupted = Thread.interrupted();
+    try {
+      if (miss == TimeoutMiss.CANCELED
+          || jobCrudStore.getJobStatus(attempt.jobId()) == JobStatus.CANCELED) {
+        attempt.finishCancelFoundByTimeout();
+      }
+    } catch (RuntimeException failure) {
+      log.warnf(
+          failure,
+          "Job %s could not check for a cancel that beat its hard timeout",
+          attempt.jobId());
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
+    }
   }
 
   private void warnRejectedOwnerWrite(

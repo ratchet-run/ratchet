@@ -51,6 +51,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -2106,6 +2107,186 @@ class JobTimeoutHandlerTest {
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
+  }
+
+  @Test
+  void hardTimeoutThatFindsTheJobCanceledAfterTheWorkerEnded_finishesTheCancel() throws Exception {
+    JobEntity job = jobWithMaxRetries(3);
+    job.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+    assertFalse(attempt.workerEnded());
+
+    invokeHardTimeout(attempt, mock(Future.class));
+
+    verify(record).run();
+    verify(release).run();
+    verify(jobCrudStore, never()).getJobStatus(any());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @Test
+  void hardTimeoutThatFindsTheJobCanceledWhileTheWorkerRuns_leavesTheCancelToTheWorker()
+      throws Exception {
+    JobEntity job = jobWithMaxRetries(3);
+    job.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+
+    invokeHardTimeout(attempt, mock(Future.class));
+
+    Mockito.verifyNoInteractions(record, release);
+    assertTrue(attempt.workerEnded());
+  }
+
+  @Test
+  void hardTimeoutBeforeTheWorkerStarted_releasesTheHoldOfACanceledJob() throws Exception {
+    JobEntity job = jobWithMaxRetries(3);
+    job.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+
+    invokeHardTimeout(attempt, mock(Future.class));
+
+    verify(release).run();
+    Mockito.verifyNoInteractions(record);
+  }
+
+  @Test
+  void hardTimeoutThatFindsAnotherEndState_leavesTheAttemptAlone() throws Exception {
+    JobEntity job = jobWithMaxRetries(3);
+    job.setStatus(JobStatus.PENDING);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+
+    invokeHardTimeout(attempt, mock(Future.class));
+
+    Mockito.verifyNoInteractions(record, release);
+    verify(jobCrudStore, never()).getJobStatus(any());
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "increment, CANCELED, true",
+    "reschedule, CANCELED, true",
+    "terminal, CANCELED, true",
+    "increment, PENDING, false",
+    "reschedule, FAILED, false",
+    "terminal, FAILED, false"
+  })
+  void hardTimeoutWriteThatMisses_finishesTheCancelOnlyIfTheReReadFindsOne(
+      String write, JobStatus reRead, boolean finished) throws Exception {
+    // The read saw RUNNING, then a fenced write missed. The handler reads the status again
+    // after its transaction, and finishes the cancel only if one beat the write.
+    missTimeoutWrite(write);
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(reRead);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+    attempt.workerEnded();
+
+    invokeHardTimeout(attempt, mock(Future.class));
+
+    verify(record, times(finished ? 1 : 0)).run();
+    verify(release, times(finished ? 1 : 0)).run();
+  }
+
+  @Test
+  void cooperativeTimeoutThatLosesToACancel_leavesTheCheckToTheWorker() {
+    // The worker checks for the cancel itself once the cooperative transition returns.
+    JobEntity job = jobWithMaxRetries(3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(-1);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(() -> {}, release);
+    attempt.requestCancellation();
+    assertTrue(attempt.claimTimeoutForWorker());
+
+    handler.processCooperativeTimeout(attempt);
+
+    assertTrue(attempt.isSuperseded());
+    verify(jobCrudStore, never()).getJobStatus(any());
+    Mockito.verifyNoInteractions(release);
+  }
+
+  @Test
+  void interruptedWatchdog_finishesTheCancelWithTheInterruptClearedAndRestoresIt()
+      throws Exception {
+    missTimeoutWrite("increment");
+    List<Boolean> interruptedDuring = new ArrayList<>();
+    when(jobCrudStore.getJobStatus(JOB_ID))
+        .thenAnswer(
+            invocation -> {
+              interruptedDuring.add(Thread.currentThread().isInterrupted());
+              return JobStatus.CANCELED;
+            });
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    attempt.attachCancelFinish(
+        () -> interruptedDuring.add(Thread.currentThread().isInterrupted()),
+        () -> interruptedDuring.add(Thread.currentThread().isInterrupted()));
+    attempt.workerStarted();
+    attempt.workerEnded();
+
+    Thread.currentThread().interrupt();
+    try {
+      invokeHardTimeout(attempt, mock(Future.class));
+    } finally {
+      assertTrue(Thread.interrupted(), "the watchdog's interrupt must be restored");
+    }
+
+    assertEquals(List.of(false, false, false), interruptedDuring);
+  }
+
+  @Test
+  void failedReReadAfterAMissedWrite_isLoggedAndLeavesTheHoldToItsExpiry() throws Exception {
+    missTimeoutWrite("increment");
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenThrow(new IllegalStateException("store down"));
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(() -> {}, release);
+    attempt.workerStarted();
+    attempt.workerEnded();
+
+    assertDoesNotThrow(() -> invokeHardTimeout(attempt, mock(Future.class)));
+
+    Mockito.verifyNoInteractions(release);
+  }
+
+  /** Makes the named fenced write of a hard timeout on a RUNNING job miss. */
+  private void missTimeoutWrite(String write) {
+    JobEntity job = jobWithMaxRetries(write.equals("terminal") ? 0 : 3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    switch (write) {
+      case "increment" -> when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(-1);
+      case "reschedule" -> {
+        when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(1);
+        when(jobRetryStore.scheduleJobRetry(
+                eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(7L)))
+            .thenReturn(false);
+      }
+      case "terminal" ->
+          when(lifecycleFacade.completeTimeoutFailure(
+                  any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+              .thenReturn(false);
+      default -> throw new IllegalArgumentException(write);
+    }
   }
 
   private JobEntity jobWithMaxRetries(int maxRetries) {

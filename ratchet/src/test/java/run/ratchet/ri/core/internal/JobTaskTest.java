@@ -5276,6 +5276,363 @@ class JobTaskTest {
     Assertions.assertNull(CallbackRecorder.context);
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void hardTimeoutThatFindsTheJobCanceledAfterTheWorkerEnded_endsCanceled() throws Exception {
+    // The worker reads RUNNING and saves its execution FAILED. A cancel commits before the worker
+    // ends, and the watchdog reads CANCELED after it. The watchdog finishes the cancel.
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    interruptBody();
+    recordSaves(
+        race,
+        status -> {
+          if (status == ExecutionStatus.FAILED) race.cancel();
+        });
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              jobTask.call();
+              return Optional.of(storedRow(race.status().get()));
+            });
+
+    runWatchdog(handler, attempt, new FutureTask<>(() -> null));
+
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    Assertions.assertFalse(race.held().get(), "the key must not stay held");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void hardTimeoutThatFindsTheJobCanceledWhileTheWorkerRuns_endsCanceled() throws Exception {
+    // The interrupted worker saves its execution FAILED, then a cancel commits, then the watchdog
+    // reads CANCELED while the worker still runs. The worker finishes the cancel when it ends,
+    // with its interrupt cleared for the store calls and restored afterwards.
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    CountDownLatch interrupted = new CountDownLatch(1);
+    CountDownLatch failedSaved = new CountDownLatch(1);
+    CountDownLatch watchdogDone = new CountDownLatch(1);
+    Future<?> future = mock(Future.class);
+    when(future.cancel(anyBoolean()))
+        .thenAnswer(
+            invocation -> {
+              interrupted.countDown();
+              return true;
+            });
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            invocation -> {
+              awaitLatch(interrupted);
+              Thread.currentThread().interrupt();
+              throw new InterruptedException("watchdog interrupt");
+            });
+    List<Boolean> canceledSaveInterrupted = new ArrayList<>();
+    recordSaves(
+        race,
+        status -> {
+          if (status == ExecutionStatus.FAILED) {
+            race.cancel();
+            failedSaved.countDown();
+            awaitLatch(watchdogDone);
+          } else {
+            canceledSaveInterrupted.add(Thread.currentThread().isInterrupted());
+          }
+        });
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              awaitLatch(failedSaved);
+              return Optional.of(storedRow(race.status().get()));
+            });
+    ExecutorService watchdog = Executors.newSingleThreadExecutor();
+    try {
+      Future<?> watchdogRun =
+          watchdog.submit(
+              () -> {
+                try {
+                  runWatchdog(handler, attempt, future);
+                } finally {
+                  watchdogDone.countDown();
+                }
+                return null;
+              });
+
+      jobTask.call();
+      Assertions.assertTrue(Thread.interrupted(), "the worker's interrupt must be restored");
+      watchdogRun.get(10, TimeUnit.SECONDS);
+    } finally {
+      Thread.interrupted();
+      watchdog.shutdownNow();
+    }
+
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    Assertions.assertEquals(List.of(false), canceledSaveInterrupted);
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    Assertions.assertFalse(race.held().get(), "the key must not stay held");
+  }
+
+  @Test
+  void cancelAfterTheWorkerEndedBeforeTheWatchdogRead_releasesTheHold() throws Exception {
+    // The worker ends while the row is RUNNING and releases nothing. A cancel then holds the key,
+    // and the watchdog reads CANCELED. The watchdog releases the hold and finishes the cancel.
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    interruptBody();
+    recordSaves(race, status -> {});
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              jobTask.call();
+              race.cancel();
+              return Optional.of(storedRow(JobStatus.CANCELED));
+            });
+
+    runWatchdog(handler, attempt, new FutureTask<>(() -> null));
+
+    Assertions.assertFalse(race.held().get(), "the key must not stay held");
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+  }
+
+  @Test
+  void cancelThatBeatsTheWatchdogsRetryWrite_releasesTheHold() throws Exception {
+    // The watchdog reads RUNNING after the worker ended, then a cancel commits before its retry
+    // increment. The increment misses, and the watchdog finishes the cancel.
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    interruptBody();
+    recordSaves(race, status -> {});
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              jobTask.call();
+              return Optional.of(storedRow(JobStatus.RUNNING));
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenAnswer(
+            invocation -> {
+              race.cancel();
+              return -1;
+            });
+
+    runWatchdog(handler, attempt, new FutureTask<>(() -> null));
+
+    Assertions.assertFalse(race.held().get(), "the key must not stay held");
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+  }
+
+  @Test
+  void cooperativeTimeoutHandedBackAndThenCanceled_releasesTheHold() throws Exception {
+    // The worker's cooperative timeout fails on a store error, so it hands the timeout back to
+    // the watchdog and ends. A cancel then holds the key, and the watchdog reads CANCELED.
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    attempt.requestCancellation();
+    failBody(() -> new CancellationRequestedException("grace stop"));
+    recordSaves(race, status -> {});
+    AtomicInteger reads = new AtomicInteger();
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              if (reads.getAndIncrement() == 0) throw new IllegalStateException("store down");
+              return Optional.of(storedRow(race.status().get()));
+            });
+
+    jobTask.call();
+    Assertions.assertTrue(attempt.isTimeoutHandedBack());
+    race.cancel();
+    FutureTask<Void> ended = new FutureTask<>(() -> null);
+    ended.run();
+    runWatchdog(handler, attempt, ended);
+
+    Assertions.assertFalse(race.held().get(), "the key must not stay held");
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+  }
+
+  @Test
+  void cancelTheWorkerAlreadyFinished_isNotFinishedAgainByTheWatchdog() throws Exception {
+    // The cancel commits before the worker's read, so the worker ends the attempt canceled. The
+    // watchdog then reads CANCELED and leaves the finished cancel alone.
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            invocation -> {
+              race.cancel();
+              throw new InterruptedException("watchdog interrupt");
+            });
+    recordSaves(race, status -> {});
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              jobTask.call();
+              return Optional.of(storedRow(JobStatus.CANCELED));
+            });
+
+    runWatchdog(handler, attempt, new FutureTask<>(() -> null));
+
+    Assertions.assertEquals(List.of(ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade, times(1)).recordJobCancellation(job);
+    Assertions.assertFalse(race.held().get(), "the key must not stay held");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void hardTimeoutOfACanceledBodyThatStillRuns_leavesTheKeyHeldUntilTheBodyEnds() throws Exception {
+    // A body that ignores both the stop request and the interrupt still runs when the watchdog
+    // reads CANCELED. The key stays held, and the worker finishes the cancel when the body ends.
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    CountDownLatch bodyRunning = new CountDownLatch(1);
+    CountDownLatch bodyMayEnd = new CountDownLatch(1);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            invocation -> {
+              race.cancel();
+              bodyRunning.countDown();
+              awaitLatch(bodyMayEnd);
+              throw new IllegalStateException("stopped late");
+            });
+    recordSaves(race, status -> {});
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(invocation -> Optional.of(storedRow(JobStatus.CANCELED)));
+    ExecutorService worker = Executors.newSingleThreadExecutor();
+    try {
+      Future<Void> workerRun = worker.submit(jobTask);
+      awaitLatch(bodyRunning);
+
+      runWatchdog(handler, attempt, mock(Future.class));
+
+      Assertions.assertTrue(race.held().get(), "the key stays held while the body runs");
+      Assertions.assertEquals(List.of(), race.saved());
+      verify(observabilityFacade, never()).recordJobCancellation(any());
+      bodyMayEnd.countDown();
+      workerRun.get(10, TimeUnit.SECONDS);
+    } finally {
+      worker.shutdownNow();
+    }
+
+    Assertions.assertEquals(List.of(ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade, times(1)).recordJobCancellation(job);
+    Assertions.assertFalse(race.held().get(), "the worker releases the key when the body ends");
+  }
+
+  /**
+   * The store side of a cancel race: the job's status, the key hold that a running cancel takes and
+   * a release with claim sequence 7 removes, and the status of each saved execution.
+   */
+  private record CancelRace(
+      AtomicReference<JobStatus> status, AtomicBoolean held, List<ExecutionStatus> saved) {
+    void cancel() {
+      status.set(JobStatus.CANCELED);
+      held.set(true);
+    }
+  }
+
+  private CancelRace cancelRace() {
+    CancelRace race =
+        new CancelRace(
+            new AtomicReference<>(JobStatus.RUNNING), new AtomicBoolean(), new ArrayList<>());
+    lenient().when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> race.status().get());
+    lenient()
+        .when(jobStore.releaseBusinessKeyHold(JOB_UUID, 7L))
+        .thenAnswer(invocation -> race.held().getAndSet(false));
+    return race;
+  }
+
+  private void recordSaves(CancelRace race, Consumer<ExecutionStatus> onSave) {
+    when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
+        .thenAnswer(
+            invocation -> {
+              JobExecutionEntity execution = invocation.getArgument(0);
+              race.saved().add(execution.getStatus());
+              onSave.accept(execution.getStatus());
+              return execution;
+            });
+  }
+
+  /** The body throws the interrupt that the watchdog gives a running body. */
+  @SuppressWarnings("unchecked")
+  private void interruptBody() throws Exception {
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            invocation -> {
+              throw new InterruptedException("watchdog interrupt");
+            });
+  }
+
+  private static void runWatchdog(
+      JobTimeoutHandler handler, JobAttemptControl attempt, Future<?> future) throws Exception {
+    Method hardTimeout =
+        JobTimeoutHandler.class.getDeclaredMethod(
+            "handleHardTimeoutById", JobAttemptControl.class, Future.class);
+    hardTimeout.setAccessible(true);
+    hardTimeout.invoke(handler, attempt, future);
+  }
+
+  /** Waits like a store call that ignores interrupts, and keeps the caller's interrupt. */
+  private static void awaitLatch(CountDownLatch latch) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    boolean interrupted = false;
+    try {
+      while (true) {
+        try {
+          Assertions.assertTrue(
+              latch.await(deadline - System.nanoTime(), TimeUnit.NANOSECONDS),
+              "timed out waiting for the race");
+          return;
+        } catch (InterruptedException ignored) {
+          interrupted = true;
+        }
+      }
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
+    }
+  }
+
   /** A real timeout handler over the store mock, whose transition wrapper runs the transition. */
   @SuppressWarnings("unchecked")
   private JobTimeoutHandler realTimeoutHandler() {
