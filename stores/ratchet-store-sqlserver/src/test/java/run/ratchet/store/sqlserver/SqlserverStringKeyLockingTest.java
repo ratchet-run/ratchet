@@ -48,6 +48,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import org.hibernate.Session;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -375,9 +376,8 @@ class SqlserverStringKeyLockingTest {
         "reservations of the cancelled jobs");
   }
 
-  // Not red before the fix: on main the joined read happened to lock in key order. It guards the
-  // order that the other multi-row queue writes use, across lock chunks, and checks that the
-  // cancel locks every chunk before it writes a job row.
+  // Guards the order that the other multi-row queue writes use, across lock chunks, and checks
+  // that the cancel locks every chunk before it writes a job row.
   @Test
   void tagCancelLocksQueueRowsInJobIdByteOrder() throws Exception {
     var ids = new ArrayList<UUID>();
@@ -398,9 +398,18 @@ class SqlserverStringKeyLockingTest {
         .getResultList();
 
     holder.getTransaction().begin();
-    holder.createNativeQuery("SET LOCK_TIMEOUT 30000").executeUpdate();
-    int holderSession = ((Number) holder.createNativeQuery("SELECT @@SPID").getSingleResult())
-        .intValue();
+    // A prepared statement runs in sp_executesql scope, which undoes SET when it returns, so set
+    // the session's lock timeout through a plain statement.
+    holder
+        .unwrap(Session.class)
+        .doWork(
+            connection -> {
+              try (Statement statement = connection.createStatement()) {
+                statement.execute("SET LOCK_TIMEOUT 30000");
+              }
+            });
+    int holderSession =
+        ((Number) holder.createNativeQuery("SELECT @@SPID").getSingleResult()).intValue();
     var holderStore = store(holder);
     ExecutorService executor = Executors.newSingleThreadExecutor();
     try (Connection observer = fixture.openConnection()) {
@@ -413,7 +422,8 @@ class SqlserverStringKeyLockingTest {
         if (waitingOn.isEmpty()) Thread.sleep(20);
       }
       assertEquals(List.of(blocked), waitingOn, "the queue row the cancel waits on");
-      var granted = new HashSet<>(queueKeysLockedBy(observer, holderSession, "GRANT", byLockResource));
+      var granted =
+          new HashSet<>(queueKeysLockedBy(observer, holderSession, "GRANT", byLockResource));
       assertEquals(
           new HashSet<>(ids.subList(0, 550)),
           granted,
@@ -481,7 +491,8 @@ class SqlserverStringKeyLockingTest {
                 FROM scheduler_job_queue WITH (NOLOCK, INDEX(pk_scheduler_job_queue))
                 """)) {
       while (rows.next()) {
-        resources.put(rows.getString(1).strip(), UuidByteArrayConverter.fromBytes(rows.getBytes(2)));
+        resources.put(
+            rows.getString(1).strip(), UuidByteArrayConverter.fromBytes(rows.getBytes(2)));
       }
     }
     return resources;

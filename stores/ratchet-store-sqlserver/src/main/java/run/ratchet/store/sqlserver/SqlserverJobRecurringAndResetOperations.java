@@ -109,7 +109,9 @@ final class SqlserverJobRecurringAndResetOperations {
     // multi-row queue writes, and lock every chunk before the first write. Chunks keep statements
     // under SQL Server's 2,100-parameter limit. Cast the tag so SQL Server can seek
     // idx_job_tag_tag_job. Keep the NVARCHAR comparison as a second predicate so a look-alike tag
-    // never matches.
+    // never matches. The writes seek the primary key, as the batch cancel's do: a scan would wait
+    // on rows that an open cancel of another tag has written. SQL Server rejects FORCESEEK on the
+    // target of an UPDATE or DELETE, so each write puts the hint on an alias.
     // language=SQL Server
     String candidatesSql =
         """
@@ -172,17 +174,24 @@ final class SqlserverJobRecurringAndResetOperations {
       // language=SQL Server
       String coldSql =
           """
-          UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = 'CANCELED',
+          UPDATE c
+          SET row_version = c.row_version + 1, terminal_status = 'CANCELED',
               terminated_at = SYSUTCDATETIME()
-          WHERE job_id IN (%s)
-            AND terminal_status IS NULL
+          FROM scheduler_job c WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job))
+          WHERE c.job_id IN (%s)
+            AND c.terminal_status IS NULL
           """
               .formatted(placeholders);
       int updated = bindIds(coldSql, chunk).executeUpdate();
 
       // language=SQL Server
-      String hotSql = "DELETE FROM scheduler_job_queue WHERE job_id IN (%s)".formatted(placeholders);
+      String hotSql =
+          """
+          DELETE q
+          FROM scheduler_job_queue q WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job_queue))
+          WHERE q.job_id IN (%s)
+          """
+              .formatted(placeholders);
       int deleted = bindIds(hotSql, chunk).executeUpdate();
       if (updated != deleted) {
         throw new IllegalStateException(
