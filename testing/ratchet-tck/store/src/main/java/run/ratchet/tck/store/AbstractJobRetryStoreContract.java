@@ -735,6 +735,40 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void retryIntoPausedBatchIncrementsTheVersionForThePause() {
+    // The reset and the pause of the retried child run in one transaction, so no stale save can
+    // tell the pause's increment apart from the reset's. The stored version can: a child reset into
+    // a paused batch ends one version past a child reset while its batch runs.
+    batchStore();
+    JobEntity parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 3);
+    JobEntity running =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    JobEntity single =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    JobEntity bulk =
+        failedBatchJob(parent.getId(), JobExecutionType.BATCH_CHILD, JobPriority.NORMAL);
+    Integer failedVersion = store().findById(running.getId()).orElseThrow().getVersion();
+    for (JobEntity child : List.of(single, bulk)) {
+      assertEquals(failedVersion, store().findById(child.getId()).orElseThrow().getVersion());
+    }
+
+    assertTrue(store().resetFailedToPending(running.getId()));
+    int runningReset = store().findById(running.getId()).orElseThrow().getVersion();
+    assertTrue(store().transitionToPaused(parent.getId(), JobStatus.PENDING));
+    assertTrue(store().resetFailedToPending(single.getId()));
+    assertEquals(
+        1,
+        store().resetFailedToPending(JobFilter.builder().parentJobId(parent.getId()).build(), 100));
+
+    for (JobEntity child : List.of(single, bulk)) {
+      JobEntity reset = store().findById(child.getId()).orElseThrow();
+      assertEquals(JobStatus.PAUSED, reset.getStatus());
+      assertEquals(runningReset + 1, reset.getVersion().intValue());
+    }
+  }
+
+  @Test
   void resetFailedToPendingRejectsStaleSave() {
     JobEntity job = persist(newPendingJob());
     assertTrue(
