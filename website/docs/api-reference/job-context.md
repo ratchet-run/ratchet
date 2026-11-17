@@ -519,10 +519,13 @@ Ratchet checks that the commit happened. If it did not, the call throws
 If cancellation was requested, the call throws `CancellationRequestedException` before the
 unit runs.
 
-The unit locks the rows its work writes, then the job's queue row. An application transaction
-that locks the same rows and then cancels the job takes the locks in the opposite order, so the
-two can deadlock, and the database rolls one of them back. Cancel the job before that
-transaction writes those rows, or in a transaction of its own.
+The unit locks the rows its work writes, then the job's queue row. Canceling the job locks the
+queue row until the canceling transaction ends. An application transaction that writes those
+rows and then cancels the job takes the locks in the same order as the unit, so the two do not
+deadlock. A transaction that cancels the job first and then writes those rows takes them in the
+opposite order. The unit can hold the rows while it waits for the queue row, so the database
+rolls one of the two back. To cancel in a transaction that writes those rows, write them first,
+or cancel the job in a transaction of its own.
 
 The unit holds one pooled connection from its start to its commit. Keep units short. Ratchet
 sets no transaction timeout; the default of the container or transaction manager applies.
