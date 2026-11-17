@@ -55,6 +55,39 @@ public class CancellableJob {
     }
   }
 
+  /**
+   * Like {@link #execute()}, but after the stop request it waits for {@link #release()} and ignores
+   * interrupts, like a body blocked in a call that cannot be interrupted. It records each interrupt
+   * it ignores in {@link #INTERRUPTED}.
+   */
+  public static void executeIgnoringInterrupts() {
+    STARTED.set(true);
+    try {
+      while (!JobContext.current().isCancellationRequested()) {
+        pauseIgnoringInterrupts();
+      }
+      SAW_REQUEST.set(true);
+      long giveUpAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+      while (release.getCount() > 0) {
+        if (System.nanoTime() - giveUpAt > 0) {
+          throw new IllegalStateException("The test did not release the job within 60 s");
+        }
+        pauseIgnoringInterrupts();
+      }
+      JobContext.current().throwIfCancellationRequested();
+    } finally {
+      ENDED.set(true);
+    }
+  }
+
+  private static void pauseIgnoringInterrupts() {
+    try {
+      Thread.sleep(50);
+    } catch (InterruptedException ignored) {
+      INTERRUPTED.set(true);
+    }
+  }
+
   public static void recordFailureCallback() {
     FAILURE_CALLBACKS.incrementAndGet();
   }

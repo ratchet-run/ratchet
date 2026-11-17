@@ -173,6 +173,9 @@ public class JobTask implements Callable<Void> {
   private volatile boolean permitAcquired;
   // Set when this worker recorded a cancel, so the finally block releases the business-key hold.
   private volatile boolean cancelHandled;
+  // Set once this worker's own fenced outcome write commits. A cancel that the watchdog finds later
+  // belongs to an attempt that wrote no outcome.
+  private volatile boolean outcomeWritten;
   private Instant executionStart;
 
   protected JobTask() {
@@ -268,8 +271,17 @@ public class JobTask implements Callable<Void> {
    * the JobTransaction carrier; ordinary jobs use separate short transactions for store updates.
    */
   @Override
-  @SuppressWarnings("java:S1181")
   public Void call() {
+    if (attempt != null) attempt.workerStarted();
+    try {
+      return runAttempt();
+    } finally {
+      if (attempt != null && attempt.workerEnded()) finishCancelLeftToWorker();
+    }
+  }
+
+  @SuppressWarnings("java:S1181")
+  private Void runAttempt() {
     UUID jobId = getJobId();
 
     JobEntity jobEntity;
@@ -319,7 +331,7 @@ public class JobTask implements Callable<Void> {
         // Completion fences the worker claim and atomically releases its reservation and
         // counts the child. An older task must not cancel a recovered RUNNING attempt.
         Instant now = effective().instant();
-        if (!jobStore
+        if (jobStore
             .commitCompletion(
                 new JobCompletionPlan(
                     jobId,
@@ -339,6 +351,8 @@ public class JobTask implements Callable<Void> {
                     expectedClaimSeq(),
                     List.of()))
             .committed()) {
+          outcomeWritten = true;
+        } else {
           warnRejectedOwnerWrite();
         }
         log.infof(
@@ -357,12 +371,14 @@ public class JobTask implements Callable<Void> {
           jobId,
           jobEntity.getDependsOn());
       try {
-        if (!jobStore.scheduleJobRetry(
+        if (jobStore.scheduleJobRetry(
             jobId,
             sanitizeError(e),
             effective().instant().plus(BATCH_CHECK_RETRY_BACKOFF),
             claim != null ? claim.attempts() : jobEntity.getAttempts(),
             expectedClaimSeq())) {
+          outcomeWritten = true;
+        } else {
           warnRejectedOwnerWrite();
         }
       } catch (RuntimeException releaseFailure) {
@@ -559,7 +575,9 @@ public class JobTask implements Callable<Void> {
               currentExecution.markFailed(unbound.getClass().getName(), sanitizeError(unbound));
               observabilityFacade.saveExecution(currentExecution);
             }
-            if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
+            if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
+              outcomeWritten = true;
+            } else {
               markAttemptSuperseded();
               if (jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
             }
@@ -651,6 +669,9 @@ public class JobTask implements Callable<Void> {
 
   public void attach(@Nullable JobAttemptControl attempt) {
     this.attempt = attempt;
+    if (attempt != null) {
+      attempt.attachCancelFinish(this::recordCancelFoundByTimeout, this::releaseClaimHold);
+    }
   }
 
   public void init(JobEntity job) {
@@ -754,7 +775,9 @@ public class JobTask implements Callable<Void> {
         jobId);
     JobEntity poisonedJob = poisonedJobSnapshot(jobId);
     try {
-      if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex)) {
+      if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex)) {
+        outcomeWritten = true;
+      } else {
         markAttemptSuperseded();
         log.infof("Job %s already left RUNNING while poison handling was in progress", jobId);
       }
@@ -804,8 +827,10 @@ public class JobTask implements Callable<Void> {
     // contract this method documents.
     int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
     try {
-      if (!jobStore.scheduleJobRetry(
+      if (jobStore.scheduleJobRetry(
           jobId, sanitizeError(ex), newScheduledTime, attempts, expectedClaimSeq())) {
+        outcomeWritten = true;
+      } else {
         warnRejectedOwnerWrite();
       }
     } catch (Throwable t) {
@@ -891,6 +916,7 @@ public class JobTask implements Callable<Void> {
       try {
         job.setLastError(safeError);
         if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+          outcomeWritten = true;
           job.setStatus(JobStatus.FAILED);
           failed = true;
         } else {
@@ -974,6 +1000,8 @@ public class JobTask implements Callable<Void> {
 
       if (result == AcquireResult.AT_CAPACITY) {
         log.debugf("Job %s parked waiting for resource '%s'", job.getId(), resourceName);
+        // The store parked the claim, which is this attempt's outcome.
+        outcomeWritten = true;
         return false;
       }
       // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
@@ -988,6 +1016,7 @@ public class JobTask implements Callable<Void> {
         warnRejectedOwnerWrite();
         return false;
       }
+      outcomeWritten = true;
 
       log.warnf(
           "Store reported job %s claim %s superseded but its reschedule succeeded",
@@ -1035,18 +1064,18 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.saveExecution(currentExecution);
     }
 
-    if (!jobStore.scheduleJobRetry(
+    if (jobStore.scheduleJobRetry(
         jobEntity.getId(),
         "Circuit breaker OPEN for service: " + serviceName,
         newScheduledTime,
         jobEntity.getAttempts(),
         expectedClaimSeq())) {
-      if (jobWasCanceled()) {
-        markAttemptSuperseded();
-        handleCanceledDuringExecution(cancelStart());
-      } else {
-        warnRejectedOwnerWrite();
-      }
+      outcomeWritten = true;
+    } else if (jobWasCanceled()) {
+      markAttemptSuperseded();
+      handleCanceledDuringExecution(cancelStart());
+    } else {
+      warnRejectedOwnerWrite();
     }
   }
 
@@ -1082,6 +1111,12 @@ public class JobTask implements Callable<Void> {
    */
   private void handleCanceledDuringExecution(Instant start) {
     cancelHandled = true;
+    if (attempt != null && !attempt.claimCancelFinish()) return;
+    recordCanceledAttempt(start);
+  }
+
+  /** Ends this attempt's execution CANCELED and records the cancellation. */
+  private void recordCanceledAttempt(Instant start) {
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = effective().instant();
@@ -1097,6 +1132,40 @@ public class JobTask implements Callable<Void> {
     }
 
     observabilityFacade.recordJobCancellation(job);
+  }
+
+  /**
+   * Finishes a cancel that the hard-timeout watchdog found, for an attempt that wrote no outcome of
+   * its own. An attempt that wrote its own outcome, such as a retry, was not the one canceled.
+   */
+  private void recordCancelFoundByTimeout() {
+    if (job != null && !outcomeWritten) recordCanceledAttempt(cancelStart());
+  }
+
+  /** Releases the business-key hold of the claim this attempt runs under. */
+  private void releaseClaimHold() {
+    JobAttemptControl current = attempt;
+    String key = claim != null ? claim.businessKey() : job != null ? job.getBusinessKey() : null;
+    if (current != null) releaseHeldBusinessKey(current.jobId(), key, current.claimSeq());
+  }
+
+  /**
+   * Finishes a cancel that the watchdog found while this worker ran. The interrupt is cleared for
+   * the store calls, since some drivers close the connection of an interrupted thread.
+   */
+  private void finishCancelLeftToWorker() {
+    boolean interrupted = Thread.interrupted();
+    try {
+      recordCancelFoundByTimeout();
+    } catch (RuntimeException failure) {
+      log.errorf(failure, "Job %s could not record its cancellation", attempt.jobId());
+    } finally {
+      try {
+        releaseClaimHold();
+      } finally {
+        if (interrupted) Thread.currentThread().interrupt();
+      }
+    }
   }
 
   /**
@@ -1436,6 +1505,7 @@ public class JobTask implements Callable<Void> {
     Instant scheduled = effective().instant().plus(delay);
     if (jobStore.scheduleJobRetry(
         job.getId(), null, scheduled, job.getAttempts(), expectedClaimSeq())) {
+      outcomeWritten = true;
       job.setStatus(JobStatus.PENDING);
       job.setScheduledTime(scheduled);
       job.setLastError(null);
@@ -1801,6 +1871,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleTransactionalSuccess(Instant start, TransactionOutcome outcome) {
+    outcomeWritten = true;
     lifecycleFacade.runFollowups(outcome.completion);
     flushStateQuietly();
     long executionMs = Duration.between(start, outcome.end).toMillis();
@@ -1879,6 +1950,7 @@ public class JobTask implements Callable<Void> {
     if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
       return;
     }
+    outcomeWritten = true;
 
     observabilityFacade.recordJobSuccess(job, executionMs);
     currentScope.success(executionMs);
@@ -1950,6 +2022,7 @@ public class JobTask implements Callable<Void> {
     job.setAttempts(attempt);
     job.setLastError(sanitized);
     if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+      outcomeWritten = true;
       job.setStatus(JobStatus.FAILED);
       callbackInvoker.invokeOnFailure(job, ex);
       return true;
@@ -2055,6 +2128,7 @@ public class JobTask implements Callable<Void> {
 
     if (jobStore.scheduleJobRetry(
         job.getId(), sanitized, newScheduledTime, attempt, expectedClaimSeq())) {
+      outcomeWritten = true;
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);
       job.setLastError(sanitized);

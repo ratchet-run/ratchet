@@ -1135,6 +1135,48 @@ class JobTaskTransactionalTest {
   }
 
   @Test
+  void cancelFoundWhileTheCommitOutcomeIsUnknown_endsTheExecutionCanceled() throws Exception {
+    // The commit outcome stays unknown. The watchdog revokes the attempt and then finds the job
+    // canceled, so the attempt that wrote no outcome ends CANCELED.
+    loseCommitAcknowledgement();
+    task.setTerminalRetryDelays(1, 2);
+    CountDownLatch unresolved = new CountDownLatch(1);
+    when(transactions.terminalOutcome(job.getId(), 7L))
+        .thenAnswer(
+            inv -> {
+              unresolved.countDown();
+              throw new IllegalStateException(new SQLTransientException("read unavailable"));
+            });
+    FutureTask<Void> run =
+        new FutureTask<>(
+            () -> {
+              BODY.set(() -> 42);
+              try {
+                return task.call();
+              } finally {
+                BODY.remove();
+                JobContext.clear();
+              }
+            });
+    Thread worker = new Thread(run);
+    worker.start();
+    try {
+      assertTrue(unresolved.await(5, TimeUnit.SECONDS));
+      // What the watchdog does once it reads CANCELED: revoke the attempt, then finish the cancel.
+      attempt.revoke();
+      attempt.finishCancelFoundByTimeout();
+      run.get(10, TimeUnit.SECONDS);
+    } finally {
+      worker.join(5_000);
+    }
+
+    assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+    verify(observer).recordJobCancellation(job);
+    verify(lifecycle, never()).runFollowups(any());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+  }
+
+  @Test
   void nonTransientCommitReadFailureLeavesRecoveryInCharge() throws Exception {
     loseCommitAcknowledgement();
     when(transactions.terminalOutcome(job.getId(), 7L))

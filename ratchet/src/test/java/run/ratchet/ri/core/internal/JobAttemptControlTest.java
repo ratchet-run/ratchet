@@ -37,6 +37,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.AttemptToken;
@@ -362,6 +363,160 @@ class JobAttemptControlTest {
       assertFalse(worker.isAlive());
       assertFalse(canceller.isAlive());
       assertNull(failure.get(), () -> String.valueOf(failure.get()));
+    }
+  }
+
+  @Test
+  void cancelFoundBeforeTheWorkerStarts_onlyReleasesTheHold() {
+    // No body can start once the watchdog cancelled execution, so the hold can go at once. A
+    // worker that still starts handles the cancel itself.
+    JobAttemptControl attempt = newAttempt();
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.cancelExecution(new FutureTask<>(() -> null));
+
+    attempt.finishCancelFoundByTimeout();
+
+    verify(release).run();
+    verifyNoInteractions(record);
+    attempt.workerStarted();
+    assertFalse(attempt.markBodyStarted());
+    assertTrue(attempt.claimCancelFinish());
+  }
+
+  @Test
+  void cancelFoundBeforeTheWorkerStarts_keepsTheHoldUntilExecutionIsCancelled() {
+    // Without cancelExecution a worker could still start the body, so the hold must stay.
+    JobAttemptControl attempt = newAttempt();
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+
+    attempt.finishCancelFoundByTimeout();
+
+    verifyNoInteractions(record, release);
+    attempt.workerStarted();
+    assertTrue(attempt.markBodyStarted());
+  }
+
+  @Test
+  void cancelFoundAfterTheWorkerEnded_isFinishedOnceByTheWatchdog() {
+    JobAttemptControl attempt = newAttempt();
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+    assertFalse(attempt.workerEnded());
+
+    attempt.finishCancelFoundByTimeout();
+    attempt.finishCancelFoundByTimeout();
+
+    verify(record).run();
+    verify(release).run();
+    assertFalse(attempt.claimCancelFinish());
+  }
+
+  @Test
+  void cancelFoundWhileTheWorkerRuns_isLeftToTheWorker() {
+    JobAttemptControl attempt = newAttempt();
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+
+    attempt.finishCancelFoundByTimeout();
+
+    verifyNoInteractions(record, release);
+    assertTrue(attempt.workerEnded());
+    attempt.finishCancelFoundByTimeout();
+    verifyNoInteractions(record, release);
+  }
+
+  @Test
+  void cancelLeftToTheWorker_canBeClaimedByItsOwnCancelHandlingOnce() {
+    JobAttemptControl attempt = newAttempt();
+    attempt.workerStarted();
+    attempt.finishCancelFoundByTimeout();
+
+    assertTrue(attempt.claimCancelFinish());
+    assertFalse(attempt.claimCancelFinish());
+    assertFalse(attempt.workerEnded());
+  }
+
+  @Test
+  void cancelTheWorkerHandled_isNotFinishedAgain() {
+    JobAttemptControl attempt = newAttempt();
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+    assertTrue(attempt.claimCancelFinish());
+
+    attempt.finishCancelFoundByTimeout();
+
+    assertFalse(attempt.workerEnded());
+    attempt.finishCancelFoundByTimeout();
+    verifyNoInteractions(record, release);
+  }
+
+  @Test
+  void failingRecordStillReleasesTheHold() {
+    JobAttemptControl attempt = newAttempt();
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(
+        () -> {
+          throw new IllegalStateException("store down");
+        },
+        release);
+    attempt.workerStarted();
+    attempt.workerEnded();
+
+    attempt.finishCancelFoundByTimeout();
+
+    verify(release).run();
+  }
+
+  @Test
+  void workerAndWatchdogRacingOverACancel_finishItExactlyOnce() throws Exception {
+    for (int iteration = 0; iteration < 500; iteration++) {
+      JobAttemptControl attempt = newAttempt();
+      AtomicInteger finishes = new AtomicInteger();
+      attempt.attachCancelFinish(finishes::incrementAndGet, () -> {});
+      attempt.workerStarted();
+      boolean workerSeesCancel = iteration % 2 == 0;
+      CountDownLatch go = new CountDownLatch(1);
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+      Thread worker =
+          new Thread(
+              () -> {
+                try {
+                  assertTrue(go.await(5, TimeUnit.SECONDS));
+                  if (workerSeesCancel && attempt.claimCancelFinish()) finishes.incrementAndGet();
+                  if (attempt.workerEnded()) finishes.incrementAndGet();
+                } catch (Throwable thrown) {
+                  failure.set(thrown);
+                }
+              });
+      Thread watchdog =
+          new Thread(
+              () -> {
+                try {
+                  assertTrue(go.await(5, TimeUnit.SECONDS));
+                  attempt.finishCancelFoundByTimeout();
+                } catch (Throwable thrown) {
+                  failure.set(thrown);
+                }
+              });
+      worker.start();
+      watchdog.start();
+      go.countDown();
+      worker.join(5000);
+      watchdog.join(5000);
+      assertFalse(worker.isAlive());
+      assertFalse(watchdog.isAlive());
+      assertNull(failure.get(), () -> String.valueOf(failure.get()));
+      assertEquals(1, finishes.get(), "iteration " + iteration);
     }
   }
 }
