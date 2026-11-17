@@ -59,8 +59,8 @@ public interface SignalStore {
    * in a {@code VARCHAR(16)} column and do not interpret it; the runtime switches on {@code
    * "DECISION"} when hydrating the executing job.
    *
-   * <p>Delivery increments the row version, so a save of an entity read before it fails its version
-   * check. This also applies to {@link #deliverSignalByKey}.
+   * <p>Delivery increments the job version ({@link JobEntity#getVersion()}), so a save of an entity
+   * read before it fails its version check. This also applies to {@link #deliverSignalByKey}.
    *
    * @throws RuntimeException when the store cannot complete the delivery atomically
    */

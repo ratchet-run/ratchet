@@ -65,15 +65,23 @@ public interface JobCrudStore {
    * nothing, for live and terminal jobs alike. A successful save advances the entity's versions in
    * memory so the same instance can be saved again.
    *
-   * <p>The check compares the entity's row version with the stored one, even when every field the
-   * save writes matches the stored job. Every other store write that changes a field a save writes
-   * back increments that version in the same statement: claims, status updates and swaps, pause and
-   * resume, retry attempts and retries, permit parks and wake-ups, signal deliveries, batch pause
-   * and resume, and the orphan, startup and shutdown resets. A store whose save writes the whole
-   * job also increments it for tag inserts and deletes. Terminal transitions end the live row, and
-   * a stale save fails against that too. A write that changes nothing a save writes back, such as a
-   * job state write, leaves the version alone. An entity read before any of these writes is
-   * therefore stale: read the job again, apply the change to the new entity and save that.
+   * <p>The check compares the job version, the value {@link JobEntity#getVersion()} returns, with
+   * the stored one. It rejects a mismatch even when every field the save writes matches the stored
+   * job. On a live job, a save that changes a scheduling or status field and leaves the job live
+   * increments that version. So does every other store write that changes a field a save writes
+   * back, in the same statement: claims, status updates and swaps, pause and resume, retry attempts
+   * and retries, permit parks and wake-ups, signal deliveries, batch pause and resume, and the
+   * orphan, startup and shutdown resets. A store whose save writes the whole job also increments it
+   * for tag inserts and deletes. A write that changes nothing a save writes back, such as a job
+   * state write, leaves the version alone.
+   *
+   * <p>A write that ends a live job or makes a terminal job live again, such as a terminal
+   * transition or {@link JobRetryStore#resetFailedToPending}, must also make an entity read before
+   * it stale. Such a write may do this through the stored terminal status, or through a second
+   * version, such as {@link JobEntity#getRowVersion()}, instead of the job version. A store that
+   * keeps a second version increments it on every save and on these writes, and save checks both
+   * versions. An entity read before any of these writes is therefore stale: read the job again,
+   * apply the change to the new entity and save that.
    *
    * <p>Job shape is fixed at creation: {@code jobType}, {@code priority}, {@code businessKey},
    * {@code timeoutSec}, {@code maxRetries}, {@code backoffPolicy}, {@code backoffParamMs}, {@code

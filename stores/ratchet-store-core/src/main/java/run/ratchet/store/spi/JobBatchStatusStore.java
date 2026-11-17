@@ -18,6 +18,7 @@ package run.ratchet.store.spi;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Non-terminal status operations: generic status updates, CAS transitions, pickup, and batch tag
@@ -33,8 +34,8 @@ public interface JobBatchStatusStore {
   /**
    * Updates a job status. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>A live status increments the row version, so a save of an entity read before the update
-   * fails its version check.
+   * <p>A live status increments the job version ({@link JobEntity#getVersion()}), so a save of an
+   * entity read before the update fails its version check.
    *
    * @param id job id to update; never {@code null}
    * @param status new status to persist; never {@code null}
@@ -46,8 +47,8 @@ public interface JobBatchStatusStore {
   /**
    * Atomic compare-and-swap status transition. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>A swap to a live status increments the row version, so a save of an entity read before the
-   * swap fails its version check.
+   * <p>A swap to a live status increments the job version ({@link JobEntity#getVersion()}), so a
+   * save of an entity read before the swap fails its version check.
    *
    * @param id job id to transition; never {@code null}
    * @param expected status the row must currently hold for the swap to succeed; never {@code null}
@@ -65,8 +66,8 @@ public interface JobBatchStatusStore {
   /**
    * Claims one job for a node. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>A claim increments the row version, so a save of an entity read before it fails its version
-   * check.
+   * <p>A claim increments the job version ({@link JobEntity#getVersion()}), so a save of an entity
+   * read before it fails its version check.
    *
    * @param id job id to claim; never {@code null}
    * @param nodeId stable identity of the claiming node; never {@code null} or blank
@@ -78,8 +79,8 @@ public interface JobBatchStatusStore {
   /**
    * Resets one running job owned by a node. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>The reset increments the row version, so a save of an entity read before it fails its
-   * version check. This also applies to {@link #resetRunningJobs}.
+   * <p>The reset increments the job version ({@link JobEntity#getVersion()}), so a save of an
+   * entity read before it fails its version check. This also applies to {@link #resetRunningJobs}.
    *
    * @param id job id to reset; never {@code null}
    * @param nodeId stable identity of the owning node; never {@code null} or blank

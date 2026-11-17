@@ -25,6 +25,7 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.ChildResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Batch lifecycle, progress tracking, and metrics operations.
@@ -35,8 +36,8 @@ import run.ratchet.store.entity.BatchMetricsEntity;
  * totalDurationMs - childExecutionMs}; later calls must leave those finalized values unchanged.
  * Unknown batch ids are ignored by finalization.
  *
- * <p>Pausing or resuming children increments the row version of each child it changes, so a save of
- * a child read before it fails its version check.
+ * <p>Pausing or resuming children increments the job version ({@link JobEntity#getVersion()}) of
+ * each child it changes, so a save of a child read before it fails its version check.
  */
 @Incubating
 public interface BatchStore {

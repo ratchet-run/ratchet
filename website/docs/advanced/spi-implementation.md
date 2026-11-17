@@ -692,24 +692,38 @@ A store advertises each of these by implementing the interface; the engine probe
 
 ### Saves and the job version
 
-`JobCrudStore.save()` is an optimistic write. It compares the entity's version with the stored job's version. In the SQL stores that is the queue row's `version` column; in MongoDB it is the document's `version` field. If the two differ, `save()` throws `RatchetOptimisticLockException` and writes nothing, even when every field it would write matches the stored job.
+`JobCrudStore.save()` is an optimistic write. The version it must check is the job version, the value `JobEntity.getVersion()` returns. If the entity's job version differs from the stored one, `save()` throws `RatchetOptimisticLockException` and writes nothing, even when every field it would write matches the stored job.
 
-Every other write that changes a field `save()` writes back must therefore add one to that version in the same statement. In the bundled stores this covers:
+On a live job, every other write that changes a field `save()` writes back must add one to the job version in the same statement. In the bundled stores this covers:
 
 - claims, `tryPickUpJob`, and the orphan, startup and shutdown resets
 - `updateJobStatus` and `compareAndSwapStatus` to a live status, and the pause and resume transitions
 - `incrementRetryAttempt` and `scheduleJobRetry`, including a retried batch child that goes back to `PAUSED`
 - permit parking in `tryAcquirePermit`, and `wakeWaiters`
 - signal delivery, and batch pause and resume
-- the path inside `save()` that changes only the scheduled time
+- a `save()` that changes a scheduling or status field and leaves the job live
 
-A store whose `save()` replaces the whole job, as MongoDB does, must also add one for tag inserts and deletes, and for any other write to a field the entity carries. A write that changes nothing `save()` writes back, such as `writeClaimState` or a job state row, leaves the version alone. Terminal transitions remove the live row, so a stale save fails against the stored terminal status.
+A store whose `save()` replaces the whole job, as MongoDB does, must also add one for tag inserts and deletes, and for any other write to a field the entity carries. A write that changes nothing `save()` writes back, such as `writeClaimState` or a job state row, leaves the version alone.
+
+A write that ends a live job or makes a terminal job live again, such as a terminal transition or `resetFailedToPending`, must also make older entities stale. It can do this through the job version, through the stored terminal status, or through a second version that every save also increments. A store with a second version checks both.
+
+The SQL stores keep two versions. The queue row's `version` column in `scheduler_job_queue` is the job version. A terminal job has no queue row, so its job version reads as 0. The `row_version` column in `scheduler_job` is the second version, and `JobEntity.getRowVersion()` returns it. MongoDB keeps one `version` field on the job document.
+
+| | MySQL, PostgreSQL, Oracle and SQL Server | MongoDB |
+|---|---|---|
+| What `save()` compares | First `getRowVersion()` with `row_version`, on every save. Then, for a live job, `getVersion()` with the queue row's `version`. | `getVersion()` with `version` |
+| What a successful `save()` increments | `row_version`, on every save. Also the queue row's `version` when the save changes a scheduling or status field and the job stays live. | `version` |
+| Claims, pick-up, the orphan, startup and shutdown resets, status updates and swaps, pause and resume, retry attempts and retries, parks, wake-ups, signal delivery, batch pause and resume | the queue row's `version` | `version` |
+| Terminal transitions | `row_version`, and the queue row is deleted | `version` |
+| `resetFailedToPending` | `row_version`, and the queue row is written again at version 0 | `version` |
+| Tag inserts and deletes | neither, because tags are in their own table | `version` |
+| `writeClaimState` and job state writes | neither | neither |
 
 Bulk writes stay as one statement. Add `version = version + 1` to the `SET` list, or `$inc` the field in MongoDB, and do not read the rows first.
 
 Without the increment, a caller holding an entity read before the write could save it and put back the old status, owner, attempt count or schedule. For example, it could undo a pause or a delivered signal. To change a job after any of these writes, read it again and save the new entity.
 
-The TCK checks each write on its own. It reads a job, runs the write, saves the stale entity, and expects `RatchetOptimisticLockException` with the write's effect still in place.
+The TCK checks each write on its own. It reads a job, runs the write, saves the stale entity, and expects `RatchetOptimisticLockException` with the write's effect still in place. For a save that moves only the scheduled time, it also checks that the stored job version changed.
 
 ### Business-key reservation contract
 

@@ -21,6 +21,7 @@ import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.Nullable;
+import run.ratchet.store.entity.JobEntity;
 
 /** Retry and backoff-scheduling operations for jobs. */
 @Incubating
@@ -29,8 +30,8 @@ public interface JobRetryStore {
   /**
    * Increments the retry attempt count.
    *
-   * <p>The increment also increments the row version, so a save of an entity read before it fails
-   * its version check.
+   * <p>The increment also increments the job version ({@link JobEntity#getVersion()}), so a save of
+   * an entity read before it fails its version check.
    *
    * @param id job id whose attempt counter should be incremented; never {@code null}
    * @param expectedClaimSeq claim sequence received by the owner; null for a non-owner mutation
@@ -48,8 +49,8 @@ public interface JobRetryStore {
    * PENDING. Implementations serialize this decision with parent pause/resume transitions so the
    * child cannot become runnable during a batch pause.
    *
-   * <p>The retry increments the row version, so a save of an entity read before it fails its
-   * version check.
+   * <p>The retry increments the job version ({@link JobEntity#getVersion()}), so a save of an
+   * entity read before it fails its version check.
    *
    * @param id job id to reschedule; never {@code null}
    * @param error last-error message to record alongside the new schedule; may be {@code null}

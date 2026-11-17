@@ -18,6 +18,7 @@ package run.ratchet.store.spi;
 import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Job tag write operations.
@@ -34,9 +35,9 @@ public interface TagStore {
    * Inserts tags for one job. Transaction attribute: {@code REQUIRED}.
    *
    * <p>A store whose {@link JobCrudStore#save} writes tags back, such as one that saves the whole
-   * job document, increments the row version here, so a save of an entity read before the insert
-   * fails its version check. A store that keeps tags apart from the fields save writes leaves the
-   * version alone.
+   * job document, increments the job version ({@link JobEntity#getVersion()}) here, so a save of an
+   * entity read before the insert fails its version check. A store that keeps tags apart from the
+   * fields save writes leaves the version alone.
    *
    * @param jobId job id receiving the tags; never {@code null}
    * @param tags tag names to attach; never {@code null}, may be empty (no-op when empty)
@@ -46,8 +47,8 @@ public interface TagStore {
   /**
    * Deletes tags for one job. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>A store whose {@link JobCrudStore#save} writes tags back increments the row version here, as
-   * it does for {@link #insertTags}.
+   * <p>A store whose {@link JobCrudStore#save} writes tags back increments the job version ({@link
+   * JobEntity#getVersion()}) here, as it does for {@link #insertTags}.
    *
    * @param jobId job id whose tags should be removed; never {@code null}
    * @return number of tag rows deleted
