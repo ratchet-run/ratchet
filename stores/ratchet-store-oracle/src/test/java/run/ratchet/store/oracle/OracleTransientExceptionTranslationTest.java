@@ -140,7 +140,7 @@ class OracleTransientExceptionTranslationTest {
       assertEquals(4, job.getRowVersion());
     }
     assertEquals(1, versionBindings.get());
-    assertEquals(7, job.getVersion());
+    assertEquals(hotUpdateCount == 0 ? 7 : 8, job.getVersion());
   }
 
   @Test

@@ -514,7 +514,7 @@ final class OracleJobWriteOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
         WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
@@ -528,6 +528,7 @@ final class OracleJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    job.setVersion(((Number) row[7]).intValue() + 1);
     deleteWaiter(id);
     return true;
   }
@@ -675,7 +676,9 @@ final class OracleJobWriteOperations {
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
       checkHotField(id, "lastError", incoming.getLastError(), RowValues.stringOrNull(row[6]));
       Integer storedVersion = ((Number) row[7]).intValue();
-      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      if (!Objects.equals(incoming.getVersion(), storedVersion)) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       return;
     }
 

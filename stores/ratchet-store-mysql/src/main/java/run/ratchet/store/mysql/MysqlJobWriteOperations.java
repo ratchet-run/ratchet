@@ -521,7 +521,7 @@ final class MysqlJobWriteOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET scheduled_time = ?, updated_at = NOW(3)
+        SET scheduled_time = ?, updated_at = NOW(3), version = version + 1
         WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
@@ -535,6 +535,7 @@ final class MysqlJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    job.setVersion(((Number) row[7]).intValue() + 1);
     return true;
   }
 
@@ -697,7 +698,9 @@ final class MysqlJobWriteOperations {
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
       checkHotField(id, "lastError", incoming.getLastError(), row[6]);
       Integer storedVersion = ((Number) row[7]).intValue();
-      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      if (!Objects.equals(incoming.getVersion(), storedVersion)) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       return;
     }
 

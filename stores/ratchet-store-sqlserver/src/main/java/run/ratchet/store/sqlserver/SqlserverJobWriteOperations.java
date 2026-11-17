@@ -609,7 +609,7 @@ final class SqlserverJobWriteOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
+        SET scheduled_time = ?, updated_at = SYSUTCDATETIME(), version = version + 1
         WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
@@ -623,6 +623,7 @@ final class SqlserverJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    job.setVersion(((Number) row[IDX_HOT_VERSION]).intValue() + 1);
     deleteWaiterIfPresent(id);
     return true;
   }
@@ -788,7 +789,9 @@ final class SqlserverJobWriteOperations {
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
       checkHotField(id, "lastError", incoming.getLastError(), row[IDX_HOT_LAST_ERROR]);
       Integer storedVersion = ((Number) row[IDX_HOT_VERSION]).intValue();
-      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      if (!Objects.equals(incoming.getVersion(), storedVersion)) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       return;
     }
 

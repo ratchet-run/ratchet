@@ -58,7 +58,7 @@ final class SqlserverJobTerminalOperations {
             String sql =
                 """
                 UPDATE scheduler_job_queue
-                SET status = ?, last_error = ?, updated_at = SYSUTCDATETIME()
+                SET status = ?, last_error = ?, updated_at = SYSUTCDATETIME(), version = version + 1
                 WHERE job_id = ?
                 """;
             return ctx.em()
@@ -95,7 +95,7 @@ final class SqlserverJobTerminalOperations {
             String sql =
                 """
                 UPDATE scheduler_job_queue
-                SET status = ?, last_error = ?, updated_at = SYSUTCDATETIME()
+                SET status = ?, last_error = ?, updated_at = SYSUTCDATETIME(), version = version + 1
                 WHERE job_id = ? AND status = ?
                 """;
             return ctx.em()
@@ -126,7 +126,7 @@ final class SqlserverJobTerminalOperations {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET attempts = attempts + 1, updated_at = SYSUTCDATETIME()
+        SET attempts = attempts + 1, updated_at = SYSUTCDATETIME(), version = version + 1
         OUTPUT inserted.attempts
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
         """
@@ -206,7 +206,7 @@ final class SqlserverJobTerminalOperations {
         UPDATE scheduler_job_queue
         SET status = '%s', paused_from_status = %s,
             last_error = ?, scheduled_time = ?, attempts = ?,
-            picked_by = NULL, picked_at = NULL, updated_at = SYSUTCDATETIME()
+            picked_by = NULL, picked_at = NULL, updated_at = SYSUTCDATETIME(), version = version + 1
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
         """
             .formatted(
@@ -677,7 +677,7 @@ final class SqlserverJobTerminalOperations {
     }
     String updateSql =
         """
-        UPDATE scheduler_job_queue SET status = 'PAUSED', paused_from_status = 'PENDING'
+        UPDATE scheduler_job_queue SET status = 'PAUSED', paused_from_status = 'PENDING', version = version + 1
         WHERE job_id IN (%s)
         """
             .formatted(String.join(", ", Collections.nCopies(childIds.size(), "?")));

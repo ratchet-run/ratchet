@@ -61,7 +61,7 @@ final class OracleJobTerminalOperations {
               String sql =
                   """
                   UPDATE scheduler_job_queue
-                  SET status = ?, last_error = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+                  SET status = ?, last_error = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
                   WHERE job_id = ?
                   """;
               return ctx.em()
@@ -102,7 +102,7 @@ final class OracleJobTerminalOperations {
               String casSql =
                   """
                   UPDATE scheduler_job_queue
-                  SET status = ?, last_error = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+                  SET status = ?, last_error = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
                   WHERE job_id = ? AND status = ?
                   """;
               return ctx.em()
@@ -137,7 +137,7 @@ final class OracleJobTerminalOperations {
       String updateSql =
           """
           UPDATE scheduler_job_queue
-          SET attempts = attempts + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+          SET attempts = attempts + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
           WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
           """
               .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
@@ -241,7 +241,7 @@ final class OracleJobTerminalOperations {
         UPDATE scheduler_job_queue
         SET status = '%s', paused_from_status = %s,
             last_error = ?, scheduled_time = ?, attempts = ?,
-            picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
         """
             .formatted(
@@ -723,7 +723,7 @@ final class OracleJobTerminalOperations {
     }
     String updateSql =
         """
-        UPDATE scheduler_job_queue SET status = 'PAUSED', paused_from_status = 'PENDING'
+        UPDATE scheduler_job_queue SET status = 'PAUSED', paused_from_status = 'PENDING', version = version + 1
         WHERE job_id IN (%s)
         """
             .formatted(String.join(", ", Collections.nCopies(childIds.size(), "?")));

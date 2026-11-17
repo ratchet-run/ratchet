@@ -417,7 +417,7 @@ final class SqlserverAuxiliaryOperations
         UPDATE scheduler_job_queue
         SET status = ?, paused_from_status = ?, last_error = ?,
             scheduled_time = DATEADD(MILLISECOND, ?, DATEADD(MICROSECOND, -1, SYSUTCDATETIME())),
-            picked_by = NULL, picked_at = NULL, updated_at = SYSUTCDATETIME()
+            picked_by = NULL, picked_at = NULL, updated_at = SYSUTCDATETIME(), version = version + 1
         WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
         """;
     int updated =
@@ -568,7 +568,7 @@ final class SqlserverAuxiliaryOperations
         // language=SQL Server
         String wake =
             """
-            UPDATE q SET scheduled_time = ?, updated_at = SYSUTCDATETIME()
+            UPDATE q SET scheduled_time = ?, updated_at = SYSUTCDATETIME(), version = q.version + 1
             FROM scheduler_job_queue q WITH (UPDLOCK, READPAST, ROWLOCK)
             JOIN scheduler_job c WITH (UPDLOCK, READPAST, ROWLOCK) ON c.job_id = q.job_id
             WHERE q.job_id = ? AND q.status = 'PENDING' AND q.scheduled_time = ?

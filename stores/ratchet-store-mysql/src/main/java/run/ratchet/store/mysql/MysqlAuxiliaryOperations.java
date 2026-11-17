@@ -357,7 +357,7 @@ final class MysqlAuxiliaryOperations
         UPDATE scheduler_job_queue
         SET status = ?, paused_from_status = ?, last_error = ?,
             scheduled_time = TIMESTAMPADD(MICROSECOND, ?, NOW(3)),
-            picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+            picked_by = NULL, picked_at = NULL, updated_at = NOW(3), version = version + 1
         WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
         """;
     int updated =
@@ -541,7 +541,7 @@ final class MysqlAuxiliaryOperations
         // language=MySQL
         String wake =
             """
-            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = NOW(3)
+            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = NOW(3), version = version + 1
             WHERE job_id = ? AND status = 'PENDING'
             """;
         if (ctx.em()

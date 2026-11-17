@@ -582,7 +582,7 @@ final class PostgresqlJobWriteOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET scheduled_time = ?, updated_at = statement_timestamp()
+        SET scheduled_time = ?, updated_at = statement_timestamp(), version = version + 1
         WHERE job_id = ? AND status = ? AND version = ?
         """;
     int updated =
@@ -596,6 +596,7 @@ final class PostgresqlJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    job.setVersion(((Number) row[IDX_HOT_VERSION]).intValue() + 1);
     deleteWaiter(id);
     return true;
   }
@@ -751,7 +752,9 @@ final class PostgresqlJobWriteOperations {
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
       checkHotField(id, "lastError", incoming.getLastError(), row[IDX_HOT_LAST_ERROR]);
       Integer storedVersion = ((Number) row[IDX_HOT_VERSION]).intValue();
-      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      if (!Objects.equals(incoming.getVersion(), storedVersion)) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       return;
     }
 

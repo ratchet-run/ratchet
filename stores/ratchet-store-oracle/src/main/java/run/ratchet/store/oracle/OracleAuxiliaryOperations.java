@@ -388,7 +388,7 @@ final class OracleAuxiliaryOperations
         UPDATE scheduler_job_queue
         SET status = ?, paused_from_status = ?, last_error = ?,
             scheduled_time = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) + NUMTODSINTERVAL(? / 1000, 'SECOND'),
-            picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
         WHERE job_id = ? AND status = 'RUNNING' AND claim_seq = ?
         """;
     int updated =
@@ -570,7 +570,7 @@ final class OracleAuxiliaryOperations
         // language=Oracle
         String wake =
             """
-            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
             WHERE job_id = ? AND status = 'PENDING'
             """;
         if (ctx.em()
