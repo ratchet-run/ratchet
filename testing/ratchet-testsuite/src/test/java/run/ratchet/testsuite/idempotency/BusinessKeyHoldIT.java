@@ -148,6 +148,32 @@ class BusinessKeyHoldIT extends BaseRatchetIT {
     awaitFree(key);
   }
 
+  @Test
+  void canceledBodyThatOutlivesItsDeadlineHoldsTheKeyUntilItEnds() {
+    // The watchdog finds the job canceled while the body ignores the interrupt. The key stays held
+    // until the body ends, and is free at once after that.
+    String key = "deadline-hold-" + UUID.randomUUID();
+    running =
+        scheduler
+            .enqueue(CancellableJob::executeIgnoringInterrupts)
+            .withBusinessKey(key)
+            .withTimeout(Duration.ofSeconds(6))
+            .submit();
+    jobs.add(running);
+    await().atMost(Duration.ofSeconds(15)).untilTrue(CancellableJob.STARTED);
+    assertTrue(scheduler.cancelJob(running.id()));
+    await().atMost(Duration.ofSeconds(5)).untilTrue(CancellableJob.SAW_REQUEST);
+    await().atMost(Duration.ofSeconds(20)).untilTrue(CancellableJob.INTERRUPTED);
+    await()
+        .during(Duration.ofSeconds(2))
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(() -> assertHeld(key, running));
+    CancellableJob.release();
+    awaitFree(key);
+    JobAssertions.assertJobCanceled(store, running);
+    assertNotNull(submitLater(key));
+  }
+
   private JobHandle start(String key) {
     CancellableJob.HOLD_AFTER_REQUEST = true;
     running =
