@@ -136,6 +136,9 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      if (boostInterval > 0) {
+        return claimBoostedHydrated(limit, nodeId, tagFilter);
+      }
       String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "q");
       Query selectQuery =
           ctx.em()
@@ -196,6 +199,15 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      if (boostInterval > 0) {
+        List<Object[]> rows =
+            new SqlserverBoostedClaimCandidates(
+                    ctx, jobType, limit, tagFilter, executionTargetFilter, databaseNow())
+                .lock(CLAIM_SELECT_COLUMNS);
+        if (rows.isEmpty()) return List.of();
+        List<UUID> ids = rows.stream().map(row -> new ClaimRow(row).jobId()).toList();
+        return claimOptimizedRows(rows, ids, nodeId);
+      }
       String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
       String executionTargetSql =
           JobClaimSqlSupport.buildExecutionTargetFilterSql(
@@ -237,6 +249,55 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("optimized claim", e);
     }
+  }
+
+  // A boosted claim binds one claim time to all its statements. Read it from the database so the
+  // due check and boost age use the database clock, like the unboosted claim's SYSUTCDATETIME().
+  private Instant databaseNow() {
+    return RowValues.instantOrNull(
+        ctx.em().createNativeQuery("SELECT SYSUTCDATETIME()").getSingleResult());
+  }
+
+  private List<JobEntity> claimBoostedHydrated(int limit, String nodeId, NodeTagFilter tags) {
+    List<Object[]> locked =
+        ctx.timedStoreOperation(
+            "claim_lookup",
+            () ->
+                new SqlserverBoostedClaimCandidates(ctx, null, limit, tags, null, databaseNow())
+                    .lock("job_id, scheduled_time"),
+            rows -> rows.isEmpty() ? "empty" : "hit");
+    if (locked.isEmpty()) return List.of();
+    List<UUID> ids = locked.stream().map(row -> SqlserverJobRowMapper.uuidOrNull(row[0])).toList();
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    // language=SQL Server
+    String sql =
+        """
+        SELECT %s
+        FROM scheduler_job c
+        JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        WHERE q.job_id IN (%s)
+        """
+            .formatted(SqlserverJobRowMapper.hydrationSelect(), placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    int p = 1;
+    for (UUID id : ids) query.setParameter(p++, UuidByteArrayConverter.toBytes(id));
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = query.getResultList();
+    List<JobEntity> ordered =
+        JobClaimSqlSupport.reorderById(reads.hydrateRowsWithTags(rows), ids, JobEntity::getId);
+    if (ordered.size() != ids.size()) {
+      throw new IllegalStateException("Locked claim rows disappeared during hydration");
+    }
+    Instant now = Instant.now();
+    markPendingClaimsRunning(ids, nodeId, now);
+    for (JobEntity job : ordered) {
+      job.setClaimSeq(job.getClaimSeq() + 1);
+      job.setStatus(JobStatus.RUNNING);
+      job.setPickedBy(nodeId);
+      job.setPickedAt(now);
+      job.setExecutionStartTime(now);
+    }
+    return ordered;
   }
 
   private List<JobClaimDto> claimOptimizedRows(List<Object[]> rows, List<UUID> ids, String nodeId) {
@@ -305,7 +366,11 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     for (UUID id : ids) {
       query.setParameter(p++, UuidByteArrayConverter.toBytes(id));
     }
-    query.executeUpdate();
+    int updated = query.executeUpdate();
+    if (updated != ids.size()) {
+      throw new IllegalStateException(
+          "Expected to mark " + ids.size() + " locked claims RUNNING, updated " + updated);
+    }
   }
 
   private enum ClaimColumn {
