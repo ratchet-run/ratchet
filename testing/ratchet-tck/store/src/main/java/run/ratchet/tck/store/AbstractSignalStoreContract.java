@@ -416,4 +416,29 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
                 "large-rejection-id"));
     assertEquals(reason, store().findById(job.getId()).orElseThrow().getSignalRejectionReason());
   }
+
+  @Test
+  void deliverSignalByIdRejectsStaleSave() {
+    String key = "stale-id-" + UUID.randomUUID();
+    JobEntity waiting = persist(newWaitingJob(key, Instant.now().plusSeconds(3600)));
+    JobEntity stale = store().findById(waiting.getId()).orElseThrow();
+    assertEquals(
+        1, deliverSignalById(waiting.getId(), "{\"approved\":true}", "admin", Instant.now()));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(waiting.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertEquals("{\"approved\":true}", after.getSignalPayload());
+  }
+
+  @Test
+  void deliverSignalByKeyRejectsStaleSave() {
+    String key = "stale-key-" + UUID.randomUUID();
+    JobEntity waiting = persist(newWaitingJob(key, Instant.now().plusSeconds(3600)));
+    JobEntity stale = store().findById(waiting.getId()).orElseThrow();
+    assertEquals(1, deliverSignalByKey(key, "{\"approved\":true}", "admin", Instant.now()));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(waiting.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, after.getStatus());
+    assertEquals("{\"approved\":true}", after.getSignalPayload());
+  }
 }

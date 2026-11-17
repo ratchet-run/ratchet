@@ -256,4 +256,36 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
     store().updateJobStatus(job.getId(), JobStatus.PAUSED, error);
     assertEquals(error, store().findById(job.getId()).orElseThrow().getLastError());
   }
+
+  @Test
+  void tryPickUpJobRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(store().tryPickUpJob(job.getId(), "node-a"));
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, after.getStatus());
+    assertEquals("node-a", after.getPickedBy());
+  }
+
+  @Test
+  void liveStatusUpdateRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    store().updateJobStatus(job.getId(), JobStatus.PAUSED, "manual pause");
+    assertStaleSaveRejected(stale);
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.PAUSED, after.getStatus());
+    assertEquals("manual pause", after.getLastError());
+  }
+
+  @Test
+  void liveCompareAndSwapRejectsStaleSave() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertTrue(
+        store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    assertStaleSaveRejected(stale);
+    assertEquals(JobStatus.RUNNING, store().findById(job.getId()).orElseThrow().getStatus());
+  }
 }

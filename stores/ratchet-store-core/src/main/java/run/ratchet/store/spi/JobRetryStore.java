@@ -29,6 +29,9 @@ public interface JobRetryStore {
   /**
    * Increments the retry attempt count.
    *
+   * <p>The increment also increments the row version, so a save of an entity read before it fails
+   * its version check.
+   *
    * @param id job id whose attempt counter should be incremented; never {@code null}
    * @param expectedClaimSeq claim sequence received by the owner; null for a non-owner mutation
    * @return the new attempt count, or {@code -1} when no retryable job row matched the id
@@ -44,6 +47,9 @@ public interface JobRetryStore {
    * <p>A batch child whose parent is PAUSED is released to PAUSED with a paused-from status of
    * PENDING. Implementations serialize this decision with parent pause/resume transitions so the
    * child cannot become runnable during a batch pause.
+   *
+   * <p>The retry increments the row version, so a save of an entity read before it fails its
+   * version check.
    *
    * @param id job id to reschedule; never {@code null}
    * @param error last-error message to record alongside the new schedule; may be {@code null}

@@ -24,6 +24,9 @@ import run.ratchet.api.Nullable;
  * Pause / resume transitions for executable jobs.
  *
  * <p>Recurring-master pause/resume lives on {@link RecurringJobStore}.
+ *
+ * <p>Every transition here increments the row version, so a save of an entity read before it fails
+ * its version check.
  */
 @Incubating
 public interface JobPauseStore {

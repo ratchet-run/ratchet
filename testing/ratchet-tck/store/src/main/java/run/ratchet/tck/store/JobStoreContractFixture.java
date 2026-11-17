@@ -15,11 +15,14 @@
  */
 package run.ratchet.tck.store;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.UUID;
 import org.opentest4j.TestAbortedException;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
@@ -236,6 +239,27 @@ public interface JobStoreContractFixture {
 
   default JobEntity persist(JobEntity job) {
     return store().save(job);
+  }
+
+  /**
+   * Asserts that saving {@code stale}, an entity read before another store write changed the job,
+   * fails with {@link RatchetOptimisticLockException}.
+   */
+  default void assertStaleSaveRejected(JobEntity stale) {
+    RuntimeException failure = assertThrows(RuntimeException.class, () -> store().save(stale));
+    assertOptimisticLockFailure(failure);
+  }
+
+  /**
+   * Asserts that {@code failure} or one of its causes is a {@link RatchetOptimisticLockException}.
+   */
+  default void assertOptimisticLockFailure(Throwable failure) {
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      if (cause instanceof RatchetOptimisticLockException) {
+        return;
+      }
+    }
+    throw new AssertionError("Expected RatchetOptimisticLockException, got " + failure, failure);
   }
 
   default BatchEntity persistBatch(UUID batchId, int totalItems) {

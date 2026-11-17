@@ -65,6 +65,16 @@ public interface JobCrudStore {
    * nothing, for live and terminal jobs alike. A successful save advances the entity's versions in
    * memory so the same instance can be saved again.
    *
+   * <p>The check compares the entity's row version with the stored one, even when every field the
+   * save writes matches the stored job. Every other store write that changes a field a save writes
+   * back increments that version in the same statement: claims, status updates and swaps, pause and
+   * resume, retry attempts and retries, permit parks and wake-ups, signal deliveries, batch pause
+   * and resume, and the orphan, startup and shutdown resets. A store whose save writes the whole
+   * job also increments it for tag inserts and deletes. Terminal transitions end the live row, and
+   * a stale save fails against that too. A write that changes nothing a save writes back, such as a
+   * job state write, leaves the version alone. An entity read before any of these writes is
+   * therefore stale: read the job again, apply the change to the new entity and save that.
+   *
    * <p>Job shape is fixed at creation: {@code jobType}, {@code priority}, {@code businessKey},
    * {@code timeoutSec}, {@code maxRetries}, {@code backoffPolicy}, {@code backoffParamMs}, {@code
    * cronExpr}, {@code zoneId}, {@code payload}, {@code idempotencyKey}, {@code callerPrincipal},

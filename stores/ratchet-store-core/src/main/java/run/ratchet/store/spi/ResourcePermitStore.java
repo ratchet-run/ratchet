@@ -44,6 +44,9 @@ public interface ResourcePermitStore {
    * until then. A store whose transactions abort on a write conflict retries the whole wake
    * instead.
    *
+   * <p>A wake increments the row version of each job it wakes, so a save of an entity read before
+   * it fails its version check.
+   *
    * <p>Transaction attribute: {@code REQUIRES_NEW}. The resource lock must be the first lock of the
    * transaction, and the release or clean-up that freed the capacity must already be committed.
    */
@@ -88,6 +91,9 @@ public interface ResourcePermitStore {
    * clock its claim compares against plus retry delay (PAUSED in a paused batch), preserving
    * attempts and its first wait key, and renews the lease. A fenced park miss returns SUPERSEDED
    * and parks nothing.
+   *
+   * <p>A park increments the row version, so a save of an entity read before it fails its version
+   * check.
    *
    * <p>A waiter row is written only while {@code resource} is the job's stored resource, checked
    * under a job-row lock or write conflict that a resource change must also take. An attempt for a

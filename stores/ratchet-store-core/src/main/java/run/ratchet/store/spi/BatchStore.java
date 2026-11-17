@@ -34,6 +34,9 @@ import run.ratchet.store.entity.BatchMetricsEntity;
  * completedAt}, derives total duration from {@code startedAt}, and derives overhead as {@code
  * totalDurationMs - childExecutionMs}; later calls must leave those finalized values unchanged.
  * Unknown batch ids are ignored by finalization.
+ *
+ * <p>Pausing or resuming children increments the row version of each child it changes, so a save of
+ * a child read before it fails its version check.
  */
 @Incubating
 public interface BatchStore {

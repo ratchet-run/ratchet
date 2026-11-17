@@ -23,6 +23,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Base contract tests for {@code TagStore} writes.
@@ -100,5 +101,36 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     int deleted = store().deleteTagsByJobId(new UUID(0L, Long.MAX_VALUE));
 
     assertEquals(0, deleted, "deleteTagsByJobId for unknown job should return 0");
+  }
+
+  @Test
+  void staleSaveKeepsTagsInsertedAfterRead() {
+    JobEntity job = persist(newPendingJob());
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    store().insertTags(job.getId(), List.of("late-tag"));
+    // A store whose save never writes tags may accept the save; one whose save writes tags must
+    // reject it.
+    try {
+      store().save(stale);
+    } catch (RuntimeException failure) {
+      assertOptimisticLockFailure(failure);
+    }
+    assertEquals(1, store().deleteTagsByJobId(job.getId()));
+  }
+
+  @Test
+  void staleSaveKeepsTagsDeletedAfterRead() {
+    JobEntity job = persist(newPendingJob());
+    store().insertTags(job.getId(), List.of("gone-tag"));
+    JobEntity stale = store().findById(job.getId()).orElseThrow();
+    assertEquals(1, store().deleteTagsByJobId(job.getId()));
+    // A store whose save never writes tags may accept the save; one whose save writes tags must
+    // reject it.
+    try {
+      store().save(stale);
+    } catch (RuntimeException failure) {
+      assertOptimisticLockFailure(failure);
+    }
+    assertEquals(0, store().deleteTagsByJobId(job.getId()));
   }
 }
