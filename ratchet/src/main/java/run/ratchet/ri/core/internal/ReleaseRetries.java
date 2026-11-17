@@ -20,6 +20,7 @@ import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 
@@ -44,8 +45,9 @@ final class ReleaseRetries {
    * How a failed release is retried. The first retry waits {@code firstDelay} and each later one
    * waits twice as long as the one before, up to {@code maxDelay}. A policy with {@code maxRetries}
    * stops after that many retries. A policy without it retries until the release lands or the
-   * scheduler refuses the next retry; because nothing ends such a release on its own, it warns
-   * again after each {@link #WARN_INTERVAL} of retrying and logs at INFO when the release lands.
+   * scheduler refuses the next retry; because nothing ends such a release on its own, a failed
+   * retry warns again once {@link #WARN_INTERVAL} has passed on the clock since the last warning,
+   * and the release logs at INFO when it lands.
    */
   record Policy(Duration firstDelay, Duration maxDelay, OptionalInt maxRetries) {
     Policy {
@@ -76,17 +78,23 @@ final class ReleaseRetries {
 
   /**
    * One scheduled try. {@code number} counts the scheduled tries of this release, {@code
-   * delayMillis} is this try's delay, {@code waitedMillis} adds up the delays since the last
-   * warning, and {@code warned} says whether a warning was logged for this release.
+   * delayMillis} is this try's delay, {@code warned} says whether a warning was logged for this
+   * release, and {@code warnedAtNanos} is the clock reading at that warning.
    */
-  private record Retry(int number, long delayMillis, long waitedMillis, boolean warned) {}
+  private record Retry(int number, long delayMillis, boolean warned, long warnedAtNanos) {}
 
   private final Supplier<ScheduledExecutorService> scheduler;
   private final Policy policy;
+  private final LongSupplier nanoTime;
 
-  ReleaseRetries(Supplier<ScheduledExecutorService> scheduler, Policy policy) {
+  /**
+   * @param nanoTime a monotonic clock in nanoseconds, such as {@code System::nanoTime}
+   */
+  ReleaseRetries(
+      Supplier<ScheduledExecutorService> scheduler, Policy policy, LongSupplier nanoTime) {
     this.scheduler = scheduler;
     this.policy = policy;
+    this.nanoTime = nanoTime;
   }
 
   /**
@@ -98,7 +106,7 @@ final class ReleaseRetries {
   boolean release(Release release) {
     if (Thread.currentThread().isInterrupted()) {
       // The interrupt stays set; the caller restores or handles it.
-      schedule(release, new Retry(1, 0, 0, false));
+      schedule(release, new Retry(1, 0, false, 0));
       return false;
     }
     try {
@@ -107,7 +115,7 @@ final class ReleaseRetries {
     } catch (RuntimeException e) {
       log.warnf(e, "Could not release %s; scheduling retry", release.what());
       long first = policy.firstDelay().toMillis();
-      schedule(release, new Retry(1, first, first, true));
+      schedule(release, new Retry(1, first, true, nanoTime.getAsLong()));
       return false;
     }
   }
@@ -140,7 +148,8 @@ final class ReleaseRetries {
       if (policy.maxRetries().isPresent()) {
         log.debugf(e, "Release attempt %s failed for %s", retry.number(), release.what());
         if (retry.number() < policy.maxRetries().getAsInt()) {
-          schedule(release, new Retry(retry.number() + 1, next, 0, retry.warned()));
+          schedule(
+              release, new Retry(retry.number() + 1, next, retry.warned(), retry.warnedAtNanos()));
         } else {
           log.warnf(
               "Gave up releasing %s after %s retries; left to %s",
@@ -153,20 +162,22 @@ final class ReleaseRetries {
   }
 
   private void retryUntilReleased(Release release, Retry retry, long next, RuntimeException e) {
+    // Time on the clock, so a store call that hangs or a retry the scheduler runs late counts too.
+    long now = nanoTime.getAsLong();
     if (!retry.warned()) {
       log.warnf(e, "Could not release %s; scheduling retry", release.what());
-      schedule(release, new Retry(retry.number() + 1, next, next, true));
-    } else if (retry.waitedMillis() >= WARN_INTERVAL.toMillis()) {
+      schedule(release, new Retry(retry.number() + 1, next, true, now));
+    } else if (now - retry.warnedAtNanos() >= WARN_INTERVAL.toNanos()) {
       log.warnf(
           e,
           "Still could not release %s after %s retries; retrying every %s seconds until it lands or this node stops",
           release.what(),
           retry.number(),
           next / 1000);
-      schedule(release, new Retry(retry.number() + 1, next, next, true));
+      schedule(release, new Retry(retry.number() + 1, next, true, now));
     } else {
       log.debugf(e, "Release attempt %s failed for %s", retry.number(), release.what());
-      schedule(release, new Retry(retry.number() + 1, next, retry.waitedMillis() + next, true));
+      schedule(release, new Retry(retry.number() + 1, next, true, retry.warnedAtNanos()));
     }
   }
 }

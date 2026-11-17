@@ -39,7 +39,8 @@ final class HeldKeyReleases {
   HeldKeyReleases(JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler) {
     this.store = store;
     this.retries =
-        new ReleaseRetries(scheduler, ReleaseRetries.Policy.bounded(RETRY_DELAY, MAX_RETRIES));
+        new ReleaseRetries(
+            scheduler, ReleaseRetries.Policy.bounded(RETRY_DELAY, MAX_RETRIES), System::nanoTime);
   }
 
   /** Releases the hold of this claim. */

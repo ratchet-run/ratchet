@@ -46,6 +46,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -80,8 +82,11 @@ class PermitReleasesTest {
     Thread.interrupted();
   }
 
+  // A monotonic clock in nanoseconds; any start value works.
+  private final AtomicLong clock = new AtomicLong(42_000_000_000L);
+
   private PermitReleases releases() {
-    return new PermitReleases(permits, () -> scheduler);
+    return new PermitReleases(permits, () -> scheduler, clock::get);
   }
 
   @Test
@@ -232,6 +237,57 @@ class PermitReleasesTest {
   }
 
   @Test
+  void hungStoreCall_countsTowardTheWarningInterval() {
+    // The warning interval is measured on a monotonic clock, not by adding up the retry delays. A
+    // retry whose store call hangs for longer than the interval and then fails warns again, and
+    // the next quick failure does not.
+    String resource = "hang-" + UUID.randomUUID();
+    AtomicInteger calls = new AtomicInteger();
+    doAnswer(
+            invocation -> {
+              if (calls.incrementAndGet() == 2) {
+                clock.addAndGet(ReleaseRetries.WARN_INTERVAL.plusMinutes(1).toNanos());
+              }
+              throw new RatchetTransientStoreException("lock wait timeout");
+            })
+        .when(permits)
+        .release(resource, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+
+    try (LogCapture logs = LogCapture.start(ReleaseRetries.class)) {
+      releases().release(resource, JOB_ID, CLAIM_SEQ);
+      runNext();
+      runNext();
+
+      assertEquals(
+          2,
+          count(logs.recordsMentioning(resource), Level.WARNING),
+          "the first failure and the retry that hung past the interval");
+    }
+  }
+
+  @Test
+  void lateRetry_countsTheTimeItWaitedForTheScheduler() {
+    // A busy scheduler can run a retry long after its delay. That time counts toward the interval.
+    String resource = "late-" + UUID.randomUUID();
+    doThrow(new RatchetTransientStoreException("store unavailable"))
+        .when(permits)
+        .release(resource, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+
+    try (LogCapture logs = LogCapture.start(ReleaseRetries.class)) {
+      releases().release(resource, JOB_ID, CLAIM_SEQ);
+      clock.addAndGet(ReleaseRetries.WARN_INTERVAL.toNanos());
+      runNext();
+
+      assertEquals(
+          2,
+          count(logs.recordsMentioning(resource), Level.WARNING),
+          "the first failure and the retry that ran after the interval");
+    }
+  }
+
+  @Test
   void longOutage_warnsAtTheFirstFailureThenSparselyAndReportsTheSuccess() {
     // Over a long outage the release warns once at the first failure, then once per warning
     // interval of waiting, and reports at INFO when it finally lands. The tries in between log at
@@ -340,9 +396,11 @@ class PermitReleasesTest {
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
   }
 
+  /** Runs the next scheduled try on time: the clock moves by its delay first. */
   private void runNext() {
     Scheduled next = pending.poll();
     assertNotNull(next, "no retry is scheduled");
+    clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(next.delayMillis()));
     next.task().run();
   }
 

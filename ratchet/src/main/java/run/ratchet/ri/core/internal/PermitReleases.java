@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.ri.core.ResourcePermitService;
@@ -40,10 +41,20 @@ final class PermitReleases {
   private final ReleaseRetries retries;
 
   PermitReleases(ResourcePermitService permits, Supplier<ScheduledExecutorService> scheduler) {
+    this(permits, scheduler, System::nanoTime);
+  }
+
+  /** Takes the monotonic clock that times the repeated warnings, so tests can move it. */
+  PermitReleases(
+      ResourcePermitService permits,
+      Supplier<ScheduledExecutorService> scheduler,
+      LongSupplier nanoTime) {
     this.permits = permits;
     this.retries =
         new ReleaseRetries(
-            scheduler, ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY));
+            scheduler,
+            ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),
+            nanoTime);
   }
 
   /**
