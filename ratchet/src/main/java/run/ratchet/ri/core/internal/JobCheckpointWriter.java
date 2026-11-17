@@ -16,13 +16,17 @@
 package run.ratchet.ri.core.internal;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.TransactionalUnit;
 import run.ratchet.api.exception.AttemptSupersededException;
 import run.ratchet.api.internal.JobCheckpoints;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Result;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
@@ -51,6 +55,17 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
   private final CheckpointSeedSource seedSource;
   private String seedValue;
   private boolean closed;
+  private final @Nullable UnitCarrier units;
+  private Mode mode = Mode.NONE;
+  private boolean unitOpen;
+  private boolean unknown;
+  private boolean firstUseDone;
+
+  private enum Mode {
+    NONE,
+    DEFERRED,
+    UNITS
+  }
 
   public JobCheckpointWriter(
       UUID jobId,
@@ -70,6 +85,19 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
       PayloadSerializer serializer,
       JobStateFlusher flusher,
       @Nullable CheckpointSeedSource seedSource) {
+    this(jobId, attempt, stateStore, registrar, serializer, flusher, seedSource, null);
+  }
+
+  public JobCheckpointWriter(
+      UUID jobId,
+      JobAttemptControl attempt,
+      @Nullable JobStateStore stateStore,
+      AfterCommitRegistrar registrar,
+      PayloadSerializer serializer,
+      JobStateFlusher flusher,
+      @Nullable CheckpointSeedSource seedSource,
+      @Nullable UnitCarrier units) {
+    this.units = units;
     this.seedSource = seedSource;
     this.jobId = jobId;
     this.attempt = attempt;
@@ -78,6 +106,170 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
     this.serializer = serializer;
     this.flusher = flusher;
     this.intervalMs = flusher.checkpointFlushIntervalMs();
+  }
+
+  @Override
+  public String runInTransaction(TransactionalUnit unit) throws Exception {
+    Objects.requireNonNull(unit, "unit");
+    JobStateStore store = requireStore();
+    if (units == null || units.store() == null || units.transactions() == null)
+      throw new UnsupportedOperationException(
+          "Job "
+              + jobId
+              + " store cannot save a checkpoint in the unit's transaction"
+              + " (TransactionalCompletionStore)");
+    if (attempt.isSuperseded()) throw superseded();
+    if (units.transactions().hasActiveTransaction())
+      throw new IllegalStateException(
+          "Job "
+              + jobId
+              + " has an open transaction; units start their own; call with no transaction");
+    synchronized (this) {
+      checkUnitAllowed();
+    }
+    String start;
+    Integer startVersion;
+    synchronized (ioLock) {
+      synchronized (this) {
+        checkUnitAllowed();
+        mode = Mode.UNITS;
+        unitOpen = true;
+      }
+      try {
+        boolean load;
+        synchronized (this) {
+          load = !loaded || unknown;
+        }
+        if (load) loadState(store);
+        synchronized (this) {
+          start = cache;
+          startVersion = knownVersion;
+        }
+      } catch (RuntimeException | Error failure) {
+        synchronized (this) {
+          unitOpen = false;
+        }
+        throw failure;
+      }
+    }
+    try {
+      boolean firstUse;
+      synchronized (this) {
+        firstUse = !firstUseDone;
+        firstUseDone = true;
+      }
+      if (firstUse && units.firstUse() != null) units.firstUse().run();
+      AtomicBoolean storeCalled = new AtomicBoolean();
+      AtomicBoolean committed = new AtomicBoolean();
+      try {
+        String next =
+            units
+                .transactions()
+                .run(
+                    () -> {
+                      String result = unit.run(start);
+                      Objects.requireNonNull(
+                          result,
+                          "TransactionalUnit for job "
+                              + jobId
+                              + " returned null; return an end marker instead");
+                      if (attempt.isSuperseded()) throw superseded();
+                      String json =
+                          serializer.serialize(
+                              Map.of("value", result), ExtensionValidation.MAX_STATE_BYTES);
+                      Result registration =
+                          registrar.registerAfterCommit(() -> committed.set(true));
+                      if (registration != Result.REGISTERED) {
+                        if (registration == Result.ROLLBACK_ONLY)
+                          throw new IllegalStateException(
+                              "Job "
+                                  + jobId
+                                  + " unit's transaction is marked rollback-only, for example by a"
+                                  + " failed nested transactional call that the unit caught;"
+                                  + " the unit rolled back");
+                        throw new IllegalStateException(
+                            "Job "
+                                + jobId
+                                + " unit's commit cannot be confirmed ("
+                                + registration
+                                + "); the unit rolled back");
+                      }
+                      storeCalled.set(true);
+                      StateWriteResult outcome =
+                          units
+                              .store()
+                              .writeClaimState(
+                                  jobId, NAMESPACE, json, attempt.claimSeq(), startVersion);
+                      switch (outcome) {
+                        case UPDATED -> {
+                          return result;
+                        }
+                        case SUPERSEDED -> {
+                          synchronized (JobCheckpointWriter.this) {
+                            supersede();
+                          }
+                          throw superseded();
+                        }
+                        case VERSION_CONFLICT ->
+                            throw new IllegalStateException(
+                                "Checkpoint for job "
+                                    + jobId
+                                    + " changed outside this attempt; the unit rolled back");
+                      }
+                      throw new IllegalStateException("Unknown checkpoint write result");
+                    });
+        if (!committed.get())
+          throw new IllegalStateException(
+              "Job "
+                  + jobId
+                  + " unit's transaction rolled back without an error; nothing was saved");
+        synchronized (ioLock) {
+          synchronized (this) {
+            knownVersion = startVersion == null ? 0 : startVersion + 1;
+            durableValue = next;
+            cache = next;
+            loaded = true;
+            unknown = false;
+          }
+        }
+        return next;
+      } catch (Throwable failure) {
+        if (storeCalled.get() && !attempt.isSuperseded()) {
+          synchronized (ioLock) {
+            synchronized (this) {
+              unknown = true;
+              loaded = false;
+              cache = null;
+              durableValue = null;
+              knownVersion = null;
+            }
+          }
+        }
+        throw failure;
+      }
+    } finally {
+      synchronized (this) {
+        unitOpen = false;
+      }
+    }
+  }
+
+  private void checkUnitAllowed() {
+    if (closed)
+      throw new IllegalStateException("Checkpoint writer for job " + jobId + " is closed");
+    if (mode == Mode.DEFERRED)
+      throw new IllegalStateException("Job " + jobId + " this attempt used checkpoint()");
+    if (unitOpen)
+      throw new IllegalStateException("Job " + jobId + " another unit of this attempt is running");
+  }
+
+  private void checkDeferredAllowed() {
+    if (mode == Mode.UNITS)
+      throw new IllegalStateException(
+          "Job "
+              + jobId
+              + " saves checkpoints with runInTransaction(); checkpoint() is not allowed in the"
+              + " same attempt");
   }
 
   public UUID jobId() {
@@ -98,6 +290,19 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
   public void write(String value) {
     requireStore();
     if (attempt.isSuperseded()) throw superseded();
+    boolean pickMode;
+    synchronized (this) {
+      checkDeferredAllowed();
+      pickMode = mode == Mode.NONE;
+    }
+    if (pickMode) {
+      synchronized (ioLock) {
+        synchronized (this) {
+          checkDeferredAllowed();
+          mode = Mode.DEFERRED;
+        }
+      }
+    }
     String json = serializer.serialize(Map.of("value", value), ExtensionValidation.MAX_STATE_BYTES);
     long seq;
     synchronized (this) {
@@ -145,40 +350,47 @@ public final class JobCheckpointWriter implements JobCheckpoints, FlushableState
   public Optional<String> read() {
     JobStateStore store = requireStore();
     synchronized (this) {
-      if (cache != null || loaded) return Optional.ofNullable(cache);
+      if (!unknown && (cache != null || loaded)) return Optional.ofNullable(cache);
     }
     synchronized (ioLock) {
       synchronized (this) {
-        if (cache != null || loaded) return Optional.ofNullable(cache);
+        if (!unknown && (cache != null || loaded)) return Optional.ofNullable(cache);
       }
-      var state = store.getState(jobId, NAMESPACE);
-      String storedValue = null;
-      if (state.isPresent()) {
-        knownVersion = state.get().version();
-        Map<?, ?> decoded = serializer.deserialize(state.get().json(), Map.class);
-        Object value = decoded == null ? null : decoded.get("value");
-        if (!(value instanceof String text)) {
-          throw new IllegalStateException("Invalid checkpoint for job " + jobId);
-        }
-        storedValue = text;
+      return loadState(store);
+    }
+  }
+
+  // Called with ioLock held.
+  private Optional<String> loadState(JobStateStore store) {
+    var state = store.getState(jobId, NAMESPACE);
+    knownVersion = null;
+    String storedValue = null;
+    if (state.isPresent()) {
+      knownVersion = state.get().version();
+      Map<?, ?> decoded = serializer.deserialize(state.get().json(), Map.class);
+      Object value = decoded == null ? null : decoded.get("value");
+      if (!(value instanceof String text)) {
+        throw new IllegalStateException("Invalid checkpoint for job " + jobId);
       }
-      String seeded = null;
-      if (state.isEmpty() && seedSource != null) {
-        var document = seedSource.seed(jobId);
-        if (document.isPresent()) {
-          Map<?, ?> decoded = serializer.deserialize(document.get(), Map.class);
-          if (decoded == null || !(decoded.get("value") instanceof String))
-            throw new IllegalStateException("Invalid checkpoint seed for job " + jobId);
-          seeded = (String) decoded.get("value");
-        }
+      storedValue = text;
+    }
+    String seeded = null;
+    if (state.isEmpty() && seedSource != null) {
+      var document = seedSource.seed(jobId);
+      if (document.isPresent()) {
+        Map<?, ?> decoded = serializer.deserialize(document.get(), Map.class);
+        if (decoded == null || !(decoded.get("value") instanceof String))
+          throw new IllegalStateException("Invalid checkpoint seed for job " + jobId);
+        seeded = (String) decoded.get("value");
       }
-      synchronized (this) {
-        seedValue = seeded;
-        durableValue = storedValue;
-        if (cache == null) cache = storedValue != null ? storedValue : seedValue;
-        loaded = true;
-        return Optional.ofNullable(cache);
-      }
+    }
+    synchronized (this) {
+      seedValue = seeded;
+      durableValue = storedValue;
+      if (unknown || cache == null) cache = storedValue != null ? storedValue : seedValue;
+      unknown = false;
+      loaded = true;
+      return Optional.ofNullable(cache);
     }
   }
 

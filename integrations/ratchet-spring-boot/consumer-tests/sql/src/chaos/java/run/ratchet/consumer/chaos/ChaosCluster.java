@@ -175,6 +175,10 @@ public final class ChaosCluster implements AutoCloseable {
     return submit(liveSubmitter(), key, 0, "", "", 0, 0, "transactional-write", 1, true);
   }
 
+  public String submitUnits(String key, String gatePoint, int maxRetries) throws Exception {
+    return submit(liveSubmitter(), key, 0, "", "", 0, maxRetries, gatePoint, 1, false, true);
+  }
+
   private int liveSubmitter() {
     for (int attempt = 0; attempt < nodes.size(); attempt++) {
       int i = Math.floorMod(next.getAndIncrement(), nodes.size());
@@ -201,6 +205,33 @@ public final class ChaosCluster implements AutoCloseable {
       int gateTimes,
       boolean transactional)
       throws Exception {
+    return submit(
+        i,
+        key,
+        durationMs,
+        idempotencyKey,
+        businessKey,
+        failTimes,
+        maxRetries,
+        gatePoint,
+        gateTimes,
+        transactional,
+        false);
+  }
+
+  private String submit(
+      int i,
+      String key,
+      long durationMs,
+      String idempotencyKey,
+      String businessKey,
+      int failTimes,
+      Integer maxRetries,
+      String gatePoint,
+      int gateTimes,
+      boolean transactional,
+      boolean units)
+      throws Exception {
     String id =
         node(i)
             .post(
@@ -222,7 +253,9 @@ public final class ChaosCluster implements AutoCloseable {
                     + "&gateTimes="
                     + gateTimes
                     + "&transactional="
-                    + transactional)
+                    + transactional
+                    + "&units="
+                    + units)
             .trim();
     submitted.add(id);
     kinds.put(id, new Oracle.JobKind(failTimes, maxRetries == null ? 0 : maxRetries));

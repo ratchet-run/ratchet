@@ -227,6 +227,81 @@ final class OracleExtensionOperations implements JobPropertyStore, JobStateStore
     return updated > 0;
   }
 
+  StateWriteResult writeClaimState(
+      UUID jobId, String namespace, String initialState, Integer expectedVersion) {
+    Optional<Boolean> encryptedPayload = encryptedPayload(jobId);
+    if (encryptedPayload.isEmpty()) {
+      return StateWriteResult.SUPERSEDED;
+    }
+    boolean active = JobEncryption.activeFor(encryptedPayload.get());
+    String stored = encryptState(jobId, namespace, initialState, active);
+    if (expectedVersion != null) {
+      // language=Oracle
+      String sql =
+          """
+          UPDATE scheduler_job_extension_state
+          SET state = ?, encrypted_state = ?, encryption_key_id = ?,
+              version = version + 1, updated_at = ?
+          WHERE job_id = ? AND namespace = ? AND version = ?
+          """;
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, stored)
+              .setParameter(2, active)
+              .setParameter(3, JobEncryption.keyId(active))
+              .setParameter(4, Timestamp.from(Instant.now()))
+              .setParameter(5, UuidRawConverter.toBytes(jobId))
+              .setParameter(6, namespace)
+              .setParameter(7, expectedVersion)
+              .executeUpdate();
+      return updated == 1 ? StateWriteResult.UPDATED : StateWriteResult.VERSION_CONFLICT;
+    }
+    // language=Oracle
+    String sql =
+        """
+        INSERT INTO scheduler_job_extension_state
+          (job_id, namespace, state, encrypted_state, encryption_key_id, version, updated_at)
+        SELECT ?, ?, EMPTY_CLOB(), ?, ?, 0, ? FROM DUAL
+        WHERE NOT EXISTS (SELECT 1 FROM scheduler_job_extension_state s
+                          WHERE s.job_id = ? AND s.namespace = ?)
+        """;
+    try {
+      int inserted =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, UuidRawConverter.toBytes(jobId))
+              .setParameter(2, namespace)
+              .setParameter(3, active)
+              .setParameter(4, JobEncryption.keyId(active))
+              .setParameter(5, Timestamp.from(Instant.now()))
+              .setParameter(6, UuidRawConverter.toBytes(jobId))
+              .setParameter(7, namespace)
+              .executeUpdate();
+      if (inserted == 0) {
+        return StateWriteResult.VERSION_CONFLICT;
+      }
+      // Bind the CLOB only in plain UPDATE SET. The guarded insert and payload update share
+      // the caller's REQUIRED transaction, so the empty locator is never published separately.
+      ctx.em()
+          .createNativeQuery(
+              """
+              UPDATE scheduler_job_extension_state SET state = ?
+              WHERE job_id = ? AND namespace = ?
+              """)
+          .setParameter(1, stored)
+          .setParameter(2, UuidRawConverter.toBytes(jobId))
+          .setParameter(3, namespace)
+          .executeUpdate();
+      return StateWriteResult.UPDATED;
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateKey(e)) {
+        return StateWriteResult.VERSION_CONFLICT;
+      }
+      throw e;
+    }
+  }
+
   @Override
   public StateWriteResult initState(
       UUID jobId, String namespace, String initialState, long expectedClaimSeq) {

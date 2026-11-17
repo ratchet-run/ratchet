@@ -17,6 +17,7 @@ package run.ratchet.store.sqlserver;
 
 import jakarta.persistence.EntityManager;
 import java.util.Map;
+import org.hibernate.Session;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import run.ratchet.api.RatchetOptions;
@@ -105,5 +106,12 @@ public class SqlserverTestFixture extends JpaContainerFixture {
         new SqlserverJobStoreImpl(() -> em, metrics, RatchetOptions.defaults());
     store.checkIsolationLevel();
     return store;
+  }
+
+  /** Sets the isolation level on the JDBC connection of the calling thread's transaction. */
+  void setCurrentIsolation(int level) {
+    currentEntityManager()
+        .unwrap(Session.class)
+        .doWork(connection -> connection.setTransactionIsolation(level));
   }
 }

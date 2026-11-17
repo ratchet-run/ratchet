@@ -394,7 +394,8 @@ Ratchet stores each job's checkpoint in the `ratchet.checkpoint` job-state names
 The JSON contains a `value` string. Payload encryption also protects this state at rest.
 Namespaces starting with `ratchet.` are reserved for Ratchet. Use another prefix for
 application state. See [Checkpoints](../api-reference/job-context.md#checkpoints) for
-transaction and retry behavior.
+transaction and retry behavior. `JobContext.runInTransaction` saves to the same row, in the
+transaction of the unit's work.
 
 Ratchet stores progress in the `ratchet.progress` job-state namespace next to
 `ratchet.checkpoint`. It holds the latest `done`, `total`, and ISO-8601 `reportedAt`

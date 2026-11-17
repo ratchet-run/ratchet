@@ -72,6 +72,7 @@ import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.TerminalOutcome;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.ExtensionValidation;
 import run.ratchet.store.util.IsolationCheck;
 import run.ratchet.store.util.SqlEventOutbox;
 import run.ratchet.store.util.SqlJobCompletion;
@@ -147,6 +148,27 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   public TerminalOutcome terminalOutcome(UUID jobId, long claimSeq) {
     return SqlJobCompletion.terminalOutcome(
         em, jobId, claimSeq, true, UuidByteArrayConverter::toBytes);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.MANDATORY)
+  public StateWriteResult writeClaimState(
+      UUID jobId,
+      String namespace,
+      String state,
+      long expectedClaimSeq,
+      @Nullable Integer expectedVersion) {
+    ExtensionValidation.requireNamespace(namespace);
+    ExtensionValidation.requireState(state);
+    if (expectedVersion != null && expectedVersion < 0) {
+      throw new IllegalArgumentException(
+          "expectedVersion must be non-negative: " + expectedVersion);
+    }
+    if (!SqlJobCompletion.lockLiveClaim(
+        em, jobId, expectedClaimSeq, true, UuidByteArrayConverter::toBytes)) {
+      return StateWriteResult.SUPERSEDED;
+    }
+    return extensions.writeClaimState(jobId, namespace, state, expectedVersion);
   }
 
   @Override

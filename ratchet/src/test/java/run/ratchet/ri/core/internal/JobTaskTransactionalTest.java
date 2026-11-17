@@ -213,6 +213,27 @@ class JobTaskTransactionalTest {
   }
 
   @Test
+  void unitInTransactionalJobThrows() {
+    AtomicBoolean ran = new AtomicBoolean();
+    BODY.set(
+        () -> {
+          assertThrows(
+              IllegalStateException.class,
+              () ->
+                  JobContext.current()
+                      .runInTransaction(
+                          after -> {
+                            ran.set(true);
+                            return "next";
+                          }));
+          return 42;
+        });
+    task.call();
+    assertFalse(ran.get());
+    assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+  }
+
+  @Test
   void watchdogCancellationDuringSuccessWriteDoesNotInterruptWorker() throws Exception {
     job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
     FutureTask<Void> future = new FutureTask<>(task);

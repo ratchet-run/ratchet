@@ -87,6 +87,50 @@ class SqlTransactionalCompletionTest {
     }
   }
 
+  @Test
+  void lockLiveClaimFlushesBeforeLockingForBothSqlForms() {
+    var cases =
+        List.of(
+            new ClaimCase(new Object[] {"RUNNING", 7L}, true),
+            new ClaimCase(null, false),
+            new ClaimCase(new Object[] {"PENDING", 7L}, false),
+            new ClaimCase(new Object[] {"RUNNING", 8L}, false));
+    for (boolean sqlServer : List.of(false, true)) {
+      for (ClaimCase test : cases) {
+        EntityManager em = mock(EntityManager.class);
+        Query query = mock(Query.class, RETURNS_SELF);
+        String sql =
+            "SELECT status, claim_seq FROM scheduler_job_queue"
+                + (sqlServer ? " WITH (UPDLOCK, ROWLOCK)" : "")
+                + " WHERE job_id = ?"
+                + (sqlServer ? "" : " FOR UPDATE");
+        when(em.createNativeQuery(sql)).thenReturn(query);
+        when(query.getResultList()).thenReturn(rows(test.row()));
+        UUID id = UUID.randomUUID();
+        byte[] converted = new byte[] {1, 2, 3};
+        assertEquals(
+            test.live(),
+            SqlJobCompletion.lockLiveClaim(
+                em,
+                id,
+                7L,
+                sqlServer,
+                value -> {
+                  assertEquals(id, value);
+                  return converted;
+                }));
+        var order = inOrder(em, query);
+        order.verify(em).flush();
+        order.verify(em).createNativeQuery(sql);
+        order.verify(query).setParameter(1, converted);
+        order.verify(query).getResultList();
+        order.verifyNoMoreInteractions();
+      }
+    }
+  }
+
+  private record ClaimCase(Object[] row, boolean live) {}
+
   private static List<Object[]> rows(Object[] row) {
     return row == null ? List.of() : List.<Object[]>of(row);
   }

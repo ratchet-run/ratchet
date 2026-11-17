@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -35,8 +36,140 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.api.internal.ContinuationBindings;
+import run.ratchet.api.internal.JobCheckpoints;
 
 class JobContextTest {
+
+  @Test
+  void runInTransactionStopsWhenCancellationIsRequested() {
+    AtomicBoolean holderCalled = new AtomicBoolean();
+    AtomicBoolean unitRan = new AtomicBoolean();
+    JobCheckpoints holder =
+        new JobCheckpoints() {
+          @Override
+          public void write(String value) {
+            throw new AssertionError("Unexpected checkpoint write");
+          }
+
+          @Override
+          public Optional<String> read() {
+            throw new AssertionError("Unexpected checkpoint read");
+          }
+
+          @Override
+          public String runInTransaction(TransactionalUnit unit) throws Exception {
+            holderCalled.set(true);
+            return unit.run(null);
+          }
+        };
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bind(
+            id,
+            null,
+            Map.of(),
+            null,
+            null,
+            null,
+            () -> true,
+            null,
+            new AttemptToken(id, 1),
+            () -> true,
+            holder,
+            null);
+    assertThrows(
+        CancellationRequestedException.class,
+        () ->
+            context.runInTransaction(
+                after -> {
+                  unitRan.set(true);
+                  return "done";
+                }));
+    assertFalse(unitRan.get());
+    assertFalse(holderCalled.get());
+  }
+
+  @Test
+  void boundAttemptRejectsUnitAfterCheckpoint() {
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 1), () -> true);
+    context.checkpoint("a");
+    AtomicBoolean unitRan = new AtomicBoolean();
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            context.runInTransaction(
+                after -> {
+                  unitRan.set(true);
+                  return "b";
+                }));
+    assertFalse(unitRan.get());
+    assertEquals(Optional.of("a"), context.lastCheckpoint());
+  }
+
+  @Test
+  void boundAttemptRejectsCheckpointAfterUnit() throws Exception {
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 1), () -> true);
+    context.runInTransaction(after -> "a");
+    assertThrows(IllegalStateException.class, () -> context.checkpoint("b"));
+    assertEquals(Optional.of("a"), context.lastCheckpoint());
+  }
+
+  @Test
+  void boundAttemptRejectsNestedUnit() throws Exception {
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 1), () -> true);
+    AtomicBoolean innerRan = new AtomicBoolean();
+    context.runInTransaction(
+        after -> {
+          assertThrows(
+              IllegalStateException.class,
+              () ->
+                  context.runInTransaction(
+                      inner -> {
+                        innerRan.set(true);
+                        return "inner";
+                      }));
+          return "outer";
+        });
+    assertFalse(innerRan.get());
+    assertEquals(Optional.of("outer"), context.lastCheckpoint());
+  }
+
+  @Test
+  void boundAttemptRunsUnitWithoutTransaction() throws Exception {
+    UUID id = UUID.randomUUID();
+    JobContext context =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 7), () -> true, "page-1");
+    assertEquals(
+        "page-2",
+        context.runInTransaction(
+            after -> {
+              assertEquals("page-1", after);
+              return "page-2";
+            }));
+    assertEquals(Optional.of("page-2"), context.lastCheckpoint());
+    IOException failure = new IOException("unit failed");
+    assertSame(
+        failure,
+        assertThrows(
+            IOException.class,
+            () ->
+                context.runInTransaction(
+                    after -> {
+                      throw failure;
+                    })));
+    assertEquals(Optional.of("page-2"), context.lastCheckpoint());
+    assertThrows(NullPointerException.class, () -> context.runInTransaction(after -> null));
+    assertEquals(Optional.of("page-2"), context.lastCheckpoint());
+    assertThrows(NullPointerException.class, () -> context.runInTransaction(null));
+    JobContext plain = JobContext.bind(id, null);
+    assertThrows(IllegalStateException.class, () -> plain.runInTransaction(after -> "x"));
+  }
 
   @Test
   void continuationValidatesAndLastCallWinsInTestAttempt() {
