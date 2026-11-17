@@ -16,12 +16,15 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -32,11 +35,23 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,9 +69,10 @@ class PermitReleasesTest {
   private static final String RESOURCE = "gpu";
   private static final UUID JOB_ID = UUID.randomUUID();
   private static final long CLAIM_SEQ = 7L;
-  // The documented cadence: every 5 seconds, 60 times, so about 5 minutes after the first failure.
-  private static final long RETRY_DELAY_MS = 5_000L;
-  private static final int MAX_RETRIES = 60;
+  // The documented cadence: the first retry after 5 seconds, then doubling up to 1 minute, with no
+  // limit on the number of retries.
+  private static final long FIRST_DELAY_MS = 5_000L;
+  private static final long MAX_DELAY_MS = 60_000L;
 
   @Mock private ResourcePermitService permits;
   @Mock private ScheduledExecutorService scheduler;
@@ -66,8 +82,11 @@ class PermitReleasesTest {
     Thread.interrupted();
   }
 
+  // A monotonic clock in nanoseconds; any start value works.
+  private final AtomicLong clock = new AtomicLong(42_000_000_000L);
+
   private PermitReleases releases() {
-    return new PermitReleases(permits, () -> scheduler);
+    return new PermitReleases(permits, () -> scheduler, clock::get);
   }
 
   @Test
@@ -104,7 +123,7 @@ class PermitReleasesTest {
         .release(RESOURCE, JOB_ID, CLAIM_SEQ);
 
     assertFalse(assertDoesNotThrow(() -> releases().release(RESOURCE, JOB_ID, CLAIM_SEQ)));
-    scheduled(1, RETRY_DELAY_MS).run();
+    scheduled(1, FIRST_DELAY_MS).run();
 
     verify(permits, times(2)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
     verifyNoMoreInteractions(permits);
@@ -120,28 +139,188 @@ class PermitReleasesTest {
         .when(permits)
         .release(RESOURCE, JOB_ID, CLAIM_SEQ);
 
+    recordSchedules();
+
     releases().release(RESOURCE, JOB_ID, CLAIM_SEQ);
-    scheduled(1, RETRY_DELAY_MS).run();
-    scheduled(2, RETRY_DELAY_MS).run();
+    runNext();
+    runNext();
 
     verify(permits, times(3)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
-    verifyNoMoreInteractions(scheduler);
+    assertEquals(List.of(FIRST_DELAY_MS, 2 * FIRST_DELAY_MS), delays);
+    assertTrue(pending.isEmpty());
   }
 
   @Test
-  void retry_givesUpAfterTheRetryLimit() {
-    // A release that keeps failing stops after the inline call and the bounded retries.
+  void retry_backsOffFromFiveSecondsToOneMinute() {
+    // Each failed retry doubles the wait, up to one minute.
     doThrow(new RatchetTransientStoreException("store unavailable"))
         .when(permits)
         .release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
 
     releases().release(RESOURCE, JOB_ID, CLAIM_SEQ);
-    for (int i = 1; i <= MAX_RETRIES; i++) {
-      scheduled(i, RETRY_DELAY_MS).run();
+    for (int i = 0; i < 6; i++) {
+      runNext();
     }
 
-    verify(permits, times(1 + MAX_RETRIES)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
-    verifyNoMoreInteractions(scheduler);
+    assertEquals(
+        List.of(5_000L, 10_000L, 20_000L, 40_000L, MAX_DELAY_MS, MAX_DELAY_MS, MAX_DELAY_MS),
+        delays);
+  }
+
+  @Test
+  void retry_neverGivesUpWhileTheReleaseFails() {
+    // A permit has no expiry, so a release that keeps failing is retried until it lands or the
+    // node stops, long past the business-key hold's limit of 60 retries.
+    doThrow(new RatchetTransientStoreException("store unavailable"))
+        .when(permits)
+        .release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+
+    releases().release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    int retries = 500;
+    for (int i = 0; i < retries; i++) {
+      runNext();
+    }
+
+    verify(permits, times(1 + retries)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    assertEquals(1, pending.size(), "the next retry must still be scheduled");
+    assertEquals(MAX_DELAY_MS, delays.get(delays.size() - 1));
+  }
+
+  @Test
+  void retry_afterAFailedHandoff_waitsTheFirstDelay() {
+    // The handoff from an interrupted worker runs at once. When that try fails, the next one waits
+    // the first delay rather than running again at once.
+    doThrow(new RatchetTransientStoreException("first"))
+        .doThrow(new RatchetTransientStoreException("second"))
+        .doNothing()
+        .when(permits)
+        .release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+    Thread.currentThread().interrupt();
+
+    releases().release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    Thread.interrupted();
+    runNext();
+    runNext();
+    runNext();
+
+    verify(permits, times(3)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    assertEquals(List.of(0L, FIRST_DELAY_MS, 2 * FIRST_DELAY_MS), delays);
+    assertTrue(pending.isEmpty());
+  }
+
+  @Test
+  void failedHandoff_warnsOnceAndReportsTheSuccess() {
+    // A release handed off by an interrupted worker has not warned yet, so its first failure on
+    // the scheduler warns, and the release that lands after it is reported.
+    String resource = "handoff-" + UUID.randomUUID();
+    doThrow(new RatchetTransientStoreException("store unavailable"))
+        .doNothing()
+        .when(permits)
+        .release(resource, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+
+    try (LogCapture logs = LogCapture.start(ReleaseRetries.class)) {
+      Thread.currentThread().interrupt();
+      releases().release(resource, JOB_ID, CLAIM_SEQ);
+      Thread.interrupted();
+      runNext();
+      runNext();
+
+      List<LogRecord> records = logs.recordsMentioning(resource);
+      assertEquals(1, count(records, Level.WARNING));
+      assertEquals(1, count(records, Level.INFO));
+    }
+    assertTrue(pending.isEmpty());
+  }
+
+  @Test
+  void hungStoreCall_countsTowardTheWarningInterval() {
+    // The warning interval is measured on a monotonic clock, not by adding up the retry delays. A
+    // retry whose store call hangs for longer than the interval and then fails warns again, and
+    // the next quick failure does not.
+    String resource = "hang-" + UUID.randomUUID();
+    AtomicInteger calls = new AtomicInteger();
+    doAnswer(
+            invocation -> {
+              if (calls.incrementAndGet() == 2) {
+                clock.addAndGet(ReleaseRetries.WARN_INTERVAL.plusMinutes(1).toNanos());
+              }
+              throw new RatchetTransientStoreException("lock wait timeout");
+            })
+        .when(permits)
+        .release(resource, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+
+    try (LogCapture logs = LogCapture.start(ReleaseRetries.class)) {
+      releases().release(resource, JOB_ID, CLAIM_SEQ);
+      runNext();
+      runNext();
+
+      assertEquals(
+          2,
+          count(logs.recordsMentioning(resource), Level.WARNING),
+          "the first failure and the retry that hung past the interval");
+    }
+  }
+
+  @Test
+  void lateRetry_countsTheTimeItWaitedForTheScheduler() {
+    // A busy scheduler can run a retry long after its delay. That time counts toward the interval.
+    String resource = "late-" + UUID.randomUUID();
+    doThrow(new RatchetTransientStoreException("store unavailable"))
+        .when(permits)
+        .release(resource, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+
+    try (LogCapture logs = LogCapture.start(ReleaseRetries.class)) {
+      releases().release(resource, JOB_ID, CLAIM_SEQ);
+      clock.addAndGet(ReleaseRetries.WARN_INTERVAL.toNanos());
+      runNext();
+
+      assertEquals(
+          2,
+          count(logs.recordsMentioning(resource), Level.WARNING),
+          "the first failure and the retry that ran after the interval");
+    }
+  }
+
+  @Test
+  void longOutage_warnsAtTheFirstFailureThenSparselyAndReportsTheSuccess() {
+    // Over a long outage the release warns once at the first failure, then once per warning
+    // interval of waiting, and reports at INFO when it finally lands. The tries in between log at
+    // DEBUG only.
+    String resource = "outage-" + UUID.randomUUID();
+    AtomicBoolean storeBack = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              if (!storeBack.get()) throw new RatchetTransientStoreException("store unavailable");
+              return null;
+            })
+        .when(permits)
+        .release(resource, JOB_ID, CLAIM_SEQ);
+    recordSchedules();
+    long outageMillis =
+        2 * ReleaseRetries.WARN_INTERVAL.toMillis() + Duration.ofMinutes(5).toMillis();
+
+    try (LogCapture logs = LogCapture.start(ReleaseRetries.class)) {
+      releases().release(resource, JOB_ID, CLAIM_SEQ);
+      long waited = 0;
+      while (!storeBack.get()) {
+        assertNotNull(pending.peek(), "the retries stopped before the store came back");
+        waited += pending.peek().delayMillis();
+        storeBack.set(waited >= outageMillis);
+        runNext();
+      }
+
+      List<LogRecord> records = logs.recordsMentioning(resource);
+      assertEquals(3, count(records, Level.WARNING), "first failure plus one per interval");
+      assertEquals(1, count(records, Level.INFO), "the release that lands");
+      assertEquals(0, count(records, Level.SEVERE));
+    }
+    assertTrue(pending.isEmpty());
   }
 
   @Test
@@ -172,7 +351,7 @@ class PermitReleasesTest {
 
     assertDoesNotThrow(() -> releases().release(RESOURCE, JOB_ID, CLAIM_SEQ));
 
-    scheduled(1, RETRY_DELAY_MS);
+    scheduled(1, FIRST_DELAY_MS);
     verify(permits).release(RESOURCE, JOB_ID, CLAIM_SEQ);
   }
 
@@ -192,11 +371,92 @@ class PermitReleasesTest {
 
     new PermitReleases(service, () -> scheduler).release(RESOURCE, JOB_ID, CLAIM_SEQ);
     verify(store, never()).wakeWaiters(anyString());
-    scheduled(1, RETRY_DELAY_MS).run();
+    scheduled(1, FIRST_DELAY_MS).run();
 
     InOrder order = inOrder(store);
     order.verify(store, times(2)).releasePermit(RESOURCE, JOB_ID, CLAIM_SEQ);
     order.verify(store).wakeWaiters(RESOURCE);
+  }
+
+  private record Scheduled(Runnable task, long delayMillis) {}
+
+  private final Deque<Scheduled> pending = new ArrayDeque<>();
+  private final List<Long> delays = new ArrayList<>();
+
+  /** Records every scheduled try in order, so a test can run them one by one. */
+  private void recordSchedules() {
+    doAnswer(
+            invocation -> {
+              long delayMillis = invocation.getArgument(1);
+              pending.add(new Scheduled(invocation.getArgument(0), delayMillis));
+              delays.add(delayMillis);
+              return null;
+            })
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+  }
+
+  /** Runs the next scheduled try on time: the clock moves by its delay first. */
+  private void runNext() {
+    Scheduled next = pending.poll();
+    assertNotNull(next, "no retry is scheduled");
+    clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(next.delayMillis()));
+    next.task().run();
+  }
+
+  private static long count(List<LogRecord> records, Level level) {
+    return records.stream().filter(record -> record.getLevel().equals(level)).count();
+  }
+
+  private static final class LogCapture implements AutoCloseable {
+    private final Logger logger;
+    private final Handler handler;
+    private final Level originalLevel;
+    private final boolean originalUseParentHandlers;
+    private final List<LogRecord> records = new ArrayList<>();
+
+    private LogCapture(Class<?> type) {
+      logger = Logger.getLogger(type.getName());
+      originalLevel = logger.getLevel();
+      originalUseParentHandlers = logger.getUseParentHandlers();
+      handler =
+          new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+              records.add(record);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+          };
+      logger.setLevel(Level.ALL);
+      logger.setUseParentHandlers(false);
+      logger.addHandler(handler);
+    }
+
+    static LogCapture start(Class<?> type) {
+      return new LogCapture(type);
+    }
+
+    /** Records whose message or parameters name the given text; other tests log here too. */
+    List<LogRecord> recordsMentioning(String text) {
+      return records.stream()
+          .filter(
+              record ->
+                  String.valueOf(record.getMessage()).contains(text)
+                      || Arrays.toString(record.getParameters()).contains(text))
+          .toList();
+    }
+
+    @Override
+    public void close() {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+      logger.setUseParentHandlers(originalUseParentHandlers);
+    }
   }
 
   private Runnable scheduled(int count, long delayMillis) {
