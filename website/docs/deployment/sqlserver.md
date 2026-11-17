@@ -148,6 +148,27 @@ Job identifiers are time-ordered UUIDv7 values stored as `BINARY(16)` holding th
 
 Payloads and other JSON columns are `NVARCHAR(MAX)`: SQL Server JSON is text plus the `JSON_VALUE`/`OPENJSON` functions rather than a stored type. The indexed `target_class` and `method_name` columns are `PERSISTED` computed columns over `JSON_VALUE(...)` cast to a bounded `VARCHAR`, because SQL Server cannot index `NVARCHAR(MAX)` directly.
 
+### Unicode keys and migration V018
+
+V018 converts caller keys, node identifiers and configured free text to bounded `NVARCHAR`.
+Business keys use `NVARCHAR(255)` in live, reservation, archive and outbox tables. Other
+converted columns keep their character limits. Enum and machine-format columns remain
+`VARCHAR`; `job_type` keeps its parameter casts for indexed claim queries. Indexed job
+properties also remain `VARCHAR`: an `NVARCHAR` `(property_key, value)` index would need
+2,558 bytes, exceeding SQL Server's 1,700-byte limit.
+
+Stop writers and apply V018 before starting the updated store. The migration checks all
+seven business-key tables first and fails with the table name if a key exceeds 255
+characters, including trailing spaces. It rebuilds dependent indexes and key constraints,
+so allow a maintenance window for large tables. The database collation and its comparison
+rules remain unchanged. Values SQL Server already changed to `?` or an unaccented letter
+cannot be restored by this migration.
+
+The Spring Boot SQL consumer lane validates Ratchet entities as well as consumer entities.
+Hibernate treats `VARCHAR`, `NVARCHAR` and their long variants as equivalent during schema
+type validation; this also accommodates existing `NVARCHAR(MAX)` String columns. No global
+nationalized-string setting or entity mapping change is required.
+
 ### Time zone
 
 Timestamp columns are zoneless `DATETIME2(6)` holding UTC wall-clock, and the claim path compares them against `SYSUTCDATETIME()`. `mssql-jdbc` binds `java.sql.Timestamp` to `DATETIME2` using the JVM's default zone, so run the application JVM in UTC (or set `hibernate.jdbc.time_zone=UTC` on Hibernate). A non-UTC JVM shifts stored timestamps and stalls claims.

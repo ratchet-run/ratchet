@@ -45,6 +45,7 @@ import run.ratchet.tck.store.AbstractNodeStoreContract;
 import run.ratchet.tck.store.AbstractResourcePermitStoreContract;
 import run.ratchet.tck.store.AbstractSignalStoreContract;
 import run.ratchet.tck.store.AbstractTagStoreContract;
+import run.ratchet.tck.store.AbstractUnicodeStringKeyStoreContract;
 import run.ratchet.tck.store.AbstractWorkflowConditionStoreContract;
 import run.ratchet.tck.store.JobStoreContractFixture;
 
@@ -175,6 +176,9 @@ class SqlStoreContractTest {
 
   @Nested
   class Nodes extends AbstractNodeStoreContract implements StoreFixture {}
+
+  @Nested
+  class UnicodeKeys extends AbstractUnicodeStringKeyStoreContract implements StoreFixture {}
 
   @Nested
   class Archive extends AbstractArchiveStoreContract implements StoreFixture {}

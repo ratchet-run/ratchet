@@ -63,7 +63,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 
 /**
- * Checks that statements keyed on a VARCHAR column lock only the key they name. The driver binds
+ * Checks that statements keyed on an NVARCHAR column lock only the key they name. The driver binds
  * strings as NVARCHAR, and a scan in place of a seek would range-lock every key under HOLDLOCK or
  * make an UPDATE or DELETE wait on other keys' row locks. Each test holds a transaction open on one
  * key and checks that work on another key does not wait for it.
@@ -221,12 +221,11 @@ class SqlserverStringKeyLockingTest {
     try {
       inSeed(work);
     } catch (RuntimeException ignored) {
-      // A duplicate key is allowed when the cast name already exists.
+      // A failed write must not change the existing key.
     }
   }
 
-  // SQL Server turns U+0101 into 'a' and U+4E2D into '?' when it casts to VARCHAR. A key with
-  // either character must not match the ASCII key it casts to.
+  // The default accent-sensitive collation preserves these keys independently.
   @Test
   void permitAcquireAndConfigurationDoNotMatchALookAlikeResource() {
     JobEntity job;
@@ -257,6 +256,7 @@ class SqlserverStringKeyLockingTest {
     inSeed(s -> assertTrue(s.tryLock("lock-a", Duration.ofHours(1), "node-a")));
     inSeed(s -> assertFalse(s.renewLock("lock-\u0101", Duration.ofHours(1), "node-a")));
     inSeed(s -> s.unlock("lock-\u0101", "node-a"));
+    inSeed(s -> assertTrue(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-b")));
     inSeedAllowingFailure(
         s -> assertFalse(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-a")));
     inSeed(s -> assertFalse(s.tryLock("lock-a", Duration.ofHours(1), "node-b")));

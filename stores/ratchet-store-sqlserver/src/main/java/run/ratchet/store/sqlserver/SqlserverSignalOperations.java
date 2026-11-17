@@ -171,10 +171,7 @@ final class SqlserverSignalOperations implements SignalStore {
       String deliveryId) {
     try {
       // A scan waits on row locks held on other jobs. On a small queue SQL Server scans even when
-      // the types match, so force the seek on idx_signal_key_status. The seek needs the key cast
-      // to VARCHAR because the driver binds strings as NVARCHAR. The NVARCHAR comparison stays as
-      // a residual check: the cast turns a character outside the column's code page into '?' or
-      // a similar letter, and the residual stops that from matching another key.
+      // the types match, so force the seek on idx_signal_key_status.
       // language=SQL Server
       String sql =
           """
@@ -189,7 +186,7 @@ final class SqlserverSignalOperations implements SignalStore {
               signal_delivery_id = ?,
               updated_at = SYSUTCDATETIME()
           FROM scheduler_job_queue q WITH (FORCESEEK, INDEX(idx_signal_key_status))
-          WHERE q.signal_key = CAST(? AS VARCHAR(8000)) AND q.signal_key = ? AND q.status = 'WAITING'
+          WHERE q.signal_key = ? AND q.status = 'WAITING'
           """;
       int updated =
           ctx.em()
@@ -202,7 +199,6 @@ final class SqlserverSignalOperations implements SignalStore {
               .setParameter(6, deliveredBy)
               .setParameter(7, deliveryId)
               .setParameter(8, signalKey)
-              .setParameter(9, signalKey)
               .executeUpdate();
       log.debugf("deliverSignalByKey('%s'): %s row(s) updated", signalKey, updated);
       return updated;

@@ -20,9 +20,9 @@ package run.ratchet.api.internal;
  * store.
  *
  * <p>The ASCII restriction is intentional. Oracle may count a {@code VARCHAR2(36)} in bytes, while
- * SQL Server's {@code VARCHAR(36)} columns use the database collation's code page. Printable ASCII
- * is one byte and round-trips unchanged in both, so two distinct keys never collapse into one
- * stored value and the 36-character limit has the same meaning in every store.
+ * other stores support Unicode keys with different byte and character limits. Printable ASCII is
+ * one byte and round-trips unchanged across stores, so the 36-character limit has the same meaning
+ * in every store.
  */
 public final class IdempotencyKeyNormalizer {
 
