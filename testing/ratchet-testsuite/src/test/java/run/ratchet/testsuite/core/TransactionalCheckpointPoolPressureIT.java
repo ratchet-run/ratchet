@@ -70,24 +70,31 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
   }
 
   @AfterEach
-  void releaseAndDrain() {
+  void cancelAndDrain() {
     TransactionalUnitProbe.pressureStart.countDown();
     try {
+      // Stop every job before the shared probe state is cleared. A job that started later would
+      // find no Attempt, and a running one would write pages after the cleanup.
+      for (UUID id : expected.keySet()) jobs.cancelJob(id);
       await()
-          .atMost(Duration.ofSeconds(40))
-          .untilAsserted(
-              () -> {
-                for (UUID id : expected.keySet()) {
-                  assertNotEquals(
-                      ExecutionStatus.RUNNING,
-                      audit.findLatestExecution(id).orElseThrow().getStatus());
-                }
-              });
+          .atMost(Duration.ofSeconds(60))
+          .until(() -> expected.keySet().stream().allMatch(this::stopped));
     } finally {
       TransactionalUnitProbe.reset();
       probe.clear();
       expected.clear();
     }
+  }
+
+  /** A job has stopped once it is terminal and its latest attempt, if it began one, has ended. */
+  private boolean stopped(UUID id) {
+    JobStatus status = store.findById(id).orElseThrow().getStatus();
+    if (!status.isTerminal()) return false;
+    // A job canceled before an attempt began has no execution record, and it will not run.
+    return audit
+        .findLatestExecution(id)
+        .map(execution -> execution.getStatus() != ExecutionStatus.RUNNING)
+        .orElse(status == JobStatus.CANCELED);
   }
 
   @Test
