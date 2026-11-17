@@ -51,12 +51,18 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
       long ttlMicros = durationMicros(ttl);
       // expires_at is computed as whole seconds + sub-second microsecond remainder: DATEADD's
       // interval argument is a 32-bit int and a microsecond TTL overflows it past ~35.8 minutes.
+      // The driver binds strings as NVARCHAR, and comparing that with the VARCHAR key makes SQL
+      // Server scan; under HOLDLOCK the scan range-locks every lock row until commit. Seek on the
+      // name cast to VARCHAR, and keep the NVARCHAR comparison as a residual check: the cast turns
+      // a character outside the column's code page into '?' or a similar letter, and the residual
+      // stops that from matching another lock.
       // language=SQL Server
       String sql =
           """
           MERGE scheduler_lock WITH (HOLDLOCK) AS tgt
-          USING (VALUES (?, ?, ?)) AS src(lock_name, owner_node, ttl_micros)
-            ON tgt.lock_name = src.lock_name
+          USING (VALUES (CAST(? AS VARCHAR(8000)), ?, ?, ?))
+            AS src(lock_name, lock_name_n, owner_node, ttl_micros)
+            ON tgt.lock_name = src.lock_name AND tgt.lock_name = src.lock_name_n
           WHEN MATCHED AND (tgt.expires_at < SYSUTCDATETIME()
                             OR tgt.owner_node = src.owner_node) THEN UPDATE SET
             owner_node = src.owner_node,
@@ -72,8 +78,9 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
           ctx.em()
               .createNativeQuery(sql)
               .setParameter(1, name)
-              .setParameter(2, nodeId)
-              .setParameter(3, ttlMicros)
+              .setParameter(2, name)
+              .setParameter(3, nodeId)
+              .setParameter(4, ttlMicros)
               .executeUpdate();
       return updated > 0;
     } catch (RuntimeException e) {
@@ -86,9 +93,17 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     Objects.requireNonNull(nodeId, "nodeId");
     try {
+      // Cast so the delete seeks one lock's key; see tryLock.
       // language=SQL Server
-      String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
-      ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
+      String sql =
+          "DELETE FROM scheduler_lock WHERE lock_name = CAST(? AS VARCHAR(8000)) AND lock_name = ?"
+              + " AND owner_node = ?";
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, name)
+          .setParameter(2, name)
+          .setParameter(3, nodeId)
+          .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("unlock", e);
     }
@@ -103,14 +118,14 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
       long extensionMicros = durationMicros(extension);
       // DATEADD's interval argument is a 32-bit int; microseconds overflow it at ~35.8 minutes, so
       // add whole seconds and the sub-second microsecond remainder separately. Whole seconds fit an
-      // int for any realistic lease.
+      // int for any realistic lease. Cast the name so the update seeks one lock's key; see tryLock.
       // language=SQL Server
       String sql =
           """
           UPDATE scheduler_lock
           SET expires_at = DATEADD(MICROSECOND, ? % 1000000,
                                    DATEADD(SECOND, ? / 1000000, SYSUTCDATETIME()))
-          WHERE lock_name = ? AND owner_node = ?
+          WHERE lock_name = CAST(? AS VARCHAR(8000)) AND lock_name = ? AND owner_node = ?
           """;
       int updated =
           ctx.em()
@@ -118,7 +133,8 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
               .setParameter(1, extensionMicros)
               .setParameter(2, extensionMicros)
               .setParameter(3, name)
-              .setParameter(4, nodeId)
+              .setParameter(4, name)
+              .setParameter(5, nodeId)
               .executeUpdate();
       return updated > 0;
     } catch (RuntimeException e) {
@@ -131,12 +147,14 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
     Objects.requireNonNull(nodeId, "nodeId");
     Objects.requireNonNull(ts, "ts");
     try {
+      // Cast so the MERGE seeks one node's key; see tryLock.
       // language=SQL Server
       String sql =
           """
           MERGE scheduler_node WITH (HOLDLOCK) AS tgt
-          USING (VALUES (?, ?, ?)) AS src(node_id, heartbeat_ts, started_at)
-            ON tgt.node_id = src.node_id
+          USING (VALUES (CAST(? AS VARCHAR(8000)), ?, ?, ?))
+            AS src(node_id, node_id_n, heartbeat_ts, started_at)
+            ON tgt.node_id = src.node_id AND tgt.node_id = src.node_id_n
           WHEN MATCHED THEN UPDATE SET heartbeat_ts = src.heartbeat_ts
           WHEN NOT MATCHED THEN INSERT (node_id, heartbeat_ts, started_at)
             VALUES (src.node_id, src.heartbeat_ts, src.started_at);
@@ -144,8 +162,9 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
       ctx.em()
           .createNativeQuery(sql)
           .setParameter(1, nodeId)
-          .setParameter(2, Timestamp.from(ts))
+          .setParameter(2, nodeId)
           .setParameter(3, Timestamp.from(ts))
+          .setParameter(4, Timestamp.from(ts))
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("upsert heartbeat", e);
@@ -241,11 +260,22 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
       if (remaining.isEmpty()) {
         return 0;
       }
-      placeholders = String.join(",", Collections.nCopies(remaining.size(), "?"));
+      // Cast each id so the delete seeks its node's key, and keep the NVARCHAR match; see tryLock.
+      String castPlaceholders =
+          String.join(",", Collections.nCopies(remaining.size(), "CAST(? AS VARCHAR(8000))"));
+      String plainPlaceholders = String.join(",", Collections.nCopies(remaining.size(), "?"));
       // language=SQL Server
-      String sql = "DELETE FROM scheduler_node WHERE node_id IN (" + placeholders + ")";
+      String sql =
+          "DELETE FROM scheduler_node WHERE node_id IN ("
+              + castPlaceholders
+              + ") AND node_id IN ("
+              + plainPlaceholders
+              + ")";
       var query = ctx.em().createNativeQuery(sql);
       parameter = 1;
+      for (String nodeId : remaining) {
+        query.setParameter(parameter++, nodeId);
+      }
       for (String nodeId : remaining) {
         query.setParameter(parameter++, nodeId);
       }
