@@ -254,8 +254,7 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
     insertBusinessKeyRow(table, "x".repeat(255) + " ");
     var failure =
         assertThrows(
-            SQLException.class,
-            () -> new SchemaMigrator(dataSource(), dialect()).migrate());
+            SQLException.class, () -> new SchemaMigrator(dataSource(), dialect()).migrate());
     StringBuilder messages = new StringBuilder();
     for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
       messages.append(cause.getMessage());
