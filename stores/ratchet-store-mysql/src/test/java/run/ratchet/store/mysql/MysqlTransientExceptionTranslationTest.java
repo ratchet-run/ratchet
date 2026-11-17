@@ -180,7 +180,6 @@ class MysqlTransientExceptionTranslationTest {
     };
     AtomicInteger reads = new AtomicInteger();
     AtomicInteger waiterStatements = new AtomicInteger();
-    AtomicInteger coldUpdates = new AtomicInteger();
     EntityManager em =
         (EntityManager)
             Proxy.newProxyInstance(
@@ -194,8 +193,6 @@ class MysqlTransientExceptionTranslationTest {
                   if (sql.contains("scheduler_resource_waiter")) {
                     waiterStatements.incrementAndGet();
                   }
-                  boolean coldUpdate =
-                      sql.contains("UPDATE scheduler_job") && sql.contains("SET params = ");
                   return Proxy.newProxyInstance(
                       Query.class.getClassLoader(),
                       new Class<?>[] {Query.class},
@@ -206,12 +203,9 @@ class MysqlTransientExceptionTranslationTest {
                               reads.getAndIncrement() == 0
                                   ? List.of(JOB_ID)
                                   : Collections.singletonList(snapshot);
-                          case "executeUpdate" -> {
-                            if (coldUpdate) {
-                              coldUpdates.incrementAndGet();
-                            }
-                            yield 0;
-                          }
+                          case "executeUpdate" ->
+                              // A stale save must fail on the version check, before it writes.
+                              throw new AssertionError("Unexpected update: " + sql);
                           default -> throw new UnsupportedOperationException(queryMethod.getName());
                         };
                       });
@@ -220,7 +214,6 @@ class MysqlTransientExceptionTranslationTest {
 
     assertThrows(RatchetOptimisticLockException.class, () -> writes.save(job));
     assertEquals(0, waiterStatements.get());
-    assertEquals(0, coldUpdates.get());
   }
 
   @Test
