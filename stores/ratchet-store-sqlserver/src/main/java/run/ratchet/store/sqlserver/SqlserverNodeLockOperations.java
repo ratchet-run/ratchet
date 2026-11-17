@@ -22,6 +22,7 @@ import static run.ratchet.store.util.LockValidation.requirePositiveDuration;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -35,6 +36,8 @@ import run.ratchet.store.spi.NodeStore;
 final class SqlserverNodeLockOperations implements LockStore, NodeStore {
 
   private static final int MAX_INACTIVE_NODES = 1000;
+  // SQL Server allows at most 2,100 parameters, and the delete binds each id twice.
+  private static final int NODE_ID_CHUNK = 1000;
 
   private final SqlserverStoreContext ctx;
 
@@ -239,47 +242,57 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
     }
     try {
       var remaining = new LinkedHashSet<>(nodeIds);
-      String placeholders = String.join(",", Collections.nCopies(remaining.size(), "?"));
+      var ids = new ArrayList<>(remaining);
       // A plain read sees a hold that another transaction has locked, without waiting for it.
-      // language=SQL Server
-      String heldSql =
-          """
-          SELECT DISTINCT held_by_node FROM scheduler_business_key_reservation
-          WHERE held_until IS NOT NULL AND held_by_node IN (
-          """
-              + placeholders
-              + ")";
-      var heldQuery = ctx.em().createNativeQuery(heldSql);
-      int parameter = 1;
-      for (String nodeId : remaining) {
-        heldQuery.setParameter(parameter++, nodeId);
-      }
-      for (Object heldByNode : heldQuery.getResultList()) {
-        remaining.remove(String.valueOf(heldByNode));
+      for (int offset = 0; offset < ids.size(); offset += NODE_ID_CHUNK) {
+        var chunk = ids.subList(offset, Math.min(offset + NODE_ID_CHUNK, ids.size()));
+        String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        // language=SQL Server
+        String heldSql =
+            """
+            SELECT DISTINCT held_by_node FROM scheduler_business_key_reservation
+            WHERE held_until IS NOT NULL AND held_by_node IN (
+            """
+                + placeholders
+                + ")";
+        var heldQuery = ctx.em().createNativeQuery(heldSql);
+        int parameter = 1;
+        for (String nodeId : chunk) {
+          heldQuery.setParameter(parameter++, nodeId);
+        }
+        for (Object heldByNode : heldQuery.getResultList()) {
+          remaining.remove(String.valueOf(heldByNode));
+        }
       }
       if (remaining.isEmpty()) {
         return 0;
       }
+      ids = new ArrayList<>(remaining);
+      int deleted = 0;
       // Cast each id so the delete seeks its node's key, and keep the NVARCHAR match; see tryLock.
-      String castPlaceholders =
-          String.join(",", Collections.nCopies(remaining.size(), "CAST(? AS VARCHAR(8000))"));
-      String plainPlaceholders = String.join(",", Collections.nCopies(remaining.size(), "?"));
-      // language=SQL Server
-      String sql =
-          "DELETE FROM scheduler_node WHERE node_id IN ("
-              + castPlaceholders
-              + ") AND node_id IN ("
-              + plainPlaceholders
-              + ")";
-      var query = ctx.em().createNativeQuery(sql);
-      parameter = 1;
-      for (String nodeId : remaining) {
-        query.setParameter(parameter++, nodeId);
+      for (int offset = 0; offset < ids.size(); offset += NODE_ID_CHUNK) {
+        var chunk = ids.subList(offset, Math.min(offset + NODE_ID_CHUNK, ids.size()));
+        String castPlaceholders =
+            String.join(",", Collections.nCopies(chunk.size(), "CAST(? AS VARCHAR(8000))"));
+        String plainPlaceholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        // language=SQL Server
+        String sql =
+            "DELETE FROM scheduler_node WHERE node_id IN ("
+                + castPlaceholders
+                + ") AND node_id IN ("
+                + plainPlaceholders
+                + ")";
+        var query = ctx.em().createNativeQuery(sql);
+        int parameter = 1;
+        for (String nodeId : chunk) {
+          query.setParameter(parameter++, nodeId);
+        }
+        for (String nodeId : chunk) {
+          query.setParameter(parameter++, nodeId);
+        }
+        deleted += query.executeUpdate();
       }
-      for (String nodeId : remaining) {
-        query.setParameter(parameter++, nodeId);
-      }
-      return query.executeUpdate();
+      return deleted;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete inactive nodes by id", e);
     }

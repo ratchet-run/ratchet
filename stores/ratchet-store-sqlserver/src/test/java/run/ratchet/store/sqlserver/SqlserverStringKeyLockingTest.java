@@ -27,6 +27,7 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.LockTimeoutException;
 import jakarta.persistence.Persistence;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -46,6 +47,7 @@ import run.ratchet.api.exception.ResourceNotConfiguredException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 
 /**
  * Checks that statements keyed on a VARCHAR column lock only the key they name. The driver binds
@@ -252,6 +254,38 @@ class SqlserverStringKeyLockingTest {
     inSeed(s -> assertEquals(0, s.deleteInactiveNodesByIds(List.of("node-\u0101"))));
     inSeedAllowingFailure(s -> s.upsertHeartbeat("node-\u0101", Instant.now()));
     inSeed(s -> assertEquals(t0, s.findNodeById("node-a").orElseThrow().getLastHeartbeat()));
+  }
+
+  @Test
+  void deleteInactiveNodesByIdsTakesMoreIdsThanTheParameterLimit() {
+    var ids = new ArrayList<String>();
+    for (int i = 0; i < 2200; i++) {
+      ids.add(String.format("bulk-%04d", i));
+    }
+    Instant t0 = Instant.now().minusSeconds(3600).truncatedTo(ChronoUnit.SECONDS);
+    inSeed(
+        s -> {
+          s.upsertHeartbeat(ids.get(5), t0);
+          s.upsertHeartbeat(ids.get(2150), t0);
+          s.upsertHeartbeat(ids.get(2190), t0);
+          seed.createNativeQuery(
+                  """
+                  INSERT INTO scheduler_business_key_reservation
+                    (business_key, owner_job_id, owner_table, held_until, held_by_node, held_claim_seq)
+                  VALUES ('bulk-hold-key', ?1, 'QUEUE', ?2, ?3, 1)
+                  """)
+              .setParameter(1, UuidByteArrayConverter.toBytes(UUID.randomUUID()))
+              .setParameter(2, Timestamp.from(Instant.now().plusSeconds(3600)))
+              .setParameter(3, ids.get(2190))
+              .executeUpdate();
+        });
+    inSeed(s -> assertEquals(2, s.deleteInactiveNodesByIds(ids)));
+    inSeed(
+        s -> {
+          assertTrue(s.findNodeById(ids.get(5)).isEmpty());
+          assertTrue(s.findNodeById(ids.get(2150)).isEmpty());
+          assertTrue(s.findNodeById(ids.get(2190)).isPresent());
+        });
   }
 
   @Test
