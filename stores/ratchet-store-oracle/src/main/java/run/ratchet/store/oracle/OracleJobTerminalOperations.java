@@ -234,36 +234,64 @@ final class OracleJobTerminalOperations {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq) {
+    return reschedule(id, error, newScheduledTime, attempts, expectedClaimSeq, false);
+  }
+
+  boolean releaseClaim(
+      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq) {
+    return reschedule(id, reason, scheduledTime, expectedAttempts, claimSeq, true);
+  }
+
+  private boolean reschedule(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq,
+      boolean release) {
     boolean paused = retryIntoPausedBatch(ctx, id);
     // language=Oracle
     String sql =
         """
         UPDATE scheduler_job_queue
         SET status = '%s', paused_from_status = %s,
-            last_error = ?, scheduled_time = ?, attempts = ?,
+            last_error = ?, scheduled_time = ?%s,
             picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+        WHERE job_id = ? AND %s%s
         """
             .formatted(
                 paused ? "PAUSED" : "PENDING",
                 paused ? "'PENDING'" : "NULL",
-                expectedClaimSeq == null ? "" : " AND claim_seq = ?");
+                release ? "" : ", attempts = ?",
+                release ? "status = 'RUNNING'" : "status IN ('RUNNING', 'WAITING')",
+                release
+                    ? " AND claim_seq = ? AND attempts = ?"
+                    : expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     return ctx.timedStoreOperation(
-            "schedule_retry",
+            release ? "release_claim" : "schedule_retry",
             () -> {
               try {
-                return ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 5)
+                return bindReschedule(sql, release, attempts, expectedClaimSeq)
                     .setParameter(1, error)
                     .setParameter(2, Timestamp.from(newScheduledTime))
-                    .setParameter(3, attempts)
-                    .setParameter(4, UuidRawConverter.toBytes(id))
+                    .setParameter(release ? 3 : 4, UuidRawConverter.toBytes(id))
                     .executeUpdate();
               } catch (RuntimeException e) {
-                throw ctx.translateTransientStoreException("schedule job retry", e);
+                throw ctx.translateTransientStoreException(
+                    release ? "release claim" : "schedule job retry", e);
               }
             },
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
+  }
+
+  private Query bindReschedule(
+      String sql, boolean release, int attempts, @Nullable Long expectedClaimSeq) {
+    Query query = ctx.em().createNativeQuery(sql);
+    if (release) {
+      return query.setParameter(4, expectedClaimSeq).setParameter(5, attempts);
+    }
+    return ClaimFence.bind(query.setParameter(3, attempts), expectedClaimSeq, 5);
   }
 
   static boolean retryIntoPausedBatch(OracleStoreContext ctx, UUID id) {

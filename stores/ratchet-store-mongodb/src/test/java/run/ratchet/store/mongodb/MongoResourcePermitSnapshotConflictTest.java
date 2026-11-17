@@ -65,7 +65,7 @@ class MongoResourcePermitSnapshotConflictTest {
   void generationWriteBeforeReads_observesSupersededClaim() {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("one", 1, 100, "test");
-    JobEntity first = claimNewJob("one");
+    JobEntity first = claimNewJob("one", "old");
     assertEquals(
         ACQUIRED, permits.tryAcquirePermit("one", first.getId(), first.getClaimSeq(), "old"));
     AtomicBoolean hookRan = new AtomicBoolean();
@@ -103,15 +103,15 @@ class MongoResourcePermitSnapshotConflictTest {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("res-a", 1, 0, "test");
     permits.configureResource("res-b", 1, 60_000, "test");
-    JobEntity holderA = claimNewJob("res-a");
+    JobEntity holderA = claimNewJob("res-a", "node-a");
     assertEquals(
         ACQUIRED,
         permits.tryAcquirePermit("res-a", holderA.getId(), holderA.getClaimSeq(), "node-a"));
-    JobEntity holderB = claimNewJob("res-b");
+    JobEntity holderB = claimNewJob("res-b", "node-b");
     assertEquals(
         ACQUIRED,
         permits.tryAcquirePermit("res-b", holderB.getId(), holderB.getClaimSeq(), "node-b"));
-    JobEntity waiter = claimNewJob("res-a");
+    JobEntity waiter = claimNewJob("res-a", "node-a");
     assertEquals(
         AT_CAPACITY,
         permits.tryAcquirePermit("res-a", waiter.getId(), waiter.getClaimSeq(), "node-a"));
@@ -157,7 +157,7 @@ class MongoResourcePermitSnapshotConflictTest {
   void newPermitAcquire_generationWriteObservesSupersededClaim() {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("one", 1, 100, "test");
-    JobEntity first = claimNewJob("one");
+    JobEntity first = claimNewJob("one", "old");
     AtomicBoolean hookRan = new AtomicBoolean();
     Runnable hook =
         () -> {
@@ -170,7 +170,7 @@ class MongoResourcePermitSnapshotConflictTest {
           JobEntity retry = fixture.store().claimNextBatch(1, "new").get(0);
           assertEquals(first.getId(), retry.getId());
           assertTrue(retry.getClaimSeq() > first.getClaimSeq());
-          JobEntity second = claimNewJob("one");
+          JobEntity second = claimNewJob("one", "other");
           assertEquals(
               ACQUIRED,
               permits.tryAcquirePermit("one", second.getId(), second.getClaimSeq(), "other"));
@@ -180,7 +180,7 @@ class MongoResourcePermitSnapshotConflictTest {
     assertEquals(
         SUPERSEDED, wrapped.tryAcquirePermit("one", first.getId(), first.getClaimSeq(), "old"));
     assertTrue(hookRan.get());
-    JobEntity third = claimNewJob("one");
+    JobEntity third = claimNewJob("one", "third");
     assertEquals(
         AT_CAPACITY, permits.tryAcquirePermit("one", third.getId(), third.getClaimSeq(), "third"));
   }
@@ -189,11 +189,11 @@ class MongoResourcePermitSnapshotConflictTest {
   void twoFullPoolAcquiresAndConcurrentWake_doNotLoseWakeup() throws Exception {
     ResourcePermitStore permits = fixture.resourcePermitStore();
     permits.configureResource("one", 1, 30_000, "test");
-    JobEntity holder = claimNewJob("one");
+    JobEntity holder = claimNewJob("one", "holder");
     assertEquals(
         ACQUIRED, permits.tryAcquirePermit("one", holder.getId(), holder.getClaimSeq(), "holder"));
-    JobEntity first = claimNewJob("one");
-    JobEntity second = claimNewJob("one");
+    JobEntity first = claimNewJob("one", "first");
+    JobEntity second = claimNewJob("one", "second");
     CountDownLatch parked = new CountDownLatch(1);
     CountDownLatch allowCommit = new CountDownLatch(1);
     AtomicBoolean once = new AtomicBoolean();
@@ -303,11 +303,11 @@ class MongoResourcePermitSnapshotConflictTest {
             });
   }
 
-  private JobEntity claimNewJob(String resource) {
+  private JobEntity claimNewJob(String resource, String nodeId) {
     var job = fixture.newPendingJob();
     job.setResourceName(resource);
     fixture.store().create(job);
-    return fixture.store().claimNextBatch(1, "node").get(0);
+    return fixture.store().claimNextBatch(1, nodeId).get(0);
   }
 
   private MongoDatabase wrapDatabase(Runnable hook) {

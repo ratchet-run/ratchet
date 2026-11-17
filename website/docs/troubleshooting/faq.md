@@ -75,7 +75,7 @@ Yes. Ratchet supports multi-node deployment. Each node runs its own poller that 
 
 - **Claim ownership:** Atomic claiming grants one current owner. Every claim advances a sequence, and owner writes must match it. Recovery can overlap job bodies, so execution remains at least once and external side effects need idempotency.
 - **Automatic failover:** If a node crashes, surviving nodes detect stale heartbeats. Orphan recovery returns its jobs to PENDING while they have crash budget left. Exhausted jobs fail and enter the DLQ.
-- **Node identity:** Each node registers in `scheduler_node` with a unique ID and periodic heartbeat (default every 10 seconds).
+- **Node identity:** The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. The ID must be unique among live nodes and must not change while the node runs. It may change on restart, as the default ID does. The default heartbeat interval is 10 seconds.
 
 Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrain which jobs a node claims by providing a `NodeTagAffinityProvider` (the default is `DefaultNodeTagAffinityProvider`, consumed by the poller). For fully custom routing or cross-node wakeups, implement the `ClusterCoordinator` SPI.
 
@@ -100,7 +100,9 @@ When a node crashes while jobs are RUNNING:
 
 4. **Resource permits are cleaned up.** Any permits held by the dead node in `scheduler_resource_permit` are released. A retry of a recovered job does not reuse the dead attempt's permit. If the resource is full, the retry waits for this clean-up and then takes a permit of its own. The clean-up runs a waiter sweep, which wakes jobs waiting for the freed resources (up to 64 resources per sweep; later sweeps cover the rest).
 
-5. **The stale node entry is deleted.** The scan releases the business keys still held by jobs that were cancelled while they ran on the crashed node, then removes the node's `scheduler_node` row. If another transaction has one of those holds locked, the scan skips it and keeps the row, and the next scan tries again.
+5. **The stale node entry is deleted.** The scan releases the business keys still held by jobs that were cancelled while they ran on the crashed node, then removes the node's `scheduler_node` row. If another transaction has one of those holds locked, the scan skips it and keeps the row, and the next scan tries again. Every orphan scan also removes permits whose node row is missing once their acquisition time is older than the orphan cutoff, freeing late permits left by a crashed node.
+
+Neither permit clean-up frees a permit while its job is still RUNNING under the dead node. That happens when a scan stops at its time budget or page cap before it reaches the job. The scan that resets the job frees its permit. If the node comes back first, its running jobs keep their permits.
 
 When a node starts, it also deletes the permits left under its own node id before it claims any job. This only helps when the restarted node keeps its id, which needs `ratchet.node.id` or a custom `NodeIdentityProvider` with a stable id. The default id changes on every start.
 

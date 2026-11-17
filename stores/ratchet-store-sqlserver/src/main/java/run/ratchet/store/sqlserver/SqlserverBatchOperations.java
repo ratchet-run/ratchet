@@ -152,42 +152,55 @@ final class SqlserverBatchOperations implements BatchStore {
           case "pause" -> "'PENDING'";
           default -> "'PAUSED'";
         };
+    // Lock the parent first, then child queue rows by ascending primary key, never a status
+    // index. ROWLOCK does not prevent escalation at about 5,000 locks; each 500-id page
+    // stays below that threshold, but locks accumulate across pages until commit.
+    // SQL Server rejects FORCESEEK on the target of an UPDATE or DELETE, so each write names an
+    // alias and puts the hint on that alias in its FROM clause, as SqlserverJobDeleteOperations
+    // does.
     int total = 0;
+    // Cursor pages repeat from the first child until a pass changes nothing, catching children
+    // returned to a matching status behind the cursor. Cancel is terminal. For pause/resume,
+    // a RUNNING child may fail and retry to PENDING, but each candidate changes once: the reverse
+    // operation and batch retry need the parent lock held here.
+    byte[] cursor = null;
+    int passStart = 0;
     while (true) {
       String selectSql =
           """
-          SELECT TOP (500) q.job_id FROM scheduler_job_queue q WITH (UPDLOCK, ROWLOCK) JOIN scheduler_job c ON c.job_id = q.job_id
-          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s)
-          ORDER BY q.job_id
+          SELECT TOP (500) c.job_id
+          FROM scheduler_job c WITH (INDEX(idx_job_depends_on))
+          INNER LOOP JOIN scheduler_job_queue q WITH (UPDLOCK, ROWLOCK, FORCESEEK (pk_scheduler_job_queue (job_id)))
+            ON q.job_id = c.job_id
+          WHERE c.depends_on = ? AND c.job_type = 'BATCH_CHILD' AND q.status IN (%s) %s
+          ORDER BY c.job_id
+          OPTION (FORCE ORDER)
           """
-              .formatted(statuses);
+              .formatted(statuses, cursor == null ? "" : "AND c.job_id > ?");
       var selection =
           ctx.em()
               .createNativeQuery(selectSql)
               .setParameter(1, UuidByteArrayConverter.toBytes(batchId));
 
+      if (cursor != null) selection.setParameter(2, cursor);
       List<?> ids = selection.getResultList();
       if (ids.isEmpty()) {
-        if (operation.equals("cancel") && total > 0) {
-          ctx.em()
-              .createNativeQuery(
-                  """
-                  UPDATE scheduler_batch SET failed_items = failed_items + ?
-                  WHERE batch_id = ?
-                  """)
-              .setParameter(1, total)
-              .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
-              .executeUpdate();
-        }
-        return total;
+        if (total == passStart) break;
+        passStart = total;
+        cursor = null;
+        continue;
       }
+      cursor = (byte[]) ids.get(ids.size() - 1);
       String placeholders = String.join(", ", Collections.nCopies(ids.size(), "?"));
       String sql;
       if (operation.equals("cancel")) {
         sql =
             """
-            UPDATE scheduler_job SET row_version = row_version + 1, terminal_status = 'CANCELED', terminated_at = SYSUTCDATETIME()
-            WHERE terminal_status IS NULL AND job_id IN (%s)
+            UPDATE c
+            SET row_version = c.row_version + 1, terminal_status = 'CANCELED',
+                terminated_at = SYSUTCDATETIME()
+            FROM scheduler_job c WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job))
+            WHERE c.terminal_status IS NULL AND c.job_id IN (%s)
             """
                 .formatted(placeholders);
       } else {
@@ -197,8 +210,9 @@ final class SqlserverBatchOperations implements BatchStore {
                 : "status = COALESCE(paused_from_status, 'PENDING'), paused_from_status = NULL";
         sql =
             """
-            UPDATE scheduler_job_queue SET %s, updated_at = SYSUTCDATETIME()
-            WHERE job_id IN (%s)
+            UPDATE q SET %s, updated_at = SYSUTCDATETIME()
+            FROM scheduler_job_queue q WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job_queue))
+            WHERE q.job_id IN (%s)
             """
                 .formatted(assignments, placeholders);
       }
@@ -210,10 +224,12 @@ final class SqlserverBatchOperations implements BatchStore {
       if (operation.equals("cancel")) {
         for (String target :
             List.of(
-                "scheduler_job_queue WHERE job_id",
-                "scheduler_business_key_reservation WHERE owner_job_id")) {
+                "q FROM scheduler_job_queue q"
+                    + " WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job_queue)) WHERE q.job_id",
+                "r FROM scheduler_business_key_reservation r"
+                    + " WITH (ROWLOCK, FORCESEEK, INDEX(idx_bk_owner)) WHERE r.owner_job_id")) {
           var delete =
-              ctx.em().createNativeQuery("DELETE FROM " + target + " IN (" + placeholders + ")");
+              ctx.em().createNativeQuery("DELETE " + target + " IN (" + placeholders + ")");
           for (int i = 0; i < ids.size(); i++) {
             delete.setParameter(i + 1, ids.get(i));
           }
@@ -221,6 +237,18 @@ final class SqlserverBatchOperations implements BatchStore {
         }
       }
     }
+    if (operation.equals("cancel") && total > 0) {
+      ctx.em()
+          .createNativeQuery(
+              """
+              UPDATE scheduler_batch SET failed_items = failed_items + ?
+              WHERE batch_id = ?
+              """)
+          .setParameter(1, total)
+          .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
+          .executeUpdate();
+    }
+    return total;
   }
 
   @Override

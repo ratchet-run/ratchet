@@ -65,6 +65,7 @@ import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -257,22 +258,27 @@ class RatchetRuntimeConfiguration {
 
   @Singleton
   @Requires(missingBeans = NodeIdentityProvider.class)
-  NodeIdentityProvider nodeIdentityProvider(
+  NodeIdentityProvider nodeIdentityProvider(ExecutorProvider executor, RatchetOptions options) {
+    return new DefaultNodeIdentityProvider(executor, options.node().explicitNodeId().orElse(null));
+  }
+
+  @Singleton
+  @Requires(missingBeans = NodeLiveness.class)
+  NodeLiveness nodeLiveness(
+      NodeIdentityProvider node,
       JobStore store,
       DynamicHeartbeatCalculator heartbeat,
-      ExecutorProvider executor,
       RatchetOptions options,
       Clock clock) {
-    return new DefaultNodeIdentityProvider(
+    return new NodeLiveness(
+        node,
         store,
         store,
         heartbeat,
-        executor,
         options.node().heartbeatIntervalSeconds(),
         options.node().orphanGraceSeconds(),
         options.node().maxCrashRedeliveries(),
         options.node().dynamicHeartbeatEnabled(),
-        options.node().explicitNodeId().orElse(null),
         clock);
   }
 
@@ -328,6 +334,7 @@ class RatchetRuntimeConfiguration {
       PollerWakeupListener wakeup,
       ExecutorProvider executor,
       NodeIdentityProvider node,
+      NodeLiveness nodeLiveness,
       DrainController drain,
       RatchetOptions options,
       JobExecutionCoordinator coordinator,
@@ -354,6 +361,7 @@ class RatchetRuntimeConfiguration {
             wakeup,
             executor,
             node,
+            nodeLiveness,
             drain,
             options,
             coordinator,

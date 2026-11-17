@@ -18,6 +18,12 @@ package run.ratchet.store.mysql;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -41,6 +47,95 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 
 class MysqlAuxiliaryOperationsTest {
+
+  @Test
+  void cleanupLocksUnionAcrossChunksBeforeDeletesForBothCallers() {
+    for (boolean missingNodes : List.of(false, true)) {
+      List<String> nodes = new ArrayList<>();
+      for (int i = 0; i < 501; i++) nodes.add("stale-" + i);
+      List<String> events = new ArrayList<>();
+      EntityManager em = mock(EntityManager.class);
+      when(em.createNativeQuery(any(String.class)))
+          .thenAnswer(
+              invocation -> {
+                String sql = invocation.getArgument(0);
+                Query query = mock(Query.class);
+                Map<Integer, Object> parameters = new HashMap<>();
+                when(query.setParameter(anyInt(), any()))
+                    .thenAnswer(
+                        binding -> {
+                          parameters.put(binding.getArgument(0), binding.getArgument(1));
+                          return query;
+                        });
+                if (sql.contains("LEFT JOIN scheduler_node")) {
+                  when(query.getResultList()).thenReturn(nodes);
+                } else if (sql.contains("SELECT DISTINCT resource_name")) {
+                  when(query.getResultList())
+                      .thenAnswer(
+                          read -> {
+                            events.add("discover");
+                            return List.of(parameters.get(1).equals("stale-0") ? "r-z" : "r-a");
+                          });
+                } else if (sql.contains("SELECT p.id")) {
+                  assertTrue(!sql.contains("FOR UPDATE"));
+                  when(query.getResultList())
+                      .thenAnswer(
+                          read -> {
+                            events.add("deletable");
+                            if (missingNodes) {
+                              assertTrue(sql.contains("AND p.acquired_at < ?"));
+                              assertEquals(DUE, parameters.get(parameters.size() - 2));
+                            }
+                            return List.of(new byte[16]);
+                          });
+                } else if (sql.contains("WHERE resource_name IN")) {
+                  when(query.getResultList())
+                      .thenAnswer(
+                          read -> {
+                            events.add("keys");
+                            return List.of("r-z", "r-a");
+                          });
+                } else if (sql.contains("FOR UPDATE")) {
+                  assertTrue(!sql.contains("scheduler_node"));
+                  when(query.getResultList())
+                      .thenAnswer(
+                          read -> {
+                            events.add("lock:" + parameters.get(1));
+                            return List.of(parameters.get(1));
+                          });
+                } else {
+                  when(query.executeUpdate())
+                      .thenAnswer(
+                          delete -> {
+                            events.add("delete");
+                            assertTrue(
+                                sql.startsWith(
+                                    "DELETE FROM scheduler_resource_permit WHERE id IN"));
+                            assertEquals(2, parameters.size());
+                            return 1;
+                          });
+                }
+                return query;
+              });
+      var operations = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+      assertEquals(
+          1,
+          missingNodes
+              ? operations.cleanupPermitsOfMissingNodes(DUE.toInstant())
+              : operations.cleanupOrphanedPermits(nodes));
+      assertEquals(
+          List.of(
+              "discover",
+              "discover",
+              "keys",
+              "lock:r-a",
+              "lock:r-z",
+              "deletable",
+              "deletable",
+              "delete"),
+          events);
+    }
+  }
 
   @Test
   void tryAcquirePermit_sameJobExistingPermitIsIdempotent() {
@@ -68,6 +163,116 @@ class MysqlAuxiliaryOperationsTest {
 
     assertEquals(
         ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS, operations.getPermitRetryDelay("missing"));
+  }
+
+  @Test
+  void cleanupLocksStoredMixedCaseKeysBeforeDeletingDiscoveredNames() {
+    byte[] first = new byte[16];
+    byte[] second = new byte[16];
+    var sequence =
+        new NativeSequence(
+            List.of("a", "B"),
+            List.of("b", "A"),
+            List.of("A"),
+            List.of("b"),
+            List.of(first, second),
+            2);
+    assertEquals(2, sequence.operations().cleanupOrphanedPermits(List.of("stale")));
+    assertTrue(sequence.sql.get(0).contains("SELECT DISTINCT"));
+    assertTrue(sequence.sql.get(1).contains("WHERE resource_name IN (?,?)"));
+    assertEquals("A", sequence.parameters.get(2).get(1));
+    assertEquals("b", sequence.parameters.get(3).get(1));
+    assertTrue(sequence.sql.get(2).contains("FOR UPDATE"));
+    assertTrue(sequence.sql.get(3).contains("FOR UPDATE"));
+    assertTrue(sequence.sql.get(4).contains("LEFT JOIN scheduler_job_queue"));
+    assertTrue(sequence.sql.get(4).contains("AND p.resource_name IN (?,?) AND q.job_id IS NULL"));
+    assertEquals(Map.of(1, "stale", 2, "B", 3, "a"), sequence.parameters.get(4));
+    assertEquals(
+        "DELETE FROM scheduler_resource_permit WHERE id IN (?,?)", sequence.sql.get(5).strip());
+    assertArrayEquals(first, (byte[]) sequence.parameters.get(5).get(1));
+    assertArrayEquals(second, (byte[]) sequence.parameters.get(5).get(2));
+    sequence.assertConsumed();
+  }
+
+  @Test
+  void cleanupWithoutDiscoveredResourcesSkipsStoredKeyQuery() {
+    EntityManager em = mock(EntityManager.class);
+    Query discovery = mock(Query.class);
+    when(em.createNativeQuery(any(String.class))).thenReturn(discovery);
+    when(discovery.setParameter(anyInt(), any())).thenReturn(discovery);
+    when(discovery.getResultList()).thenReturn(List.of());
+    var operations = new MysqlAuxiliaryOperations(new MysqlStoreContext(em, null));
+
+    assertEquals(0, operations.cleanupOrphanedPermits(List.of("stale")));
+
+    verify(em, times(1)).createNativeQuery(any(String.class));
+  }
+
+  @Test
+  void cleanupDeletesPermitsWithoutLimitRows() {
+    byte[] id = new byte[16];
+    var sequence = new NativeSequence(List.of("unconfigured"), List.of(), List.of(id), 1);
+    assertEquals(1, sequence.operations().cleanupOrphanedPermits(List.of("stale")));
+    assertEquals("unconfigured", sequence.parameters.get(2).get(2));
+    assertTrue(sequence.sql.get(2).contains("AND p.resource_name IN (?)"));
+    assertEquals(
+        "DELETE FROM scheduler_resource_permit WHERE id IN (?)", sequence.sql.get(3).strip());
+    assertArrayEquals(id, (byte[]) sequence.parameters.get(3).get(1));
+    sequence.assertConsumed();
+  }
+
+  @Test
+  void cleanupExcludesRunningPermitAfterLockingItsResource() {
+    byte[] kept = UuidByteArrayConverter.toBytes(UUID.randomUUID());
+    byte[] deletable = UuidByteArrayConverter.toBytes(UUID.randomUUID());
+    for (boolean missing : List.of(false, true)) {
+      for (boolean hasDeletable : List.of(false, true)) {
+        List<Object> replies = new ArrayList<>();
+        if (missing) replies.add(List.of("stale"));
+        replies.addAll(List.of(List.of("res"), List.of("res"), List.of("res")));
+        replies.add(hasDeletable ? List.of(deletable) : List.of());
+        if (hasDeletable) replies.add(1);
+        var sequence = new NativeSequence(replies.toArray());
+        assertEquals(
+            hasDeletable ? 1 : 0,
+            missing
+                ? sequence.operations().cleanupPermitsOfMissingNodes(DUE.toInstant())
+                : sequence.operations().cleanupOrphanedPermits(List.of("stale")));
+        int readIndex = missing ? 4 : 3;
+        assertTrue(sequence.sql.get(readIndex - 1).contains("FOR UPDATE"));
+        String read = sequence.sql.get(readIndex);
+        assertTrue(read.contains("LEFT JOIN scheduler_job_queue"));
+        assertTrue(read.contains("q.status = 'RUNNING' AND q.picked_by = p.node_id"));
+        assertTrue(read.contains("q.job_id IS NULL"));
+        assertTrue(!read.contains("FOR UPDATE"));
+        if (hasDeletable) {
+          assertEquals(
+              "DELETE FROM scheduler_resource_permit WHERE id IN (?)",
+              sequence.sql.get(readIndex + 1).strip());
+          assertEquals(1, sequence.parameters.get(readIndex + 1).size());
+          assertArrayEquals(deletable, (byte[]) sequence.parameters.get(readIndex + 1).get(1));
+          assertTrue(!Arrays.equals(kept, (byte[]) sequence.parameters.get(readIndex + 1).get(1)));
+        } else {
+          assertEquals(readIndex + 1, sequence.sql.size());
+        }
+        sequence.assertConsumed();
+      }
+    }
+  }
+
+  @Test
+  void cleanupDeletesIdsInBoundedBatches() {
+    List<byte[]> ids = new ArrayList<>();
+    for (int i = 0; i < 501; i++) ids.add(UuidByteArrayConverter.toBytes(UUID.randomUUID()));
+    var sequence = new NativeSequence(List.of("res"), List.of("res"), List.of("res"), ids, 499, 1);
+    assertEquals(500, sequence.operations().cleanupOrphanedPermits(List.of("stale")));
+    assertEquals(500, sequence.parameters.get(4).size());
+    assertEquals(1, sequence.parameters.get(5).size());
+    for (int i = 0; i < 500; i++) {
+      assertArrayEquals(ids.get(i), (byte[]) sequence.parameters.get(4).get(i + 1));
+    }
+    assertArrayEquals(ids.get(500), (byte[]) sequence.parameters.get(5).get(1));
+    sequence.assertConsumed();
   }
 
   @Test
@@ -145,7 +350,7 @@ class MysqlAuxiliaryOperationsTest {
       var sequence =
           new NativeSequence(
               List.<Object[]>of(new Object[] {1, 1000}),
-              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null}),
+              List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, null, null, null, "node"}),
               List.of(UUID.randomUUID()),
               List.of(),
               1,
@@ -169,13 +374,20 @@ class MysqlAuxiliaryOperationsTest {
     var sequence =
         new NativeSequence(
             List.<Object[]>of(new Object[] {1, 1000}),
-            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res"}),
+            List.<Object[]>of(new Object[] {"RUNNING", 7L, 3, DUE, 4, DUE, "res", "node"}),
             List.of(),
             List.of(),
             1);
     assertEquals(
         AcquireResult.ACQUIRED, sequence.operations().tryAcquirePermit("res", jobId, 7L, "node"));
     assertEquals(5, sequence.sql.size());
+    assertEquals(
+        """
+        SELECT id FROM scheduler_resource_permit
+        WHERE resource_name = ?
+        """,
+        sequence.sql.get(2));
+    assertEquals(1, sequence.flushes);
     assertEquals(
         "DELETE FROM scheduler_resource_waiter WHERE job_id = ? AND resource_name = ?",
         sequence.sql.get(4).strip());
@@ -189,6 +401,7 @@ class MysqlAuxiliaryOperationsTest {
   private static final Timestamp DUE = Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"));
 
   private static final class NativeSequence {
+    private int flushes;
     private final Deque<Object> replies = new ArrayDeque<>();
     private final List<String> sql = new ArrayList<>();
     private final List<Map<Integer, Object>> parameters = new ArrayList<>();
@@ -205,6 +418,10 @@ class MysqlAuxiliaryOperationsTest {
                   new Class<?>[] {EntityManager.class},
                   (proxy, method, args) -> {
                     if ("persist".equals(method.getName())) return null;
+                    if ("flush".equals(method.getName())) {
+                      flushes++;
+                      return null;
+                    }
                     if (!"createNativeQuery".equals(method.getName())) {
                       throw new UnsupportedOperationException(method.getName());
                     }
@@ -299,7 +516,8 @@ class MysqlAuxiliaryOperationsTest {
                                   Timestamp.from(Instant.now()),
                                   null,
                                   null,
-                                  null
+                                  null,
+                                  "node-1"
                                 })
                             : sql.startsWith("SELECT resource_name FROM scheduler_job")
                                 ? List.of("res")

@@ -83,6 +83,7 @@ import run.ratchet.ri.core.internal.JobTask;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.NodeLiveness;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.OutboxDeleter;
 import run.ratchet.ri.core.internal.Poller;
@@ -128,6 +129,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.PartitionSetEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
@@ -142,6 +144,33 @@ class RatchetEngineWiringTest {
       assertEquals(1, context.getBeansOfType(CancelStatusReader.class).size());
       assertInstanceOf(
           MicronautCancelStatusReader.class, context.getBean(CancelStatusReader.class));
+    }
+  }
+
+  @Test
+  void customNodeIdentityStillGetsRuntimeLiveness() {
+    JobStore store = mock(JobStore.class);
+    when(store.resetOrphanJobsForNode(eq("custom-micronaut"), eq(3), anyInt()))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    when(store.resetOrphanJobsBefore(any(), eq(3), anyInt()))
+        .thenReturn(new OrphanRecovery(0, 0, 0, List.of()));
+    NodeIdentityProvider custom = () -> "custom-micronaut";
+    try (var context = TestContexts.core(Map.of())) {
+      context.registerSingleton(JobStore.class, store);
+      context.registerSingleton(RatchetRuntime.class, mock(RatchetRuntime.class));
+      context.registerSingleton(NodeIdentityProvider.class, custom);
+      context.start();
+      assertEquals(custom, context.getBean(NodeIdentityProvider.class));
+      assertEquals(1, context.getBeansOfType(NodeIdentityProvider.class).size());
+      assertEquals(1, context.getBeansOfType(NodeLiveness.class).size());
+      NodeLiveness liveness = context.getBean(NodeLiveness.class);
+      try {
+        liveness.init();
+        verify(store).upsertHeartbeat(eq("custom-micronaut"), any());
+        verify(store).resetOrphanJobsForNode(eq("custom-micronaut"), eq(3), anyInt());
+      } finally {
+        liveness.shutdown();
+      }
     }
   }
 

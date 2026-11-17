@@ -378,6 +378,8 @@ public class OrphanRecoveryTimer {
       deletedNodes = nodeStore.deleteInactiveNodesByIds(staleNodeIds);
     }
 
+    cleanedPermits += resourcePermitService.cleanupPermitsOfMissingNodes(cutoff);
+
     if (resetJobs > 0 || failedJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
       log.infof(
           "Orphan recovery: reset %s job(s), failed %s exhausted job(s), cleaned %s permit(s),"

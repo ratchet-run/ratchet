@@ -21,6 +21,7 @@ import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.Nullable;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /** Retry and backoff-scheduling operations for jobs. */
 @Incubating
@@ -61,6 +62,30 @@ public interface JobRetryStore {
       Instant newScheduledTime,
       int attempts,
       @Nullable Long expectedClaimSeq);
+
+  /**
+   * Returns a claimed job to PENDING without charging an attempt, when a worker gives its claim
+   * back before running the payload. Applies only to a RUNNING job whose claim sequence and attempt
+   * count match. Does not write attempts: a charge committed under the same claim (for example by
+   * the timeout watchdog) makes this release miss.
+   *
+   * <p>Records the reason as the last error, sets the scheduled time, and clears picked-by and
+   * picked-at. A batch child whose parent is PAUSED goes to PAUSED with a paused-from status of
+   * PENDING, serialized with pause/resume exactly as {@link #scheduleJobRetry}.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}.
+   *
+   * @param id job id to release; never {@code null}
+   * @param reason last-error message to record
+   * @param scheduledTime instant at which the job becomes eligible for re-pickup
+   * @param expectedAttempts attempt count received with the claim
+   * @param claimSeq claim sequence received by the owner
+   * @return false for a missing row, any status other than RUNNING (including WAITING), another
+   *     claim sequence, or a different attempt count; true when released
+   * @throws RatchetTransientStoreException on a transient store failure
+   */
+  boolean releaseClaim(
+      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq);
 
   /**
    * Atomically resets a FAILED job to PENDING in one operation to avoid TOCTOU gaps. The reset

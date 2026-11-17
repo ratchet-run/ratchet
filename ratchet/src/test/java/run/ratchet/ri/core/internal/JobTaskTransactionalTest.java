@@ -177,6 +177,7 @@ class JobTaskTransactionalTest {
             timeoutHandler,
             new HeldKeyReleases(store, () -> mock(ScheduledExecutorService.class)),
             new PermitReleases(permits, () -> mock(ScheduledExecutorService.class)),
+            new ClaimReschedules(store, () -> mock(ScheduledExecutorService.class)),
             Clock.fixed(NOW, ZoneOffset.UTC),
             null,
             RatchetOptions.defaults());
@@ -1389,7 +1390,8 @@ class JobTaskTransactionalTest {
         .execute(anyString(), any(), any());
     when(resilience.getRetryDelay(anyString())).thenReturn(Duration.ZERO);
     task.call();
-    verify(store).scheduleJobRetry(eq(job.getId()), anyString(), eq(NOW), eq(0), eq(7L));
+    verify(store).releaseClaim(eq(job.getId()), anyString(), eq(NOW), eq(0), eq(7L));
+    verify(store, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
     verify(store, never()).incrementRetryAttempt(any(), any());
   }
 

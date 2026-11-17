@@ -278,17 +278,22 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
 
   private void markPendingClaimsRunning(List<UUID> ids, String nodeId, Instant now) {
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    // Seek the primary key, as the batch sweep does. Without the hint the optimizer can read
+    // through idx_claim_executable or idx_queue_orphan, which matches status = 'PENDING', and
+    // lock other jobs' index entries; that deadlocked with single-job pauses and other claims.
+    // SQL Server rejects FORCESEEK on an UPDATE target, so the hint goes on the alias.
     // language=SQL Server
     String sql =
         """
-        UPDATE scheduler_job_queue
+        UPDATE q
         SET status = 'RUNNING',
             picked_by = ?,
             picked_at = ?,
             updated_at = ?,
             claim_seq = claim_seq + 1,
             version = version + 1
-        WHERE job_id IN (%s) AND status = 'PENDING'
+        FROM scheduler_job_queue q WITH (ROWLOCK, FORCESEEK, INDEX(pk_scheduler_job_queue))
+        WHERE q.job_id IN (%s) AND q.status = 'PENDING'
         """
             .formatted(placeholders);
     Query query = ctx.em().createNativeQuery(sql);

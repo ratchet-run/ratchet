@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -63,6 +64,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -77,6 +79,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -207,6 +210,7 @@ class JobTaskTest {
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            claimReschedules,
             FIXED_CLOCK,
             null,
             RatchetOptions.builder().execution(e -> e.maxContinuations(limit)).build());
@@ -1414,6 +1418,8 @@ class JobTaskTest {
   @Mock private RetryPolicy retryPolicy;
   @Mock private ResilienceStrategy resilienceStrategy;
   @Mock private ErrorSanitizer errorSanitizer;
+  @Mock private ClaimReschedules claimReschedules;
+
   private JobTask jobTask;
 
   private static final AtomicReference<CountDownLatch> BODY_ENTERED = new AtomicReference<>();
@@ -1529,6 +1535,7 @@ class JobTaskTest {
                 null,
                 new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
                 new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+                claimReschedules,
                 null,
                 null,
                 RatchetOptions.builder().build()));
@@ -1583,6 +1590,7 @@ class JobTaskTest {
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            claimReschedules,
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -1771,7 +1779,7 @@ class JobTaskTest {
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
+    verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
   }
 
   @Test
@@ -1793,7 +1801,7 @@ class JobTaskTest {
 
     verify(resilienceStrategy).getRetryDelay(serviceName);
     verify(jobStore)
-        .scheduleJobRetry(
+        .releaseClaim(
             eq(JOB_UUID),
             eq("Circuit breaker OPEN for service: " + serviceName),
             any(),
@@ -2525,6 +2533,7 @@ class JobTaskTest {
     // Non-retryable: never rescheduled, never increments the attempt counter.
     verify(jobStore, never())
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
+    verify(jobStore, never()).releaseClaim(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
   }
 
@@ -2600,6 +2609,7 @@ class JobTaskTest {
         .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
     verify(jobStore, never())
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
+    verify(jobStore, never()).releaseClaim(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
     verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
   }
@@ -2614,14 +2624,14 @@ class JobTaskTest {
     UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
     when(jobStore.findById(JOB_UUID)).thenThrow(skew);
     when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
-    when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L)))
+    when(jobStore.releaseClaim(any(UUID.class), anyString(), any(), anyInt(), eq(0L)))
         .thenReturn(true);
 
     jobTask.call();
 
     // Released for an upgraded peer (attempt count preserved), with a skew metric.
     verify(jobStore)
-        .scheduleJobRetry(eq(JOB_UUID), eq("sanitized skew"), any(), eq(claim.attempts()), eq(0L));
+        .releaseClaim(eq(JOB_UUID), eq("sanitized skew"), any(), eq(claim.attempts()), eq(0L));
     verify(observabilityFacade).recordEnvelopeVersionSkew(JOB_UUID, 2, 1);
     // Not poison: never dead-lettered.
     verify(lifecycleFacade, never())
@@ -2637,8 +2647,7 @@ class JobTaskTest {
     JobEntity job = createTestJob();
     job.setAttempts(2);
     jobTask.init(job);
-    when(jobStore.scheduleJobRetry(any(UUID.class), any(), any(), anyInt(), eq(0L)))
-        .thenReturn(true);
+    when(jobStore.releaseClaim(any(UUID.class), any(), any(), anyInt(), eq(0L))).thenReturn(true);
 
     Method requeue =
         JobTask.class.getDeclaredMethod(
@@ -2646,7 +2655,7 @@ class JobTaskTest {
     requeue.setAccessible(true);
     requeue.invoke(jobTask, JOB_UUID, new UnsupportedEnvelopeVersionException(2, 1));
 
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(2), eq(0L));
+    verify(jobStore).releaseClaim(eq(JOB_UUID), any(), any(), eq(2), eq(0L));
   }
 
   @Test
@@ -2720,6 +2729,7 @@ class JobTaskTest {
     verify(retryPolicy, never()).shouldRetry(anyInt(), any());
     verify(jobStore, never())
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
+    verify(jobStore, never()).releaseClaim(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     // The stored count stays at 2; observers see the third attempt, the one that failed.
     verify(observabilityFacade).recordJobFailure(job, error, 3);
     Assertions.assertEquals(2, job.getAttempts());
@@ -2760,6 +2770,7 @@ class JobTaskTest {
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            claimReschedules,
             FIXED_CLOCK,
             null,
             RatchetOptions.defaults());
@@ -2819,6 +2830,7 @@ class JobTaskTest {
         null,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+        claimReschedules,
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -3240,7 +3252,7 @@ class JobTaskTest {
         .thenReturn(AcquireResult.SUPERSEDED);
     // A PENDING or CANCELED queue row rejects the existing RUNNING/claim-fenced safety net.
     when(resourcePermitService.getRetryDelay("gpu")).thenReturn(100);
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L)))
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L)))
         .thenAnswer(inv -> queueStatus.get() == JobStatus.RUNNING);
 
     jobTask.call();
@@ -3248,27 +3260,27 @@ class JobTaskTest {
     verify(resourcePermitService, times(2)).tryAcquire("gpu", JOB_UUID, 0L, "node-1");
     verifyNoInteractions(lifecycleFacade);
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
+    verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
     verifyNoAttemptRecorded();
   }
 
   @Test
-  void call_exhaustedTransientAcquireUsesExistingFailurePath() throws Exception {
-    assertAcquireFailure(false);
+  void call_exhaustedTransientAcquireReschedulesWithoutConsumingAttempt() throws Exception {
+    assertTransientPermitFailureRescheduled(true);
   }
 
   @Test
   void call_interruptedAcquireBackoffStopsAndRestoresInterrupt() throws Exception {
     try {
-      assertAcquireFailure(true);
+      assertInterruptedAcquireFailure();
       Assertions.assertTrue(Thread.currentThread().isInterrupted());
     } finally {
       Thread.interrupted();
     }
   }
 
-  private void assertAcquireFailure(boolean interrupt) throws Exception {
+  private void assertInterruptedAcquireFailure() throws Exception {
     JobEntity job = createTestJob();
     job.setResourceName("gpu");
     initJobTaskWithDefaultStubs(job);
@@ -3278,12 +3290,17 @@ class JobTaskTest {
     when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 0L, "node-1"))
         .thenAnswer(
             inv -> {
-              if (interrupt) {
-                Thread.currentThread().interrupt();
-              }
+              Thread.currentThread().interrupt();
               throw failure;
             });
     List<Boolean> flags = new ArrayList<>();
+    doAnswer(
+            inv -> {
+              flags.add(Thread.currentThread().isInterrupted());
+              return null;
+            })
+        .when(resourcePermitService)
+        .release("gpu", JOB_UUID, 0L);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 0L))
         .thenAnswer(
             inv -> {
@@ -3299,12 +3316,13 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(resourcePermitService, times(interrupt ? 1 : JobTask.PERMIT_ACQUIRE_TRIES))
-        .tryAcquire("gpu", JOB_UUID, 0L, "node-1");
-    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+    verify(resourcePermitService, times(1)).tryAcquire("gpu", JOB_UUID, 0L, "node-1");
+    InOrder order = inOrder(resourcePermitService, jobStore);
+    order.verify(resourcePermitService).release("gpu", JOB_UUID, 0L);
+    order.verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
     verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
     // The failure path's store writes run with the interrupt flag clear.
-    Assertions.assertEquals(List.of(false, false), flags);
+    Assertions.assertEquals(List.of(false, false, false), flags);
     verifyNoAttemptRecorded();
   }
 
@@ -3346,6 +3364,7 @@ class JobTaskTest {
 
     verify(resourcePermitService, never()).getRetryDelay(anyString());
     verify(jobStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), anyLong());
+    verify(jobStore, never()).releaseClaim(any(), anyString(), any(), anyInt(), anyLong());
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
     verifyNoAttemptRecorded();
@@ -3460,13 +3479,12 @@ class JobTaskTest {
     String serviceName = JobTaskTest.class.getSimpleName() + ".testJobMethod";
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(serviceName)).thenReturn(false);
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(0), eq(0L)))
-        .thenReturn(true);
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(0), eq(0L))).thenReturn(true);
 
     jobTask.call();
 
     verify(jobStore)
-        .scheduleJobRetry(
+        .releaseClaim(
             eq(JOB_UUID),
             eq("Circuit breaker OPEN for service: " + serviceName),
             any(),
@@ -3516,16 +3534,627 @@ class JobTaskTest {
     when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
         .thenReturn(AcquireResult.SUPERSEDED);
     when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
         .thenReturn(rescheduled);
 
     jobTask.call();
 
     verify(jobStore)
-        .scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(7L));
+        .releaseClaim(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2), eq(7L));
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
     // The superseded attempt never ran its body; the claim that replaced it records its own.
+    verifyNoAttemptRecorded();
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2})
+  void noChargePermitAndCircuitReleasesUseClaimAttemptsAfterHydrationCharge(int gate)
+      throws Exception {
+    JobEntity job = createTestJob();
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy("node-1");
+    job.setResourceName("gpu");
+    job.setAttempts(3);
+    JobClaimDto claim = claimForNode("node-1");
+    initJobTaskFromClaimWithDefaultStubs(claim, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(gate != 2);
+    if (gate == 2) {
+      when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofSeconds(1));
+    } else if (gate == 1) {
+      when(resourcePermitService.tryAcquire("gpu", JOB_UUID, claim.claimSeq(), "node-1"))
+          .thenReturn(AcquireResult.SUPERSEDED);
+    } else {
+      when(resourcePermitService.tryAcquire("gpu", JOB_UUID, claim.claimSeq(), "node-1"))
+          .thenThrow(new RatchetTransientStoreException("unavailable"));
+    }
+    jobTask.call();
+    verify(jobStore)
+        .releaseClaim(eq(JOB_UUID), anyString(), any(), eq(claim.attempts()), eq(claim.claimSeq()));
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_transientPermitFailureReschedulesWithoutConsumingAttempt() throws Exception {
+    assertTransientPermitFailureRescheduled(true);
+  }
+
+  @Test
+  void call_transientPermitFailureRejectedRescheduleDoesNotFailAttempt() throws Exception {
+    assertTransientPermitFailureRescheduled(false);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertTransientPermitFailureRescheduled(boolean rescheduled) throws Exception {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setAttempts(2);
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"));
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
+        .thenReturn(rescheduled);
+
+    jobTask.call();
+
+    verify(resourcePermitService, times(JobTask.TRANSIENT_STORE_TRIES))
+        .tryAcquire("gpu", JOB_UUID, 7L, "node-1");
+    InOrder order = inOrder(resourcePermitService, jobStore);
+    order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
+    order
+        .verify(jobStore)
+        .releaseClaim(
+            eq(JOB_UUID),
+            eq("Permit check failed transiently for resource: gpu"),
+            eq(FIXED_NOW.plusMillis(250)),
+            eq(2),
+            eq(7L));
+    Assertions.assertEquals(2, job.getAttempts());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(validationFacade, never()).shouldNotRetry(any());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  void call_transientPermitRescheduleRetriesWithoutChargingAttempt() throws Exception {
+    assertNoChargeRescheduleRetries(false, false, false);
+  }
+
+  @Test
+  void call_transientPermitRescheduleExhaustedHandsOff() throws Exception {
+    assertNoChargeRescheduleRetries(false, false, true);
+  }
+
+  @Test
+  void call_supersededPermitRescheduleRetriesWithoutChargingAttempt() throws Exception {
+    assertNoChargeRescheduleRetries(true, false, false);
+  }
+
+  @Test
+  void call_openCircuitRescheduleRetriesWithoutChargingAttempt() throws Exception {
+    assertNoChargeRescheduleRetries(false, true, false);
+  }
+
+  @Test
+  void call_supersededPermitRescheduleExhaustedHandsOff() throws Exception {
+    assertNoChargeRescheduleRetries(true, false, true);
+  }
+
+  @Test
+  void call_openCircuitRescheduleExhaustedHandsOff() throws Exception {
+    assertNoChargeRescheduleRetries(false, true, true);
+  }
+
+  @Test
+  void call_upgradeRescheduleExhaustedHandsOff() {
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
+    when(jobStore.findById(JOB_UUID)).thenThrow(skew);
+    when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
+    when(jobStore.releaseClaim(
+            eq(JOB_UUID), eq("sanitized skew"), any(), eq(claim.attempts()), eq(0L)))
+        .thenThrow(new RatchetTransientStoreException("unavailable"));
+    when(claimReschedules.handOff(any(), anyLong(), anyString(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    ArgumentCaptor<Instant> scheduled = ArgumentCaptor.forClass(Instant.class);
+    verify(jobStore, times(3))
+        .releaseClaim(
+            eq(JOB_UUID), eq("sanitized skew"), scheduled.capture(), eq(claim.attempts()), eq(0L));
+    verify(claimReschedules)
+        .handOff(
+            eq(JOB_UUID),
+            eq(0L),
+            eq("sanitized skew"),
+            eq(scheduled.getValue()),
+            eq(claim.attempts()),
+            any(),
+            any());
+    Assertions.assertTrue(scheduled.getAllValues().stream().allMatch(scheduled.getValue()::equals));
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
+  }
+
+  @Test
+  void call_batchGuardRescheduleExhaustedHandsOff() throws Exception {
+    when(jobStore.releaseClaim(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
+        .thenThrow(new RatchetTransientStoreException("unavailable"));
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+    assertBatchChildNeverStarts(
+        parentId ->
+            when(jobStore.getJobStatus(parentId))
+                .thenThrow(new IllegalStateException("parent unavailable")),
+        false);
+    ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
+    verify(jobStore, times(3))
+        .releaseClaim(eq(JOB_UUID), reason.capture(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L));
+    verify(claimReschedules)
+        .handOff(
+            eq(JOB_UUID),
+            eq(7L),
+            eq(reason.getValue()),
+            eq(FIXED_NOW.plusSeconds(30)),
+            eq(2),
+            any(),
+            any());
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+  }
+
+  @Test
+  void call_upgradeInterruptedBackoffRestoresInterruptAfterHandoff() {
+    jobTask.initFromClaim(claimForNode("node-1"));
+    UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
+    when(jobStore.findById(JOB_UUID)).thenThrow(skew);
+    when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L)))
+        .thenAnswer(
+            inv -> {
+              Assertions.assertFalse(Thread.currentThread().isInterrupted());
+              Thread.currentThread().interrupt();
+              throw new RatchetTransientStoreException("interrupted write");
+            });
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+    try {
+      jobTask.call();
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
+      verify(claimReschedules)
+          .handOff(eq(JOB_UUID), eq(0L), eq("sanitized skew"), any(), anyInt(), any(), any());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void call_batchGuardInterruptedBackoffRestoresInterruptAfterHandoff() throws Exception {
+    when(jobStore.releaseClaim(eq(JOB_UUID), any(), any(), eq(2), eq(7L)))
+        .thenAnswer(
+            inv -> {
+              Assertions.assertFalse(Thread.currentThread().isInterrupted());
+              Thread.currentThread().interrupt();
+              throw new RatchetTransientStoreException("interrupted write");
+            });
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+    try {
+      assertBatchChildNeverStarts(
+          parentId ->
+              when(jobStore.getJobStatus(parentId))
+                  .thenThrow(new IllegalStateException("parent unavailable")),
+          false);
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      verify(jobStore)
+          .releaseClaim(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L));
+      verify(claimReschedules)
+          .handOff(eq(JOB_UUID), eq(7L), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), any(), any());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void call_signalPayloadUpgradeInterruptedBackoffRestoresInterruptAfterHandoff() {
+    JobEntity job = spy(createTestJob());
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
+    doThrow(skew).when(job).getSignalPayload();
+    when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L)))
+        .thenAnswer(
+            inv -> {
+              Assertions.assertFalse(Thread.currentThread().isInterrupted());
+              Thread.currentThread().interrupt();
+              throw new RatchetTransientStoreException("interrupted write");
+            });
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+    try {
+      jobTask.call();
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      verify(job).getSignalPayload();
+      verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
+      verify(claimReschedules)
+          .handOff(eq(JOB_UUID), eq(0L), eq("sanitized skew"), any(), anyInt(), any(), any());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void reschedule_handoffSupplierTracksAttemptRevocation() throws Exception {
+    JobAttemptControl attempt = prepareClaimReschedule();
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+    invokeClaimReschedule();
+    ArgumentCaptor<BooleanSupplier> revoked = ArgumentCaptor.forClass(BooleanSupplier.class);
+    verify(claimReschedules)
+        .handOff(
+            eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), revoked.capture(), any());
+    Assertions.assertFalse(revoked.getValue().getAsBoolean());
+    attempt.revoke();
+    Assertions.assertTrue(revoked.getValue().getAsBoolean());
+  }
+
+  @Test
+  void reschedule_revokedAttemptDoesNotHandOff() throws Exception {
+    JobAttemptControl attempt = prepareClaimReschedule();
+    attempt.revoke();
+    invokeClaimReschedule();
+    verifyNoInteractions(claimReschedules);
+    verify(jobStore, times(3)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+  }
+
+  @Test
+  void reschedule_refusedHandoffKeepsWorkerUntilWriteSucceeds() throws Exception {
+    prepareClaimReschedule();
+    doThrow(new RatchetTransientStoreException("unavailable"))
+        .doThrow(new RatchetTransientStoreException("unavailable"))
+        .doThrow(new RatchetTransientStoreException("unavailable"))
+        .doAnswer(
+            inv -> {
+              Assertions.assertFalse(Thread.currentThread().isInterrupted());
+              return true;
+            })
+        .when(jobStore)
+        .releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+    invokeClaimReschedule();
+    verify(jobStore, times(4)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+    verify(claimReschedules)
+        .handOff(eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any());
+  }
+
+  @Test
+  void reschedule_refusedHandoffRetriesOfferingAfterNextTransientRound() throws Exception {
+    prepareClaimReschedule();
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(false, true);
+    invokeClaimReschedule();
+    verify(jobStore, times(4)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+    verify(claimReschedules, times(2))
+        .handOff(eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any());
+  }
+
+  @Test
+  void reschedule_refusedHandoffStopsWhenInterruptedWithoutInterruptedStoreCall() throws Exception {
+    prepareClaimReschedule();
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenAnswer(
+            inv -> {
+              Thread.currentThread().interrupt();
+              return false;
+            });
+    try {
+      invokeClaimReschedule();
+      verify(jobStore, times(3)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+      Assertions.assertFalse(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void reschedule_interruptedQuickBackoffHandsOffWithoutAnotherStoreCall() throws Exception {
+    prepareClaimReschedule();
+    doAnswer(
+            inv -> {
+              Assertions.assertFalse(Thread.currentThread().isInterrupted());
+              Thread.currentThread().interrupt();
+              throw new RatchetTransientStoreException("interrupted write");
+            })
+        .when(jobStore)
+        .releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+    try {
+      invokeClaimReschedule();
+      verify(jobStore).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+      verify(claimReschedules)
+          .handOff(eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any());
+      Assertions.assertFalse(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  private JobAttemptControl prepareClaimReschedule() {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = createTestJob();
+    job.setBusinessKey("held-key");
+    job.setAttempts(2);
+    job.setClaimSeq(7L);
+    jobTask.init(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    lenient()
+        .when(jobStore.releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L))
+        .thenAnswer(
+            inv -> {
+              Assertions.assertFalse(Thread.currentThread().isInterrupted());
+              throw new RatchetTransientStoreException("unavailable");
+            });
+    return attempt;
+  }
+
+  private void invokeClaimReschedule() throws Exception {
+    Method method =
+        JobTask.class.getDeclaredMethod(
+            "rescheduleWithoutChargingAttempt",
+            UUID.class,
+            String.class,
+            Instant.class,
+            int.class,
+            long.class,
+            Runnable.class);
+    method.setAccessible(true);
+    method.invoke(
+        jobTask,
+        JOB_UUID,
+        "release",
+        FIXED_NOW,
+        2,
+        7L,
+        (Runnable) () -> Assertions.fail("unexpected rejection"));
+  }
+
+  @Test
+  void permitBackgroundRejectionReleasesHoldWithoutChangingExecution() throws Exception {
+    JobAttemptControl attempt = assertNoChargeRescheduleRetries(false, false, true);
+    Runnable callback = rejectedClaimCallback();
+    callback.run();
+    Assertions.assertTrue(attempt.isSuperseded());
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(observabilityFacade, never()).saveExecution(any());
+  }
+
+  @Test
+  void openCircuitBackgroundRejectionReconcilesCancellationAndReleasesHold() throws Exception {
+    assertOpenCircuitBackgroundRejection(true);
+  }
+
+  @Test
+  void openCircuitBackgroundRejectionWithoutCancellationOnlyReleasesHold() throws Exception {
+    assertOpenCircuitBackgroundRejection(false);
+  }
+
+  @Test
+  void openCircuitBackgroundRejectionRetriesCanceledExecutionSaveOnce() throws Exception {
+    assertOpenCircuitBackgroundRejection(true, true);
+  }
+
+  private void assertOpenCircuitBackgroundRejection(boolean canceled) throws Exception {
+    assertOpenCircuitBackgroundRejection(canceled, false);
+  }
+
+  private void assertOpenCircuitBackgroundRejection(boolean canceled, boolean saveFailsOnce)
+      throws Exception {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = cancelScenario(true);
+    job.setAttempts(2);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    failBody(() -> new CircuitBreakerOpenException("Circuit breaker OPEN"));
+    when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofSeconds(1));
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
+        .thenThrow(new RatchetTransientStoreException("unavailable"));
+    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+        .thenReturn(true);
+    jobTask.call();
+    ArgumentCaptor<JobExecutionEntity> saved = ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(saved.capture());
+    JobExecutionEntity execution = saved.getValue();
+    Assertions.assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+    verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenReturn(canceled ? JobStatus.CANCELED : JobStatus.RUNNING);
+    clearInvocations(observabilityFacade);
+    if (saveFailsOnce) {
+      when(observabilityFacade.saveExecution(execution))
+          .thenThrow(new IllegalStateException("save unavailable"))
+          .thenReturn(execution);
+    }
+    rejectedClaimCallback().run();
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    Assertions.assertTrue(attempt.isSuperseded());
+    if (canceled) {
+      Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
+      verify(observabilityFacade, times(saveFailsOnce ? 2 : 1)).saveExecution(execution);
+      verify(observabilityFacade).recordJobCancellation(job);
+    } else {
+      Assertions.assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+      verify(observabilityFacade, never()).saveExecution(any());
+      verify(observabilityFacade, never()).recordJobCancellation(any());
+    }
+  }
+
+  private Runnable rejectedClaimCallback() {
+    ArgumentCaptor<Runnable> callback = ArgumentCaptor.forClass(Runnable.class);
+    verify(claimReschedules)
+        .handOff(eq(JOB_UUID), eq(7L), anyString(), any(), eq(2), any(), callback.capture());
+    return callback.getValue();
+  }
+
+  @SuppressWarnings("unchecked")
+  private JobAttemptControl assertNoChargeRescheduleRetries(
+      boolean superseded, boolean circuitOpen, boolean exhausted) throws Exception {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setBusinessKey("held-key");
+    job.setAttempts(2);
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(!circuitOpen);
+    if (circuitOpen) {
+      when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofSeconds(1));
+    } else {
+      if (superseded) {
+        when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+            .thenReturn(AcquireResult.SUPERSEDED);
+      } else {
+        when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+            .thenThrow(new RatchetTransientStoreException("acquire deadlock"));
+      }
+      when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    }
+    var reschedule = when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)));
+    if (exhausted) {
+      reschedule.thenThrow(new RatchetTransientStoreException("reschedule deadlock"));
+    } else {
+      reschedule
+          .thenThrow(new RatchetTransientStoreException("reschedule deadlock"))
+          .thenReturn(true);
+    }
+
+    if (exhausted)
+      when(claimReschedules.handOff(any(), anyLong(), anyString(), any(), anyInt(), any(), any()))
+          .thenReturn(true);
+    jobTask.call();
+
+    String reason =
+        circuitOpen
+            ? "Circuit breaker OPEN for service: JobTaskTest.testJobMethod"
+            : superseded
+                ? "Waiting for resource: gpu"
+                : "Permit check failed transiently for resource: gpu";
+    if (exhausted)
+      verify(claimReschedules)
+          .handOff(
+              eq(JOB_UUID),
+              eq(7L),
+              eq(reason),
+              eq(FIXED_NOW.plusMillis(circuitOpen ? 1000 : 250)),
+              eq(2),
+              any(),
+              any());
+    verify(jobStore, times(exhausted ? JobTask.TRANSIENT_STORE_TRIES : 2))
+        .releaseClaim(
+            eq(JOB_UUID),
+            eq(reason),
+            eq(FIXED_NOW.plusMillis(circuitOpen ? 1000 : 250)),
+            eq(2),
+            eq(7L));
+    Assertions.assertEquals(2, job.getAttempts());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+    verify(resourcePermitService, times(!circuitOpen && !superseded ? 1 : 0))
+        .release("gpu", JOB_UUID, 7L);
+    verifyNoAttemptRecorded();
+    return attempt;
+  }
+
+  @Test
+  void call_transientPermitRetryDelayFailureUsesDefault() throws Exception {
+    assertPermitRetryFallback(false, false);
+  }
+
+  @Test
+  void call_supersededPermitRetryDelayFailureUsesDefault() throws Exception {
+    assertPermitRetryFallback(true, false);
+  }
+
+  @Test
+  void call_permitReleaseFailureStillReschedules() throws Exception {
+    assertPermitRetryFallback(false, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertPermitRetryFallback(boolean superseded, boolean releaseFails)
+      throws Exception {
+    jobTask = newJobTaskWithTimeoutHandler(null);
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setAttempts(2);
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    if (superseded) {
+      when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+          .thenReturn(AcquireResult.SUPERSEDED);
+    } else {
+      when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+          .thenThrow(new RatchetTransientStoreException("deadlock"));
+    }
+    when(resourcePermitService.getRetryDelay("gpu"))
+        .thenThrow(new RatchetTransientStoreException("lookup deadlock"));
+    if (releaseFails) {
+      doThrow(new RatchetTransientStoreException("release deadlock"))
+          .when(resourcePermitService)
+          .release("gpu", JOB_UUID, 7L);
+    }
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L))).thenReturn(true);
+
+    jobTask.call();
+
+    InOrder order = inOrder(resourcePermitService, jobStore);
+    if (!superseded) {
+      verify(resourcePermitService, times(JobTask.TRANSIENT_STORE_TRIES))
+          .tryAcquire("gpu", JOB_UUID, 7L, "node-1");
+      order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
+    }
+    order
+        .verify(jobStore)
+        .releaseClaim(
+            eq(JOB_UUID),
+            eq(
+                superseded
+                    ? "Waiting for resource: gpu"
+                    : "Permit check failed transiently for resource: gpu"),
+            eq(FIXED_NOW.plusMillis(ResourcePermitService.DEFAULT_RETRY_DELAY_MS)),
+            eq(2),
+            eq(7L));
+    Assertions.assertEquals(2, job.getAttempts());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verifyNoAttemptRecorded();
   }
 
@@ -3555,12 +4184,12 @@ class JobTaskTest {
         },
         true);
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
   }
 
   @Test
   void claimedBatchChildNeverStartsWhenParentCheckFails() throws Exception {
-    when(jobStore.scheduleJobRetry(
-            eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
+    when(jobStore.releaseClaim(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
         .thenReturn(true);
     assertBatchChildNeverStarts(
         parentId ->
@@ -3568,14 +4197,13 @@ class JobTaskTest {
                 .thenThrow(new IllegalStateException("store unavailable")),
         false);
     verify(jobStore)
-        .scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L));
+        .releaseClaim(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L));
   }
 
   @Test
   void parentCheckFailureLogsClaimReleaseFailureWithoutRethrowing() throws Exception {
     IllegalStateException releaseFailure = new IllegalStateException("release unavailable");
-    when(jobStore.scheduleJobRetry(
-            eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
+    when(jobStore.releaseClaim(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
         .thenThrow(releaseFailure);
     Logger logger = Logger.getLogger(JobTask.class.getName());
     Level originalLevel = logger.getLevel();
@@ -4106,6 +4734,7 @@ class JobTaskTest {
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            claimReschedules,
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -4200,6 +4829,7 @@ class JobTaskTest {
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            claimReschedules,
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -4304,6 +4934,7 @@ class JobTaskTest {
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            claimReschedules,
             Clock.systemUTC(),
             resolver,
             RatchetOptions.defaults());
@@ -4425,6 +5056,7 @@ class JobTaskTest {
         timeoutHandler,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+        claimReschedules,
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -4455,6 +5087,7 @@ class JobTaskTest {
         null,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+        claimReschedules,
         taskClock,
         null,
         RatchetOptions.defaults());
@@ -4923,7 +5556,7 @@ class JobTaskTest {
         .thenReturn(AcquireResult.SUPERSEDED);
     when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
     jobTask.call();
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(0), eq(7L));
+    verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), eq(0), eq(7L));
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     verifyNoAttemptRecorded();
   }
@@ -5180,7 +5813,7 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
+    when(jobStore.releaseClaim(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
         .thenAnswer(
             invocation -> {
               status.set(JobStatus.CANCELED);
@@ -5189,7 +5822,7 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
+    verify(jobStore).releaseClaim(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), saved);
     verify(observabilityFacade).recordJobCancellation(job);
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
@@ -5211,7 +5844,7 @@ class JobTaskTest {
     when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofMillis(250));
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
+    when(jobStore.releaseClaim(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
         .thenAnswer(
             invocation -> {
               status.set(JobStatus.CANCELED);
@@ -5220,7 +5853,7 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
+    verify(jobStore).releaseClaim(eq(JOB_UUID), any(), any(), anyInt(), eq(7L));
     verify(observabilityFacade).recordJobCancellation(job);
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     verifyNoAttemptRecorded();
@@ -5784,6 +6417,94 @@ class JobTaskTest {
     verify(observabilityFacade, never()).recordJobCancellation(any());
   }
 
+  private enum NoChargeReleaseSite {
+    TRANSIENT_PERMIT,
+    SUPERSEDED_PERMIT,
+    OPEN_CIRCUIT,
+    UPGRADE,
+    BATCH_CHECK
+  }
+
+  @ParameterizedTest
+  @EnumSource(NoChargeReleaseSite.class)
+  void noChargeReleaseWrittenAndThenCanceledFromPending_recordsNoCancel(NoChargeReleaseSite site)
+      throws Exception {
+    assertNoChargeReleaseThenCanceled(site, true);
+  }
+
+  @Test
+  void noChargeReleaseRejectedAndThenCanceled_recordsCancel() throws Exception {
+    assertNoChargeReleaseThenCanceled(NoChargeReleaseSite.TRANSIENT_PERMIT, false);
+  }
+
+  private void assertNoChargeReleaseThenCanceled(NoChargeReleaseSite site, boolean released)
+      throws Exception {
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    job.setAttempts(2);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    if (site == NoChargeReleaseSite.UPGRADE || site == NoChargeReleaseSite.BATCH_CHECK) {
+      // These gates return before service availability is checked.
+      lenient().when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    }
+    switch (site) {
+      case TRANSIENT_PERMIT, SUPERSEDED_PERMIT -> {
+        job.setResourceName("gpu");
+        if (site == NoChargeReleaseSite.TRANSIENT_PERMIT) {
+          when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+              .thenThrow(new RatchetTransientStoreException("acquire deadlock"));
+        } else {
+          when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+              .thenReturn(AcquireResult.SUPERSEDED);
+        }
+        when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+      }
+      case OPEN_CIRCUIT -> {
+        failBody(() -> new CircuitBreakerOpenException("Circuit breaker OPEN"));
+        when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofSeconds(1));
+      }
+      case UPGRADE -> {
+        job = spy(job);
+        jobTask.init(job);
+        UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
+        doThrow(skew).when(job).getSignalPayload();
+        when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
+      }
+      case BATCH_CHECK -> {
+        UUID parentId = UUID.randomUUID();
+        job.setJobType(JobExecutionType.BATCH_CHILD);
+        job.setDependsOn(parentId);
+        IllegalStateException unavailable = new IllegalStateException("parent unavailable");
+        when(jobStore.getJobStatus(parentId)).thenThrow(unavailable);
+        when(errorSanitizer.sanitize(unavailable)).thenReturn("sanitized parent failure");
+      }
+    }
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(7L)))
+        .thenReturn(released);
+    recordSaves(race, status -> {});
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(invocation -> Optional.of(storedRow(race.status().get())));
+
+    jobTask.call();
+    race.status().set(JobStatus.CANCELED);
+    runWatchdog(handler, attempt, new FutureTask<>(() -> null));
+
+    verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L));
+    verify(jobStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    if (released) {
+      verify(observabilityFacade, never()).recordJobCancellation(any());
+    } else {
+      verify(observabilityFacade).recordJobCancellation(job);
+    }
+    Assertions.assertEquals(
+        site == NoChargeReleaseSite.OPEN_CIRCUIT ? List.of(ExecutionStatus.FAILED) : List.of(),
+        race.saved());
+  }
+
   @Test
   void watchdogInterruptOfARunningBody_endsTheCancelOnceEndToEnd() throws Exception {
     // A real FutureTask runs the worker, and a cancel commits while the body runs. The watchdog
@@ -5901,7 +6622,9 @@ class JobTaskTest {
   }
 
   private void recordSaves(CancelRace race, Consumer<ExecutionStatus> onSave) {
-    when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
+    // Pre-execution releases legitimately save no execution; still capture an unexpected save.
+    lenient()
+        .when(observabilityFacade.saveExecution(any(JobExecutionEntity.class)))
         .thenAnswer(
             invocation -> {
               JobExecutionEntity execution = invocation.getArgument(0);

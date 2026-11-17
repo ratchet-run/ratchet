@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +30,9 @@ import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
  *     integration tests. Applications must not implement this interface.
  */
 public interface ResourcePermitService {
+
+  /** Default permit retry delay in milliseconds. */
+  int DEFAULT_RETRY_DELAY_MS = 5000;
 
   /**
    * Attempts to acquire a permit atomically using pessimistic locking.
@@ -49,7 +53,8 @@ public interface ResourcePermitService {
   void releaseAll(UUID jobId);
 
   /**
-   * @return delay in milliseconds, or 5000 as default if resource not found
+   * @return delay in milliseconds, or {@link #DEFAULT_RETRY_DELAY_MS} as default if resource not
+   *     found
    */
   int getRetryDelay(String resourceName);
 
@@ -74,4 +79,7 @@ public interface ResourcePermitService {
 
   /** Call periodically, e.g. during node heartbeat. */
   int cleanupOrphanedPermits(List<String> staleNodeIds);
+
+  /** Releases permits of missing nodes acquired strictly before the cutoff. */
+  int cleanupPermitsOfMissingNodes(Instant acquiredBefore);
 }

@@ -18,14 +18,22 @@ package run.ratchet.spi;
 import run.ratchet.api.Incubating;
 
 /**
- * Returns the stable, unique identifier for this scheduler node. Used for heartbeats, job claiming,
- * and cluster coordination.
+ * Returns the identifier of this scheduler node. The runtime uses it for heartbeats, job claiming,
+ * and cluster coordination, whichever provider supplies it.
+ *
+ * <p>The identifier must be unique among live nodes and must not change while the node runs. It may
+ * change on restart. A node that restarts under the same identifier recovers its previous claims
+ * and resource permits as it starts; under a new identifier, orphan recovery reclaims them once the
+ * old identifier's heartbeat is older than the orphan grace period.
  *
  * @since 0.1
  */
 @Incubating
 public interface NodeIdentityProvider {
 
-  /** Returns the non-null node identifier. Must be immutable for the provider lifecycle. */
+  /**
+   * Returns the non-null node identifier. It must not change for the provider's lifetime and must
+   * be unique among live nodes.
+   */
   String getNodeId();
 }

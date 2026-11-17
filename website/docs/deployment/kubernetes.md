@@ -127,11 +127,15 @@ spec:
           periodSeconds: 30
 ```
 
+The runtime registers and heartbeats every node in `scheduler_node` under the ID returned by its `NodeIdentityProvider`, including custom providers. A custom provider supplies only the ID. The ID must be unique among live nodes and must not change while the node runs. It may change on restart, but a pod that keeps its ID recovers its previous claims and permits as it starts. In CDI, enable the custom provider with `@Alternative @Priority(APPLICATION)` to displace the default.
+
 StatefulSet pods get stable names (`ratchet-scheduler-0`, `ratchet-scheduler-1`, etc.) that serve as natural node identifiers. The `metadata.name` field is injected via the Downward API and can be read by a `NodeIdentityProvider` implementation:
 
 There is no `RATCHET_CLUSTER_ENABLED` flag. Multiple replicas become a Ratchet cluster when they share the same store. One-shot claims, recurring scans, and destructive startup cleanup are already coordinated through store-backed locking; bake in a real `ClusterCoordinator` only if you want cross-node wakeups.
 
 ```java
+@Alternative
+@Priority(APPLICATION)
 @ApplicationScoped
 public class KubernetesNodeProvider implements NodeIdentityProvider {
 
