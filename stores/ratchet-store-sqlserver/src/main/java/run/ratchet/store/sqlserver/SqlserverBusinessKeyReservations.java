@@ -185,11 +185,16 @@ final class SqlserverBusinessKeyReservations {
   private void deleteReservationsByOwnersChunk(List<UUID> ownerJobIds) {
     try {
       String placeholders = String.join(",", Collections.nCopies(ownerJobIds.size(), "?"));
+      // Seek idx_bk_owner, as the batch cancel does. A scan would wait on reservations that
+      // another open transaction has deleted.
       // language=SQL Server
       String sql =
-          "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
-              + placeholders
-              + ")";
+          """
+          DELETE r
+          FROM scheduler_business_key_reservation r WITH (ROWLOCK, FORCESEEK, INDEX(idx_bk_owner))
+          WHERE r.owner_job_id IN (%s)
+          """
+              .formatted(placeholders);
       Query query = ctx.em().createNativeQuery(sql);
       int parameter = 1;
       for (UUID ownerJobId : ownerJobIds) {
