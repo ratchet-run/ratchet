@@ -307,6 +307,8 @@ registry.registerConfig("custom", new CircuitBreakerConfiguration(
 
 The `ResilienceStrategy` SPI allows you to replace the built-in circuit breaker with an external library like Resilience4j or MicroProfile Fault Tolerance.
 
+A strategy can catch a failure and return a fallback value. For an ordinary job, Ratchet treats that value as the job's result. For a [`@TransactionalJob`](../concepts/transactional-jobs.md#rollbacks-and-retries), the attempt succeeds only when the job's transaction commits, whatever the strategy returns.
+
 ### SPI Interface
 
 ```java

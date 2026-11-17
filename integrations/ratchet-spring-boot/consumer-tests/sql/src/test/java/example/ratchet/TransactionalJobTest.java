@@ -32,6 +32,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import run.ratchet.api.BackoffPolicy;
@@ -62,6 +63,40 @@ class TransactionalJobTest {
   @Test
   void durableSuccessCommitsOutboxWithApplicationAndJobRows() throws Exception {
     verify("durable");
+  }
+
+  @Test
+  void swallowedNestedFailureFailsTheAttemptAndSavesNothing() {
+    try (var database = SqlDatabase.start();
+        var context =
+            new SpringApplicationBuilder(ConsumerApplication.class, JobConfiguration.class)
+                .properties(database.properties())
+                .properties("ratchet.events.durable=false", "ratchet.node.orphan-grace-seconds=60")
+                .run()) {
+      var scheduler = context.getBean(JobSchedulerService.class);
+      var store = context.getBean(JobStore.class);
+      var jobs = context.getBean(TransactionalJobs.class);
+      var properties = database.properties();
+      var probe =
+          new JdbcTemplate(
+              new DriverManagerDataSource(
+                  (String) properties.get("spring.datasource.url"),
+                  (String) properties.get("spring.datasource.username"),
+                  (String) properties.get("spring.datasource.password")));
+      String row = "tx-" + UUID.randomUUID();
+      UUID id = scheduler.enqueue(() -> jobs.write(row, "swallow")).withMaxRetries(0).submit().id();
+      await()
+          .atMost(Duration.ofSeconds(30))
+          .untilAsserted(
+              () -> {
+                var job = store.findById(id).orElseThrow();
+                assertThat(job.getStatus())
+                    .as("lastError=%s", job.getLastError())
+                    .isEqualTo(JobStatus.FAILED);
+              });
+      assertThat(count(probe, row)).isZero();
+      assertThat(store.findById(id).orElseThrow().getLastError()).contains("marked for rollback");
+    }
   }
 
   private void verify(String scenario) throws Exception {
@@ -169,8 +204,13 @@ class TransactionalJobTest {
   @TestConfiguration(proxyBeanMethods = false)
   static class JobConfiguration {
     @Bean
-    TransactionalJobs transactionalJobs(JdbcTemplate jdbc) {
-      return new TransactionalJobs(jdbc);
+    TransactionalJobs transactionalJobs(JdbcTemplate jdbc, NestedFailure nested) {
+      return new TransactionalJobs(jdbc, nested);
+    }
+
+    @Bean
+    NestedFailure nestedFailure() {
+      return new NestedFailure();
     }
 
     @Bean
@@ -179,16 +219,25 @@ class TransactionalJobTest {
     }
   }
 
+  public static class NestedFailure {
+    @Transactional
+    public void fail() {
+      throw new IllegalStateException("Nested service failed");
+    }
+  }
+
   public static class TransactionalJobs {
     private final JdbcTemplate jdbc;
+    private final NestedFailure nested;
     final AtomicInteger invocations = new AtomicInteger();
     final CountDownLatch written = new CountDownLatch(1);
     final CountDownLatch release = new CountDownLatch(1);
     final CountDownLatch rolledBack = new CountDownLatch(1);
     volatile boolean activeTransaction;
 
-    TransactionalJobs(JdbcTemplate jdbc) {
+    TransactionalJobs(JdbcTemplate jdbc, NestedFailure nested) {
       this.jdbc = jdbc;
+      this.nested = nested;
     }
 
     @TransactionalJob
@@ -203,6 +252,14 @@ class TransactionalJobTest {
           });
       int invocation = invocations.incrementAndGet();
       jdbc.update("insert into consumer_record (id, state) values (?, ?)", row, "transactional");
+      if (scenario.equals("swallow")) {
+        try {
+          nested.fail();
+        } catch (RuntimeException expected) {
+          // The job carries on with a transaction marked for rollback.
+        }
+        return;
+      }
       if (scenario.equals("retry") && invocation == 1) {
         throw new IllegalStateException("First application write must roll back");
       }

@@ -29,6 +29,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -39,6 +40,27 @@ import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.JobTransaction;
 
 class SpringJobTransactionTest {
+  @Test
+  void rollbackOnlyReflectsTheCarrierTransaction() {
+    var manager =
+        new DataSourceTransactionManager(
+            new DriverManagerDataSource("jdbc:h2:mem:rollback-only", "sa", ""));
+    var carrier = new SpringJobTransaction(manager);
+    assertFalse(carrier.isRollbackOnly());
+    assertThrows(
+        UnexpectedRollbackException.class,
+        () ->
+            carrier.run(
+                () -> {
+                  assertFalse(carrier.isRollbackOnly());
+                  new TransactionTemplate(manager)
+                      .executeWithoutResult(TransactionStatus::setRollbackOnly);
+                  assertTrue(carrier.isRollbackOnly());
+                  return null;
+                }));
+    assertFalse(carrier.isRollbackOnly());
+  }
+
   @Test
   void unitChecksForOpenTransactionBeforeCarrier() {
     var manager =

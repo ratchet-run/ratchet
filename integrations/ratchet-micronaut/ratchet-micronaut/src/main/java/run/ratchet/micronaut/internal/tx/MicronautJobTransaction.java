@@ -17,6 +17,7 @@ package run.ratchet.micronaut.internal.tx;
 
 import io.micronaut.core.annotation.Creator;
 import io.micronaut.transaction.TransactionOperations;
+import io.micronaut.transaction.TransactionStatus;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.util.List;
@@ -28,16 +29,19 @@ import run.ratchet.ri.core.JobTransaction;
 /** Micronaut carrier that detects open transactions on every datasource manager. */
 public class MicronautJobTransaction extends JobTransaction {
   private final Supplier<? extends Iterable<? extends TransactionOperations<?>>> operations;
+  private final Supplier<? extends TransactionOperations<?>> ratchet;
 
   // The boundary proxy is built through this constructor and delegates to the factory's instance.
   @Creator
   public MicronautJobTransaction() {
-    this(() -> List.of());
+    this(() -> List.of(), () -> null);
   }
 
   public MicronautJobTransaction(
-      Supplier<? extends Iterable<? extends TransactionOperations<?>>> operations) {
+      Supplier<? extends Iterable<? extends TransactionOperations<?>>> operations,
+      Supplier<? extends TransactionOperations<?>> ratchet) {
     this.operations = operations;
+    this.ratchet = ratchet;
   }
 
   /** Detects transactions on any manager in the context. */
@@ -47,6 +51,15 @@ public class MicronautJobTransaction extends JobTransaction {
       if (MicronautTransactions.hasActiveTransaction(manager)) return true;
     }
     return false;
+  }
+
+  @Override
+  public boolean isRollbackOnly() {
+    TransactionOperations<?> manager = ratchet.get();
+    if (manager == null) return false;
+    TransactionStatus<?> status = manager.findTransactionStatus().orElse(null);
+    if (status == null || status.isCompleted()) return false;
+    return MicronautTransactions.rootStatus(status).isRollbackOnly();
   }
 
   @Override

@@ -25,6 +25,7 @@ import io.micronaut.transaction.TransactionDefinition.Propagation;
 import io.micronaut.transaction.TransactionOperations;
 import io.micronaut.transaction.TransactionOperationsRegistry;
 import io.micronaut.transaction.exceptions.IllegalTransactionStateException;
+import io.micronaut.transaction.exceptions.UnexpectedRollbackException;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
@@ -158,6 +159,73 @@ class NamedTransactionCarrierTest {
                             new JobEntity(), null, null, null, null, 0, 0));
             return null;
           });
+    }
+  }
+
+  @Test
+  void rollbackOnlyReadsRatchetsManagerOnly() throws Exception {
+    try (ApplicationContext context =
+        TestContexts.engine(
+            Map.of(
+                "ratchet.jpa.datasource", "jobs",
+                "datasources.default.url", "jdbc:h2:mem:default-" + System.nanoTime(),
+                "datasources.default.driver-class-name", "org.h2.Driver",
+                "datasources.default.username", "sa",
+                "datasources.jobs.url", "jdbc:h2:mem:jobs-" + System.nanoTime(),
+                "datasources.jobs.driver-class-name", "org.h2.Driver",
+                "datasources.jobs.username", "sa"))) {
+      Poller poller = mock(Poller.class);
+      context.registerSingleton(Poller.class, poller);
+      context.start();
+      TransactionOperations<?> named =
+          context.getBean(TransactionOperations.class, Qualifiers.byName("jobs"));
+      TransactionOperations<?> defaults =
+          context.getBean(TransactionOperations.class, Qualifiers.byName("default"));
+      JobTransaction carrier = context.getBean(JobTransaction.class);
+      AfterCommitRegistrar registrar = context.getBean(AfterCommitRegistrar.class);
+      assertFalse(carrier.isRollbackOnly());
+      assertThrows(
+          UnexpectedRollbackException.class,
+          () ->
+              carrier.run(
+                  () -> {
+                    assertFalse(carrier.isRollbackOnly());
+                    named.execute(
+                        TransactionDefinition.of(Propagation.REQUIRED),
+                        status -> {
+                          status.setRollbackOnly();
+                          return null;
+                        });
+                    assertTrue(carrier.isRollbackOnly());
+                    return null;
+                  }));
+      AtomicInteger callbacks = new AtomicInteger();
+      carrier.run(
+          () -> {
+            named.findTransactionStatus().orElseThrow().setRollbackOnly();
+            assertTrue(carrier.isRollbackOnly());
+            assertEquals(
+                AfterCommitRegistrar.Result.REGISTERED,
+                registrar.registerAfterCommit(callbacks::incrementAndGet));
+            return null;
+          });
+      assertEquals(0, callbacks.get());
+      defaults.execute(
+          TransactionDefinition.of(Propagation.REQUIRED),
+          status -> {
+            status.setRollbackOnly();
+            try {
+              carrier.run(
+                  () -> {
+                    assertFalse(carrier.isRollbackOnly());
+                    return null;
+                  });
+            } catch (Exception failure) {
+              throw new AssertionError(failure);
+            }
+            return null;
+          });
+      assertFalse(carrier.isRollbackOnly());
     }
   }
 
