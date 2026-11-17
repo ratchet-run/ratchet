@@ -41,7 +41,10 @@ import run.ratchet.testsuite.app.TransactionalUnitProbe.Attempt;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
-/** A burst larger than both pools must complete its units without nested connections. */
+/**
+ * A burst of units larger than the datasource pool must complete. It fills the pool only where the
+ * server runs more jobs at once than the pool has connections; WildFly runs two per CPU.
+ */
 @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
 class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
   @Inject private TestJobService jobs;
