@@ -47,11 +47,21 @@ If the transaction manager reports a commit failure after the body and completio
 
 Ratchet counts an attempt as successful only when it sees the transaction commit. If the transaction manager returns without committing and without an error, the attempt fails with `IllegalStateException` ("rolled back without an error"), and ordinary job failure and retry policy applies.
 
+The same rule applies when a custom [`ResilienceStrategy`](../advanced/circuit-breakers.md#implementing-a-custom-resiliencestrategy) catches a failure and returns a fallback value. For a transactional job, a fallback never counts as success. The attempt fails with the error that the body or the transaction raised. If the strategy returns without running the job, the attempt fails with `IllegalStateException` ("without a committed transaction").
+
 ## A body that leaves its transaction marked for rollback
 
-Do not catch an exception from a nested transactional call and carry on. A nested call that joins the job's transaction, such as a `@Transactional` bean method, marks the whole transaction for rollback when it throws, before the body sees the exception. After that, nothing in the transaction can commit, even if the body returns normally.
+Do not catch an exception from a nested transactional call and carry on. A nested call that joins the job's transaction, such as a `@Transactional` bean method, can mark the whole transaction for rollback when it throws, before the body sees the exception. After that, nothing in the transaction can commit, even if the body returns normally.
 
-Before Ratchet records success, it checks whether the transaction is marked for rollback. If it is, the attempt fails with `IllegalStateException` ("transaction is marked for rollback") and the body's writes roll back. Ordinary job failure and retry policy then applies, so a retry runs the body again. A transaction that times out while the body runs also fails the attempt. Ratchet makes this check itself, so the result does not depend on how the server or framework handles a transaction marked for rollback.
+Which exceptions mark the transaction depends on the annotation on the nested method:
+
+- Jakarta Transactions `@Transactional`: by the specification's default, `RuntimeException` and its subclasses mark it and checked exceptions do not. `rollbackOn` adds exceptions and `dontRollbackOn` exempts them.
+- Spring `@Transactional`: by default, `RuntimeException` and `Error` mark it and checked exceptions do not. `rollbackFor` adds exceptions and `noRollbackFor` exempts them.
+- Micronaut `@Transactional`: by default, every exception marks it, checked exceptions included. `noRollbackFor` exempts exceptions. Once `rollbackFor` is set, only the exceptions it lists mark it. Micronaut Data maps `jakarta.transaction.Transactional` onto this annotation, so on Micronaut the Jakarta annotation follows these rules, not the Jakarta default.
+
+If the exception does not mark the transaction, the body can catch it and the job's transaction still commits.
+
+Before Ratchet records success, it checks whether the transaction is marked for rollback. If it is, the attempt fails with `IllegalStateException` ("transaction is marked for rollback") and the body's writes roll back. Ordinary job failure and retry policy then applies, so a retry runs the body again. Ratchet makes this check itself, so the result does not depend on how the server or framework handles a transaction marked for rollback.
 
 Do one of these instead:
 

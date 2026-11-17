@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -1231,11 +1232,82 @@ class JobTaskTransactionalTest {
   }
 
   @Test
-  void strategyFallbackAfterRollbackUsesNormalSuccessPath() throws Exception {
+  void strategyFallbackAfterBodyFailureStillFailsAttempt() throws Exception {
     BODY.set(
         () -> {
           throw new IllegalStateException("body");
         });
+    stubStrategyFallback();
+    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    task.call();
+    assertFallbackDidNotSucceed("body");
+  }
+
+  @Test
+  void strategyFallbackAfterRollbackOnlyBodyStillFailsAttempt() throws Exception {
+    BODY.set(
+        () -> {
+          carrier.markRollbackOnly();
+          return 42;
+        });
+    stubStrategyFallback();
+    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    task.call();
+    verify(lifecycle, never())
+        .completeSuccessInCurrentTransaction(
+            any(), any(), any(), any(), any(), anyLong(), anyLong());
+    assertFallbackDidNotSucceed("marked for rollback");
+  }
+
+  @Test
+  void strategyFallbackAfterSilentRollbackStillFailsAttempt() throws Exception {
+    carrier.rollBackSilently();
+    BODY.set(() -> 42);
+    stubStrategyFallback();
+    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    task.call();
+    assertFallbackDidNotSucceed("rolled back without an error");
+  }
+
+  @Test
+  void strategyFallbackWithoutRunningTheTransactionFailsAttempt() throws Exception {
+    doReturn(42).when(resilience).execute(anyString(), any(), any());
+    stubSuccessFinalizer();
+    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    task.call();
+    verify(carrier, never()).run(any());
+    assertFallbackDidNotSucceed("without a committed transaction");
+  }
+
+  @Test
+  void strategyRetryThatCommitsStillSucceeds() throws Exception {
+    AtomicInteger bodies = new AtomicInteger();
+    BODY.set(
+        () -> {
+          if (bodies.incrementAndGet() == 1) throw new IllegalStateException("first");
+          return 42;
+        });
+    doAnswer(
+            inv -> {
+              Callable<?> work = inv.getArgument(2);
+              try {
+                return work.call();
+              } catch (Exception ignored) {
+                return work.call();
+              }
+            })
+        .when(resilience)
+        .execute(anyString(), any(), any());
+    task.call();
+    verify(carrier, times(2)).run(any());
+    verify(lifecycle, times(1))
+        .completeSuccessInCurrentTransaction(
+            any(), any(), any(), any(), any(), anyLong(), anyLong());
+    assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+    verify(store, never()).incrementRetryAttempt(any(), any());
+  }
+
+  private void stubStrategyFallback() throws Exception {
     doAnswer(
             inv -> {
               try {
@@ -1246,11 +1318,26 @@ class JobTaskTransactionalTest {
             })
         .when(resilience)
         .execute(anyString(), any(), any());
+    stubSuccessFinalizer();
+  }
+
+  private void stubSuccessFinalizer() {
     when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(JobSuccessFinalizer.Outcome.COMPLETED_FULL);
-    task.call();
-    verify(finalizer).finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
-    assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+  }
+
+  private void assertFallbackDidNotSucceed(String phrase) {
+    assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+    assertEquals(IllegalStateException.class.getName(), execution.getErrorClass());
+    assertTrue(execution.getErrorMessage().contains(phrase), execution.getErrorMessage());
+    verify(store, times(1)).incrementRetryAttempt(job.getId(), 7L);
+    verify(observer, never()).recordJobSuccess(any(), anyLong());
+    verify(observer, times(1))
+        .recordJobFailure(eq(job), any(IllegalStateException.class), anyInt());
+    verify(lifecycle, never()).runFollowups(any());
+    verify(transactions, never()).terminalOutcome(any(), anyLong());
+    verify(finalizer, never())
+        .finalizeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong());
   }
 
   @Test

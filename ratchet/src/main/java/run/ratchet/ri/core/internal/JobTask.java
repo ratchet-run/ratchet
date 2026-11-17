@@ -1519,12 +1519,10 @@ public class JobTask implements Callable<Void> {
             .merge(
                 new CircuitBreakerExceptionFilter(
                     List.of(), List.of(TransactionalOutcomeException.class), null));
-    Object result = null;
     Throwable failure = null;
     try {
-      result =
-          resilienceStrategy.execute(
-              target.serviceName(), filter, () -> runTransactionalPayload(start, payload, outcome));
+      resilienceStrategy.execute(
+          target.serviceName(), filter, () -> runTransactionalPayload(start, payload, outcome));
     } catch (Throwable thrown) {
       // Unwrap before inspecting exception types, including circuit-open rejection.
       failure = thrown instanceof TransactionalOutcomeException ? thrown.getCause() : thrown;
@@ -1547,9 +1545,17 @@ public class JobTask implements Callable<Void> {
       return;
     }
     if (failure == null) {
-      // A custom strategy can return a fallback after a rolled-back supplier invocation.
-      handleSuccess(start, result);
-    } else if (failure instanceof CircuitBreakerOpenException rejection) {
+      // A custom strategy returned a fallback, but nothing committed, so the attempt still fails.
+      failure =
+          outcome.failure != null
+              ? outcome.failure
+              : new IllegalStateException(
+                  "Job "
+                      + job.getId()
+                      + " resilience strategy returned without a committed transaction, so the"
+                      + " job's work was not saved");
+    }
+    if (failure instanceof CircuitBreakerOpenException rejection) {
       flushStateQuietly();
       rescheduleForCircuitBreaker(job, target.serviceName(), rejection);
     } else {
@@ -1653,8 +1659,7 @@ public class JobTask implements Callable<Void> {
         "Job "
             + job.getId()
             + " transaction is marked for rollback, so the job's work was not saved. A common cause"
-            + " is a job that catches an exception from a nested transactional call; a transaction"
-            + " timeout has the same effect.");
+            + " is a job that catches an exception from a nested transactional call.");
   }
 
   private boolean sleepTransactionBackoff(int attempt) {
