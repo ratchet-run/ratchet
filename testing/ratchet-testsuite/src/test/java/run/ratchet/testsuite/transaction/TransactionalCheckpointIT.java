@@ -246,6 +246,27 @@ class TransactionalCheckpointIT extends BaseRatchetIT {
   }
 
   @Test
+  void checkpointSavedOutsideAttemptRollsBackUnitWithConflict() throws Exception {
+    var handle = submit("blocked");
+    try {
+      assertTrue(attempt.inside.await(30, TimeUnit.SECONDS));
+      // This thread's own transaction commits it before the unit saves its first checkpoint.
+      states()
+          .initState(
+              handle.id(),
+              "ratchet.checkpoint",
+              serializer.serialize(Map.of("value", "elsewhere")));
+    } finally {
+      attempt.release.countDown();
+    }
+    awaitStatus(handle, JobStatus.FAILED);
+    var failure = assertInstanceOf(IllegalStateException.class, attempt.failure.get());
+    assertTrue(failure.getMessage().contains("changed outside this attempt"), failure::toString);
+    assertEquals(0, probe.countPage(key, 0));
+    assertCheckpoint(handle, "elsewhere");
+  }
+
+  @Test
   void enclosingTransactionIsRejected() {
     var handle = submit("enclosing");
     awaitStatus(handle, JobStatus.SUCCEEDED);
