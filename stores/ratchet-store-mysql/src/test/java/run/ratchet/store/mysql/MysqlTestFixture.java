@@ -16,7 +16,10 @@
 package run.ratchet.store.mysql;
 
 import jakarta.persistence.EntityManager;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.Map;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Assertions;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.mysql.MySQLContainer;
@@ -59,6 +62,27 @@ public class MysqlTestFixture extends JpaContainerFixture {
 
   static String password() {
     return CONTAINER.getPassword();
+  }
+
+  /** Runs a transaction at repeatable read and restores the same connection afterwards. */
+  public void runAtSnapshotIsolation(Runnable work) {
+    try (var connection = openConnection()) {
+      int previous = connection.getTransactionIsolation();
+      connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+      try (var session =
+          currentEntityManager()
+              .getEntityManagerFactory()
+              .unwrap(SessionFactory.class)
+              .withOptions()
+              .connection(connection)
+              .openSession()) {
+        runInTransaction(session, work);
+      } finally {
+        connection.setTransactionIsolation(previous);
+      }
+    } catch (SQLException e) {
+      throw new IllegalStateException("Could not run snapshot transaction", e);
+    }
   }
 
   @Override

@@ -15,14 +15,19 @@
  */
 package run.ratchet.micronaut;
 
+import io.micronaut.context.BeanContext;
 import io.micronaut.context.BeanProvider;
 import io.micronaut.context.annotation.Factory;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.context.annotation.Secondary;
+import io.micronaut.transaction.TransactionOperations;
 import jakarta.inject.Singleton;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.time.Clock;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautBatchService;
@@ -473,8 +478,22 @@ class RatchetExecutionConfiguration {
   @Singleton
   @Secondary
   @RatchetTransactionBoundary
-  MicronautJobTransaction jobTransaction() {
-    return new MicronautJobTransaction();
+  MicronautJobTransaction jobTransaction(BeanContext context) {
+    return new MicronautJobTransaction(() -> transactionManagers(context));
+  }
+
+  // A type lookup can drop a datasource's JDBC manager, because Micronaut checks its condition
+  // against the "default" datasource. A transaction can be open only on a manager that exists,
+  // and the active registrations hold every such manager.
+  private static Set<TransactionOperations<?>> transactionManagers(BeanContext context) {
+    Set<TransactionOperations<?>> managers = Collections.newSetFromMap(new IdentityHashMap<>());
+    context.getBeansOfType(TransactionOperations.class).stream()
+        .map(manager -> (TransactionOperations<?>) manager)
+        .forEach(managers::add);
+    context.getActiveBeanRegistrations(TransactionOperations.class).stream()
+        .map(registration -> (TransactionOperations<?>) registration.getBean())
+        .forEach(managers::add);
+    return managers;
   }
 
   @Singleton

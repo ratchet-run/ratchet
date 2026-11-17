@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -149,6 +150,7 @@ import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.TransactionalCompletionStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
 
@@ -768,6 +770,100 @@ class JobTaskTest {
   @SuppressWarnings("unchecked")
   void interruptedWorkerSkipsFinalFlush() throws Exception {
     assertCheckpointFinalFlush(false, false, true);
+  }
+
+  @Test
+  void finalFlushSkipsCheckpointWriterInUnitMode() throws Exception {
+    assertUnitTask(false);
+  }
+
+  @Test
+  void supersededUnitByCancelEndsAttemptAsCanceled() throws Exception {
+    assertUnitTask(true);
+  }
+
+  @Test
+  void unitUsesStoreCapabilityAndCarrier() throws Exception {
+    assertUnitTask(false);
+    verify(jobStore).capability(TransactionalCompletionStore.class);
+    verify(unitTransactions).run(any());
+  }
+
+  private JobTransaction unitTransactions;
+
+  private void assertUnitTask(boolean superseded) throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    JobStateStore state = pendingCheckpointStore();
+    // The carrier has no container here: report no open transaction, and run the unit's
+    // commit proof after the work, as a real commit would.
+    List<Runnable> commits = new ArrayList<>();
+    when(checkpointRegistrar.registerAfterCommit(any()))
+        .thenAnswer(
+            call -> {
+              commits.add(call.getArgument(0));
+              return AfterCommitRegistrar.Result.REGISTERED;
+            });
+    doReturn(false).when(unitTransactions).hasActiveTransaction();
+    doAnswer(
+            call -> {
+              Object result = call.callRealMethod();
+              commits.forEach(Runnable::run);
+              return result;
+            })
+        .when(unitTransactions)
+        .run(any());
+    TransactionalCompletionStore transactions = mock(TransactionalCompletionStore.class);
+    when(jobStore.capability(TransactionalCompletionStore.class))
+        .thenReturn(Optional.of(transactions));
+    when(transactions.writeClaimState(
+            JOB_UUID, JobCheckpointWriter.NAMESPACE, "{\"value\":\"page-1\"}", 7L, null))
+        .thenAnswer(
+            call -> {
+              if (superseded) when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+              return superseded ? StateWriteResult.SUPERSEDED : StateWriteResult.UPDATED;
+            });
+    AtomicBoolean ran = new AtomicBoolean();
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            call -> {
+              JobContext.current()
+                  .runInTransaction(
+                      after -> {
+                        Assertions.assertTrue(JobTransaction.active());
+                        ran.set(true);
+                        return "page-1";
+                      });
+              return "done";
+            });
+    if (!superseded) {
+      when(lifecycleFacade.completeSuccess(
+              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+          .thenReturn(true);
+    }
+    jobTask.call();
+    Assertions.assertTrue(ran.get());
+    verify(transactions)
+        .writeClaimState(
+            JOB_UUID, JobCheckpointWriter.NAMESPACE, "{\"value\":\"page-1\"}", 7L, null);
+    verify(jobStateFlusher, never()).markDirty(any(JobCheckpointWriter.class));
+    verify(state, never())
+        .initState(any(), eq(JobCheckpointWriter.NAMESPACE), anyString(), anyLong());
+    verify(state, never())
+        .updateState(any(), eq(JobCheckpointWriter.NAMESPACE), anyString(), anyInt(), anyLong());
+    if (superseded) {
+      verify(observabilityFacade).recordJobCancellation(job);
+      verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+      verify(jobStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), anyLong());
+    } else {
+      verify(lifecycleFacade)
+          .completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+    }
   }
 
   @SuppressWarnings("unchecked")
@@ -1459,6 +1555,7 @@ class JobTaskTest {
     OBSERVED_SIGNAL_DECISION.remove();
     OBSERVED_CUSTOM_ARGUMENT.remove();
     JsonbTestPayloadSerializer serializer = new JsonbTestPayloadSerializer();
+    unitTransactions = spy(new JobTransaction());
     jobTask =
         new JobTask(
             jobStore,
@@ -1468,7 +1565,7 @@ class JobTaskTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
-            new JobTransaction(),
+            unitTransactions,
             new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,

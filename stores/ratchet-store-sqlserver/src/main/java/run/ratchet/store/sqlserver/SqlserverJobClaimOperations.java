@@ -200,12 +200,15 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
       String executionTargetSql =
           JobClaimSqlSupport.buildExecutionTargetFilterSql(
               executionTargetFilter, "execution_target");
+      // The driver binds strings as NVARCHAR. Cast the type so SQL Server can seek the claim
+      // index. Without the cast, even an unboosted claim scans and U-locks every pending job of
+      // the type until commit.
       Query selectQuery =
           ctx.em()
               .createNativeQuery(
                   buildQueueSelectSql(
                       CLAIM_SELECT_COLUMNS,
-                      "job_type = ?",
+                      "job_type = CAST(? AS VARCHAR(8000))",
                       executionTargetSql,
                       tagSql,
                       "scheduled_time",

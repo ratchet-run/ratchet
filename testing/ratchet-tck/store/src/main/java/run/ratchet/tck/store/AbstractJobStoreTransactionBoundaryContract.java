@@ -141,6 +141,24 @@ public abstract class AbstractJobStoreTransactionBoundaryContract {
         "every store method without its own attribute must default to a REQUIRED tx boundary");
   }
 
+  @Test
+  void writeClaimStateRequiresCallerTransaction() throws NoSuchMethodException {
+    // The JPA fixture proxy opens a transaction around every store call, so the TCK cannot
+    // observe MANDATORY behaviour. The server-matrix IT does.
+    Transactional tx =
+        jobStoreImplClass()
+            .getMethod(
+                "writeClaimState",
+                UUID.class,
+                String.class,
+                String.class,
+                long.class,
+                Integer.class)
+            .getAnnotation(Transactional.class);
+    assertNotNull(tx);
+    assertEquals(Transactional.TxType.MANDATORY, tx.value());
+  }
+
   private void assertRequiresNew(String method, Class<?>... parameterTypes)
       throws NoSuchMethodException {
     Transactional tx =

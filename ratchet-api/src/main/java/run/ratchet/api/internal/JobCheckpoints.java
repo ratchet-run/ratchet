@@ -16,10 +16,13 @@
 package run.ratchet.api.internal;
 
 import java.util.Optional;
+import run.ratchet.api.TransactionalUnit;
 
 /** Framework-internal checkpoint binding for an executing attempt. */
 public interface JobCheckpoints {
   void write(String value);
+
+  String runInTransaction(TransactionalUnit unit) throws Exception;
 
   Optional<String> read();
 }

@@ -267,6 +267,27 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     return ((Number) result).longValue();
   }
 
+  /** Executes a native statement on the calling thread's entity manager. */
+  public final void executeInCurrentTransaction(String sql) {
+    threadEm.get().createNativeQuery(sql).executeUpdate();
+  }
+
+  /** Returns the calling thread's entity manager for provider-specific fixture setup. */
+  protected final EntityManager currentEntityManager() {
+    return threadEm.get();
+  }
+
+  /** Runs with a supplied entity manager, then restores the calling thread's manager. */
+  protected final void runInTransaction(EntityManager em, Runnable work) {
+    EntityManager previous = threadEm.get();
+    threadEm.set(em);
+    try {
+      runInTransaction(work);
+    } finally {
+      threadEm.set(previous);
+    }
+  }
+
   /** Open a raw JDBC connection to the same container used by this fixture. */
   public final Connection openConnection() throws SQLException {
     Object container = container();
@@ -339,7 +360,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
         tx.commit();
         em.clear();
       }
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | Error e) {
       if (owner && tx.isActive()) {
         tx.rollback();
         em.clear();

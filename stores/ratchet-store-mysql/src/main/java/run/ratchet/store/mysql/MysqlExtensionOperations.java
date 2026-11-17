@@ -223,6 +223,68 @@ final class MysqlExtensionOperations implements JobPropertyStore, JobStateStore 
     return updated > 0;
   }
 
+  StateWriteResult writeClaimState(
+      UUID jobId, String namespace, String initialState, Integer expectedVersion) {
+    Optional<Boolean> encryptedPayload = encryptedPayloadForClaimStateWrite(jobId);
+    if (encryptedPayload.isEmpty()) {
+      return StateWriteResult.SUPERSEDED;
+    }
+    boolean active = JobEncryption.activeFor(encryptedPayload.get());
+    String stored = encryptState(jobId, namespace, initialState, active);
+    if (expectedVersion != null) {
+      // language=MySQL
+      String sql =
+          """
+          UPDATE scheduler_job_extension_state
+          SET state = ?, encrypted_state = ?, encryption_key_id = ?,
+              version = version + 1, updated_at = ?
+          WHERE job_id = ? AND namespace = ? AND version = ?
+          """;
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, stored)
+              .setParameter(2, active)
+              .setParameter(3, JobEncryption.keyId(active))
+              .setParameter(4, Timestamp.from(Instant.now()))
+              .setParameter(5, UuidByteArrayConverter.toBytes(jobId))
+              .setParameter(6, namespace)
+              .setParameter(7, expectedVersion)
+              .executeUpdate();
+      return updated == 1 ? StateWriteResult.UPDATED : StateWriteResult.VERSION_CONFLICT;
+    }
+    // The queue-row lock already orders this job's writers. NOT EXISTS would take a shared gap
+    // lock at REPEATABLE READ, and first writes of different jobs could then deadlock.
+    // language=MySQL
+    String sql =
+        """
+        INSERT INTO scheduler_job_extension_state
+          (job_id, namespace, state, encrypted_state, encryption_key_id, version, updated_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
+        """;
+    try {
+      int inserted =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+              .setParameter(2, namespace)
+              .setParameter(3, stored)
+              .setParameter(4, active)
+              .setParameter(5, JobEncryption.keyId(active))
+              .setParameter(6, Timestamp.from(Instant.now()))
+              .executeUpdate();
+      if (inserted == 0) {
+        return StateWriteResult.VERSION_CONFLICT;
+      }
+      return StateWriteResult.UPDATED;
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateKey(e)) {
+        return StateWriteResult.VERSION_CONFLICT;
+      }
+      throw e;
+    }
+  }
+
   @Override
   public StateWriteResult initState(
       UUID jobId, String namespace, String initialState, long expectedClaimSeq) {
@@ -346,6 +408,23 @@ final class MysqlExtensionOperations implements JobPropertyStore, JobStateStore 
         .createNativeQuery("SELECT 1 FROM scheduler_job_queue WHERE job_id = ? LOCK IN SHARE MODE")
         .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
         .getResultList();
+    String sql =
+        """
+        SELECT encrypted_payload
+        FROM scheduler_job
+        WHERE job_id = ?
+        LOCK IN SHARE MODE
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+            .getResultList();
+    return rows.isEmpty() ? Optional.empty() : Optional.of(RowValues.booleanOrFalse(rows.get(0)));
+  }
+
+  private Optional<Boolean> encryptedPayloadForClaimStateWrite(UUID jobId) {
     String sql =
         """
         SELECT encrypted_payload

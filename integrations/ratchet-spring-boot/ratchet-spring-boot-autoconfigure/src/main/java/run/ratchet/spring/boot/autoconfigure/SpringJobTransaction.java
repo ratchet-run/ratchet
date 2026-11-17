@@ -20,6 +20,7 @@ import java.util.function.Supplier;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import run.ratchet.ri.core.JobTransaction;
 
@@ -33,6 +34,15 @@ public class SpringJobTransaction extends JobTransaction implements AopInfrastru
 
   public SpringJobTransaction(Supplier<PlatformTransactionManager> manager) {
     this.manager = manager;
+  }
+
+  /**
+   * Detects transactions on any Spring manager bound to this thread. Rejecting another manager's
+   * transaction is intentional: a unit would otherwise hold a second connection.
+   */
+  @Override
+  public boolean hasActiveTransaction() {
+    return TransactionSynchronizationManager.isActualTransactionActive();
   }
 
   @Override
