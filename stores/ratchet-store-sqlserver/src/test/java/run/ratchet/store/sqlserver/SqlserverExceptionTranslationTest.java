@@ -53,7 +53,16 @@ class SqlserverExceptionTranslationTest {
     assertScheduledTimeSave(1);
   }
 
+  @Test
+  void scheduledTimeSaveKeepsVersionsWhenColdUpdateFails() {
+    assertScheduledTimeSave(1, 0);
+  }
+
   private static void assertScheduledTimeSave(int hotUpdateCount) {
+    assertScheduledTimeSave(hotUpdateCount, 1);
+  }
+
+  private static void assertScheduledTimeSave(int hotUpdateCount, int coldUpdateCount) {
     Instant storedTime = Instant.parse("2026-11-14T00:00:00Z");
     JobEntity job = new JobEntity();
     job.setId(JOB_ID);
@@ -116,7 +125,7 @@ class SqlserverExceptionTranslationTest {
                             }
                             assertEquals(3, statement);
                             coldUpdates.incrementAndGet();
-                            return 1;
+                            return coldUpdateCount;
                           default:
                             throw new UnsupportedOperationException(queryMethod.getName());
                         }
@@ -131,6 +140,12 @@ class SqlserverExceptionTranslationTest {
       assertEquals("Concurrent modification on job " + JOB_ID, failure.getMessage());
       assertEquals(3, statements.get());
       assertEquals(0, coldUpdates.get());
+    } else if (coldUpdateCount == 0) {
+      var failure = assertThrows(RatchetOptimisticLockException.class, () -> writes.save(job));
+      assertEquals("Concurrent modification on job " + JOB_ID, failure.getMessage());
+      assertEquals(4, statements.get());
+      assertEquals(1, coldUpdates.get());
+      assertEquals(3, job.getRowVersion());
     } else {
       writes.save(job);
       assertEquals(4, statements.get());
@@ -138,7 +153,7 @@ class SqlserverExceptionTranslationTest {
       assertEquals(4, job.getRowVersion());
     }
     assertEquals(1, versionBindings.get());
-    assertEquals(hotUpdateCount == 0 ? 7 : 8, job.getVersion());
+    assertEquals(hotUpdateCount == 0 || coldUpdateCount == 0 ? 7 : 8, job.getVersion());
   }
 
   @Test

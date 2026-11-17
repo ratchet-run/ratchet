@@ -799,6 +799,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     JobEntity parked = store().findById(waiter.getId()).orElseThrow();
     assertEquals(JobStatus.PENDING, parked.getStatus());
     assertNull(parked.getPickedBy());
+    assertEquals(List.of(resource), resourcePermitStore().findResourcesWithWaiters(null, 10));
   }
 
   @Test
@@ -815,6 +816,7 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     assertStaleSaveRejected(stale);
     JobEntity woken = store().findById(waiter.getId()).orElseThrow();
     assertTrue(woken.getScheduledTime().isBefore(stale.getScheduledTime()));
+    assertEquals(List.of(resource), resourcePermitStore().findResourcesWithWaiters(null, 10));
   }
 
   private JobEntity claimDueJob(String resource, Instant due, JobPriority priority) {

@@ -506,7 +506,8 @@ final class PostgresqlJobWriteOperations {
     if (job.getRowVersion() != ((Number) row[IDX_HOT_ROW_VERSION]).intValue()) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
-    if (!tryScheduledTimeOnlyHotUpdate(job, row) && !tryHotMutationDispatch(job, row)) {
+    boolean scheduledTimeOnly = tryScheduledTimeOnlyHotUpdate(job, row);
+    if (!scheduledTimeOnly && !tryHotMutationDispatch(job, row)) {
       guardAgainstHotMutation(job, row);
     }
     // Fast paths write only the queue row, so always update the job row too.
@@ -546,9 +547,13 @@ final class PostgresqlJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
-    job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
     // Under the job-row lock, keep only a waiter on the resource this save stores.
     deleteWaiterOffResource(job.getId(), job.getResourceName());
+    // Advance the entity only after every statement of the save has succeeded.
+    if (scheduledTimeOnly) {
+      job.setVersion(((Number) row[IDX_HOT_VERSION]).intValue() + 1);
+    }
+    job.setRowVersion(((Number) row[IDX_HOT_ROW_VERSION]).intValue() + 1);
   }
 
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
@@ -596,7 +601,6 @@ final class PostgresqlJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
-    job.setVersion(((Number) row[IDX_HOT_VERSION]).intValue() + 1);
     deleteWaiter(id);
     return true;
   }
