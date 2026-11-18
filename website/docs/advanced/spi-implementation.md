@@ -861,9 +861,10 @@ Preserve validation and encryption behavior, and increment only the state versio
 `JobRetryStore.incrementRetryAttempt(id, expectedClaimSeq, expectedAttempts)` adds one to the
 attempt count and returns the new count. Atomically require RUNNING or WAITING status, the
 claim sequence when given, and `attempts == expectedAttempts` when given. A miss returns -1
-and writes nothing. The worker passes the count it was claimed with and the timeout watchdog
+and writes nothing. The worker passes the count it was claimed with and the hard-timeout watchdog
 passes the count it read, so when both charge the same attempt only the first increment
-commits. Add one to the job version.
+commits. The signal timeout on WAITING jobs passes no count, so it has no attempt fence.
+Add one to the job version.
 
 ### No-charge claim release
 

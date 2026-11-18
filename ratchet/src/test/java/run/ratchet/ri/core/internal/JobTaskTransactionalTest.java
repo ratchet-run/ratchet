@@ -181,6 +181,7 @@ class JobTaskTransactionalTest {
             new HeldKeyReleases(store, () -> mock(ScheduledExecutorService.class)),
             new PermitReleases(permits, () -> mock(ScheduledExecutorService.class)),
             new ClaimReschedules(store, () -> mock(ScheduledExecutorService.class)),
+            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class)),
             Clock.fixed(NOW, ZoneOffset.UTC),
             null,
             RatchetOptions.defaults());

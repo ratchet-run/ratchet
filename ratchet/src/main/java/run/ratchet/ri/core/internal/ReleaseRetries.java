@@ -27,29 +27,29 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.internal.ExecutorProviderClosedException;
 
 /**
- * Runs a store release that an ended attempt owes. A thread that is still interrupted must not call
- * the store, because a JDBC call on an interrupted thread can break the pooled connection, so the
- * release goes to a release executor thread at once. A failed store call is retried there as the
- * caller's {@link Policy} says. Nothing here throws to the caller.
+ * Runs a store write that an attempt owes, including releases and outcome writes. A thread that is
+ * still interrupted must not call the store, because a JDBC call on an interrupted thread can break
+ * the pooled connection, so the write goes to a release executor thread at once. A failed store
+ * call is retried there as the caller's {@link Policy} says. Nothing here throws to the caller.
  */
 final class ReleaseRetries {
   private static final Logger log = Logger.getLogger(ReleaseRetries.class);
   static final Duration WARN_INTERVAL = Duration.ofMinutes(10);
 
   /**
-   * One release. {@code what} names it in log messages, {@code leftTo} names what frees it once the
-   * retries stop, and {@code unscheduledLevel} is the level of the message logged when the release
-   * executor does not take it.
+   * One write. {@code what} names it in log messages, {@code leftTo} names what finishes it once
+   * the retries stop, and {@code unscheduledLevel} is the level of the message logged when the
+   * release executor does not take it.
    */
   record Release(String what, String leftTo, Logger.Level unscheduledLevel, Runnable call) {}
 
   /**
-   * How a failed release is retried. The first retry waits {@code firstDelay} and each later one
+   * How a failed write is retried. The first retry waits {@code firstDelay} and each later one
    * waits twice as long as the one before, up to {@code maxDelay}. A policy with {@code maxRetries}
-   * stops after that many retries. A policy without it retries until the release lands or the
-   * release executor refuses the next retry; because nothing ends such a release on its own, a
-   * failed retry warns again once {@link #WARN_INTERVAL} has passed on the clock since the last
-   * warning, and the release logs at INFO when it lands.
+   * stops after that many retries. A policy without it retries until the write lands or the release
+   * executor refuses the next retry; because nothing ends such a write on its own, a failed retry
+   * warns again once {@link #WARN_INTERVAL} has passed on the clock since the last warning, and the
+   * write logs at INFO when it lands.
    */
   record Policy(Duration firstDelay, Duration maxDelay, OptionalInt maxRetries) {
     Policy {
@@ -72,16 +72,16 @@ final class ReleaseRetries {
       return new Policy(delay, delay, OptionalInt.of(maxRetries));
     }
 
-    /** Retries with increasing delays until the release lands or scheduling fails. */
+    /** Retries with increasing delays until the write lands or scheduling fails. */
     static Policy untilReleased(Duration firstDelay, Duration maxDelay) {
       return new Policy(firstDelay, maxDelay, OptionalInt.empty());
     }
   }
 
   /**
-   * One scheduled try. {@code number} counts the scheduled tries of this release, {@code
-   * delayMillis} is this try's delay, {@code warned} says whether a warning was logged for this
-   * release, and {@code warnedAtNanos} is the clock reading at that warning.
+   * One scheduled try. {@code number} counts the scheduled tries of this write, {@code delayMillis}
+   * is this try's delay, {@code warned} says whether a warning was logged for this write, and
+   * {@code warnedAtNanos} is the clock reading at that warning.
    */
   private record Retry(int number, long delayMillis, boolean warned, long warnedAtNanos) {}
 
@@ -100,10 +100,10 @@ final class ReleaseRetries {
   }
 
   /**
-   * Runs the release on this thread, or hands it to the release executor when this thread is
+   * Runs the write on this thread, or hands it to the release executor when this thread is
    * interrupted or the call fails.
    *
-   * @return true when the release ran on this thread
+   * @return true when the write ran on this thread
    */
   boolean release(Release release) {
     if (Thread.currentThread().isInterrupted()) {
@@ -115,7 +115,7 @@ final class ReleaseRetries {
       release.call().run();
       return true;
     } catch (RuntimeException e) {
-      log.warnf(e, "Could not release %s; scheduling retry", release.what());
+      log.warnf(e, "Could not finish %s; scheduling retry", release.what());
       long first = policy.firstDelay().toMillis();
       schedule(release, new Retry(1, first, true, nanoTime.getAsLong()));
       return false;
@@ -129,13 +129,12 @@ final class ReleaseRetries {
       executor.schedule(() -> retry(release, retry), retry.delayMillis(), TimeUnit.MILLISECONDS);
     } catch (RuntimeException e) {
       if (isStopping(e, executor)) {
-        log.infof(
-            e, "This node is stopping; release of %s left to %s", release.what(), release.leftTo());
+        log.infof(e, "This node is stopping; %s left to %s", release.what(), release.leftTo());
       } else {
         log.logf(
             release.unscheduledLevel(),
             e,
-            "Could not schedule release of %s; left to %s",
+            "Could not schedule %s; left to %s",
             release.what(),
             release.leftTo());
       }
@@ -156,20 +155,20 @@ final class ReleaseRetries {
     try {
       release.call().run();
       if (policy.maxRetries().isEmpty() && retry.warned()) {
-        log.infof("Released %s on retry %s", release.what(), retry.number());
+        log.infof("Finished %s on retry %s", release.what(), retry.number());
       }
     } catch (RuntimeException e) {
       long first = policy.firstDelay().toMillis();
       long max = policy.maxDelay().toMillis();
       long next = retry.delayMillis() == 0 ? first : Math.min(retry.delayMillis() * 2, max);
       if (policy.maxRetries().isPresent()) {
-        log.debugf(e, "Release attempt %s failed for %s", retry.number(), release.what());
+        log.debugf(e, "Attempt %s failed for %s", retry.number(), release.what());
         if (retry.number() < policy.maxRetries().getAsInt()) {
           schedule(
               release, new Retry(retry.number() + 1, next, retry.warned(), retry.warnedAtNanos()));
         } else {
           log.warnf(
-              "Gave up releasing %s after %s retries; left to %s",
+              "Gave up on %s after %s retries; left to %s",
               release.what(), retry.number(), release.leftTo());
         }
       } else {
@@ -183,19 +182,19 @@ final class ReleaseRetries {
     // counts too.
     long now = nanoTime.getAsLong();
     if (!retry.warned()) {
-      log.warnf(e, "Could not release %s; scheduling retry", release.what());
+      log.warnf(e, "Could not finish %s; scheduling retry", release.what());
       schedule(release, new Retry(retry.number() + 1, next, true, now));
     } else if (now - retry.warnedAtNanos() >= WARN_INTERVAL.toNanos()) {
       log.warnf(
           e,
-          "Still could not release %s after %s retries; retrying every %s seconds until it lands or"
+          "Still could not finish %s after %s retries; retrying every %s seconds until it lands or"
               + " this node stops",
           release.what(),
           retry.number(),
           next / 1000);
       schedule(release, new Retry(retry.number() + 1, next, true, now));
     } else {
-      log.debugf(e, "Release attempt %s failed for %s", retry.number(), release.what());
+      log.debugf(e, "Attempt %s failed for %s", retry.number(), release.what());
       schedule(release, new Retry(retry.number() + 1, next, true, retry.warnedAtNanos()));
     }
   }

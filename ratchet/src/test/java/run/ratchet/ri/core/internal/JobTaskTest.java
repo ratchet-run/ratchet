@@ -22,8 +22,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
-import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -65,6 +65,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -166,6 +167,30 @@ class JobTaskTest {
   private final ScheduledExecutorService permitReleaseScheduler =
       mock(ScheduledExecutorService.class);
 
+  private final ScheduledExecutorService outcomeScheduler = mock(ScheduledExecutorService.class);
+  private final AtomicLong outcomeClock = new AtomicLong();
+  private final OutcomeWriteRetries outcomeRetries =
+      new OutcomeWriteRetries(() -> outcomeScheduler, outcomeClock::get);
+  private final List<Runnable> outcomePending = new ArrayList<>();
+  private final List<Long> outcomeDelays = new ArrayList<>();
+
+  private void recordOutcomeRetries() {
+    doAnswer(
+            invocation -> {
+              outcomePending.add(invocation.getArgument(0));
+              outcomeDelays.add(invocation.getArgument(1));
+              return null;
+            })
+        .when(outcomeScheduler)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+  }
+
+  private void runOutcomeRetry() {
+    outcomeClock.addAndGet(
+        TimeUnit.MILLISECONDS.toNanos(outcomeDelays.get(outcomeDelays.size() - 1)));
+    outcomePending.remove(0).run();
+  }
+
   private static final String CONTINUATION_NS = "ratchet.continuation";
   private static final ThreadLocal<Runnable> CONTINUATION_PAYLOAD = new ThreadLocal<>();
 
@@ -213,6 +238,7 @@ class JobTaskTest {
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             claimReschedules,
+            outcomeRetries,
             FIXED_CLOCK,
             null,
             RatchetOptions.builder().execution(e -> e.maxContinuations(limit)).build());
@@ -232,10 +258,12 @@ class JobTaskTest {
         new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
     jobTask.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
-    when(observabilityFacade.startExecutionScope(any(JobEntity.class))).thenReturn(scope);
+    // Lenient: a claim parked at the permit stops before execution recording.
+    lenient().when(observabilityFacade.startExecutionScope(any(JobEntity.class))).thenReturn(scope);
     jobTask.attach(attempt);
     JobExecutionEntity execution = JobExecutionEntity.start(JOB_UUID, 1, "node-1");
-    when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
+    lenient()
+        .when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
         .thenReturn(execution);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -358,15 +386,22 @@ class JobTaskTest {
             () -> {
               throw failure;
             });
+    scenario.job().setAttempts(5);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2)).thenReturn(3);
     when(retryPolicy.shouldRetry(3, failure)).thenReturn(false);
+    AtomicInteger writtenAttempts = new AtomicInteger();
     when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 3))
-        .thenReturn(true);
+        .thenAnswer(
+            invocation -> {
+              writtenAttempts.set(invocation.getArgument(0, JobEntity.class).getAttempts());
+              return true;
+            });
 
     jobTask.call();
 
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L, 2);
     verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, 3);
+    Assertions.assertEquals(3, writtenAttempts.get());
     Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
   }
 
@@ -454,59 +489,265 @@ class JobTaskTest {
   }
 
   @Test
-  void handedBackFinisherDoesNotTouchWorkerState() throws Exception {
+  void forcedFailureRetriesUntilItLandsWithoutTouchingWorkerState() throws Exception {
     RuntimeException failure = new IllegalStateException("body");
     var scenario =
         hydratedClaimScenario(
             () -> {
               throw failure;
             });
+    recordOutcomeRetries();
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    scenario.job().setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
     when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
-        .thenThrow(new IllegalStateException("write failed"));
+    AtomicInteger writes = new AtomicInteger();
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(2)))
+        .thenAnswer(
+            invocation -> {
+              watchdogClaimed.set(scenario.attempt().claimTimeoutForWatchdog());
+              if (writes.incrementAndGet() <= 3) throw new IllegalStateException("write failed");
+              return true;
+            });
+
     jobTask.call();
-    Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
-    verify(observabilityFacade).saveExecution(scenario.execution());
+
+    Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
+    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
+    Assertions.assertEquals(2, writes.get());
     JobStatus status = scenario.job().getStatus();
     String error = scenario.job().getLastError();
-    doReturn(true)
-        .when(lifecycleFacade)
-        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(2));
+    runOutcomeRetry();
+    Assertions.assertEquals(1, outcomePending.size());
+    runOutcomeRetry();
 
-    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
-    scenario.attempt().handedBackFinish().run();
-
+    Assertions.assertEquals(List.of(5_000L, 10_000L), outcomeDelays);
+    Assertions.assertTrue(outcomePending.isEmpty());
+    Assertions.assertEquals(4, writes.get());
     Assertions.assertEquals(status, scenario.job().getStatus());
     Assertions.assertEquals(error, scenario.job().getLastError());
+    Assertions.assertSame(failure, CallbackRecorder.failure);
+    verify(validationFacade, times(1))
+        .validateSecurity(
+            argThat(
+                payload ->
+                    payload != null && payload.target().equals(CallbackRecorder.class.getName())));
     verify(observabilityFacade, times(1)).saveExecution(scenario.execution());
+    ArgumentCaptor<JobEntity> copies = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade, times(4))
+        .completeFailure(copies.capture(), eq(JobStatus.RUNNING), eq(false), eq(2));
+    Assertions.assertNotSame(scenario.job(), copies.getValue());
   }
 
   @Test
-  void handedBackFinisherMissFinishesCanceledJob() throws Exception {
+  void failedIncrementForcedFailureNeverGuessesCountWhenReadFails() throws Exception {
     RuntimeException failure = new IllegalStateException("body");
     var scenario =
         hydratedClaimScenario(
             () -> {
               throw failure;
             });
-    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
-        .thenThrow(new IllegalStateException("write failed"));
+    recordOutcomeRetries();
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    scenario.job().setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new IllegalStateException("unknown"));
+    JobEntity stored = createTestJob();
+    stored.setAttempts(5);
+    when(jobStore.findByIdLatest(JOB_UUID))
+        .thenThrow(new IllegalStateException("worker read"))
+        .thenThrow(new IllegalStateException("finisher read"))
+        .thenReturn(Optional.of(stored));
+
+    jobTask.call();
+
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
+    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
+    AtomicInteger writtenCount = new AtomicInteger();
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false), isNull()))
+        .thenAnswer(
+            invocation -> {
+              writtenCount.set(invocation.getArgument(0, JobEntity.class).getAttempts());
+              return true;
+            });
+    runOutcomeRetry();
+
+    Assertions.assertEquals(5, writtenCount.get());
+    Assertions.assertSame(failure, CallbackRecorder.failure);
+    verify(validationFacade, times(1))
+        .validateSecurity(
+            argThat(
+                payload ->
+                    payload != null && payload.target().equals(CallbackRecorder.class.getName())));
+    Assertions.assertTrue(outcomePending.isEmpty());
+    verify(lifecycleFacade, times(1))
+        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), isNull());
+  }
+
+  @Test
+  void forcedFailureAfterFailedIncrementRereadsOnEveryRetry() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    recordOutcomeRetries();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new IllegalStateException("unknown"));
+    JobEntity stored = createTestJob();
+    stored.setAttempts(4);
+    when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(stored));
+    AtomicInteger calls = new AtomicInteger();
+    List<Integer> counts = new ArrayList<>();
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false), isNull()))
+        .thenAnswer(
+            invocation -> {
+              counts.add(invocation.getArgument(0, JobEntity.class).getAttempts());
+              if (calls.incrementAndGet() < 3) throw new IllegalStateException("write failed");
+              return true;
+            });
+
+    jobTask.call();
+    stored.setAttempts(5);
+    runOutcomeRetry();
+
+    Assertions.assertEquals(List.of(4, 4, 5), counts);
+    Assertions.assertTrue(outcomePending.isEmpty());
+  }
+
+  @Test
+  void forcedFinisherMissFinishesCancelWhenNoOutcomeWriteThrew() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    recordOutcomeRetries();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new IllegalStateException("unknown"));
+    when(jobStore.findByIdLatest(JOB_UUID)).thenThrow(new IllegalStateException("read"));
     jobTask.call();
     Runnable record = mock(Runnable.class);
     Runnable release = mock(Runnable.class);
     scenario.attempt().attachCancelFinish(record, release);
-    doReturn(false)
-        .when(lifecycleFacade)
-        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(2));
+    doReturn(Optional.of(scenario.job())).when(jobStore).findByIdLatest(JOB_UUID);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
 
-    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
-    scenario.attempt().handedBackFinish().run();
+    runOutcomeRetry();
 
     Assertions.assertTrue(scenario.attempt().isSuperseded());
     verify(record).run();
     verify(release).run();
+    Assertions.assertTrue(outcomePending.isEmpty());
+  }
+
+  @Test
+  void forcedFinisherMissSkipsCancelAfterUnknownOutcomeWrite() throws Exception {
+    assertForcedFinisherCancel(true);
+  }
+
+  @Test
+  void forcedWriteThatThrowsThenCancelRecordsTheCancel() throws Exception {
+    assertForcedFinisherCancel(false);
+  }
+
+  private void assertForcedFinisherCancel(boolean liveWriteUnknown) throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    recordOutcomeRetries();
+    CancelRace race = cancelRace();
+    int expected;
+    if (liveWriteUnknown) {
+      when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2)).thenReturn(3);
+      when(retryPolicy.shouldRetry(3, failure)).thenReturn(true);
+      when(retryPolicy.getDelay(3)).thenReturn(Duration.ofSeconds(1));
+      when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L)))
+          .thenAnswer(
+              invocation -> {
+                race.status().set(JobStatus.PENDING);
+                throw new IllegalStateException("retry committed then threw");
+              });
+      expected = 3;
+    } else {
+      when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
+      expected = 2;
+    }
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(expected)))
+        .thenThrow(new IllegalStateException("worker write"))
+        .thenThrow(new IllegalStateException("inline retry"))
+        .thenReturn(false);
+
+    jobTask.call();
+
+    Assertions.assertEquals(
+        liveWriteUnknown ? JobStatus.PENDING : JobStatus.RUNNING, race.status().get());
+    Assertions.assertEquals(1, outcomePending.size());
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    scenario.attempt().attachCancelFinish(record, release);
+    race.cancel();
+    runOutcomeRetry();
+
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(record, times(liveWriteUnknown ? 0 : 1)).run();
+    verify(release, times(liveWriteUnknown ? 0 : 1)).run();
+    Assertions.assertTrue(outcomePending.isEmpty());
+  }
+
+  @Test
+  void transientPermitAcquireThenAcquiredKeepsCancelDetection() throws Exception {
+    AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
+    var scenario = hydratedClaimScenario(() -> status.set(JobStatus.CANCELED));
+    scenario.job().setResourceName("gpu");
+    when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenThrow(new RatchetTransientStoreException("acquire deadlock"))
+        .thenReturn(AcquireResult.ACQUIRED);
+
+    jobTask.call();
+
+    verify(resourcePermitService, times(2)).tryAcquire("gpu", JOB_UUID, 7L, "node-1");
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade, times(1)).recordJobCancellation(scenario.job());
+    verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
+  }
+
+  @Test
+  void transientPermitAcquireThatParkedKeepsFlag() throws Exception {
+    AtomicBoolean bodyRan = new AtomicBoolean();
+    var scenario = hydratedClaimScenario(() -> bodyRan.set(true));
+    scenario.job().setResourceName("gpu");
+    CancelRace race = cancelRace();
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
+        .thenAnswer(
+            invocation -> {
+              race.status().set(JobStatus.PENDING);
+              throw new RatchetTransientStoreException("park committed then threw");
+            })
+        .thenReturn(AcquireResult.SUPERSEDED);
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L))).thenReturn(false);
+
+    jobTask.call();
+
+    Assertions.assertEquals(JobStatus.PENDING, race.status().get());
+    race.cancel();
+    scenario.attempt().finishCancelFoundByTimeout();
+    Assertions.assertFalse(bodyRan.get());
+    verify(resourcePermitService, times(2)).tryAcquire("gpu", JOB_UUID, 7L, "node-1");
+    verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L));
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    verify(observabilityFacade, never()).saveExecution(any());
   }
 
   @Test
@@ -556,155 +797,6 @@ class JobTaskTest {
   }
 
   @Test
-  void forcedFailureThrowAfterFailedIncrementHandsTimeoutBack() throws Exception {
-    RuntimeException failure = new IllegalStateException("body");
-    var scenario =
-        hydratedClaimScenario(
-            () -> {
-              throw failure;
-            });
-    CallbackRecorder.reset();
-    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
-    scenario.job().setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
-    when(errorSanitizer.sanitize(failure)).thenReturn("safe body failure");
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
-        .thenThrow(new IllegalStateException("unknown"));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
-        .thenThrow(new IllegalStateException("write failed"));
-
-    JobEntity stored = createTestJob();
-    stored.setAttempts(4);
-    when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(stored));
-
-    jobTask.call();
-
-    stored.setAttempts(5);
-
-    verify(lifecycleFacade, times(1))
-        .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
-    Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
-    Assertions.assertNotEquals(JobStatus.FAILED, scenario.job().getStatus());
-    verify(observabilityFacade).saveExecution(scenario.execution());
-    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
-    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
-    doReturn(true)
-        .when(lifecycleFacade)
-        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
-    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
-    scenario.attempt().handedBackFinish().run();
-
-    ArgumentCaptor<JobEntity> copy = ArgumentCaptor.forClass(JobEntity.class);
-    verify(lifecycleFacade, times(2))
-        .completeFailure(copy.capture(), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
-    Assertions.assertSame(failure, CallbackRecorder.failure);
-    Assertions.assertNotSame(scenario.job(), copy.getValue());
-    Assertions.assertEquals("safe body failure", copy.getValue().getLastError());
-    Assertions.assertEquals(5, copy.getValue().getAttempts());
-    verify(lifecycleFacade)
-        .completeFailure(
-            same(copy.getValue()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
-    verify(jobStore, times(1)).incrementRetryAttempt(any(), any(), any());
-    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-  }
-
-  @Test
-  void forcedFailureThrowRetriesOnceWhenWatchdogPassed() throws Exception {
-    RuntimeException failure = new IllegalStateException("body");
-    var scenario =
-        hydratedClaimScenario(
-            () -> {
-              throw failure;
-            });
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
-        .thenThrow(new IllegalStateException("unknown"));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
-        .thenAnswer(
-            invocation -> {
-              Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
-              throw new IllegalStateException("write failed");
-            })
-        .thenReturn(true);
-
-    jobTask.call();
-
-    verify(lifecycleFacade, times(2))
-        .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
-    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
-    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
-    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
-    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
-  }
-
-  @Test
-  void forcedFailureRetryThrowLeavesTimeoutWithWorker() throws Exception {
-    RuntimeException failure = new IllegalStateException("body");
-    var scenario =
-        hydratedClaimScenario(
-            () -> {
-              throw failure;
-            });
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
-        .thenThrow(new IllegalStateException("unknown"));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
-        .thenAnswer(
-            invocation -> {
-              Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
-              throw new IllegalStateException("write failed");
-            })
-        .thenThrow(new IllegalStateException("retry failed"));
-
-    jobTask.call();
-
-    verify(lifecycleFacade, times(2))
-        .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
-    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
-    Assertions.assertNotEquals(JobStatus.FAILED, scenario.job().getStatus());
-  }
-
-  @Test
-  void forcedFailureThrowWithKnownAttemptsHandsTimeoutBack() throws Exception {
-    RuntimeException failure = new IllegalStateException("body");
-    var scenario =
-        hydratedClaimScenario(
-            () -> {
-              throw failure;
-            });
-    CallbackRecorder.reset();
-    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
-    scenario.job().setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
-    when(errorSanitizer.sanitize(failure)).thenReturn("safe body failure");
-    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
-        .thenThrow(new IllegalStateException("write failed"));
-
-    jobTask.call();
-
-    verify(lifecycleFacade, times(1)).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
-    Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
-    Assertions.assertNotEquals(JobStatus.FAILED, scenario.job().getStatus());
-    verify(observabilityFacade).saveExecution(scenario.execution());
-    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
-    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
-    doReturn(true)
-        .when(lifecycleFacade)
-        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(2));
-    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
-    scenario.attempt().handedBackFinish().run();
-
-    ArgumentCaptor<JobEntity> copy = ArgumentCaptor.forClass(JobEntity.class);
-    verify(lifecycleFacade, times(2))
-        .completeFailure(copy.capture(), eq(JobStatus.RUNNING), eq(false), eq(2));
-    Assertions.assertSame(failure, CallbackRecorder.failure);
-    Assertions.assertNotSame(scenario.job(), copy.getValue());
-    Assertions.assertEquals("safe body failure", copy.getValue().getLastError());
-    Assertions.assertEquals(3, copy.getValue().getAttempts());
-    verify(lifecycleFacade)
-        .completeFailure(same(copy.getValue()), eq(JobStatus.RUNNING), eq(false), eq(2));
-    verify(jobStore, never()).incrementRetryAttempt(any(), any(), any());
-    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-  }
-
-  @Test
   void forcedFailureThrowDefersWhenWatchdogOwnsTimeout() throws Exception {
     RuntimeException failure = new IllegalStateException("body");
     var scenario =
@@ -717,19 +809,21 @@ class JobTaskTest {
         .thenReturn(JobStatus.RUNNING)
         .thenThrow(new LinkageError("cancel check"))
         .thenReturn(JobStatus.RUNNING);
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
     when(errorSanitizer.sanitize(failure))
         .thenAnswer(
             invocation -> {
-              Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+              watchdogClaimed.set(scenario.attempt().claimTimeoutForWatchdog());
               return "safe body failure";
             })
         .thenReturn("safe body failure");
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
-        .thenThrow(new IllegalStateException("write failed"));
 
     jobTask.call();
 
-    verify(lifecycleFacade, times(1)).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
+    Assertions.assertEquals(Boolean.TRUE, watchdogClaimed.get());
+
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
     verify(observabilityFacade).saveExecution(scenario.execution());
     Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
@@ -766,11 +860,12 @@ class JobTaskTest {
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
         .thenThrow(new IllegalStateException("unknown"));
     AtomicInteger calls = new AtomicInteger();
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
     when(errorSanitizer.sanitize(failure))
         .thenAnswer(
             invocation -> {
               if (calls.incrementAndGet() == 2) {
-                Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
+                watchdogClaimed.set(scenario.attempt().claimTimeoutForWatchdog());
               }
               return "safe body failure";
             });
@@ -778,6 +873,8 @@ class JobTaskTest {
         .thenReturn(true);
 
     jobTask.call();
+
+    Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
 
     verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
     verify(jobStore).findByIdLatest(JOB_UUID);
@@ -859,32 +956,6 @@ class JobTaskTest {
 
     verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
     Assertions.assertEquals(4, writtenAttempts.get());
-  }
-
-  @Test
-  void failedIncrementForcedFailureKeepsLoadedCountWhenReadFails() throws Exception {
-    RuntimeException failure = new IllegalStateException("body");
-    var scenario =
-        hydratedClaimScenario(
-            () -> {
-              throw failure;
-            });
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
-        .thenThrow(new IllegalStateException("unknown"));
-    when(jobStore.findByIdLatest(JOB_UUID)).thenThrow(new IllegalStateException("read failed"));
-    AtomicInteger writtenAttempts = new AtomicInteger();
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
-        .thenAnswer(
-            invocation -> {
-              writtenAttempts.set(scenario.job().getAttempts());
-              return true;
-            });
-
-    jobTask.call();
-
-    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
-    Assertions.assertEquals(3, writtenAttempts.get());
-    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
   }
 
   @Test
@@ -2354,6 +2425,7 @@ class JobTaskTest {
                 new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
                 new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
                 claimReschedules,
+                outcomeRetries,
                 null,
                 null,
                 RatchetOptions.builder().build()));
@@ -2410,6 +2482,7 @@ class JobTaskTest {
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             claimReschedules,
+            outcomeRetries,
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -3100,12 +3173,16 @@ class JobTaskTest {
     FutureTask<Void> future = new FutureTask<>(() -> null);
     Method handleHard =
         JobTimeoutHandler.class.getDeclaredMethod(
-            "handleHardTimeoutById", JobAttemptControl.class, Future.class);
+            "handleHardTimeoutById",
+            JobAttemptControl.class,
+            Future.class,
+            OutcomeWriteRetries.class);
     handleHard.setAccessible(true);
     handleHard.invoke(
         timeoutHandler,
         timeoutHandler.newAttempt(JOB_UUID, 30, FIXED_NOW, 0, 0L, "node-1"),
-        future);
+        future,
+        null);
 
     Assertions.assertEquals(
         1, attempts.get(), "a single hard timeout must consume exactly one attempt");
@@ -3655,6 +3732,7 @@ class JobTaskTest {
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             claimReschedules,
+            outcomeRetries,
             FIXED_CLOCK,
             null,
             RatchetOptions.defaults());
@@ -3718,6 +3796,7 @@ class JobTaskTest {
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
         claimReschedules,
+        outcomeRetries,
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -4928,7 +5007,7 @@ class JobTaskTest {
   }
 
   @Test
-  void openCircuitBackgroundRejectionReconcilesCancellationAndReleasesHold() throws Exception {
+  void openCircuitBackgroundRejectionSkipsUncertainCancellationAndReleasesHold() throws Exception {
     assertOpenCircuitBackgroundRejection(true);
   }
 
@@ -4938,7 +5017,8 @@ class JobTaskTest {
   }
 
   @Test
-  void openCircuitBackgroundRejectionRetriesCanceledExecutionSaveOnce() throws Exception {
+  void openCircuitBackgroundRejectionDoesNotSaveCanceledExecutionAfterUnknownWrite()
+      throws Exception {
     assertOpenCircuitBackgroundRejection(true, true);
   }
 
@@ -4965,26 +5045,22 @@ class JobTaskTest {
     JobExecutionEntity execution = saved.getValue();
     Assertions.assertEquals(ExecutionStatus.FAILED, execution.getStatus());
     verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
-    when(jobStore.getJobStatus(JOB_UUID))
+    lenient()
+        .when(jobStore.getJobStatus(JOB_UUID))
         .thenReturn(canceled ? JobStatus.CANCELED : JobStatus.RUNNING);
     clearInvocations(observabilityFacade);
     if (saveFailsOnce) {
-      when(observabilityFacade.saveExecution(execution))
+      lenient()
+          .when(observabilityFacade.saveExecution(execution))
           .thenThrow(new IllegalStateException("save unavailable"))
           .thenReturn(execution);
     }
     rejectedClaimCallback().run();
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     Assertions.assertTrue(attempt.isSuperseded());
-    if (canceled) {
-      Assertions.assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
-      verify(observabilityFacade, times(saveFailsOnce ? 2 : 1)).saveExecution(execution);
-      verify(observabilityFacade).recordJobCancellation(job);
-    } else {
-      Assertions.assertEquals(ExecutionStatus.FAILED, execution.getStatus());
-      verify(observabilityFacade, never()).saveExecution(any());
-      verify(observabilityFacade, never()).recordJobCancellation(any());
-    }
+    Assertions.assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+    verify(observabilityFacade, never()).saveExecution(any());
+    verify(observabilityFacade, never()).recordJobCancellation(any());
   }
 
   private Runnable rejectedClaimCallback() {
@@ -5798,6 +5874,7 @@ class JobTaskTest {
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             claimReschedules,
+            outcomeRetries,
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -5902,6 +5979,7 @@ class JobTaskTest {
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             claimReschedules,
+            outcomeRetries,
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -6018,6 +6096,7 @@ class JobTaskTest {
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
             new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
             claimReschedules,
+            outcomeRetries,
             Clock.systemUTC(),
             resolver,
             RatchetOptions.defaults());
@@ -6097,11 +6176,13 @@ class JobTaskTest {
   private void initJobTaskFromClaimWithDefaultStubs(JobClaimDto claim, JobEntity job) {
     jobTask.initFromClaim(claim);
     when(jobStore.findById(claim.id())).thenReturn(Optional.of(job));
+    lenient().when(jobStore.findByIdLatest(claim.id())).thenReturn(Optional.of(job));
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
   }
 
   private void initJobTaskWithDefaultStubs(JobTask task, JobEntity job) {
     task.init(job);
+    lenient().when(jobStore.findByIdLatest(job.getId())).thenReturn(Optional.of(job));
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     // Lenient: a job that stops at a pre-execution gate records no attempt and never calls these.
     lenient()
@@ -6147,6 +6228,7 @@ class JobTaskTest {
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
         claimReschedules,
+        outcomeRetries,
         FIXED_CLOCK,
         null,
         RatchetOptions.defaults());
@@ -6178,6 +6260,7 @@ class JobTaskTest {
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
         new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
         claimReschedules,
+        outcomeRetries,
         taskClock,
         null,
         RatchetOptions.defaults());
@@ -7606,6 +7689,97 @@ class JobTaskTest {
   }
 
   @Test
+  void committedRetryWriteThatThrowsDoesNotRecordLaterPendingCancel() throws Exception {
+    assertUnknownOutcomeDoesNotRecordCancel("retry");
+  }
+
+  @Test
+  void dlqWriteThatThrowsThenCancelRecordsTheCancel() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    CancelRace race = cancelRace();
+    recordSaves(race, status -> {});
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2)).thenReturn(3);
+    when(retryPolicy.shouldRetry(3, failure)).thenReturn(false);
+    AtomicReference<JobStatus> statusBeforeCancel = new AtomicReference<>();
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 3))
+        .thenAnswer(
+            invocation -> {
+              statusBeforeCancel.set(race.status().get());
+              race.cancel();
+              throw new IllegalStateException("DLQ write did not commit");
+            })
+        .thenReturn(false);
+
+    jobTask.call();
+
+    Assertions.assertEquals(JobStatus.RUNNING, statusBeforeCancel.get());
+    Assertions.assertEquals(JobStatus.CANCELED, race.status().get());
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(lifecycleFacade, times(2)).completeFailure(scenario.job(), JobStatus.RUNNING, false, 3);
+    verify(observabilityFacade, times(1)).recordJobCancellation(scenario.job());
+  }
+
+  @Test
+  void committedContinuationWriteThatThrowsDoesNotRecordLaterPendingCancel() throws Exception {
+    assertUnknownOutcomeDoesNotRecordCancel("continuation");
+  }
+
+  private void assertUnknownOutcomeDoesNotRecordCancel(String write) throws Exception {
+    RuntimeException bodyFailure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              if (write.equals("continuation")) JobContext.current().requestContinuation();
+              else throw bodyFailure;
+            });
+    CancelRace race = cancelRace();
+    recordSaves(race, status -> {});
+    RuntimeException uncertain = new IllegalStateException("committed then threw");
+    if (write.equals("continuation")) {
+      when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
+          .thenReturn(StateWriteResult.UPDATED);
+      when(jobStore.releaseClaim(eq(JOB_UUID), isNull(), any(), eq(2), eq(7L)))
+          .thenAnswer(
+              invocation -> {
+                race.status().set(JobStatus.PENDING);
+                throw uncertain;
+              });
+      when(validationFacade.shouldNotRetry(uncertain))
+          .thenThrow(new IllegalStateException("policy"));
+    } else {
+      when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2)).thenReturn(3);
+      when(retryPolicy.shouldRetry(3, bodyFailure)).thenReturn(write.equals("retry"));
+      when(retryPolicy.getDelay(3)).thenReturn(Duration.ofSeconds(1));
+      when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L)))
+          .thenAnswer(
+              invocation -> {
+                race.status().set(JobStatus.PENDING);
+                throw uncertain;
+              });
+    }
+    // All forced writes miss because the uncertain write already ended this claim.
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false), anyInt()))
+        .thenReturn(false);
+
+    jobTask.call();
+
+    Assertions.assertEquals(JobStatus.PENDING, race.status().get());
+    race.cancel();
+    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
+    runWatchdog(realTimeoutHandler(), scenario.attempt(), new FutureTask<>(() -> null));
+    // Exercise the cancel-finish coordination even if a watchdog had already claimed the cancel.
+    scenario.attempt().finishCancelFoundByTimeout();
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertFalse(race.saved().contains(ExecutionStatus.CANCELED));
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+  }
+
+  @Test
   void forcedFailureMissWithUnconfirmedCancel_handsTimeoutBack() throws Exception {
     JobTimeoutHandler handler = realTimeoutHandler();
     jobTask = newJobTaskWithTimeoutHandler(handler);
@@ -7637,7 +7811,6 @@ class JobTaskTest {
 
     verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false, null);
     Assertions.assertTrue(attempt.isTimeoutHandedBack());
-    Assertions.assertNull(attempt.handedBackFinish());
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
     runWatchdog(handler, attempt, new FutureTask<>(() -> null));
 
@@ -7717,7 +7890,6 @@ class JobTaskTest {
 
     Assertions.assertTrue(attempt.isSuperseded());
     Assertions.assertTrue(attempt.isTimeoutHandedBack());
-    Assertions.assertNull(attempt.handedBackFinish());
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
     verify(observabilityFacade).recordJobFailure(eq(job), any(), eq(1));
     verify(observabilityFacade, never()).recordJobCancellation(any());
@@ -7766,7 +7938,7 @@ class JobTaskTest {
   }
 
   @Test
-  void noChargeReleaseRejectedAndThenCanceled_recordsCancel() throws Exception {
+  void noChargeReleaseAfterUncertainPermitAcquireThenCanceled_recordsNothing() throws Exception {
     assertNoChargeReleaseThenCanceled(NoChargeReleaseSite.TRANSIENT_PERMIT, false);
   }
 
@@ -7827,8 +7999,9 @@ class JobTaskTest {
     verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L));
     verify(jobStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), anyLong());
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong(), any());
-    if (released) {
+    if (released || site == NoChargeReleaseSite.TRANSIENT_PERMIT) {
       verify(observabilityFacade, never()).recordJobCancellation(any());
+      Assertions.assertFalse(race.saved().contains(ExecutionStatus.CANCELED));
     } else {
       verify(observabilityFacade).recordJobCancellation(job);
     }
@@ -7980,9 +8153,12 @@ class JobTaskTest {
       JobTimeoutHandler handler, JobAttemptControl attempt, Future<?> future) throws Exception {
     Method hardTimeout =
         JobTimeoutHandler.class.getDeclaredMethod(
-            "handleHardTimeoutById", JobAttemptControl.class, Future.class);
+            "handleHardTimeoutById",
+            JobAttemptControl.class,
+            Future.class,
+            OutcomeWriteRetries.class);
     hardTimeout.setAccessible(true);
-    hardTimeout.invoke(handler, attempt, future);
+    hardTimeout.invoke(handler, attempt, future, null);
   }
 
   /** Waits like a store call that ignores interrupts, and keeps the caller's interrupt. */

@@ -329,6 +329,15 @@ public class JobTimeoutHandler {
       Future<?> future,
       ScheduledExecutorService scheduler,
       Instant executionStartTime) {
+    return scheduleTimeoutMonitoring(attempt, future, scheduler, executionStartTime, null);
+  }
+
+  public TimeoutHandles scheduleTimeoutMonitoring(
+      JobAttemptControl attempt,
+      Future<?> future,
+      ScheduledExecutorService scheduler,
+      Instant executionStartTime,
+      OutcomeWriteRetries retries) {
     UUID jobId = attempt.jobId();
     long timeoutSec = attempt.timeoutSeconds();
     AtomicBoolean softTimeoutSent = new AtomicBoolean(false);
@@ -357,7 +366,7 @@ public class JobTimeoutHandler {
       }
       ScheduledFuture<?> hard =
           scheduler.schedule(
-              () -> handleHardTimeoutById(attempt, future), timeoutSec, TimeUnit.SECONDS);
+              () -> handleHardTimeoutById(attempt, future, retries), timeoutSec, TimeUnit.SECONDS);
       trackAttempt(attempt);
       return new TimeoutHandles(
           soft, cancellationRequest, hard, attempt, () -> untrackAttempt(attempt));
@@ -982,7 +991,8 @@ public class JobTimeoutHandler {
     }
   }
 
-  private void handleHardTimeoutById(JobAttemptControl attempt, Future<?> future) {
+  private void handleHardTimeoutById(
+      JobAttemptControl attempt, Future<?> future, OutcomeWriteRetries retries) {
     UUID jobId = attempt.jobId();
     Instant executionStartTime = attempt.executionStartTime();
     long timeoutSec = attempt.timeoutSeconds();
@@ -993,15 +1003,6 @@ public class JobTimeoutHandler {
       log.debugf("Job %s already stopped cooperatively; the worker owns the timeout", jobId);
       return;
     }
-    Runnable finish = attempt.handedBackFinish();
-    if (finish != null) {
-      try {
-        finish.run();
-      } catch (Exception e) {
-        log.errorf(e, "Timeout post-processing error for job %s", jobId);
-      }
-      return;
-    }
     attempt.requestCancellation();
     Duration elapsed = Duration.between(executionStartTime, effective().instant());
     log.errorf(
@@ -1010,25 +1011,32 @@ public class JobTimeoutHandler {
 
     // Claim ownership of the retry/finalize for this timeout BEFORE interrupting the worker, so the
     // interrupt that lands in JobTask.handleFailure already sees the marker and defers to us. The
-    // marker is cleared in processHardTimeout's finally once this path is done with it.
+    // marker covers the first try only; retries run after this method's finally clears it.
     watchdogCancelledJobIds.add(jobId);
 
     attempt.cancelExecution(future);
     attempt.flushStateQuietly();
 
+    // Each try re-reads the original claim, reuses a committed charge, and stops on a fenced miss.
+    Runnable transition =
+        () ->
+            processHardTimeout(
+                jobId,
+                timeoutSec,
+                elapsed,
+                attempt.baselineAttempts(),
+                false,
+                attempt.claimSeq(),
+                attempt.nodeId(),
+                attempt);
     try {
-      processHardTimeout(
-          jobId,
-          timeoutSec,
-          elapsed,
-          attempt.baselineAttempts(),
-          false,
-          attempt.claimSeq(),
-          attempt.nodeId(),
-          attempt);
+      if (retries != null) {
+        retries.run("hard-timeout transition for job " + jobId, transition);
+      } else {
+        transition.run();
+      }
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
-      throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);
     } finally {
       watchdogCancelledJobIds.remove(jobId);
     }

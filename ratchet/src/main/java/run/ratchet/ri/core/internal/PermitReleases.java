@@ -66,7 +66,8 @@ final class PermitReleases {
   boolean release(String resource, UUID jobId, long claimSeq) {
     return retries.release(
         new ReleaseRetries.Release(
-            "resource permit '%s' of job %s claim %s".formatted(resource, jobId, claimSeq),
+            "release of resource permit '%s' of job %s claim %s"
+                .formatted(resource, jobId, claimSeq),
             "node clean-up after this node stops or restarts",
             Logger.Level.WARN,
             () -> permits.release(resource, jobId, claimSeq)));

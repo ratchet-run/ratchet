@@ -125,6 +125,7 @@ class JobTaskAuthorizationTest {
             new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
             new PermitReleases(resourcePermitService, () -> mock(ScheduledExecutorService.class)),
             new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class)),
+            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class)),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -281,6 +282,7 @@ class JobTaskAuthorizationTest {
             new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
             new PermitReleases(resourcePermitService, () -> mock(ScheduledExecutorService.class)),
             new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class)),
+            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class)),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());

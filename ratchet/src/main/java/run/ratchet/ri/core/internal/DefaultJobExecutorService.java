@@ -82,6 +82,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final HeldKeyReleases holdReleases;
   private final PermitReleases permitReleases;
   private final ClaimReschedules claimReschedules;
+  private final OutcomeWriteRetries outcomeRetries;
   private final ExecutorProvider executorProvider;
   private final RatchetOptions options;
   private final JobStore jobStore;
@@ -115,6 +116,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.holdReleases = null;
     this.permitReleases = null;
     this.claimReschedules = null;
+    this.outcomeRetries = null;
     this.executorProvider = null;
     this.options = null;
     this.jobStore = null;
@@ -283,6 +285,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       RatchetOptions options) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
+    this.outcomeRetries = new OutcomeWriteRetries(() -> executorProvider.getReleaseExecutor());
     this.holdReleases = new HeldKeyReleases(jobStore, () -> executorProvider.getReleaseExecutor());
     this.permitReleases =
         new PermitReleases(resourcePermitService, () -> executorProvider.getReleaseExecutor());
@@ -558,6 +561,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
             holdReleases,
             permitReleases,
             claimReschedules,
+            outcomeRetries,
             effective(),
             argResolver,
             options);
@@ -569,7 +573,11 @@ public class DefaultJobExecutorService implements JobExecutorService {
       UUID jobId, JobAttemptControl attempt, Future<?> fut, Instant executionStartTime) {
     try {
       return timeoutHandler.scheduleTimeoutMonitoring(
-          attempt, fut, executorProvider.getScheduledExecutor(), executionStartTime);
+          attempt,
+          fut,
+          executorProvider.getScheduledExecutor(),
+          executionStartTime,
+          outcomeRetries);
     } catch (Exception e) {
       log.warnf(e, "Watchdog scheduling error for job %s; rejecting execution", jobId);
       throw new RejectedExecutionException("Timeout monitoring could not be scheduled", e);

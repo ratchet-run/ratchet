@@ -148,6 +148,7 @@ public class JobTask implements Callable<Void> {
   private final HeldKeyReleases holdReleases;
   private final PermitReleases permitReleases;
   private final ClaimReschedules claimReschedules;
+  private final OutcomeWriteRetries outcomeRetries;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
   private @Nullable JobAttemptControl attempt;
@@ -180,6 +181,10 @@ public class JobTask implements Callable<Void> {
   // Set once this worker's own fenced outcome write commits. A cancel that the watchdog finds later
   // belongs to an attempt that wrote no outcome.
   private volatile boolean outcomeWritten;
+  // A CANCELED row after an uncertain live-state write may cancel the job this attempt requeued.
+  // Keep this attempt's FAILED execution; the job row is right either way.
+  private volatile boolean outcomeWriteUnknown;
+  private volatile boolean forcedWritePending;
   private Instant executionStart;
 
   protected JobTask() {
@@ -206,6 +211,7 @@ public class JobTask implements Callable<Void> {
     this.holdReleases = null;
     this.permitReleases = null;
     this.claimReschedules = null;
+    this.outcomeRetries = null;
     this.clock = null;
     this.callbackInvoker = null;
     this.argResolver = null;
@@ -235,6 +241,7 @@ public class JobTask implements Callable<Void> {
       HeldKeyReleases holdReleases,
       PermitReleases permitReleases,
       ClaimReschedules claimReschedules,
+      OutcomeWriteRetries outcomeRetries,
       Clock clock,
       PreExecutionArgResolver argResolver,
       RatchetOptions options) {
@@ -262,6 +269,7 @@ public class JobTask implements Callable<Void> {
     this.holdReleases = holdReleases;
     this.permitReleases = permitReleases;
     this.claimReschedules = claimReschedules;
+    this.outcomeRetries = outcomeRetries;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.callbackInvoker =
         new LifecycleCallbackInvoker(
@@ -933,50 +941,34 @@ public class JobTask implements Callable<Void> {
       } catch (Throwable sanitizerError) {
         safeError = t.getClass().getName();
       }
-      // The increment's outcome is unknown, so the write carries no attempts fence. The worker took
-      // the timeout before the increment, so the watchdog cannot charge under this claim; the
-      // re-read keeps a charge that committed.
-      if (expectedAttempts == null) {
-        refreshAttemptsBeforeForcedFailure();
+      if (attempt != null && !attempt.holdTimeoutForWorker()) {
+        log.infof(
+            "Job %s timeout owned by the watchdog — deferring forced failure to the watchdog",
+            job.getId());
+        saveDeferredExecutionFailure(t);
+        return;
       }
+      boolean countKnown = expectedAttempts != null || refreshAttemptsBeforeForcedFailure();
       boolean failed = false;
-      try {
-        failed = forceFailure(safeError);
-      } catch (Throwable lastResort) {
-        if (attempt == null) {
-          log.errorf(
-              lastResort,
-              "Job %s could not be transitioned to FAILED — left RUNNING until orphan recovery,"
-                  + " which resets it only after this node stops heartbeating",
-              job.getId());
+      boolean retry = !countKnown;
+      if (countKnown) {
+        try {
+          failed = forceFailure(safeError);
+        } catch (Throwable lastResort) {
+          retry = true;
+        }
+      }
+      if (retry) {
+        saveDeferredExecutionFailure(t);
+        forcedWritePending = true;
+        log.warnf("Job %s forced FAILED write is retried until it lands", job.getId());
+        if (outcomeRetries != null) {
+          outcomeRetries.run(
+              "forced FAILED write for job " + job.getId(), forcedFailureFinisher(safeError, t));
         } else {
-          boolean workerHolds = attempt.holdTimeoutForWorker();
-          // The watchdog runs this forced write at the deadline instead of a timeout transition,
-          // so it neither charges nor reschedules.
-          Runnable finish = forcedFailureFinisher(safeError, t);
-          if (workerHolds && attempt.handBackTimeoutToWatchdog(finish)) {
-            log.warnf(
-                lastResort,
-                "Job %s forced FAILED write failed — handing timeout back to the watchdog to finish"
-                    + " at its deadline",
-                job.getId());
-            saveDeferredExecutionFailure(t);
-          } else if (workerHolds) {
-            try {
-              failed = forceFailure(safeError);
-            } catch (Throwable retryFailure) {
-              log.errorf(
-                  retryFailure,
-                  "Job %s could not be transitioned to FAILED — left RUNNING until orphan recovery,"
-                      + " which resets it only after this node stops heartbeating",
-                  job.getId());
-            }
-          } else {
-            log.infof(
-                "Job %s timeout owned by the watchdog — deferring forced failure to the watchdog",
-                job.getId());
-            saveDeferredExecutionFailure(t);
-          }
+          log.errorf(
+              "Job %s has no outcome retry helper; leaving forced failure to orphan recovery",
+              job.getId());
         }
       }
       if (failed) {
@@ -989,58 +981,58 @@ public class JobTask implements Callable<Void> {
   }
 
   private Runnable forcedFailureFinisher(String safeError, Throwable failure) {
-    // The finisher runs on the watchdog thread after the worker returns, so it works on a copy.
+    // Retries may outlive the worker, so use a copy and captured collaborators.
     JobEntity copy = PostExecutionHandler.completionSnapshot(job, job.getStatus());
     copy.setOnFailurePayload(job.getOnFailurePayload());
     copy.setParams(job.getParams());
     copy.setCallerPrincipal(job.getCallerPrincipal());
     Integer expected = expectedAttempts;
+    boolean writeUnknown = outcomeWriteUnknown;
     JobAttemptControl control = attempt;
     PostExecutionHandler lifecycle = lifecycleFacade;
     JobStore store = jobStore;
     LifecycleCallbackInvoker callbacks = callbackInvoker;
     return () -> {
-      try {
-        if (expected == null) {
-          try {
+      if (expected == null) {
+        JobEntity stored =
             store
                 .findByIdLatest(copy.getId())
-                .ifPresent(stored -> copy.setAttempts(stored.getAttempts()));
-          } catch (Throwable readFailure) {
-            log.warnf(
-                readFailure,
-                "Job %s could not refresh attempts before forced failure; writing %s attempts",
-                copy.getId(),
-                copy.getAttempts());
+                .orElseThrow(
+                    () ->
+                        new IllegalStateException(
+                            "Missing job before forced failure: " + copy.getId()));
+        copy.setAttempts(stored.getAttempts());
+      }
+      copy.setLastError(safeError);
+      if (lifecycle.completeFailure(copy, JobStatus.RUNNING, false, expected)) {
+        if (callbacks != null) {
+          try {
+            callbacks.invokeOnFailureInJobContext(copy, failure);
+          } catch (Throwable callbackError) {
+            log.errorf(
+                callbackError,
+                "Job %s onFailure callback failed after last-resort failure handling",
+                copy.getId());
           }
         }
-        copy.setLastError(safeError);
-        if (lifecycle.completeFailure(copy, JobStatus.RUNNING, false, expected)) {
-          log.infof("Job %s watchdog finished the forced FAILED write", copy.getId());
-          if (callbacks != null) {
-            try {
-              callbacks.invokeOnFailureInJobContext(copy, failure);
-            } catch (Throwable callbackError) {
-              log.errorf(
-                  callbackError,
-                  "Job %s onFailure callback failed after last-resort failure handling",
-                  copy.getId());
-            }
-          }
-        } else {
-          control.markSuperseded();
-          if (store.getJobStatus(copy.getId()) == JobStatus.CANCELED) {
+      } else {
+        try {
+          if (control != null) control.markSuperseded();
+        } catch (Throwable supersedeError) {
+          log.errorf(supersedeError, "Job %s could not mark its attempt superseded", copy.getId());
+        }
+        try {
+          if (!writeUnknown
+              && control != null
+              && store.getJobStatus(copy.getId()) == JobStatus.CANCELED) {
             control.finishCancelFoundByTimeout();
-          } else {
-            log.warnf("Job %s forced FAILED write missed because the claim moved on", copy.getId());
           }
+        } catch (Throwable cancelError) {
+          log.errorf(
+              cancelError,
+              "Job %s could not finish cancellation after a missed forced write",
+              copy.getId());
         }
-      } catch (Throwable writeFailure) {
-        log.errorf(
-            writeFailure,
-            "Job %s could not be transitioned to FAILED — left RUNNING until orphan recovery,"
-                + " which resets it only after this node stops heartbeating",
-            copy.getId());
       }
     };
   }
@@ -1062,17 +1054,27 @@ public class JobTask implements Callable<Void> {
     return false;
   }
 
-  private void refreshAttemptsBeforeForcedFailure() {
+  private boolean refreshAttemptsBeforeForcedFailure() {
     try {
-      jobStore
-          .findByIdLatest(job.getId())
-          .ifPresent(stored -> job.setAttempts(stored.getAttempts()));
+      var stored = jobStore.findByIdLatest(job.getId());
+      if (stored.isEmpty()) return false;
+      job.setAttempts(stored.get().getAttempts());
+      return true;
     } catch (Throwable readFailure) {
       log.warnf(
-          readFailure,
-          "Job %s could not refresh attempts before forced failure; writing %s attempts",
-          job.getId(),
-          job.getAttempts());
+          readFailure, "Job %s could not refresh attempts before forced failure", job.getId());
+      return false;
+    }
+  }
+
+  // Only writes that can leave the job live need this guard. A terminal FAILED write cannot
+  // commit and then be canceled, so a CANCELED row proves that terminal write did not commit.
+  private <T> T writeOutcome(Supplier<T> write) {
+    try {
+      return write.get();
+    } catch (Throwable failure) {
+      outcomeWriteUnknown = true;
+      throw failure;
     }
   }
 
@@ -1102,8 +1104,10 @@ public class JobTask implements Callable<Void> {
   private AcquireResult acquireResourcePermit(String resourceName, long claimSeq) {
     return retryTransientStoreOperation(
         () ->
-            resourcePermitService.tryAcquire(
-                resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId()));
+            writeOutcome(
+                () ->
+                    resourcePermitService.tryAcquire(
+                        resourceName, job.getId(), claimSeq, nodeIdProvider.getNodeId())));
   }
 
   private <T> T retryTransientStoreOperation(Supplier<T> operation) {
@@ -1148,7 +1152,9 @@ public class JobTask implements Callable<Void> {
       Runnable onRejected,
       boolean reconcileCancellation) {
     Supplier<Boolean> write =
-        () -> jobStore.releaseClaim(jobId, reason, scheduledTime, attempts, claimSeq);
+        () ->
+            writeOutcome(
+                () -> jobStore.releaseClaim(jobId, reason, scheduledTime, attempts, claimSeq));
     boolean accepted;
     try {
       recordInterrupt(Thread.interrupted());
@@ -1276,6 +1282,9 @@ public class JobTask implements Callable<Void> {
       }
 
       if (result == AcquireResult.ACQUIRED) {
+        // ACQUIRED means the store found this claim RUNNING, so no earlier try parked it.
+        // Nothing earlier in the attempt sets the flag.
+        outcomeWriteUnknown = false;
         permitAcquired = true;
         log.infof("Job %s acquired permit for resource '%s'", job.getId(), resourceName);
         return true;
@@ -1377,6 +1386,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private boolean wasJobCanceledDuringExecution() {
+    if (outcomeWriteUnknown) return false;
     JobStatus freshStatus = jobStore.getJobStatus(job.getId());
     if (freshStatus == null) {
       log.warnf("Job %s was deleted during execution - treating as canceled", job.getId());
@@ -1407,6 +1417,7 @@ public class JobTask implements Callable<Void> {
    * and the batch.
    */
   private void handleCanceledDuringExecution(Instant start) {
+    if (outcomeWriteUnknown) return;
     cancelHandled = true;
     if (attempt != null && !attempt.claimCancelFinish()) return;
     recordCanceledAttempt(start);
@@ -1414,6 +1425,7 @@ public class JobTask implements Callable<Void> {
 
   /** Ends this attempt's execution CANCELED and records the cancellation. */
   private void recordCanceledAttempt(Instant start) {
+    if (outcomeWriteUnknown) return;
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = effective().instant();
@@ -1436,7 +1448,8 @@ public class JobTask implements Callable<Void> {
    * its own. An attempt that wrote its own outcome, such as a retry, was not the one canceled.
    */
   private void recordCancelFoundByTimeout() {
-    if (job != null && !outcomeWritten) recordCanceledAttempt(cancelStart());
+    if (job != null && !outcomeWritten && !outcomeWriteUnknown)
+      recordCanceledAttempt(cancelStart());
   }
 
   /** Releases the business-key hold of the claim this attempt runs under. */
@@ -1492,6 +1505,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private boolean jobWasCanceled() {
+    if (outcomeWriteUnknown) return false;
     if (Thread.currentThread().isInterrupted()) return false;
     try {
       return jobStore.getJobStatus(job.getId()) == JobStatus.CANCELED;
@@ -1638,7 +1652,12 @@ public class JobTask implements Callable<Void> {
    * watchdog already passed, it will not check, so the worker reads the status once more itself.
    */
   private void leaveUnconfirmedCancelToWatchdog() {
-    if (attempt == null || outcomeWritten || cancelHandled || !attempt.holdTimeoutForWorker()) {
+    if (forcedWritePending
+        || outcomeWriteUnknown
+        || attempt == null
+        || outcomeWritten
+        || cancelHandled
+        || !attempt.holdTimeoutForWorker()) {
       return;
     }
     if (attempt.handBackTimeoutToWatchdog()) return;
@@ -1848,7 +1867,10 @@ public class JobTask implements Callable<Void> {
       }
     }
     Instant scheduled = effective().instant().plus(delay);
-    if (jobStore.releaseClaim(job.getId(), null, scheduled, claimAttempts, expectedClaimSeq())) {
+    if (writeOutcome(
+        () ->
+            jobStore.releaseClaim(
+                job.getId(), null, scheduled, claimAttempts, expectedClaimSeq()))) {
       outcomeWritten = true;
       job.setStatus(JobStatus.PENDING);
       job.setScheduledTime(scheduled);
@@ -2486,8 +2508,10 @@ public class JobTask implements Callable<Void> {
     Instant timestamp = effective().instant();
     Instant newScheduledTime = timestamp.plusMillis(backoff);
 
-    if (jobStore.scheduleJobRetry(
-        job.getId(), sanitized, newScheduledTime, attempt, expectedClaimSeq())) {
+    if (writeOutcome(
+        () ->
+            jobStore.scheduleJobRetry(
+                job.getId(), sanitized, newScheduledTime, attempt, expectedClaimSeq()))) {
       outcomeWritten = true;
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);

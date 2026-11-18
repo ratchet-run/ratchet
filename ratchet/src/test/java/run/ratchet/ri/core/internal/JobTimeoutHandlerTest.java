@@ -45,7 +45,6 @@ import static org.mockito.Mockito.when;
 import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
@@ -63,6 +62,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.BeforeEach;
@@ -239,28 +239,7 @@ class JobTimeoutHandlerTest {
         .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
   }
 
-  @Test
-  void handedBackFinisherRunsInsteadOfTimeoutTransition() {
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2, 7L, "node-1");
-    Runnable finish = mock(Runnable.class);
-
-    hardTaskAfterHandlesCancel(attempt, true, finish).run();
-
-    verify(finish, times(1)).run();
-    assertFalse(attempt.isCancellationRequested());
-    verify(jobCrudStore, never()).findById(any());
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any(), any());
-    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-    verify(lifecycleFacade, never())
-        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
-  }
-
   private Runnable hardTaskAfterHandlesCancel(JobAttemptControl attempt, boolean handBack) {
-    return hardTaskAfterHandlesCancel(attempt, handBack, null);
-  }
-
-  private Runnable hardTaskAfterHandlesCancel(
-      JobAttemptControl attempt, boolean handBack, Runnable finish) {
     // Advance scheduled tasks explicitly; FutureTask preserves cancellation before the deadline.
     ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
     List<FutureTask<Void>> tasks = new ArrayList<>();
@@ -281,10 +260,7 @@ class JobTimeoutHandlerTest {
         handler.scheduleTimeoutMonitoring(attempt, future, scheduler, attempt.executionStartTime());
     assertTrue(attempt.holdTimeoutForWorker());
     if (handBack) {
-      assertTrue(
-          finish == null
-              ? attempt.handBackTimeoutToWatchdog()
-              : attempt.handBackTimeoutToWatchdog(finish));
+      assertTrue(attempt.handBackTimeoutToWatchdog());
     }
 
     handles.cancel();
@@ -702,9 +678,12 @@ class JobTimeoutHandlerTest {
   private void invokeHardTimeout(JobAttemptControl attempt, Future<?> future) throws Exception {
     Method method =
         JobTimeoutHandler.class.getDeclaredMethod(
-            "handleHardTimeoutById", JobAttemptControl.class, Future.class);
+            "handleHardTimeoutById",
+            JobAttemptControl.class,
+            Future.class,
+            OutcomeWriteRetries.class);
     method.setAccessible(true);
-    method.invoke(handler, attempt, future);
+    method.invoke(handler, attempt, future, null);
   }
 
   @Test
@@ -1386,18 +1365,88 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
-  void hardTimeoutPostProcessingFailureRethrowsAfterCancellingFuture() throws Exception {
+  void hardTimeoutRetryReusesCommittedChargeOnReleaseScheduler() {
+    assertRetriedHardTimeout(false);
+  }
+
+  @Test
+  void hardTimeoutRetryStopsWhenRowNoLongerRunsUnderClaim() {
+    assertRetriedHardTimeout(true);
+  }
+
+  private void assertRetriedHardTimeout(boolean claimEnded) {
+    JobEntity first = jobWithMaxRetries(3);
+    JobEntity retry = jobWithMaxRetries(3);
+    retry.setAttempts(1);
+    if (claimEnded) retry.setStatus(JobStatus.PENDING);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(first), Optional.of(retry));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L, 0)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(7L)))
+        .thenThrow(new IllegalStateException("committed charge, failed retry write"))
+        .thenReturn(true);
+    ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
+    ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    List<Runnable> pending = new ArrayList<>();
+    List<Long> delays = new ArrayList<>();
+    AtomicLong clock = new AtomicLong();
+    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+        .thenAnswer(
+            invocation -> {
+              pending.add(invocation.getArgument(0));
+              delays.add(invocation.getArgument(1));
+              return null;
+            });
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
+    handler.scheduleTimeoutMonitoring(
+        attempt,
+        mock(Future.class),
+        timers,
+        Instant.EPOCH,
+        new OutcomeWriteRetries(() -> releases, clock::get));
+    ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+    verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
+
+    assertDoesNotThrow(() -> tasks.getAllValues().get(1).run());
+
+    assertFalse(handler.isWatchdogCancelled(JOB_ID));
+    assertEquals(List.of(5_000L), delays);
+    assertEquals(1, pending.size());
+    clock.addAndGet(TimeUnit.SECONDS.toNanos(5));
+    assertDoesNotThrow(() -> pending.remove(0).run());
+
+    assertTrue(pending.isEmpty());
+    verify(jobRetryStore, times(1)).incrementRetryAttempt(JOB_ID, 7L, 0);
+    verify(jobRetryStore, times(claimEnded ? 1 : 2))
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(7L));
+    verify(jobCrudStore, times(2)).findById(JOB_ID);
+  }
+
+  @Test
+  void fourArgumentTimeoutMonitoringTriesOnceWithoutThrowingFromTask() {
+    when(jobCrudStore.findById(JOB_ID)).thenThrow(new IllegalStateException("store down"));
+    ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
+    handler.scheduleTimeoutMonitoring(attempt, mock(Future.class), timers, Instant.EPOCH);
+    ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+    verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
+
+    assertDoesNotThrow(() -> tasks.getAllValues().get(1).run());
+
+    verify(jobCrudStore, times(1)).findById(JOB_ID);
+    assertFalse(handler.isWatchdogCancelled(JOB_ID));
+  }
+
+  @Test
+  void hardTimeoutPostProcessingFailureIsLoggedAfterCancellingFuture() throws Exception {
     when(jobCrudStore.findById(JOB_ID)).thenThrow(new IllegalStateException("store down"));
     FutureTask<Void> future = new FutureTask<>(() -> null);
-    InvocationTargetException thrown =
-        assertThrows(
-            InvocationTargetException.class,
-            () ->
-                invokeHardTimeout(
-                    handler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.EPOCH, 0, 0L, "node-1"),
-                    future));
 
-    assertInstanceOf(IllegalStateException.class, thrown.getCause());
+    assertDoesNotThrow(
+        () ->
+            invokeHardTimeout(
+                handler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.EPOCH, 0, 0L, "node-1"),
+                future));
+
     assertTrue(future.isCancelled());
   }
 

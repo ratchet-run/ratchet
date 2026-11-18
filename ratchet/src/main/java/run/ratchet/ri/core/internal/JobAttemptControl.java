@@ -387,25 +387,6 @@ public final class JobAttemptControl {
     }
   }
 
-  private volatile @Nullable Runnable handedBackFinish;
-
-  /**
-   * Hands the timeout back so the watchdog runs {@code finish} instead of a timeout transition
-   * after it claims the handed-back timeout.
-   */
-  public boolean handBackTimeoutToWatchdog(Runnable finish) {
-    handedBackFinish = finish;
-    if (handBackTimeoutToWatchdog()) {
-      return true;
-    }
-    handedBackFinish = null;
-    return false;
-  }
-
-  @Nullable Runnable handedBackFinish() {
-    return handedBackFinish;
-  }
-
   /** Reports whether a failed cooperative transition is waiting for the watchdog. */
   public boolean isTimeoutHandedBack() {
     return timeoutOwner.get() == TimeoutOwner.HANDED_BACK;
