@@ -335,6 +335,24 @@ public final class JobAttemptControl {
     return timeoutOwner.compareAndSet(TimeoutOwner.UNCLAIMED, TimeoutOwner.WORKER);
   }
 
+  /**
+   * Holds the timeout for the worker before it forces FAILED: claims it if unclaimed and keeps it
+   * if the worker already owns it. Returns false once the watchdog has claimed it or it was handed
+   * back.
+   */
+  public boolean holdTimeoutForWorker() {
+    while (true) {
+      TimeoutOwner owner = timeoutOwner.get();
+      if (owner == TimeoutOwner.UNCLAIMED) {
+        if (timeoutOwner.compareAndSet(owner, TimeoutOwner.WORKER)) {
+          return true;
+        }
+      } else {
+        return owner == TimeoutOwner.WORKER || owner == TimeoutOwner.WORKER_WATCHDOG_PASSED;
+      }
+    }
+  }
+
   /** Claims the timeout for the watchdog, or records that it passed a worker-owned timeout. */
   public boolean claimTimeoutForWatchdog() {
     while (true) {

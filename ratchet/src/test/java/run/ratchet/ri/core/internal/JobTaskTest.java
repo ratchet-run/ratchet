@@ -433,6 +433,136 @@ class JobTaskTest {
   }
 
   @Test
+  void watchdogClaimAfterSupersedeCheckDefersForcedFailure() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    AtomicInteger calls = new AtomicInteger();
+    when(errorSanitizer.sanitize(failure))
+        .thenAnswer(
+            invocation -> {
+              if (calls.incrementAndGet() == 2) {
+                Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+              }
+              return "safe body failure";
+            });
+
+    jobTask.call();
+
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    verify(jobStore, never()).findByIdLatest(any());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+  }
+
+  @Test
+  void workerHoldsTimeoutBeforeForcedFailure() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenAnswer(
+            invocation -> {
+              watchdogClaimed.set(scenario.attempt().claimTimeoutForWatchdog());
+              return true;
+            });
+
+    jobTask.call();
+
+    Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+  }
+
+  @Test
+  void forcedFailureWithKnownAttemptsDoesNotHoldTimeout() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenAnswer(
+            invocation -> {
+              watchdogClaimed.set(scenario.attempt().claimTimeoutForWatchdog());
+              return true;
+            });
+
+    jobTask.call();
+
+    Assertions.assertEquals(Boolean.TRUE, watchdogClaimed.get());
+    verify(jobStore, never()).findByIdLatest(any());
+  }
+
+  @Test
+  void failedIncrementForcedFailureKeepsCommittedCount() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    JobEntity stored = createTestJob();
+    stored.setAttempts(4);
+    when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(stored));
+    AtomicInteger writtenAttempts = new AtomicInteger();
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenAnswer(
+            invocation -> {
+              writtenAttempts.set(scenario.job().getAttempts());
+              return true;
+            });
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
+    Assertions.assertEquals(4, writtenAttempts.get());
+  }
+
+  @Test
+  void failedIncrementForcedFailureKeepsLoadedCountWhenReadFails() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    when(jobStore.findByIdLatest(JOB_UUID)).thenThrow(new IllegalStateException("read failed"));
+    AtomicInteger writtenAttempts = new AtomicInteger();
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenAnswer(
+            invocation -> {
+              writtenAttempts.set(scenario.job().getAttempts());
+              return true;
+            });
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
+    Assertions.assertEquals(3, writtenAttempts.get());
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+  }
+
+  @Test
   void unboundCallbackUsesClaimAttemptsAfterHydrationCharge() throws Exception {
     var scenario = hydratedClaimScenario(() -> {});
     var original = scenario.job().getPayload();

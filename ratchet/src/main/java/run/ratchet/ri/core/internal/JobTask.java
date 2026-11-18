@@ -932,6 +932,19 @@ public class JobTask implements Callable<Void> {
       } catch (Throwable sanitizerError) {
         safeError = t.getClass().getName();
       }
+      // The increment's outcome is unknown, so the write carries no attempts fence. Holding the
+      // timeout first stops the watchdog from charging under this claim; the re-read keeps a charge
+      // that committed.
+      if (expectedAttempts == null) {
+        if (attempt != null && !attempt.holdTimeoutForWorker()) {
+          log.infof(
+              "Job %s timeout claimed by the watchdog — deferring forced failure to the watchdog",
+              job.getId());
+          saveDeferredExecutionFailure(t);
+          return;
+        }
+        refreshAttemptsBeforeForcedFailure();
+      }
       boolean failed = false;
       try {
         job.setLastError(safeError);
@@ -956,6 +969,20 @@ public class JobTask implements Callable<Void> {
       if (failed) {
         invokeOnFailureAfterLastResort(t);
       }
+    }
+  }
+
+  private void refreshAttemptsBeforeForcedFailure() {
+    try {
+      jobStore
+          .findByIdLatest(job.getId())
+          .ifPresent(stored -> job.setAttempts(stored.getAttempts()));
+    } catch (Throwable readFailure) {
+      log.warnf(
+          readFailure,
+          "Job %s could not refresh attempts before forced failure; writing %s attempts",
+          job.getId(),
+          job.getAttempts());
     }
   }
 
