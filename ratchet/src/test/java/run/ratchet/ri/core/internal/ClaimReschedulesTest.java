@@ -71,7 +71,8 @@ class ClaimReschedulesTest {
   }
 
   private boolean handOff(long seq, Runnable callback) {
-    return reschedules.handOff(JOB, seq, "release", TIME, 2, () -> false, callback);
+    return reschedules.handOff(
+        JOB, seq, "release", TIME, 2, () -> false, () -> {}, callback, () -> {});
   }
 
   private void drainAt(long seconds) {
@@ -80,11 +81,134 @@ class ClaimReschedulesTest {
   }
 
   @Test
+  void acceptedWriteRunsOnlyAcceptedCallbackOnce() {
+    Runnable accepted = mock(Runnable.class);
+    Runnable rejected = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L)).thenReturn(true);
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> false, accepted, rejected, dropped));
+    drainAt(1);
+    verify(accepted).run();
+    verifyNoMoreInteractions(accepted);
+    verifyNoInteractions(rejected, dropped);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void rejectedWriteRunsOnlyRejectedCallbackOnce() {
+    Runnable accepted = mock(Runnable.class);
+    Runnable rejected = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> false, accepted, rejected, dropped));
+    drainAt(1);
+    verify(rejected).run();
+    verifyNoMoreInteractions(rejected);
+    verifyNoInteractions(accepted, dropped);
+  }
+
+  @Test
+  void revokedEntryRunsOnlyDroppedCallbackOnce() {
+    Runnable accepted = mock(Runnable.class);
+    Runnable rejected = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> true, accepted, rejected, dropped));
+    drainAt(1);
+    verify(dropped).run();
+    verifyNoMoreInteractions(dropped);
+    verifyNoInteractions(store, accepted, rejected);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void nonTransientFailureRunsOnlyDroppedCallbackOnce() {
+    Runnable accepted = mock(Runnable.class);
+    Runnable rejected = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
+        .thenThrow(new IllegalStateException("broken store"));
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> false, accepted, rejected, dropped));
+    drainAt(1);
+    verify(dropped).run();
+    verifyNoMoreInteractions(dropped);
+    verifyNoInteractions(accepted, rejected);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void refusedRearmDropsEveryEntryEvenWhenCallbackThrows() {
+    AtomicBoolean droppedUnderLock = new AtomicBoolean(true);
+    AtomicBoolean otherUnderLock = new AtomicBoolean(true);
+    Runnable dropped = mock(Runnable.class);
+    Runnable other = mock(Runnable.class);
+    Runnable unexpected = () -> fail("unexpected write result");
+    doAnswer(
+            invocation -> {
+              droppedUnderLock.set(Thread.holdsLock(reschedules));
+              throw new IllegalStateException("callback failed");
+            })
+        .when(dropped)
+        .run();
+    doAnswer(
+            invocation -> {
+              otherUnderLock.set(Thread.holdsLock(reschedules));
+              return null;
+            })
+        .when(other)
+        .run();
+    when(store.releaseClaim(eq(JOB), any(), any(), anyInt(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("unavailable"));
+    assertTrue(
+        reschedules.handOff(
+            JOB, 7, "release", TIME, 2, () -> false, unexpected, unexpected, dropped));
+    assertTrue(
+        reschedules.handOff(
+            JOB, 8, "release", TIME, 2, () -> false, unexpected, unexpected, other));
+    doThrow(new RejectedExecutionException("stopped"))
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    assertDoesNotThrow(() -> drainAt(1));
+    verify(dropped).run();
+    verify(other).run();
+    verifyNoMoreInteractions(dropped, other);
+    assertFalse(droppedUnderLock.get());
+    assertFalse(otherUnderLock.get());
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void throwingAcceptedCallbackDoesNotDropEntryAndDrainRearms() {
+    Runnable accepted = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    doThrow(new IllegalStateException("callback failed")).when(accepted).run();
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L)).thenReturn(true);
+    when(store.releaseClaim(JOB, "release", TIME, 2, 8L))
+        .thenThrow(new RatchetTransientStoreException("unavailable"))
+        .thenReturn(true);
+    assertTrue(
+        reschedules.handOff(
+            JOB, 7, "release", TIME, 2, () -> false, accepted, () -> fail("rejected"), dropped));
+    handOff(8, () -> fail("rejected"));
+    assertDoesNotThrow(() -> drainAt(1));
+    assertEquals(1, tasks.size());
+    drainAt(5);
+    verify(accepted).run();
+    verifyNoMoreInteractions(accepted);
+    verifyNoInteractions(dropped);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
   void deduplicatesSameClaimAndKeepsFirstWriteAndCallback() {
     Runnable first = mock(Runnable.class);
     Runnable second = mock(Runnable.class);
     assertTrue(handOff(7, first));
-    assertTrue(reschedules.handOff(JOB, 7, "other", TIME.plusSeconds(1), 9, () -> false, second));
+    assertTrue(
+        reschedules.handOff(
+            JOB, 7, "other", TIME.plusSeconds(1), 9, () -> false, () -> {}, second, () -> {}));
     assertEquals(1, tasks.size());
     drainAt(1);
     verify(store).releaseClaim(JOB, "release", TIME, 2, 7L);
@@ -97,7 +221,8 @@ class ClaimReschedulesTest {
   @Test
   void revokedAtFirstDrainRemovesItemWithoutWriteOrCallback() {
     Runnable callback = mock(Runnable.class);
-    assertTrue(reschedules.handOff(JOB, 7, "release", TIME, 2, () -> true, callback));
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> true, () -> {}, callback, () -> {}));
     drainAt(1);
     verifyNoInteractions(store, callback);
     assertTrue(tasks.isEmpty());
@@ -109,7 +234,9 @@ class ClaimReschedulesTest {
     Runnable callback = mock(Runnable.class);
     when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
         .thenThrow(new RatchetTransientStoreException("unavailable"));
-    assertTrue(reschedules.handOff(JOB, 7, "release", TIME, 2, revoked::get, callback));
+    assertTrue(
+        reschedules.handOff(
+            JOB, 7, "release", TIME, 2, revoked::get, () -> {}, callback, () -> {}));
     drainAt(1);
     revoked.set(true);
     drainAt(5);
@@ -132,7 +259,9 @@ class ClaimReschedulesTest {
             () -> {
               throw new IllegalStateException("revocation unavailable");
             },
-            callback));
+            () -> {},
+            callback,
+            () -> {}));
     assertDoesNotThrow(() -> drainAt(1));
     verify(store).releaseClaim(JOB, "release", TIME, 2, 7L);
     verify(callback).run();
@@ -244,7 +373,7 @@ class ClaimReschedulesTest {
   void missingOrThrowingSchedulerRefusesHandoff() {
     assertFalse(
         new ClaimReschedules(store, () -> null, null)
-            .handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
+            .handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}, () -> {}, () -> {}));
     assertFalse(
         new ClaimReschedules(
                 store,
@@ -252,7 +381,7 @@ class ClaimReschedulesTest {
                   throw new IllegalStateException("missing");
                 },
                 null)
-            .handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
+            .handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}, () -> {}, () -> {}));
     verifyNoInteractions(store);
   }
 
@@ -300,8 +429,10 @@ class ClaimReschedulesTest {
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
     ClaimReschedules retrying =
         new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
-    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
-    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
+    assertTrue(
+        retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}, () -> {}, () -> {}));
+    assertTrue(
+        retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}, () -> {}, () -> {}));
     assertEquals(1, rearms.size());
     for (int i = 0; i < 7; i++) rearms.remove().run();
     ArgumentCaptor<Long> delays = ArgumentCaptor.forClass(Long.class);
@@ -333,7 +464,9 @@ class ClaimReschedulesTest {
     when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
         .thenThrow(new RatchetTransientStoreException("down"))
         .thenReturn(true);
-    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> fail("rejected")));
+    assertTrue(
+        retrying.handOff(
+            JOB, 7, "release", TIME, 2, () -> false, () -> {}, () -> fail("rejected"), () -> {}));
     doThrow(new RejectedExecutionException("busy"))
         .when(scheduler)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
@@ -354,16 +487,31 @@ class ClaimReschedulesTest {
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
     ClaimReschedules retrying =
         new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
+    AtomicBoolean droppedUnderLock = new AtomicBoolean(true);
     when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
         .thenThrow(new RatchetTransientStoreException("down"));
-    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> fail("rejected")));
+    assertTrue(
+        retrying.handOff(
+            JOB,
+            7,
+            "release",
+            TIME,
+            2,
+            () -> false,
+            () -> {},
+            () -> fail("rejected"),
+            () -> droppedUnderLock.set(Thread.holdsLock(retrying))));
     doThrow(new RejectedExecutionException("busy"))
         .when(scheduler)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
     drainAt(1);
-    assertFalse(retrying.handOff(JOB, 8, "release", TIME, 2, () -> false, () -> fail("rejected")));
+    assertFalse(droppedUnderLock.get());
+    assertFalse(
+        retrying.handOff(
+            JOB, 8, "release", TIME, 2, () -> false, () -> {}, () -> fail("rejected"), () -> {}));
     captureTasks();
-    assertTrue(retrying.handOff(JOB, 9, "release", TIME, 2, () -> false, () -> {}));
+    assertTrue(
+        retrying.handOff(JOB, 9, "release", TIME, 2, () -> false, () -> {}, () -> {}, () -> {}));
     drainAt(100);
     verify(store).releaseClaim(JOB, "release", TIME, 2, 7L);
     verify(store).releaseClaim(JOB, "release", TIME, 2, 9L);

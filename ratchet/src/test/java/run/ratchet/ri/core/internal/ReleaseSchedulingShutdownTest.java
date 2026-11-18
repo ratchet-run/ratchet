@@ -75,7 +75,15 @@ class ReleaseSchedulingShutdownTest {
           assertDoesNotThrow(
               () ->
                   reschedules.handOff(
-                      UUID.randomUUID(), 1, "release", Instant.now(), 0, () -> false, () -> {})));
+                      UUID.randomUUID(),
+                      1,
+                      "release",
+                      Instant.now(),
+                      0,
+                      () -> false,
+                      () -> {},
+                      () -> {},
+                      () -> {})));
       for (Capture capture : List.of(releases, claims)) {
         assertEquals(1, capture.records.size());
         LogRecord record = capture.records.get(0);

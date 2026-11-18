@@ -16,6 +16,8 @@
 package run.ratchet.ri.core.internal;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -30,19 +32,20 @@ import run.ratchet.store.spi.JobRetryStore;
 /**
  * Retries, on a release executor thread, a claim release that a worker could not write. A worker
  * gives back a claim it will not run (after a transient permit failure, a superseded permit, an
- * open circuit, an envelope upgrade or a failed batch check) through {@link
- * JobRetryStore#releaseClaim}. If the store keeps failing, the job would stay RUNNING with no
- * worker: the timeout watchdog stops when the worker returns, and orphan recovery skips nodes that
- * still heartbeat.
+ * open circuit, an envelope upgrade, a failed batch check or a completed continuation) through
+ * {@link JobRetryStore#releaseClaim}. If the store keeps failing, the job would stay RUNNING with
+ * no worker: the timeout watchdog stops when the worker returns, and orphan recovery skips nodes
+ * that still heartbeat.
  *
  * <p>Pending writes are keyed by job and claim sequence. Each write is fenced on the claim sequence
  * and attempt count, so a charge committed under the same claim always wins. No write charges an
- * attempt. A rejected write runs the caller's callback. There is one entry per ended attempt whose
- * write still fails, so at most the attempts this node ended during the outage. Entries are dropped
- * only when both executors refuse or this node stops; this node's shutdown reset or, after its
- * heartbeat stops, orphan recovery handles those rows. The revoked check only avoids a write the
- * timeout watchdog has taken over. Refused release tasks are resubmitted from the scheduled
- * executor while this node runs.
+ * attempt. Each accepted hand-off runs exactly one accepted, rejected or dropped callback. A
+ * dropped write has no store result, including when the watchdog revokes it. There is one entry per
+ * ended attempt whose write still fails, so at most the attempts this node ended during the outage.
+ * Entries are dropped when revoked, after a non-transient store failure, or when both executors
+ * refuse or this node stops. Shutdown reset or orphan recovery handles unwritten rows. The revoked
+ * check only avoids a write the timeout watchdog has taken over. Refused release tasks are
+ * resubmitted from the scheduled executor while this node runs.
  */
 class ClaimReschedules {
   private static final Logger log = Logger.getLogger(ClaimReschedules.class);
@@ -81,11 +84,21 @@ class ClaimReschedules {
       Instant scheduledTime,
       int attempts,
       BooleanSupplier revoked,
-      Runnable afterRejected) {
+      Runnable afterAccepted,
+      Runnable afterRejected,
+      Runnable afterDropped) {
     Key key = new Key(jobId, claimSeq);
     if (pending.containsKey(key)) return true;
     Pending item =
-        new Pending(reason, scheduledTime, attempts, revoked, afterRejected, clock.getAsLong());
+        new Pending(
+            reason,
+            scheduledTime,
+            attempts,
+            revoked,
+            afterAccepted,
+            afterRejected,
+            afterDropped,
+            clock.getAsLong());
     pending.put(key, item);
     if (!scheduled && !schedule()) {
       pending.remove(key, item);
@@ -137,18 +150,24 @@ class ClaimReschedules {
     }
   }
 
-  private synchronized void rearm() {
-    scheduled = false;
-    if (!pending.isEmpty() && !schedule()) dropPending();
+  private void rearm() {
+    Map<Key, Pending> dropped = Map.of();
+    synchronized (this) {
+      scheduled = false;
+      if (!pending.isEmpty() && !schedule()) dropped = dropPending();
+    }
+    dropped.forEach((key, item) -> runCallback(key, item.afterDropped, "Dropped"));
   }
 
-  private void dropPending() {
+  private Map<Key, Pending> dropPending() {
     if (!stopping)
       log.warnf(
           "Could not re-arm claim reschedules; %s pending items pass to this node's"
               + " shutdown reset or orphan recovery",
           pending.size());
+    Map<Key, Pending> dropped = new HashMap<>(pending);
     pending.clear();
+    return dropped;
   }
 
   private void drain() {
@@ -156,12 +175,14 @@ class ClaimReschedules {
       drainDue();
     } finally {
       // Re-arm even if a store call threw an Error, or the drain would stop for good.
+      Map<Key, Pending> dropped = Map.of();
       synchronized (this) {
         scheduled = false;
         if (!pending.isEmpty() && !schedule()) {
-          dropPending();
+          dropped = dropPending();
         }
       }
+      dropped.forEach((key, item) -> runCallback(key, item.afterDropped, "Dropped"));
     }
   }
 
@@ -182,6 +203,7 @@ class ClaimReschedules {
       }
       if (revoked) {
         pending.remove(key, item);
+        runCallback(key, item.afterDropped, "Dropped");
         log.infof(
             "Job %s claim %s reschedule belongs to the timeout watchdog",
             key.jobId(), key.claimSeq());
@@ -197,16 +219,9 @@ class ClaimReschedules {
           log.infof(
               "Job %s claim %s rescheduled after %s background tries",
               key.jobId(), key.claimSeq(), item.tries);
+          runCallback(key, item.afterAccepted, "Accepted");
         } else {
-          try {
-            item.afterRejected.run();
-          } catch (RuntimeException failure) {
-            log.warnf(
-                failure,
-                "Rejected reschedule callback failed for job %s claim %s",
-                key.jobId(),
-                key.claimSeq());
-          }
+          runCallback(key, item.afterRejected, "Rejected");
         }
       } catch (RatchetTransientStoreException failure) {
         // The first background try runs a second after hand-off. After it, tries run five
@@ -227,6 +242,7 @@ class ClaimReschedules {
         }
       } catch (RuntimeException failure) {
         pending.remove(key, item);
+        runCallback(key, item.afterDropped, "Dropped");
         log.errorf(
             failure,
             "Job %s claim %s stays RUNNING until this node's shutdown reset or,"
@@ -237,6 +253,19 @@ class ClaimReschedules {
     }
   }
 
+  private void runCallback(Key key, Runnable callback, String outcome) {
+    try {
+      callback.run();
+    } catch (RuntimeException failure) {
+      log.warnf(
+          failure,
+          "%s reschedule callback failed for job %s claim %s",
+          outcome,
+          key.jobId(),
+          key.claimSeq());
+    }
+  }
+
   private record Key(UUID jobId, long claimSeq) {}
 
   private static final class Pending {
@@ -244,7 +273,9 @@ class ClaimReschedules {
     final Instant scheduledTime;
     final int attempts;
     final BooleanSupplier revoked;
+    final Runnable afterAccepted;
     final Runnable afterRejected;
+    final Runnable afterDropped;
     final long started;
     long due;
     long lastWarn;
@@ -256,13 +287,17 @@ class ClaimReschedules {
         Instant scheduledTime,
         int attempts,
         BooleanSupplier revoked,
+        Runnable afterAccepted,
         Runnable afterRejected,
+        Runnable afterDropped,
         long now) {
       this.reason = reason;
       this.scheduledTime = scheduledTime;
       this.attempts = attempts;
       this.revoked = revoked;
+      this.afterAccepted = afterAccepted;
       this.afterRejected = afterRejected;
+      this.afterDropped = afterDropped;
       this.started = now;
       this.due = now + TimeUnit.SECONDS.toNanos(1);
       this.lastWarn = now;
