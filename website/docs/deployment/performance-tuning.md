@@ -114,11 +114,15 @@ Considerations:
 
 ### Custom `ExecutorProvider`
 
-For full control over the thread pool, implement the `ExecutorProvider` SPI:
+For full control over the thread pool, implement the `ExecutorProvider` SPI.
+
+The example creates its own threads, which suits a runtime without Jakarta Concurrency. In a Jakarta EE server those threads are unmanaged, so job, scheduled and release work running on them cannot reliably use container services such as `java:comp` lookups or transactions. On a server, keep the default provider and point it at your own managed executors and thread factory with the `ratchet.worker.*-jndi` options. See [Configure store and concurrency resources](installation.md#4-configure-store-and-concurrency-resources). The example is a CDI alternative, so it replaces the default provider.
 
 A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
 
 ```java
+@Alternative
+@Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
 public class CustomExecutorProvider implements ExecutorProvider {
 

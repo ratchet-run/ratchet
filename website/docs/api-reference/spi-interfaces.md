@@ -524,6 +524,8 @@ The runtime calls `initializeApplicationClassLoader` before starting workers. Al
 
 The example requires Java 21. It uses virtual threads for the default job executor and scheduler. It does not register a separate `ExecutorTargets.VIRTUAL` target.
 
+The example creates its own threads, which suits a runtime without Jakarta Concurrency. In a Jakarta EE server those threads are unmanaged, so job, scheduled and release work running on them cannot reliably use container services such as `java:comp` lookups or transactions. On a server, keep the default provider and point it at your own managed executors and thread factory with the `ratchet.worker.*-jndi` options. See [Configure store and concurrency resources](../deployment/installation.md#4-configure-store-and-concurrency-resources).
+
 ### getJobExecutor
 
 ```java
