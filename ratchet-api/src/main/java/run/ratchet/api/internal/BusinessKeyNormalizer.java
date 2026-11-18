@@ -19,9 +19,9 @@ package run.ratchet.api.internal;
  * Normalizes business keys to the subset supported identically by every bundled store.
  *
  * <p>The ASCII restriction is intentional. Oracle may count a {@code VARCHAR2(255)} in bytes, while
- * SQL Server's indexed {@code VARCHAR} columns use the database collation's code page. Printable
- * ASCII is one byte and round-trips unchanged in both, so the 255-character limit has the same
- * meaning for every SQL store and for MongoDB's indexed key.
+ * other stores support Unicode keys with different byte and character limits. Printable ASCII is
+ * one byte and round-trips unchanged across stores, so the 255-character limit has the same meaning
+ * for every SQL store and for MongoDB's indexed key.
  */
 public final class BusinessKeyNormalizer {
 

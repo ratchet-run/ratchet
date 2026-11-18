@@ -109,6 +109,7 @@ class MicronautOverridesTest {
 
   public static final class ApplicationExecutors implements ExecutorProvider, AutoCloseable {
     private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+    final ScheduledExecutorService releases = classLoader.wrap(Executors.newScheduledThreadPool(2));
 
     @Override
     public void initializeApplicationClassLoader(ClassLoader loader) {
@@ -122,6 +123,10 @@ class MicronautOverridesTest {
       return workers;
     }
 
+    public ScheduledExecutorService getReleaseExecutor() {
+      return releases;
+    }
+
     public ScheduledExecutorService getScheduledExecutor() {
       return timers;
     }
@@ -129,6 +134,7 @@ class MicronautOverridesTest {
     public void close() {
       workers.shutdownNow();
       timers.shutdownNow();
+      releases.shutdownNow();
     }
   }
 }

@@ -33,6 +33,33 @@ import run.ratchet.api.ExecutorTargets;
 class StandaloneExecutorProviderTest {
 
   @Test
+  void releasePoolIsDistinctNamedAndDropsDelayedTasksOnShutdown() throws Exception {
+    StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
+    var releases = provider.getReleaseExecutor();
+    CountDownLatch delayed = new CountDownLatch(1);
+    try {
+      assertNotSame(provider.getScheduledExecutor(), releases);
+      assertTrue(
+          releases
+              .submit(() -> Thread.currentThread().getName())
+              .get(5, TimeUnit.SECONDS)
+              .startsWith("ratchet-standalone-release-"));
+      releases.schedule(delayed::countDown, 1, TimeUnit.DAYS);
+    } finally {
+      provider.shutdown();
+    }
+    assertTrue(releases.isTerminated());
+    assertFalse(delayed.await(100, TimeUnit.MILLISECONDS));
+  }
+
+  @Test
+  void closedProviderCannotCreateReleasePool() {
+    StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
+    provider.shutdown();
+    assertThrows(IllegalStateException.class, provider::getReleaseExecutor);
+  }
+
+  @Test
   void shutdownStopsOwnedExecutors() {
     StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
 

@@ -162,6 +162,8 @@ def row_model(lane, row):
         store = {"db-postgres": "postgresql", "db-mysql": "mysql", "db-oracle": "oracle",
                  "db-sqlserver": "sqlserver", "db-mongo": "mongodb"}
         return [QUARKUS], profiles, {store[p] for p in profiles if p in store}
+    if lane == "mysql_read_committed":
+        return [STORE_MODULES["mysql"]], set(), {"mysql"}
     if lane == "showcase":
         return [SHOWCASE], {"wildfly-managed", "postgresql"}, {"postgresql"}
     if lane == "spring_micrometer":
@@ -222,6 +224,7 @@ def select(repo_root, paths=None):
         outputs[lane] = json.dumps(selected, separators=(",", ":"))
         outputs["has_" + lane] = str(bool(selected)).lower()
     outputs["has_showcase"] = str(affected("showcase", {})).lower()
+    outputs["has_mysql_read_committed"] = str(affected("mysql_read_committed", {})).lower()
     return outputs, changed, reasons
 
 
@@ -256,6 +259,7 @@ def main():
                 stores = [store for store in DATABASES if store in owned]
                 stream.write(f"- {lane}: {len(rows)} rows; databases/stores: {', '.join(stores) or 'none'}\n")
             stream.write(f"- showcase: {outputs['has_showcase']}\n")
+            stream.write(f"- mysql_read_committed: {outputs['has_mysql_read_committed']}\n")
 
 
 if __name__ == "__main__":

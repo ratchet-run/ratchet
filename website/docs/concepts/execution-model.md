@@ -116,6 +116,14 @@ The `ThreadPoolManager` maintains one or more thread pools for job execution. Th
 - **Default (CDI):** Uses `@Resource`-based container-managed executors (e.g., WildFly's `ManagedExecutorService`)
 - **Custom:** Implement `ExecutorProvider` to use virtual threads, custom pool sizes, or application-specific executors
 
+### Release retries
+
+When an attempt ends, Ratchet releases what it held: its business-key hold, its resource permit and, when it gives the job back, its claim. A release that fails, or that starts on a thread that is still interrupted, is retried on a separate 2-thread release pool. The heartbeat and the timeout watchdog run on the scheduled executor, so a release that blocks in the store cannot delay them.
+
+In Jakarta EE, Ratchet builds the release pool from the managed thread factory named by `ratchet.worker.thread-factory-jndi` (default `java:comp/DefaultManagedThreadFactory`). The container's default managed scheduled executor can be shared with other applications on the server. Ratchet keeps its own release retries off it, but other applications' work can still delay the timers that run there.
+
+A custom `ExecutorProvider` must return a release executor that is not its scheduled executor. The runtime refuses to start if both are the same instance.
+
 The coordinator tracks pool utilization metrics, which feed back into the `PollingStrategy` to adjust polling aggressiveness.
 
 ### Lazy Entity Loading

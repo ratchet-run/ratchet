@@ -22,8 +22,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
+import run.ratchet.api.internal.ManagedThreadFactories;
 
 /**
  * Single source of threads for the cluster coordinators. Every coordinator obtains one of these and
@@ -173,25 +172,7 @@ public final class CoordinatorThreading {
   }
 
   private ThreadFactory resolveManagedFactory() {
-    try {
-      Object bound = new InitialContext().lookup(jndiName);
-      if (!(bound instanceof ThreadFactory)) {
-        throw new IllegalStateException(
-            "CoordinatorThreading expected "
-                + jndiName
-                + " to be a java.util.concurrent.ThreadFactory");
-      }
-      return (ThreadFactory) bound;
-    } catch (NamingException e) {
-      throw new IllegalStateException(
-          "CoordinatorThreading could not resolve "
-              + jndiName
-              + " from JNDI. Configure ratchet.coordinator.thread-factory-jndi if this deployment"
-              + " exposes the managed thread factory under a different name; if you are running"
-              + " outside a Jakarta EE 10+ container, build the coordinator with"
-              + " CoordinatorThreading.standalone(...).",
-          e);
-    }
+    return ManagedThreadFactories.resolve(jndiName, "CoordinatorThreading");
   }
 
   private static String requireJndiName(String jndiName) {

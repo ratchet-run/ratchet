@@ -163,7 +163,7 @@ public class JmsClusterCoordinator extends AbstractPushCoordinator
       RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
       threading =
           CoordinatorThreading.managed(
-              "ratchet-coordinator-jms", options.execution().coordinatorThreadFactoryJndi());
+              "ratchet-coordinator-jms", options.execution().threadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,
@@ -183,7 +183,8 @@ public class JmsClusterCoordinator extends AbstractPushCoordinator
             CoordinatorSupport.resolveRequired(
                 providerInstance,
                 "No JmsConnectionFactoryProvider available for JmsClusterCoordinator. Provide a"
-                    + " @Produces JmsConnectionFactoryProvider or use the default JNDI lookup bean.",
+                    + " @Produces JmsConnectionFactoryProvider or use the default JNDI lookup"
+                    + " bean.",
                 "Multiple JmsConnectionFactoryProvider beans visible; first match wins. Use"
                     + " @Alternative + @Priority for disambiguation.");
         cf = provider.connectionFactory();

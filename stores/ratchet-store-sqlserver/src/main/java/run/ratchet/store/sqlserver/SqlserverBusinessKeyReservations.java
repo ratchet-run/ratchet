@@ -42,15 +42,13 @@ final class SqlserverBusinessKeyReservations {
   // have locked do not use up the limit, and one call stays bounded.
   private static final int EXPIRED_HOLD_PAGES = 10;
 
-  // business_key is VARCHAR and the driver binds strings as NVARCHAR. Under a SQL collation that
-  // stops SQL Server seeking the primary key, so a hold delete range-scans idx_bk_held_until and
-  // locks other holds' index rows in expiry order. Cast the key and force the primary-key seek.
+  // Force the primary-key seek so a hold delete does not lock other holds in expiry order.
   // language=SQL Server
   private static final String DELETE_HOLD_BY_KEY =
       """
       DELETE r FROM scheduler_business_key_reservation r
           WITH (FORCESEEK, INDEX(pk_scheduler_business_key_reservation))
-      WHERE r.business_key = CAST(? AS VARCHAR(512)) AND r.held_until IS NOT NULL
+      WHERE r.business_key = ? AND r.held_until IS NOT NULL
       """;
 
   private final SqlserverStoreContext ctx;
@@ -437,8 +435,7 @@ final class SqlserverBusinessKeyReservations {
     }
     for (int start = 0; start < keys.size(); start += 500) {
       List<?> chunk = keys.subList(start, Math.min(start + 500, keys.size()));
-      String placeholders =
-          String.join(",", Collections.nCopies(chunk.size(), "CAST(? AS VARCHAR(512))"));
+      String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
       // Lock candidates through the primary key and skip rows another transaction holds, so a
       // sweep never waits on a frozen or slow writer. Also check that each row is still the hold
       // the candidate read found. A skipped hold stays for a later call.

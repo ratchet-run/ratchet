@@ -26,7 +26,7 @@ This build exposes **71 fixed keys**.
 | `ratchet.worker.default-threading-mode` | `RATCHET_WORKER_DEFAULT_THREADING_MODE` | `PLATFORM` | `WORKER_DEFAULT_THREADING_MODE` |
 | `ratchet.worker.job-executor-jndi` | `RATCHET_WORKER_JOB_EXECUTOR_JNDI` | `java:comp/DefaultManagedExecutorService` | `WORKER_JOB_EXECUTOR_JNDI` |
 | `ratchet.worker.scheduled-executor-jndi` | `RATCHET_WORKER_SCHEDULED_EXECUTOR_JNDI` | `java:comp/DefaultManagedScheduledExecutorService` | `WORKER_SCHEDULED_EXECUTOR_JNDI` |
-| `ratchet.coordinator.thread-factory-jndi` | `RATCHET_COORDINATOR_THREAD_FACTORY_JNDI` | `java:comp/DefaultManagedThreadFactory` | `COORDINATOR_THREAD_FACTORY_JNDI` |
+| `ratchet.worker.thread-factory-jndi` | `RATCHET_WORKER_THREAD_FACTORY_JNDI` | `java:comp/DefaultManagedThreadFactory` | `WORKER_THREAD_FACTORY_JNDI` |
 | `ratchet.worker.virtual-executor-jndi` | `RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI` | `(empty string)` | `WORKER_VIRTUAL_EXECUTOR_JNDI` |
 | `ratchet.worker.virtual-counter-accounting` | `RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING` | `false` | `WORKER_VIRTUAL_COUNTER_ACCOUNTING` |
 | `ratchet.execution.max-continuations` | `RATCHET_EXECUTION_MAX_CONTINUATIONS` | `1000` | `MAX_CONTINUATIONS` |

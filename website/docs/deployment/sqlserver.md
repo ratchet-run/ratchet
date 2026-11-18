@@ -148,6 +148,63 @@ Job identifiers are time-ordered UUIDv7 values stored as `BINARY(16)` holding th
 
 Payloads and other JSON columns are `NVARCHAR(MAX)`: SQL Server JSON is text plus the `JSON_VALUE`/`OPENJSON` functions rather than a stored type. The indexed `target_class` and `method_name` columns are `PERSISTED` computed columns over `JSON_VALUE(...)` cast to a bounded `VARCHAR`, because SQL Server cannot index `NVARCHAR(MAX)` directly.
 
+### Unicode keys and migration V018
+
+V018 converts caller keys, node identifiers and configured free text to bounded `NVARCHAR`.
+Business keys use `NVARCHAR(255)` in live, reservation, archive and outbox tables. Other
+converted columns keep their character limits. Enum and machine-format columns remain
+`VARCHAR`; `job_type` keeps its parameter casts for indexed claim queries. Indexed job
+properties also remain `VARCHAR`: an `NVARCHAR` `(property_key, value)` index would need
+2,558 bytes, exceeding SQL Server's 1,700-byte limit.
+
+Stop writers and apply V018 before starting the updated store. The migration checks all
+seven business-key tables first and fails with the table name if a key exceeds 255
+characters, including trailing spaces. It rebuilds dependent indexes and key constraints,
+so allow a maintenance window for large tables. Key columns use `Latin1_General_100_BIN2`. Keys are case- and accent-sensitive and compare by binary value. Like every SQL Server
+collation, it ignores trailing spaces in `=` comparisons, so `k` and `k ` are the same key.
+The RI trims business keys, idempotency keys, resource names, awaited signal keys and tags.
+Free-text columns keep their existing collation, normally the database collation. Values SQL Server already changed to `?` or an unaccented letter
+cannot be restored by this migration.
+
+The Spring Boot SQL consumer lane validates Ratchet entities as well as consumer entities.
+Hibernate treats `VARCHAR`, `NVARCHAR` and their long variants as equivalent during schema
+type validation; this also accommodates existing `NVARCHAR(MAX)` String columns. No global
+nationalized-string setting or entity mapping change is required.
+
+#### Upgrading an existing database
+
+V018 changes key columns from `VARCHAR` with case-insensitive comparison to `NVARCHAR`
+with `Latin1_General_100_BIN2`. Before converting, it rewrites job, recurring job and waiter
+resource names to the matching resource limit's spelling. It removes leftover permits whose
+resource names match a limit only under the old collation. Permit ids depend on the original
+resource name, so renaming those permits would prevent their release. Jobs take new permits
+on their next attempt. Resource names without a matching limit stay unchanged.
+
+Check keys whose other side lives outside the database before upgrading. The migration
+cannot reconcile worker configuration or future caller input:
+
+- Execution targets: a job whose target differs only in case from every worker's configured
+  target is never claimed, and nothing reports it.
+- Signal keys: a signal sent with different case no longer wakes the job.
+- Idempotency keys: a retry with a differently cased key now creates a second job.
+- Partition set keys, lock names and node ids must match their callers' spelling.
+
+Use these read-only queries to inventory targets and awaited signals. The queue contains
+non-terminal jobs with status `PENDING`, `RUNNING`, `PAUSED` or `WAITING`.
+
+```sql
+SELECT DISTINCT execution_target COLLATE Latin1_General_100_BIN2 AS execution_target
+FROM scheduler_job_queue
+WHERE status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING');
+
+SELECT DISTINCT execution_target COLLATE Latin1_General_100_BIN2 AS execution_target
+FROM scheduler_recurring_job;
+
+SELECT DISTINCT signal_key COLLATE Latin1_General_100_BIN2 AS signal_key
+FROM scheduler_job_queue
+WHERE status = 'WAITING' AND signal_key IS NOT NULL;
+```
+
 ### Time zone
 
 Timestamp columns are zoneless `DATETIME2(6)` holding UTC wall-clock, and the claim path compares them against `SYSUTCDATETIME()`. `mssql-jdbc` binds `java.sql.Timestamp` to `DATETIME2` using the JVM's default zone, so run the application JVM in UTC (or set `hibernate.jdbc.time_zone=UTC` on Hibernate). A non-UTC JVM shifts stored timestamps and stalls claims.

@@ -252,24 +252,17 @@ final class SqlserverAuxiliaryOperations
   @Override
   public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
     try {
-      // The driver binds strings as NVARCHAR, and comparing that with the VARCHAR key makes SQL
-      // Server scan; under HOLDLOCK the scan range-locks every resource until commit. Seek on the
-      // name cast to VARCHAR, and keep the NVARCHAR comparison as a residual check: the cast turns
-      // a character outside the column's code page into '?' or a similar letter, and the residual
-      // stops that from matching another resource.
+      // The name and the driver's string parameter are both NVARCHAR, so the lock seeks the primary
+      // key. A scan under HOLDLOCK would range-lock every resource until commit.
       // language=SQL Server
       String lockSql =
           """
           SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-          WHERE resource_name = CAST(? AS VARCHAR(8000)) AND resource_name = ?
+          WHERE resource_name = ?
           """;
       @SuppressWarnings("unchecked")
       List<Object> lockedLimits =
-          ctx.em()
-              .createNativeQuery(lockSql)
-              .setParameter(1, resource)
-              .setParameter(2, resource)
-              .getResultList();
+          ctx.em().createNativeQuery(lockSql).setParameter(1, resource).getResultList();
       if (lockedLimits.isEmpty()) {
         throw new ResourceNotConfiguredException(resource);
       }
@@ -515,19 +508,13 @@ final class SqlserverAuxiliaryOperations
   @Override
   public List<WokenWaiter> wakeWaiters(String resource) {
     try {
-      // Cast so the lock seeks one resource's key; see tryAcquirePermit.
       // language=SQL Server
       String lock =
           """
           SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-          WHERE resource_name = CAST(? AS VARCHAR(8000)) AND resource_name = ?
+          WHERE resource_name = ?
           """;
-      List<?> limits =
-          ctx.em()
-              .createNativeQuery(lock)
-              .setParameter(1, resource)
-              .setParameter(2, resource)
-              .getResultList();
+      List<?> limits = ctx.em().createNativeQuery(lock).setParameter(1, resource).getResultList();
       if (limits.isEmpty()) {
         return List.of();
       }
@@ -769,14 +756,13 @@ final class SqlserverAuxiliaryOperations
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
     try {
-      // Cast so the MERGE seeks one resource's key; see tryAcquirePermit.
       // language=SQL Server
       String sql =
           """
           MERGE scheduler_resource_limit WITH (HOLDLOCK) AS tgt
-          USING (VALUES (CAST(? AS VARCHAR(8000)), ?, ?, ?, ?))
-            AS src(resource_name, resource_name_n, max_concurrent, retry_delay_ms, description)
-            ON tgt.resource_name = src.resource_name AND tgt.resource_name = src.resource_name_n
+          USING (VALUES (?, ?, ?, ?))
+            AS src(resource_name, max_concurrent, retry_delay_ms, description)
+            ON tgt.resource_name = src.resource_name
           WHEN MATCHED THEN UPDATE SET
             max_concurrent = src.max_concurrent,
             retry_delay_ms = src.retry_delay_ms,
@@ -790,10 +776,9 @@ final class SqlserverAuxiliaryOperations
       ctx.em()
           .createNativeQuery(sql)
           .setParameter(1, name)
-          .setParameter(2, name)
-          .setParameter(3, maxConcurrent)
-          .setParameter(4, retryDelayMs)
-          .setParameter(5, description)
+          .setParameter(2, maxConcurrent)
+          .setParameter(3, retryDelayMs)
+          .setParameter(4, description)
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("configure resource", e);

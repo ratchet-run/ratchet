@@ -43,6 +43,7 @@ module run.ratchet.api {
   // java.util.logging is used by RatchetConfigKey to WARN on invalid values before falling back
   // to defaults. JUL is chosen over SLF4J/JBoss Logging to keep ratchet-api dependency-free.
   requires java.logging;
+  requires java.naming;
 
   exports run.ratchet.api;
   exports run.ratchet.api.event;
@@ -50,10 +51,11 @@ module run.ratchet.api {
   // run.ratchet.api.internal is framework-internal. The qualified export limits visibility to
   // the Ratchet reference implementation, which needs to read JobBuilder state and bootstrap
   // the typed configuration chain. The Spring Boot adapter is a named automatic module and uses
-  // RatchetConfigKeys to translate Spring configuration. Applications must not depend on these
-  // types.
+  // RatchetConfigKeys to translate Spring configuration. Coordinator-common shares the managed
+  // thread factory resolver. Applications must not depend on these types.
   exports run.ratchet.api.internal to
       run.ratchet.ri,
+      run.ratchet.coordinator.common,
       run.ratchet.spring.boot.autoconfigure;
   // run.ratchet.spi is open to all module-path consumers. Every type in this package carries
   // @Incubating, which is the stability contract — method signatures and contracts may change

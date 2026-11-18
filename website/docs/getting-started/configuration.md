@@ -223,7 +223,7 @@ DDL, not a datasource.
 | `defaultThreadingMode(ThreadingMode)` | `PLATFORM` | Pool a job runs on when it sets no target of its own |
 | `jobExecutorJndi(String)` | `java:comp/DefaultManagedExecutorService` | Managed executor used for job attempts |
 | `scheduledExecutorJndi(String)` | `java:comp/DefaultManagedScheduledExecutorService` | Managed scheduled executor used for timers and maintenance |
-| `coordinatorThreadFactoryJndi(String)` | `java:comp/DefaultManagedThreadFactory` | Managed thread factory used by coordinator adapters |
+| `threadFactoryJndi(String)` | `java:comp/DefaultManagedThreadFactory` | Managed thread factory used by release retries and coordinator adapters |
 | `virtualExecutorJndi(String)` | _(none)_ | Adds a second managed executor as the virtual pool; absent means virtual-targeted jobs fall back to platform |
 | `virtualCounterAccounting(boolean)` | `false` | Opt the virtual pool into counter-based backpressure instead of a bounded semaphore |
 | `queueSize(int)` | `100` | Reserved for custom executor implementations |

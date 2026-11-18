@@ -18,17 +18,19 @@ package run.ratchet.ri.core.internal;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
+import run.ratchet.api.internal.ExecutorProviderClosedException;
 
 /**
  * Runs a store release that an ended attempt owes. A thread that is still interrupted must not call
  * the store, because a JDBC call on an interrupted thread can break the pooled connection, so the
- * release goes to a scheduler thread at once. A failed store call is retried there as the caller's
- * {@link Policy} says. Nothing here throws to the caller.
+ * release goes to a release executor thread at once. A failed store call is retried there as the
+ * caller's {@link Policy} says. Nothing here throws to the caller.
  */
 final class ReleaseRetries {
   private static final Logger log = Logger.getLogger(ReleaseRetries.class);
@@ -36,8 +38,8 @@ final class ReleaseRetries {
 
   /**
    * One release. {@code what} names it in log messages, {@code leftTo} names what frees it once the
-   * retries stop, and {@code unscheduledLevel} is the level of the message logged when the
-   * scheduler does not take it.
+   * retries stop, and {@code unscheduledLevel} is the level of the message logged when the release
+   * executor does not take it.
    */
   record Release(String what, String leftTo, Logger.Level unscheduledLevel, Runnable call) {}
 
@@ -45,9 +47,9 @@ final class ReleaseRetries {
    * How a failed release is retried. The first retry waits {@code firstDelay} and each later one
    * waits twice as long as the one before, up to {@code maxDelay}. A policy with {@code maxRetries}
    * stops after that many retries. A policy without it retries until the release lands or the
-   * scheduler refuses the next retry; because nothing ends such a release on its own, a failed
-   * retry warns again once {@link #WARN_INTERVAL} has passed on the clock since the last warning,
-   * and the release logs at INFO when it lands.
+   * release executor refuses the next retry; because nothing ends such a release on its own, a
+   * failed retry warns again once {@link #WARN_INTERVAL} has passed on the clock since the last
+   * warning, and the release logs at INFO when it lands.
    */
   record Policy(Duration firstDelay, Duration maxDelay, OptionalInt maxRetries) {
     Policy {
@@ -98,8 +100,8 @@ final class ReleaseRetries {
   }
 
   /**
-   * Runs the release on this thread, or hands it to the scheduler when this thread is interrupted
-   * or the call fails.
+   * Runs the release on this thread, or hands it to the release executor when this thread is
+   * interrupted or the call fails.
    *
    * @return true when the release ran on this thread
    */
@@ -121,17 +123,32 @@ final class ReleaseRetries {
   }
 
   private void schedule(Release release, Retry retry) {
+    ScheduledExecutorService executor = null;
     try {
-      scheduler
-          .get()
-          .schedule(() -> retry(release, retry), retry.delayMillis(), TimeUnit.MILLISECONDS);
+      executor = scheduler.get();
+      executor.schedule(() -> retry(release, retry), retry.delayMillis(), TimeUnit.MILLISECONDS);
     } catch (RuntimeException e) {
-      log.logf(
-          release.unscheduledLevel(),
-          e,
-          "Could not schedule release of %s; left to %s",
-          release.what(),
-          release.leftTo());
+      if (isStopping(e, executor)) {
+        log.infof(
+            e, "This node is stopping; release of %s left to %s", release.what(), release.leftTo());
+      } else {
+        log.logf(
+            release.unscheduledLevel(),
+            e,
+            "Could not schedule release of %s; left to %s",
+            release.what(),
+            release.leftTo());
+      }
+    }
+  }
+
+  static boolean isStopping(RuntimeException failure, ScheduledExecutorService executor) {
+    if (failure instanceof ExecutorProviderClosedException) return true;
+    if (!(failure instanceof RejectedExecutionException) || executor == null) return false;
+    try {
+      return executor.isShutdown();
+    } catch (RuntimeException unavailable) {
+      return false;
     }
   }
 
@@ -162,7 +179,8 @@ final class ReleaseRetries {
   }
 
   private void retryUntilReleased(Release release, Retry retry, long next, RuntimeException e) {
-    // Time on the clock, so a store call that hangs or a retry the scheduler runs late counts too.
+    // Time on the clock, so a store call that hangs or a retry the release executor runs late
+    // counts too.
     long now = nanoTime.getAsLong();
     if (!retry.warned()) {
       log.warnf(e, "Could not release %s; scheduling retry", release.what());
@@ -170,7 +188,8 @@ final class ReleaseRetries {
     } else if (now - retry.warnedAtNanos() >= WARN_INTERVAL.toNanos()) {
       log.warnf(
           e,
-          "Still could not release %s after %s retries; retrying every %s seconds until it lands or this node stops",
+          "Still could not release %s after %s retries; retrying every %s seconds until it lands or"
+              + " this node stops",
           release.what(),
           retry.number(),
           next / 1000);

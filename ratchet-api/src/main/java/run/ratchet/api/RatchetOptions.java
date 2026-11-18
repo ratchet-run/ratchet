@@ -40,7 +40,7 @@ import run.ratchet.spi.CallerPrincipalResolver;
 @SuppressWarnings("ClassCanBeRecord")
 public class RatchetOptions {
 
-  private static final String DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI =
+  private static final String DEFAULT_WORKER_THREAD_FACTORY_JNDI =
       "java:comp/DefaultManagedThreadFactory";
 
   private final PollingOptions polling;
@@ -189,7 +189,7 @@ public class RatchetOptions {
     builder.execution.rateLimitsPerMinute.putAll(execution.rateLimitsPerMinute());
     builder.execution.jobExecutorJndi = execution.jobExecutorJndi();
     builder.execution.scheduledExecutorJndi = execution.scheduledExecutorJndi();
-    builder.execution.coordinatorThreadFactoryJndi = execution.coordinatorThreadFactoryJndi();
+    builder.execution.threadFactoryJndi = execution.threadFactoryJndi();
     builder.execution.virtualExecutorJndi = execution.virtualExecutorJndi();
     builder.execution.virtualCounterAccounting = execution.virtualCounterAccounting();
 
@@ -560,8 +560,8 @@ public class RatchetOptions {
    * @param jobExecutorJndi JNDI name of the {@code ManagedExecutorService} that runs jobs
    * @param scheduledExecutorJndi JNDI name of the {@code ManagedScheduledExecutorService} used for
    *     scheduled work
-   * @param coordinatorThreadFactoryJndi JNDI name of the {@code ManagedThreadFactory} used by
-   *     bundled cluster coordinators for listener loops and dispatch pools
+   * @param threadFactoryJndi JNDI name of the {@code ManagedThreadFactory} used by release retries
+   *     and bundled cluster coordinators for listener loops and dispatch pools
    * @param virtualExecutorJndi JNDI name of the {@code ManagedExecutorService} used for
    *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
    * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
@@ -579,7 +579,7 @@ public class RatchetOptions {
       Map<String, Integer> rateLimitsPerMinute,
       String jobExecutorJndi,
       String scheduledExecutorJndi,
-      String coordinatorThreadFactoryJndi,
+      String threadFactoryJndi,
       String virtualExecutorJndi,
       boolean virtualCounterAccounting,
       long checkpointFlushIntervalMs,
@@ -604,7 +604,7 @@ public class RatchetOptions {
           rateLimitsPerMinute,
           jobExecutorJndi,
           scheduledExecutorJndi,
-          DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI,
+          DEFAULT_WORKER_THREAD_FACTORY_JNDI,
           virtualExecutorJndi,
           virtualCounterAccounting,
           1000L,
@@ -621,8 +621,7 @@ public class RatchetOptions {
       rateLimitsPerMinute = Map.copyOf(rateLimitsPerMinute);
       jobExecutorJndi = requireNonBlank("jobExecutorJndi", jobExecutorJndi);
       scheduledExecutorJndi = requireNonBlank("scheduledExecutorJndi", scheduledExecutorJndi);
-      coordinatorThreadFactoryJndi =
-          requireNonBlank("coordinatorThreadFactoryJndi", coordinatorThreadFactoryJndi);
+      threadFactoryJndi = requireNonBlank("threadFactoryJndi", threadFactoryJndi);
       defaultThreadingMode =
           defaultThreadingMode == null ? ThreadingMode.PLATFORM : defaultThreadingMode;
       virtualExecutorJndi = blankToNull(virtualExecutorJndi);
@@ -1160,7 +1159,7 @@ public class RatchetOptions {
     private int queueSize = 100;
     private String jobExecutorJndi = "java:comp/DefaultManagedExecutorService";
     private String scheduledExecutorJndi = "java:comp/DefaultManagedScheduledExecutorService";
-    private String coordinatorThreadFactoryJndi = DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI;
+    private String threadFactoryJndi = DEFAULT_WORKER_THREAD_FACTORY_JNDI;
     private String virtualExecutorJndi;
     private boolean virtualCounterAccounting;
     private long checkpointFlushIntervalMs = 1000L;
@@ -1252,14 +1251,14 @@ public class RatchetOptions {
     }
 
     /**
-     * Sets the JNDI name of the {@code ManagedThreadFactory} used by bundled cluster coordinators.
-     * Defaults to the container's {@code java:comp/DefaultManagedThreadFactory}. Some EAR
-     * deployments expose only global concurrency resources during early CDI startup; point this at
-     * that deployment-specific managed factory when {@code java:comp} is not bound yet.
+     * Sets the JNDI name of the {@code ManagedThreadFactory} used by release retries and bundled
+     * cluster coordinators. Defaults to the container's {@code
+     * java:comp/DefaultManagedThreadFactory}. Some EAR deployments expose only global concurrency
+     * resources during early CDI startup; point this at that deployment-specific managed factory
+     * when {@code java:comp} is not bound yet.
      */
-    public ExecutionBuilder coordinatorThreadFactoryJndi(String coordinatorThreadFactoryJndi) {
-      this.coordinatorThreadFactoryJndi =
-          requireNonBlank("coordinatorThreadFactoryJndi", coordinatorThreadFactoryJndi);
+    public ExecutionBuilder threadFactoryJndi(String threadFactoryJndi) {
+      this.threadFactoryJndi = requireNonBlank("threadFactoryJndi", threadFactoryJndi);
       return this;
     }
 
@@ -1293,7 +1292,7 @@ public class RatchetOptions {
           rateLimitsPerMinute,
           jobExecutorJndi,
           scheduledExecutorJndi,
-          coordinatorThreadFactoryJndi,
+          threadFactoryJndi,
           virtualExecutorJndi,
           virtualCounterAccounting,
           checkpointFlushIntervalMs,

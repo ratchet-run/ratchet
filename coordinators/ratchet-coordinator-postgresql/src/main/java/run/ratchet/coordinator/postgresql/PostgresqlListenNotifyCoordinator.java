@@ -150,7 +150,7 @@ public class PostgresqlListenNotifyCoordinator extends AbstractPushCoordinator
       RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
       threading =
           CoordinatorThreading.managed(
-              "ratchet-coordinator-postgresql", options.execution().coordinatorThreadFactoryJndi());
+              "ratchet-coordinator-postgresql", options.execution().threadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,

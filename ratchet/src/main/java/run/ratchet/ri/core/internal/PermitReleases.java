@@ -30,8 +30,8 @@ import run.ratchet.ri.core.ResourcePermitService;
  * names the attempt's claim, so a retry never removes a permit that a newer attempt of the same job
  * holds. A permit has no expiry, so a failed release is retried with backoff, from {@link
  * #FIRST_RETRY_DELAY} up to {@link #MAX_RETRY_DELAY} between tries, until it lands or the node
- * stops. A permit still held when the scheduler refuses a retry, as it does once the node stops,
- * stays until this node's start-up clean-up or, after its heartbeat stops, another node's
+ * stops. A permit still held when the release executor refuses a retry, as it does once the node
+ * stops, stays until this node's start-up clean-up or, after its heartbeat stops, another node's
  * stale-node clean-up removes it.
  */
 final class PermitReleases {
@@ -61,7 +61,7 @@ final class PermitReleases {
    * Releases the permit this claim holds on the resource. Never throws for a failed store call.
    *
    * @return true when the permit was released on this thread; false when the release went to the
-   *     scheduler
+   *     release executor
    */
   boolean release(String resource, UUID jobId, long claimSeq) {
     return retries.release(

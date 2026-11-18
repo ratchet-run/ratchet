@@ -733,40 +733,40 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
-  void mapsCoordinatorThreadFactoryJndiFromProperty() {
+  void mapsThreadFactoryJndiFromProperty() {
     RatchetOptions options =
         optionsFrom(
             new MapRatchetConfigSource(
                 Map.of(
-                    "ratchet.coordinator.thread-factory-jndi",
+                    "ratchet.worker.thread-factory-jndi",
                     "java:jboss/ee/concurrency/factory/RatchetCoordinator"),
                 Map.of()));
 
     assertEquals(
         "java:jboss/ee/concurrency/factory/RatchetCoordinator",
-        options.execution().coordinatorThreadFactoryJndi());
+        options.execution().threadFactoryJndi());
   }
 
   @Test
-  void mapsCoordinatorThreadFactoryJndiFromEnvironmentVariable() {
+  void mapsThreadFactoryJndiFromEnvironmentVariable() {
     RatchetOptions options =
         optionsFrom(
             new MapRatchetConfigSource(
                 Map.of(),
                 Map.of(
-                    "RATCHET_COORDINATOR_THREAD_FACTORY_JNDI",
+                    "RATCHET_WORKER_THREAD_FACTORY_JNDI",
                     "java:jboss/ee/concurrency/factory/RatchetCoordinator")));
 
     assertEquals(
         "java:jboss/ee/concurrency/factory/RatchetCoordinator",
-        options.execution().coordinatorThreadFactoryJndi());
+        options.execution().threadFactoryJndi());
   }
 
   @Test
-  void coordinatorThreadFactoryJndiUsesCoordinatorEnvironmentVariableName() {
+  void threadFactoryJndiUsesWorkerEnvironmentVariableName() {
     assertEquals(
-        "RATCHET_COORDINATOR_THREAD_FACTORY_JNDI",
-        RatchetConfigKeys.COORDINATOR_THREAD_FACTORY_JNDI.environmentVariable());
+        "RATCHET_WORKER_THREAD_FACTORY_JNDI",
+        RatchetConfigKeys.WORKER_THREAD_FACTORY_JNDI.environmentVariable());
   }
 
   @Test

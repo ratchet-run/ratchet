@@ -104,11 +104,16 @@ reviews:
       instructions: |
         - Released migrations are immutable. Flag any edit to an existing
           `migrations/<dialect>/V###__*.sql` file.
-        - A schema change adds a new `V###__description.sql`, with the same number and name, to
-          all four SQL stores (MySQL, PostgreSQL, Oracle, SQL Server). Each store also lists it
-          in `migrations/<dialect>/index.txt` and makes the same change to its consolidated
-          `<dialect>-schema.sql`. The store contract tests load the consolidated file, so a
-          missing change there fails at test time, not at compile time.
+        - Each SQL store numbers its own migrations, so one change can have a different number
+          in each store (`job_row_version` is V018 on MySQL and V016 on the other three). A new
+          migration takes the next free number in each store it changes. Each of those stores
+          lists it in `migrations/<dialect>/index.txt` and makes the same change to its
+          consolidated `<dialect>-schema.sql`. The store contract tests load the consolidated
+          file, so a missing change there fails at test time, not at compile time.
+        - A schema change usually belongs in all four SQL stores (MySQL, PostgreSQL, Oracle,
+          SQL Server). A migration in fewer stores is fine when the change only matters to that
+          dialect, such as a type, collation or index the others do not need. Flag it when the
+          pull request gives no reason.
         - Check whether `RatchetSchemaCatalog` in ratchet-store-core needs the change too, and
           if so whether `CURRENT_VERSION` is bumped. That version tracks the conformance
           contract, not the migration number.

@@ -16,6 +16,7 @@
 package run.ratchet.testsuite.executor;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,6 +25,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import javax.naming.InitialContext;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,6 +68,25 @@ class DefaultExecutorProviderIT extends BaseRatchetIT {
   @BeforeEach
   void resetJobCounter() {
     SimpleJob.resetCount();
+  }
+
+  @Test
+  void releaseExecutorHasApplicationContext() throws Exception {
+    ScheduledExecutorService releases = executorProvider.getReleaseExecutor();
+    assertNotSame(executorProvider.getScheduledExecutor(), releases);
+    Object containerScheduler =
+        new InitialContext().lookup("java:comp/DefaultManagedScheduledExecutorService");
+    assertNotSame(containerScheduler, releases);
+    ClassLoader applicationLoader = Thread.currentThread().getContextClassLoader();
+    assertTrue(
+        releases
+            .submit(
+                () -> {
+                  assertNotNull(new InitialContext().lookup("java:comp/UserTransaction"));
+                  assertSame(applicationLoader, Thread.currentThread().getContextClassLoader());
+                  return true;
+                })
+            .get(10, TimeUnit.SECONDS));
   }
 
   @Test

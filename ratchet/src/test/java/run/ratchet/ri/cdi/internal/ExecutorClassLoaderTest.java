@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -68,6 +69,35 @@ public class ExecutorClassLoaderTest {
     if (failingLoader != null) {
       Thread.currentThread().setContextClassLoader(failingLoader);
       throw new IllegalStateException("retry this attempt");
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void releaseTaskUsesStartupLoaderAndRestoresWorkerLoader(boolean managed) throws Exception {
+    try (Fixture fixture = new Fixture(managed)) {
+      fixture.start();
+      ScheduledExecutorService releases = fixture.provider.getReleaseExecutor();
+      AtomicReference<ClassLoader> observed = new AtomicReference<>();
+      Thread worker =
+          fixture.foreign(
+              () ->
+                  releases
+                      .schedule(
+                          () -> {
+                            observed.set(Thread.currentThread().getContextClassLoader());
+                            return Thread.currentThread();
+                          },
+                          0,
+                          TimeUnit.MILLISECONDS)
+                      .get(5, TimeUnit.SECONDS));
+      assertSame(fixture.application, observed.get());
+      releases.shutdown();
+      assertTrue(releases.awaitTermination(5, TimeUnit.SECONDS));
+      worker.join(5_000);
+      assertFalse(worker.isAlive());
+      assertSame(fixture.foreign, worker.getContextClassLoader());
+      fixture.assertRestored();
     }
   }
 
@@ -499,7 +529,32 @@ public class ExecutorClassLoaderTest {
           };
       if (managed) {
         InitialContext context = mock(InitialContext.class);
-        when(context.lookup(anyString())).thenReturn(raw);
+        ThreadFactory factory =
+            runnable -> {
+              Thread thread =
+                  new Thread(
+                      () -> {
+                        try {
+                          runnable.run();
+                        } finally {
+                          if (Thread.currentThread().getContextClassLoader() != foreign) {
+                            leaked.set(true);
+                          }
+                        }
+                      });
+              thread.setDaemon(true);
+              thread.setContextClassLoader(foreign);
+              return thread;
+            };
+        when(context.lookup(anyString()))
+            .thenAnswer(
+                invocation ->
+                    RatchetOptions.defaults()
+                            .execution()
+                            .threadFactoryJndi()
+                            .equals(invocation.getArgument(0))
+                        ? factory
+                        : raw);
         provider =
             new DefaultExecutorProvider(
                 RatchetOptions.builder()
@@ -512,11 +567,12 @@ public class ExecutorClassLoaderTest {
             };
       } else {
         provider = new StandaloneExecutorProvider();
-        // Create both standalone pools from the foreign thread, before runtime startup.
+        // Create all standalone pools from the foreign thread, before runtime startup.
         foreign(
             () -> {
               provider.getJobExecutor().submit(() -> {}).get(5, TimeUnit.SECONDS);
               provider.getScheduledExecutor().submit(() -> {}).get(5, TimeUnit.SECONDS);
+              provider.getReleaseExecutor().submit(() -> {}).get(5, TimeUnit.SECONDS);
               return null;
             });
       }
@@ -579,6 +635,7 @@ public class ExecutorClassLoaderTest {
     public void close() throws Exception {
       runtime.close();
       if (provider instanceof StandaloneExecutorProvider standalone) standalone.shutdown();
+      if (provider instanceof DefaultExecutorProvider managed) managed.shutdown();
       raw.shutdownNow();
       assertTrue(raw.awaitTermination(5, TimeUnit.SECONDS));
       application.close();

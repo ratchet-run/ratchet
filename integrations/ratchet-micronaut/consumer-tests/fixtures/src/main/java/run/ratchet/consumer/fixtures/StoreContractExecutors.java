@@ -44,6 +44,7 @@ public class StoreContractExecutors {
 
   public static final class DormantExecutors implements ExecutorProvider, AutoCloseable {
     private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+    final ScheduledExecutorService releases = classLoader.wrap(Executors.newScheduledThreadPool(2));
 
     @Override
     public void initializeApplicationClassLoader(ClassLoader loader) {
@@ -57,6 +58,10 @@ public class StoreContractExecutors {
       return workers;
     }
 
+    public ScheduledExecutorService getReleaseExecutor() {
+      return releases;
+    }
+
     public ScheduledExecutorService getScheduledExecutor() {
       return timers;
     }
@@ -64,6 +69,7 @@ public class StoreContractExecutors {
     public void close() {
       workers.shutdownNow();
       timers.shutdownNow();
+      releases.shutdownNow();
     }
   }
 

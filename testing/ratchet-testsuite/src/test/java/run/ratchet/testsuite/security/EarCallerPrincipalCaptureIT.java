@@ -90,7 +90,7 @@ class EarCallerPrincipalCaptureIT extends BaseRatchetIT {
                 "java:jboss/ee/concurrency/executor/default",
                 "ratchet.worker.scheduled-executor-jndi",
                 "java:jboss/ee/concurrency/scheduler/default",
-                "ratchet.coordinator.thread-factory-jndi",
+                "ratchet.worker.thread-factory-jndi",
                 "java:jboss/ee/concurrency/factory/default")
             : Map.of();
 
@@ -209,31 +209,31 @@ class EarCallerPrincipalCaptureIT extends BaseRatchetIT {
 
   private static String allModeBeansXml() {
     return """
-        <beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
-               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-               xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
-                   https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
-               version="4.0"
-               bean-discovery-mode="all">
-        </beans>
-        """;
+    <beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+               https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
+           version="4.0"
+           bean-discovery-mode="all">
+    </beans>
+    """;
   }
 
   private static String applicationXmlContent() {
     return """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <application xmlns="https://jakarta.ee/xml/ns/jakartaee"
-                     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                     xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
-                         https://jakarta.ee/xml/ns/jakartaee/application_10.xsd"
-                     version="10">
-          <module>
-            <web>
-              <web-uri>caller-principal-test.war</web-uri>
-              <context-root>/caller-principal-test</context-root>
-            </web>
-          </module>
-        </application>
-        """;
+    <?xml version="1.0" encoding="UTF-8"?>
+    <application xmlns="https://jakarta.ee/xml/ns/jakartaee"
+                 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                     https://jakarta.ee/xml/ns/jakartaee/application_10.xsd"
+                 version="10">
+      <module>
+        <web>
+          <web-uri>caller-principal-test.war</web-uri>
+          <context-root>/caller-principal-test</context-root>
+        </web>
+      </module>
+    </application>
+    """;
   }
 }

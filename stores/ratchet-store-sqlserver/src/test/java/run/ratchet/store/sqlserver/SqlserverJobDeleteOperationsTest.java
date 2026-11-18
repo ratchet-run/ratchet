@@ -130,8 +130,7 @@ class SqlserverJobDeleteOperationsTest {
                                       row[3] != null
                                               && liveOwners.stream()
                                                   .anyMatch(
-                                                      owner ->
-                                                          owner.equalsIgnoreCase(row[3].toString()))
+                                                      owner -> owner.equals(row[3].toString()))
                                           ? 1L
                                           : 0L
                                     })
@@ -319,7 +318,7 @@ class SqlserverJobDeleteOperationsTest {
   @Test
   void periodicScanSkipsRowsWhoseOwnerIsLiveUnderLock() {
     seed(1, 0, "Back");
-    liveOwners.add("back");
+    liveOwners.add("Back");
     var result = operations().resetOrphanJobsBefore(Instant.now(), 1, 500);
     assertEquals(1, result.scanned());
     assertEquals(0, result.reset());
@@ -329,9 +328,29 @@ class SqlserverJobDeleteOperationsTest {
   @Test
   void exhaustedScanSkipsRowsWhoseOwnerIsLiveUnderLock() {
     seed(1, 1, "Back");
-    liveOwners.add("back");
+    liveOwners.add("Back");
     assertTrue(operations().resetOrphanJobsBefore(Instant.now(), 1, 500).exhausted().isEmpty());
     assertTrue(statements.stream().noneMatch(statement -> statement.sql().startsWith("UPDATE")));
+  }
+
+  @Test
+  void periodicScanProcessesOwnerWhoseCaseDiffersFromLiveNode() {
+    seed(1, 0, "Back");
+    liveOwners.add("back");
+    var result = operations().resetOrphanJobsBefore(Instant.now(), 1, 500);
+    assertEquals(1, result.reset());
+    assertExecutionClose();
+    assertUpdatesUseIds();
+  }
+
+  @Test
+  void exhaustedScanProcessesOwnerWhoseCaseDiffersFromLiveNode() {
+    seed(1, 1, "Back");
+    liveOwners.add("back");
+    var result = operations().resetOrphanJobsBefore(Instant.now(), 1, 500);
+    assertEquals(1, result.exhausted().size());
+    assertEquals("Back", result.exhausted().get(0).pickedBy());
+    assertExecutionClose();
   }
 
   @Test

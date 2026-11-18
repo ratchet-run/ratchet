@@ -161,7 +161,7 @@ class RealRepoTest(unittest.TestCase):
         self.counts(outputs, dict(integration=35, spring_consumer=25, spring_native=10,
                                  spring_runtime=4, spring_micrometer=3, quarkus_jvm=5, quarkus_native=2,
                                  micronaut_consumer=10, micronaut_native=10))
-        for key in ['code', 'web', 'has_showcase']:
+        for key in ['code', 'web', 'has_showcase', 'has_mysql_read_committed']:
             self.assertEqual(outputs[key], 'true')
         for prefix in ['unit', 'ee11']:
             self.assertEqual(outputs[prefix + '_scope'], 'all')
@@ -171,6 +171,8 @@ class RealRepoTest(unittest.TestCase):
     def test_core(self):
         outputs = self.output('ratchet/src/main/java/run/ratchet/Foo.java')
         self.reduced_all(outputs)
+        # The MySQL store suite does not load the engine, so an engine-only change cannot change it.
+        self.assertEqual(outputs['has_mysql_read_committed'], 'false')
         self.assertEqual({r['server'] for r in self.rows(outputs, 'integration')}, set(SERVERS))
         self.assertEqual({r['database'] for r in self.rows(outputs, 'integration')}, set(DATABASES))
         self.assertTrue(outputs['unit_scope'] == 'all' or 'ratchet' in outputs['unit_modules'].split(','))
@@ -185,15 +187,28 @@ class RealRepoTest(unittest.TestCase):
                          [dict(java=java, boot=boot, store='mysql', provider='default') for java, boot in zip(JAVA, BOOT)])
         self.assertEqual(self.rows(outputs, 'spring_native'), [dict(boot=boot, store='mysql') for boot in BOOT])
         self.assertEqual(outputs['has_showcase'], 'false')
+        self.assertEqual(outputs['has_mysql_read_committed'], 'true')
         modules = outputs['unit_modules'].split(',')
         self.assertIn(STORE_MODULES['mysql'], modules)
         self.assertIn('integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa', modules)
         self.assertNotIn('ratchet', modules)
         self.assertNotIn(STORE_MODULES['postgresql'], modules)
 
+    def test_mysql_read_committed_dependencies(self):
+        graph = Graph(REPO)
+        closure = graph.closure([STORE_MODULES['mysql']])
+        for module in ['testing/ratchet-tck/store', 'stores/ratchet-store-core']:
+            with self.subTest(module=module):
+                self.assertIn(module, closure)
+                outputs = self.output(module + '/src/main/java/Foo.java')
+                self.assertEqual(outputs['has_mysql_read_committed'], 'true')
+        outputs = self.output('stores/ratchet-store-postgresql/src/main/java/Foo.java')
+        self.assertEqual(outputs['has_mysql_read_committed'], 'false')
+
     def test_mongodb(self):
         outputs = self.output('stores/ratchet-store-mongodb/src/main/java/Foo.java')
         self.assertEqual(self.rows(outputs, 'integration'), [{'server': server, 'database': 'mongodb'} for server in SERVERS])
+        self.assertEqual(outputs['has_mysql_read_committed'], 'false')
         self.assertEqual(outputs['has_spring_runtime'], 'true')
         self.assertEqual(self.rows(outputs, 'quarkus_native'), [LANES['quarkus_native'][0]])
 
@@ -269,6 +284,7 @@ class RealRepoTest(unittest.TestCase):
             outputs = self.output(*paths)
             self.counts(outputs, {})
             self.assertEqual(outputs['has_showcase'], 'false')
+            self.assertEqual(outputs['has_mysql_read_committed'], 'false')
             self.assertEqual(outputs['code'], code)
             self.assertEqual(outputs['web'], web)
             for prefix in ['unit', 'ee11']:
@@ -280,12 +296,14 @@ class RealRepoTest(unittest.TestCase):
             with self.subTest(paths=paths):
                 outputs = self.output(*paths)
                 self.reduced_all(outputs)
+                self.assertEqual(outputs['has_mysql_read_committed'], 'true')
                 self.assertEqual(outputs['unit_scope'], 'all')
                 self.assertEqual(outputs['ee11_scope'], 'all')
 
     def test_runtime_guard(self):
         outputs = self.output('infra/ci/check_runtime_consumer_reports.py')
         self.counts(outputs, dict(spring_runtime=2))
+        self.assertEqual(outputs['has_mysql_read_committed'], 'false')
         self.assertEqual(outputs['unit_scope'], 'none')
         self.assertEqual(outputs['has_showcase'], 'false')
 

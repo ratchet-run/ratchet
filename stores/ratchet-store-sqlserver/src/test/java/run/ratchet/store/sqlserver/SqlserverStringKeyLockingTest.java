@@ -63,7 +63,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 
 /**
- * Checks that statements keyed on a VARCHAR column lock only the key they name. The driver binds
+ * Checks that statements keyed on an NVARCHAR column lock only the key they name. The driver binds
  * strings as NVARCHAR, and a scan in place of a seek would range-lock every key under HOLDLOCK or
  * make an UPDATE or DELETE wait on other keys' row locks. Each test holds a transaction open on one
  * key and checks that work on another key does not wait for it.
@@ -217,16 +217,8 @@ class SqlserverStringKeyLockingTest {
     }
   }
 
-  private void inSeedAllowingFailure(Consumer<SqlserverJobStoreImpl> work) {
-    try {
-      inSeed(work);
-    } catch (RuntimeException ignored) {
-      // A duplicate key is allowed when the cast name already exists.
-    }
-  }
-
-  // SQL Server turns U+0101 into 'a' and U+4E2D into '?' when it casts to VARCHAR. A key with
-  // either character must not match the ASCII key it casts to.
+  // The binary key collation treats U+0101 and 'a' as different keys. Each write
+  // to the look-alike key must succeed and leave the ASCII key unchanged.
   @Test
   void permitAcquireAndConfigurationDoNotMatchALookAlikeResource() {
     JobEntity job;
@@ -248,8 +240,9 @@ class SqlserverStringKeyLockingTest {
     } finally {
       if (seed.getTransaction().isActive()) seed.getTransaction().rollback();
     }
-    inSeedAllowingFailure(s -> s.configureResource("res-\u0101", 5, 0, "other"));
+    inSeed(s -> s.configureResource("res-\u0101", 5, 0, "other"));
     inSeed(s -> assertEquals(1, s.findResourceLimit("res-a").orElseThrow().maxConcurrent()));
+    inSeed(s -> assertEquals(5, s.findResourceLimit("res-\u0101").orElseThrow().maxConcurrent()));
   }
 
   @Test
@@ -257,8 +250,8 @@ class SqlserverStringKeyLockingTest {
     inSeed(s -> assertTrue(s.tryLock("lock-a", Duration.ofHours(1), "node-a")));
     inSeed(s -> assertFalse(s.renewLock("lock-\u0101", Duration.ofHours(1), "node-a")));
     inSeed(s -> s.unlock("lock-\u0101", "node-a"));
-    inSeedAllowingFailure(
-        s -> assertFalse(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-a")));
+    inSeed(s -> assertTrue(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-b")));
+    inSeed(s -> assertFalse(s.tryLock("lock-\u0101", Duration.ofHours(1), "node-a")));
     inSeed(s -> assertFalse(s.tryLock("lock-a", Duration.ofHours(1), "node-b")));
   }
 
@@ -267,8 +260,9 @@ class SqlserverStringKeyLockingTest {
     Instant t0 = Instant.now().minusSeconds(3600).truncatedTo(ChronoUnit.SECONDS);
     inSeed(s -> s.upsertHeartbeat("node-a", t0));
     inSeed(s -> assertEquals(0, s.deleteInactiveNodesByIds(List.of("node-\u0101"))));
-    inSeedAllowingFailure(s -> s.upsertHeartbeat("node-\u0101", Instant.now()));
+    inSeed(s -> s.upsertHeartbeat("node-\u0101", Instant.now()));
     inSeed(s -> assertEquals(t0, s.findNodeById("node-a").orElseThrow().getLastHeartbeat()));
+    inSeed(s -> assertTrue(s.findNodeById("node-\u0101").isPresent()));
   }
 
   @Test
@@ -656,6 +650,91 @@ class SqlserverStringKeyLockingTest {
         waited(operations),
         "lock operations that waited for the open tryLock on lock-b");
     assertEquals(0, rangeLocksHeldBy(holder), "tryLock on lock-b range-locked other locks");
+  }
+
+  @Test
+  void businessKeyHoldReleaseDoesNotWaitForAnotherKeysOpenTransaction() {
+    UUID ownerA = UUID.randomUUID();
+    UUID ownerB = UUID.randomUUID();
+    seedBusinessKeyHolds(ownerA, ownerB);
+    holder.getTransaction().begin();
+    holder
+        .createNativeQuery(
+            """
+            SELECT business_key FROM scheduler_business_key_reservation
+              WITH (UPDLOCK, ROWLOCK, INDEX(pk_scheduler_business_key_reservation))
+            WHERE business_key = ?1
+            """)
+        .setParameter(1, "key-a")
+        .getResultList();
+    var operations = new LinkedHashMap<String, Consumer<SqlserverJobStoreImpl>>();
+    operations.put(
+        "releaseBusinessKeyHold key-b", s -> assertTrue(s.releaseBusinessKeyHold(ownerB, 1)));
+    assertEquals(List.of(), waited(operations), "hold releases that waited for key-a");
+    assertEquals(
+        1,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-a"));
+    assertEquals(
+        0,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-b"));
+  }
+
+  @Test
+  void expiredBusinessKeyHoldSweepSkipsAnotherKeysOpenTransaction() {
+    seedBusinessKeyHolds(UUID.randomUUID(), UUID.randomUUID());
+    holder.getTransaction().begin();
+    holder
+        .createNativeQuery(
+            """
+            SELECT business_key FROM scheduler_business_key_reservation
+              WITH (UPDLOCK, ROWLOCK, INDEX(pk_scheduler_business_key_reservation))
+            WHERE business_key = ?1
+            """)
+        .setParameter(1, "key-a")
+        .getResultList();
+    Instant now = Instant.now();
+    var operations = new LinkedHashMap<String, Consumer<SqlserverJobStoreImpl>>();
+    operations.put(
+        "deleteExpiredBusinessKeyHolds",
+        s -> assertEquals(1, s.deleteExpiredBusinessKeyHolds(now, 1)));
+    assertEquals(List.of(), waited(operations), "expiry sweeps that waited for key-a");
+    assertEquals(
+        1,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-a"));
+    assertEquals(
+        0,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-b"));
+    holder.getTransaction().rollback();
+    inSeed(s -> assertEquals(1, s.deleteExpiredBusinessKeyHolds(now, 1)));
+  }
+
+  private void seedBusinessKeyHolds(UUID ownerA, UUID ownerB) {
+    inSeed(
+        s -> {
+          for (var entry : Map.of("key-a", ownerA, "key-b", ownerB).entrySet()) {
+            seed.createNativeQuery(
+                    """
+                    INSERT INTO scheduler_business_key_reservation
+                      (business_key, owner_job_id, owner_table, held_until, held_by_node, held_claim_seq)
+                    VALUES (?1, ?2, 'QUEUE', ?3, 'node-a', 1)
+                    """)
+                .setParameter(1, entry.getKey())
+                .setParameter(2, UuidByteArrayConverter.toBytes(entry.getValue()))
+                .setParameter(
+                    3,
+                    Timestamp.from(
+                        Instant.now().minusSeconds(entry.getKey().equals("key-a") ? 120 : 60)))
+                .executeUpdate();
+          }
+        });
   }
 
   @Test

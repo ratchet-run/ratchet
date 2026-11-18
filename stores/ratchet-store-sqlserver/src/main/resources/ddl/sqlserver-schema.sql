@@ -16,9 +16,10 @@
 --   * generated cols  -> PERSISTED computed columns over JSON_VALUE(...), CAST to a bounded VARCHAR
 --                        so they fit the nonclustered index key limit (1700 bytes).
 --
--- SQL Server cannot index NVARCHAR(MAX) and has no MySQL-style prefix-length syntax, so every
--- indexed / filter-predicate / enum-ish column is a bounded VARCHAR(n); only genuinely freeform
--- columns (payloads, messages, errors) stay NVARCHAR(MAX).
+-- SQL Server cannot index NVARCHAR(MAX) and has no MySQL-style prefix-length syntax, so
+-- caller keys, node identifiers and free text use bounded NVARCHAR(n). Enum and machine-format
+-- columns stay VARCHAR(n); payloads, messages and errors use NVARCHAR(MAX).
+-- Key columns use Latin1_General_100_BIN2 for exact comparisons. Free text uses the database collation.
 --
 -- This file is also the Testcontainers init script, executed by ScriptUtils which splits on ';'.
 -- Keep every statement a single flat statement: no GO batch separators, no IF...BEGIN...END guards.
@@ -44,7 +45,7 @@ CREATE TABLE ratchet_schema_version
 -- 1. scheduler_node
 CREATE TABLE scheduler_node
 (
-    node_id      VARCHAR(64)  NOT NULL,
+    node_id      NVARCHAR(64) COLLATE Latin1_General_100_BIN2  NOT NULL,
     heartbeat_ts DATETIME2(6) NOT NULL,
     started_at   DATETIME2(6) NOT NULL,
     CONSTRAINT pk_scheduler_node PRIMARY KEY (node_id)
@@ -55,8 +56,8 @@ CREATE INDEX idx_node_heartbeat ON scheduler_node (heartbeat_ts);
 -- 2. scheduler_lock
 CREATE TABLE scheduler_lock
 (
-    lock_name  VARCHAR(128) NOT NULL,
-    owner_node VARCHAR(64)  NOT NULL,
+    lock_name  NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    owner_node NVARCHAR(64) COLLATE Latin1_General_100_BIN2  NOT NULL,
     locked_at  DATETIME2(6) NOT NULL,
     expires_at DATETIME2(6) NOT NULL,
     CONSTRAINT pk_scheduler_lock PRIMARY KEY (lock_name)
@@ -67,10 +68,10 @@ CREATE INDEX idx_lock_expires ON scheduler_lock (expires_at);
 -- 3. scheduler_resource_limit
 CREATE TABLE scheduler_resource_limit
 (
-    resource_name  VARCHAR(100) NOT NULL,
+    resource_name  NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
     max_concurrent INT          NOT NULL,
     retry_delay_ms INT          NOT NULL DEFAULT 5000,
-    description    VARCHAR(255),
+    description    NVARCHAR(255),
     created_at     DATETIME2(6) NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at     DATETIME2(6) NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT pk_scheduler_resource_limit PRIMARY KEY (resource_name)
@@ -93,13 +94,13 @@ CREATE TABLE scheduler_recurring_job
     payload            NVARCHAR(MAX)    NOT NULL,
     on_success_payload NVARCHAR(MAX),
     on_failure_payload NVARCHAR(MAX),
-    business_key       VARCHAR(512),
-    resource_name      VARCHAR(100),
-    execution_target   VARCHAR(64),
+    business_key       NVARCHAR(255) COLLATE Latin1_General_100_BIN2,
+    resource_name      NVARCHAR(100) COLLATE Latin1_General_100_BIN2,
+    execution_target   NVARCHAR(64) COLLATE Latin1_General_100_BIN2,
     target_class       AS (CAST(JSON_VALUE(payload, '$.target') AS VARCHAR(255))) PERSISTED,
     method_name        AS (CAST(JSON_VALUE(payload, '$.method') AS VARCHAR(128))) PERSISTED,
     created_at         DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
-    caller_principal   VARCHAR(255),
+    caller_principal   NVARCHAR(255),
     encrypted_payload  BIT              NOT NULL DEFAULT 0,
     misfire_policy     VARCHAR(16)      NOT NULL DEFAULT 'CATCH_UP',
     max_catch_up_executions INT          NOT NULL DEFAULT 11,
@@ -126,10 +127,10 @@ CREATE TABLE scheduler_recurring_job_archive
     payload            NVARCHAR(MAX)    NOT NULL,
     on_success_payload NVARCHAR(MAX),
     on_failure_payload NVARCHAR(MAX),
-    business_key       VARCHAR(512),
-    execution_target   VARCHAR(64),
+    business_key       NVARCHAR(255) COLLATE Latin1_General_100_BIN2,
+    execution_target   NVARCHAR(64) COLLATE Latin1_General_100_BIN2,
     created_at         DATETIME2(6)     NOT NULL,
-    caller_principal   VARCHAR(255),
+    caller_principal   NVARCHAR(255),
     archived_at        DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
     archive_reason     VARCHAR(16)      NOT NULL,
     CONSTRAINT pk_scheduler_recurring_job_archive PRIMARY KEY (id),
@@ -144,6 +145,7 @@ CREATE TABLE scheduler_job
 (
     row_version INT NOT NULL CONSTRAINT df_scheduler_job_row_version DEFAULT 0,
     job_id                BINARY(16) NOT NULL,
+    -- CHECK-constrained enum: keep VARCHAR for the claim-index parameter casts.
     job_type              VARCHAR(20)      NOT NULL,
     priority              INT              NOT NULL DEFAULT 2,
     max_retries           INT              NOT NULL DEFAULT 0,
@@ -157,16 +159,16 @@ CREATE TABLE scheduler_job
     trace_context         NVARCHAR(MAX),
     target_class          AS (CAST(JSON_VALUE(payload, '$.target') AS VARCHAR(255))) PERSISTED,
     method_name           AS (CAST(JSON_VALUE(payload, '$.method') AS VARCHAR(128))) PERSISTED,
-    idempotency_key       VARCHAR(36)      NOT NULL,
-    business_key          VARCHAR(512),
-    resource_name         VARCHAR(100),
-    execution_target      VARCHAR(64),
+    idempotency_key       NVARCHAR(36) COLLATE Latin1_General_100_BIN2      NOT NULL,
+    business_key          NVARCHAR(255) COLLATE Latin1_General_100_BIN2,
+    resource_name         NVARCHAR(100) COLLATE Latin1_General_100_BIN2,
+    execution_target      NVARCHAR(64) COLLATE Latin1_General_100_BIN2,
     on_success_payload    NVARCHAR(MAX),
     on_failure_payload    NVARCHAR(MAX),
     depends_on            BINARY(16),
     superseded_by         BINARY(16),
     created_at            DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
-    caller_principal      VARCHAR(255),
+    caller_principal      NVARCHAR(255),
     claim_seq BIGINT NOT NULL CONSTRAINT df_scheduler_job_claim_seq DEFAULT 0,
     terminal_status       VARCHAR(16),
     terminal_error        NVARCHAR(MAX),
@@ -201,26 +203,26 @@ CREATE TABLE scheduler_job_queue
     job_type                VARCHAR(20)      NOT NULL,
     priority                INT              NOT NULL DEFAULT 2,
     scheduled_time          DATETIME2(6)     NOT NULL,
-    business_key            VARCHAR(512),
+    business_key            NVARCHAR(255) COLLATE Latin1_General_100_BIN2,
     timeout_sec             INT              NOT NULL DEFAULT 0,
     max_retries             INT              NOT NULL DEFAULT 0,
     attempts                INT              NOT NULL DEFAULT 0,
-    picked_by               VARCHAR(64),
+    picked_by               NVARCHAR(64) COLLATE Latin1_General_100_BIN2,
     picked_at               DATETIME2(6),
     paused_from_status      VARCHAR(16),
     last_error              NVARCHAR(MAX),
     version                 INT              NOT NULL DEFAULT 0,
     updated_at              DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
-    signal_key              VARCHAR(255),
+    signal_key              NVARCHAR(255) COLLATE Latin1_General_100_BIN2,
     signal_timeout          DATETIME2(6),
     signal_payload          NVARCHAR(MAX),
     signal_payload_type     VARCHAR(16),
     signal_outcome          VARCHAR(32),
     signal_rejection_reason NVARCHAR(MAX),
     signal_delivered_at     DATETIME2(6),
-    signal_delivered_by     VARCHAR(255),
+    signal_delivered_by     NVARCHAR(255),
     signal_delivery_id      VARCHAR(36),
-    execution_target        VARCHAR(64),
+    execution_target        NVARCHAR(64) COLLATE Latin1_General_100_BIN2,
     CONSTRAINT pk_scheduler_job_queue PRIMARY KEY (job_id),
     CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING')),
     CONSTRAINT chk_queue_job_type CHECK (job_type IN
@@ -252,12 +254,12 @@ CREATE INDEX idx_signal_delivery_id ON scheduler_job_queue (signal_delivery_id);
 -- A held row keeps a business-key reservation after a running job is cancelled, until its body ends.
 CREATE TABLE scheduler_business_key_reservation
 (
-    business_key VARCHAR(512)     NOT NULL,
+    business_key NVARCHAR(255) COLLATE Latin1_General_100_BIN2     NOT NULL,
     owner_job_id BINARY(16) NOT NULL,
     owner_table  VARCHAR(16)      NOT NULL,
     reserved_at  DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
     held_until     DATETIME2(6) NULL,
-    held_by_node   VARCHAR(64) NULL,
+    held_by_node   NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
     held_claim_seq BIGINT NULL,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
     CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
@@ -280,7 +282,7 @@ CREATE INDEX idx_job_encryption_key_id ON scheduler_job (encryption_key_id);
 CREATE TABLE scheduler_job_tag
 (
     job_id BINARY(16) NOT NULL,
-    tag    VARCHAR(64)      NOT NULL,
+    tag    NVARCHAR(64) COLLATE Latin1_General_100_BIN2      NOT NULL,
     CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag)
 );
 
@@ -327,7 +329,7 @@ CREATE TABLE scheduler_job_execution
     id            BINARY(16) NOT NULL,
     job_id        BINARY(16) NOT NULL,
     attempt       INT              NOT NULL,
-    node_id       VARCHAR(64)      NOT NULL,
+    node_id       NVARCHAR(64) COLLATE Latin1_General_100_BIN2      NOT NULL,
     started_at    DATETIME2(6)     NOT NULL,
     ended_at      DATETIME2(6),
     status        VARCHAR(16)      NOT NULL DEFAULT 'RUNNING',
@@ -375,7 +377,7 @@ CREATE TABLE scheduler_job_archive
     timeout_sec             INT              NOT NULL DEFAULT 0,
     target_class            VARCHAR(255),
     method_name             VARCHAR(128),
-    business_key            VARCHAR(512),
+    business_key            NVARCHAR(255) COLLATE Latin1_General_100_BIN2,
     cron_expr               VARCHAR(64),
     zone_id                 VARCHAR(32),
     original_scheduled_time DATETIME2(6)     NOT NULL,
@@ -385,7 +387,7 @@ CREATE TABLE scheduler_job_archive
     total_execution_time_ms BIGINT,
     queue_wait_ms           BIGINT,
     archived_at             DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
-    archived_by             VARCHAR(64),
+    archived_by             NVARCHAR(64) COLLATE Latin1_General_100_BIN2,
     archive_reason          VARCHAR(128),
     job_result              NVARCHAR(MAX),
     result_type             VARCHAR(100),
@@ -393,7 +395,7 @@ CREATE TABLE scheduler_job_archive
     payload_summary         NVARCHAR(MAX),
     depended_on             BINARY(16),
     superseded_by           BINARY(16),
-    tags                    VARCHAR(512),
+    tags                    NVARCHAR(512) COLLATE Latin1_General_100_BIN2,
     properties              NVARCHAR(MAX),
     extension_state         NVARCHAR(MAX),
     CONSTRAINT pk_scheduler_job_archive PRIMARY KEY (archive_id),
@@ -447,9 +449,9 @@ CREATE INDEX idx_workflow_evaluation_order ON scheduler_workflow_condition (pare
 CREATE TABLE scheduler_resource_permit
 (
     id            BINARY(16) NOT NULL,
-    resource_name VARCHAR(100)     NOT NULL,
+    resource_name NVARCHAR(100) COLLATE Latin1_General_100_BIN2     NOT NULL,
     job_id        BINARY(16) NOT NULL,
-    node_id       VARCHAR(64)      NOT NULL,
+    node_id       NVARCHAR(64) COLLATE Latin1_General_100_BIN2      NOT NULL,
     acquired_at   DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT pk_scheduler_resource_permit PRIMARY KEY (id),
     CONSTRAINT fk_resource_permit_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
@@ -460,7 +462,7 @@ CREATE INDEX idx_resource_permit_job ON scheduler_resource_permit (job_id);
 
 -- 13. scheduler_job_properties (write-once indexed scalars; plaintext by design — no secrets)
 -- property_key/value are non-unicode VARCHAR so the (property_key, value) index key fits SQL
--- Server's 1700-byte nonclustered-index limit (255 + 1024 = 1279 < 1700); block metadata is ASCII.
+-- Server's 1700-byte nonclustered-index limit (255 + 1024 = 1279 < 1700). NVARCHAR would require 2558 bytes.
 CREATE TABLE scheduler_job_properties
 (
     job_id       BINARY(16)    NOT NULL,
@@ -492,7 +494,7 @@ CREATE INDEX idx_extension_state_key_id ON scheduler_job_extension_state (encryp
 
 -- Permanent idempotency tombstones; deliberately independent of retained job history.
 CREATE TABLE scheduler_idempotency_key (
-    idempotency_key VARCHAR(36) NOT NULL,
+    idempotency_key NVARCHAR(36) COLLATE Latin1_General_100_BIN2 NOT NULL,
     original_job_id BINARY(16) NOT NULL,
     reserved_at DATETIME2(6) NOT NULL,
     CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
@@ -504,11 +506,11 @@ CREATE TABLE scheduler_event_outbox
     event_id BINARY(16) NOT NULL,
     event_type VARCHAR(32) NOT NULL,
     job_id BINARY(16) NOT NULL,
-    business_key VARCHAR(512) NULL,
+    business_key NVARCHAR(255) COLLATE Latin1_General_100_BIN2 NULL,
     recurring_master_id BINARY(16) NULL,
     job_type VARCHAR(32) NULL,
     priority VARCHAR(16) NULL,
-    node_id VARCHAR(64) NULL,
+    node_id NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
     event_ts DATETIME2(6) NOT NULL,
     execution_time_ms BIGINT NULL,
     error_message NVARCHAR(MAX) NULL,
@@ -522,14 +524,14 @@ CREATE INDEX idx_event_outbox_created
 
 CREATE TABLE scheduler_partition_set (
     set_id BINARY(16) NOT NULL,
-    set_key VARCHAR(36) NOT NULL,
-    name VARCHAR(255) NOT NULL,
+    set_key NVARCHAR(36) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    name NVARCHAR(255) NOT NULL,
     partition_count INT NOT NULL,
     latest_generation INT NOT NULL,
     latest_batch_id BINARY(16) NOT NULL,
     sealed_generation INT DEFAULT 0 NOT NULL,
     generation_started_at DATETIME2(3) NOT NULL,
-    owner_principal VARCHAR(255) NULL,
+    owner_principal NVARCHAR(255) NULL,
     version INT DEFAULT 0 NOT NULL,
     created_at DATETIME2(3) NOT NULL,
     updated_at DATETIME2(3) NOT NULL,
@@ -559,7 +561,7 @@ CREATE INDEX idx_batch_partition_set ON scheduler_batch (partition_set_id);
 CREATE TABLE scheduler_resource_waiter
 (
     job_id        BINARY(16) NOT NULL,
-    resource_name VARCHAR(100) NOT NULL,
+    resource_name NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
     priority      INT NOT NULL,
     wait_since    DATETIME2(6) NOT NULL,
     lease_until   DATETIME2(6) NOT NULL,
