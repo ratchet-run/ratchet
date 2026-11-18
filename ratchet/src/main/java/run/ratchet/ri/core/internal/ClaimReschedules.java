@@ -28,17 +28,18 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.spi.JobRetryStore;
 
 /**
- * Retries, on a scheduler thread, a claim release that a worker could not write. A worker gives
- * back a claim it will not run (after a transient permit failure, a superseded permit, an open
- * circuit, an envelope upgrade or a failed batch check) through {@link JobRetryStore#releaseClaim}.
- * If the store keeps failing, the job would stay RUNNING with no worker: the timeout watchdog stops
- * when the worker returns, and orphan recovery skips nodes that still heartbeat.
+ * Retries, on a release executor thread, a claim release that a worker could not write. A worker
+ * gives back a claim it will not run (after a transient permit failure, a superseded permit, an
+ * open circuit, an envelope upgrade or a failed batch check) through {@link
+ * JobRetryStore#releaseClaim}. If the store keeps failing, the job would stay RUNNING with no
+ * worker: the timeout watchdog stops when the worker returns, and orphan recovery skips nodes that
+ * still heartbeat.
  *
  * <p>Pending writes are keyed by job and claim sequence. Each write is fenced on the claim sequence
  * and attempt count, so a charge committed under the same claim always wins. No write charges an
  * attempt. A rejected write runs the caller's callback. There is one entry per ended attempt whose
  * write still fails, so at most the attempts this node ended during the outage. Entries are dropped
- * when the scheduler stops; this node's shutdown reset or, after its heartbeat stops, orphan
+ * when the release executor stops; this node's shutdown reset or, after its heartbeat stops, orphan
  * recovery handles those rows. The revoked check only avoids a write the timeout watchdog has taken
  * over.
  */
@@ -50,6 +51,7 @@ class ClaimReschedules {
   private final ConcurrentHashMap<Key, Pending> pending = new ConcurrentHashMap<>();
   // Scheduling and insertion share this monitor, including the empty-map transition.
   private boolean scheduled;
+  private boolean stopping;
 
   ClaimReschedules(JobRetryStore store, Supplier<ScheduledExecutorService> scheduler) {
     this(store, scheduler, System::nanoTime);
@@ -85,13 +87,21 @@ class ClaimReschedules {
   }
 
   private boolean schedule() {
+    stopping = false;
+    ScheduledExecutorService executor = null;
     try {
-      ScheduledExecutorService executor = scheduler.get();
+      executor = scheduler.get();
       if (executor == null) return false;
       executor.schedule(this::drain, 1, TimeUnit.SECONDS);
       scheduled = true;
       return true;
     } catch (RuntimeException failure) {
+      stopping = ReleaseRetries.isStopping(failure, executor);
+      if (stopping) {
+        log.infof(
+            "This node is stopping; claim reschedules left to this node's shutdown reset or orphan"
+                + " recovery");
+      }
       return false;
     }
   }
@@ -104,10 +114,11 @@ class ClaimReschedules {
       synchronized (this) {
         scheduled = false;
         if (!pending.isEmpty() && !schedule()) {
-          log.warnf(
-              "Could not re-arm claim reschedules; %s pending items pass to this node's"
-                  + " shutdown reset or orphan recovery",
-              pending.size());
+          if (!stopping)
+            log.warnf(
+                "Could not re-arm claim reschedules; %s pending items pass to this node's"
+                    + " shutdown reset or orphan recovery",
+                pending.size());
           pending.clear();
         }
       }

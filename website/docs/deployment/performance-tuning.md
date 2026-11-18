@@ -114,27 +114,140 @@ Considerations:
 
 ### Custom `ExecutorProvider`
 
-For full control over the thread pool, implement the `ExecutorProvider` SPI:
+For full control over the thread pool, implement the `ExecutorProvider` SPI.
+
+The example creates its own threads, which suits a runtime without Jakarta Concurrency. In a Jakarta EE server those threads are unmanaged, so job, scheduled and release work running on them cannot reliably use container services such as `java:comp` lookups or transactions. On a server, keep the default provider and point it at your own managed executors and thread factory with the `ratchet.worker.*-jndi` options. See [Configure store and concurrency resources](installation.md#4-configure-store-and-concurrency-resources). The example is a CDI alternative, so it replaces the default provider.
+
+A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
 
 ```java
+@Alternative
+@Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
 public class CustomExecutorProvider implements ExecutorProvider {
 
-  @Override
-  public ExecutorService getJobExecutor() {
-    return new ThreadPoolExecutor(
-        8,                          // core pool size
-        32,                         // max pool size
-        60, TimeUnit.SECONDS,       // keep-alive
-        new LinkedBlockingQueue<>(1000),  // work queue
-        new ThreadPoolExecutor.CallerRunsPolicy()
-    );
-  }
+    private volatile ClassLoader applicationClassLoader =
+        Thread.currentThread().getContextClassLoader();
+    private final ThreadLocal<ClassLoader> previousLoader = new ThreadLocal<>();
 
-  @Override
-  public ScheduledExecutorService getScheduledExecutor() {
-    return Executors.newScheduledThreadPool(2);
-  }
+    @Override
+    public void initializeApplicationClassLoader(ClassLoader applicationClassLoader) {
+        this.applicationClassLoader = applicationClassLoader;
+    }
+
+    private void beforeTask(Thread thread) {
+        previousLoader.set(thread.getContextClassLoader());
+        thread.setContextClassLoader(applicationClassLoader);
+    }
+
+    private void afterTask() {
+        try {
+            Thread.currentThread().setContextClassLoader(previousLoader.get());
+        } finally {
+            previousLoader.remove();
+        }
+    }
+
+    private class ContextScheduler extends ScheduledThreadPoolExecutor {
+        ContextScheduler(ThreadFactory factory) {
+            super(2, factory);
+            setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+            setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        }
+
+        @Override
+        protected void beforeExecute(Thread thread, Runnable task) {
+            super.beforeExecute(thread, task);
+            beforeTask(thread);
+        }
+
+        @Override
+        protected void afterExecute(Runnable task, Throwable failure) {
+            try {
+                super.afterExecute(task, failure);
+            } finally {
+                afterTask();
+            }
+        }
+    }
+
+    private class ContextJobExecutor extends ThreadPoolExecutor {
+        ContextJobExecutor() {
+            super(
+                8,                               // core pool size
+                32,                              // max pool size
+                60, TimeUnit.SECONDS,            // keep-alive
+                new LinkedBlockingQueue<>(1000), // work queue
+                new ThreadPoolExecutor.CallerRunsPolicy()
+            );
+            setRejectedExecutionHandler((task, pool) -> {
+                // CallerRunsPolicy bypasses the worker hooks.
+                Thread thread = Thread.currentThread();
+                ClassLoader previous = thread.getContextClassLoader();
+                thread.setContextClassLoader(applicationClassLoader);
+                try {
+                    new ThreadPoolExecutor.CallerRunsPolicy().rejectedExecution(task, pool);
+                } finally {
+                    thread.setContextClassLoader(previous);
+                }
+            });
+        }
+
+        @Override
+        protected void beforeExecute(Thread thread, Runnable task) {
+            super.beforeExecute(thread, task);
+            beforeTask(thread);
+        }
+
+        @Override
+        protected void afterExecute(Runnable task, Throwable failure) {
+            try {
+                super.afterExecute(task, failure);
+            } finally {
+                afterTask();
+            }
+        }
+    }
+
+    private final ExecutorService jobExecutor = new ContextJobExecutor();
+    private final ScheduledExecutorService scheduler =
+        new ContextScheduler(Executors.defaultThreadFactory());
+    private final ScheduledExecutorService releases =
+        new ContextScheduler(Executors.defaultThreadFactory());
+
+    @Override
+    public ExecutorService getJobExecutor() {
+        return jobExecutor;
+    }
+
+    @Override
+    public ScheduledExecutorService getScheduledExecutor() {
+        return scheduler;
+    }
+
+    @Override
+    public ScheduledExecutorService getReleaseExecutor() {
+        return releases;
+    }
+
+    @PreDestroy
+    void shutdown() {
+        shutdown(releases);
+        shutdown(jobExecutor);
+        shutdown(scheduler);
+    }
+
+    private static void shutdown(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 }
 ```
 

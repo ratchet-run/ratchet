@@ -20,9 +20,14 @@ import static org.mockito.Mockito.*;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -34,6 +39,98 @@ import run.ratchet.store.spi.NodeStore;
 import run.ratchet.store.spi.OrphanRecovery;
 
 class RatchetRuntimeTest {
+  @Test
+  void rejectsReleaseExecutorSharedWithScheduler() {
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    ScheduledExecutorService shared = mock(ScheduledExecutorService.class);
+    when(executors.getScheduledExecutor()).thenReturn(shared);
+    when(executors.getReleaseExecutor()).thenReturn(shared);
+    RatchetRuntime runtime =
+        runtimeWithNode(
+            () -> "node",
+            mock(NodeLiveness.class),
+            mock(OrphanRecoveryTimer.class),
+            mock(Poller.class),
+            mock(JobExecutionCoordinator.class),
+            executors);
+    assertTrue(
+        assertThrows(IllegalStateException.class, runtime::start)
+            .getMessage()
+            .contains("getReleaseExecutor()"));
+  }
+
+  @Test
+  void unavailableReleaseExecutorStillStartsHeartbeatAndLogsOnce() {
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    ScheduledExecutorService scheduled = mock(ScheduledExecutorService.class);
+    RuntimeException failure = new IllegalStateException("managed thread factory unavailable");
+    when(executors.getScheduledExecutor()).thenReturn(scheduled);
+    when(executors.getReleaseExecutor()).thenThrow(failure);
+    NodeLiveness liveness = mock(NodeLiveness.class);
+    Poller poller = mock(Poller.class);
+    RatchetRuntime runtime =
+        runtimeWithNode(
+            () -> "node",
+            liveness,
+            mock(OrphanRecoveryTimer.class),
+            poller,
+            mock(JobExecutionCoordinator.class),
+            executors);
+    Logger logger = Logger.getLogger(RatchetRuntime.class.getName());
+    List<LogRecord> records = new ArrayList<>();
+    Handler handler =
+        new Handler() {
+          @Override
+          public void publish(LogRecord record) {
+            if (record.getMessage().contains("Release retries are unavailable")) {
+              records.add(record);
+            }
+          }
+
+          @Override
+          public void flush() {}
+
+          @Override
+          public void close() {}
+        };
+    Level previousLevel = logger.getLevel();
+    logger.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    try {
+      assertDoesNotThrow(runtime::start);
+      assertDoesNotThrow(runtime::start);
+      verify(liveness).startHeartbeat(scheduled);
+      verify(poller).init();
+      verify(executors).getReleaseExecutor();
+      assertEquals(1, records.size());
+      assertEquals(Level.SEVERE, records.get(0).getLevel());
+      assertSame(failure, records.get(0).getThrown());
+    } finally {
+      runtime.onShutdown();
+      logger.removeHandler(handler);
+      logger.setLevel(previousLevel);
+    }
+  }
+
+  @Test
+  void nullReleaseExecutorStillStarts() {
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    when(executors.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
+    RatchetRuntime runtime =
+        runtimeWithNode(
+            () -> "node",
+            mock(NodeLiveness.class),
+            mock(OrphanRecoveryTimer.class),
+            mock(Poller.class),
+            mock(JobExecutionCoordinator.class),
+            executors);
+    try {
+      assertDoesNotThrow(runtime::start);
+    } finally {
+      runtime.onShutdown();
+    }
+  }
+
   @Test
   void defaultNodeCleansStartupPermitsAfterInitBeforePolling() {
     DefaultNodeIdentityProvider node = mock(DefaultNodeIdentityProvider.class);

@@ -127,7 +127,7 @@ public class InfinispanClusterCoordinator extends AbstractPushCoordinator
       RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
       threading =
           CoordinatorThreading.managed(
-              "ratchet-coordinator-infinispan", options.execution().coordinatorThreadFactoryJndi());
+              "ratchet-coordinator-infinispan", options.execution().threadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,

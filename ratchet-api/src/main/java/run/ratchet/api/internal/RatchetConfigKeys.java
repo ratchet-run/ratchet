@@ -70,10 +70,10 @@ public final class RatchetConfigKeys {
           "ratchet.worker.scheduled-executor-jndi",
           "RATCHET_WORKER_SCHEDULED_EXECUTOR_JNDI",
           "java:comp/DefaultManagedScheduledExecutorService");
-  public static final RatchetConfigKey<String> COORDINATOR_THREAD_FACTORY_JNDI =
+  public static final RatchetConfigKey<String> WORKER_THREAD_FACTORY_JNDI =
       stringKey(
-          "ratchet.coordinator.thread-factory-jndi",
-          "RATCHET_COORDINATOR_THREAD_FACTORY_JNDI",
+          "ratchet.worker.thread-factory-jndi",
+          "RATCHET_WORKER_THREAD_FACTORY_JNDI",
           "java:comp/DefaultManagedThreadFactory");
   public static final RatchetConfigKey<String> WORKER_VIRTUAL_EXECUTOR_JNDI =
       stringKey("ratchet.worker.virtual-executor-jndi", "RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI", "");

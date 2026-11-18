@@ -260,6 +260,7 @@ class SqlTransactionsTest {
 
   public static final class ThreadExecutors implements ExecutorProvider, AutoCloseable {
     private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+    final ScheduledExecutorService releases = classLoader.wrap(Executors.newScheduledThreadPool(2));
 
     @Override
     public void initializeApplicationClassLoader(ClassLoader loader) {
@@ -294,6 +295,10 @@ class SqlTransactionsTest {
           : ExecutorProvider.super.getJobExecutor(target);
     }
 
+    public ScheduledExecutorService getReleaseExecutor() {
+      return releases;
+    }
+
     public ScheduledExecutorService getScheduledExecutor() {
       return timers;
     }
@@ -301,6 +306,7 @@ class SqlTransactionsTest {
     public void close() {
       platform.shutdownNow();
       timers.shutdownNow();
+      releases.shutdownNow();
       if (virtual != null) virtual.shutdownNow();
     }
   }

@@ -27,8 +27,8 @@ import run.ratchet.store.spi.JobTerminalStore;
  * clears the interrupt that the watchdog or a shutdown gives a running body before it gets here,
  * but a thread that is still interrupted must not call the store, because a JDBC call on an
  * interrupted thread can break the pooled connection. A store call can also fail. In both cases the
- * release moves to a scheduler thread and is retried there. This is a best effort: the hold's
- * expiry, the stale-node release and the start-up release are the backstops.
+ * release moves to a release executor thread and is retried there. This is a best effort: the
+ * hold's expiry, the stale-node release and the start-up release are the backstops.
  */
 final class HeldKeyReleases {
   static final Duration RETRY_DELAY = Duration.ofSeconds(5);

@@ -28,6 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
@@ -57,10 +58,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobTransaction;
+import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobStore;
 
 @ExtendWith(MockitoExtension.class)
 class JobExecutorServiceTest {
@@ -109,6 +112,68 @@ class JobExecutorServiceTest {
             FIXED_CLOCK,
             null,
             RatchetOptions.builder().build());
+  }
+
+  @Test
+  void allReleaseHandOffsUseReleaseExecutor() throws Exception {
+    JobStore store = mock(JobStore.class);
+    ResourcePermitService permits = mock(ResourcePermitService.class);
+    DefaultJobExecutorService wiredService =
+        new DefaultJobExecutorService(
+            poolRegistry,
+            timeoutHandler,
+            executorProvider,
+            store,
+            permits,
+            null,
+            null,
+            null,
+            null,
+            null,
+            new JobTransaction(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            mock(AfterCommitRegistrar.class),
+            mock(JobStateFlusher.class),
+            FIXED_CLOCK,
+            null,
+            RatchetOptions.builder().build());
+    ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    when(executorProvider.getReleaseExecutor()).thenReturn(releases);
+    // Exercise the helpers installed by the real service constructor. Do not rebuild their wiring.
+    HeldKeyReleases holds = serviceField(wiredService, "holdReleases", HeldKeyReleases.class);
+    PermitReleases permitReleases =
+        serviceField(wiredService, "permitReleases", PermitReleases.class);
+    ClaimReschedules claims =
+        serviceField(wiredService, "claimReschedules", ClaimReschedules.class);
+    try {
+      Thread.currentThread().interrupt();
+      holds.release(JOB_ID, 1);
+      permitReleases.release("gpu", JOB_ID, 1);
+      assertTrue(claims.handOff(JOB_ID, 1, "release", FIXED_NOW, 0, () -> false, () -> {}));
+    } finally {
+      Thread.interrupted();
+    }
+    verify(executorProvider, Mockito.times(3)).getReleaseExecutor();
+    verify(executorProvider, never()).getScheduledExecutor();
+    verify(releases, Mockito.times(2))
+        .schedule(any(Runnable.class), eq(0L), eq(TimeUnit.MILLISECONDS));
+    verify(releases).schedule(any(Runnable.class), eq(1L), eq(TimeUnit.SECONDS));
+    Mockito.verifyNoInteractions(store, permits);
+  }
+
+  private <T> T serviceField(DefaultJobExecutorService instance, String name, Class<T> type)
+      throws Exception {
+    Field field = DefaultJobExecutorService.class.getDeclaredField(name);
+    field.setAccessible(true);
+    return type.cast(field.get(instance));
   }
 
   @Test
