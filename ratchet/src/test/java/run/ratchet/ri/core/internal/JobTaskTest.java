@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -246,6 +247,236 @@ class JobTaskTest {
     return new ContinuationScenario(job, store, attempt, execution, results);
   }
 
+  private ContinuationScenario hydratedClaimScenario(Runnable body) throws Exception {
+    var scenario = continuationScenario(body, 2);
+    scenario.job().setAttempts(3);
+    initJobTaskFromClaimWithDefaultStubs(attemptFenceClaim(), scenario.job());
+    var attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 2, 7L, "node-1");
+    jobTask.attach(attempt);
+    return new ContinuationScenario(
+        scenario.job(), scenario.store(), attempt, scenario.execution(), scenario.results());
+  }
+
+  private static JobClaimDto attemptFenceClaim() {
+    return new JobClaimDto(
+        JOB_UUID,
+        JobStatus.RUNNING,
+        JobExecutionType.SINGLE,
+        JobPriority.NORMAL,
+        Instant.EPOCH,
+        1,
+        30,
+        "node-1",
+        Instant.EPOCH,
+        null,
+        2,
+        3,
+        null,
+        null,
+        7L);
+  }
+
+  @Test
+  void successUsesClaimAttemptsAfterHydrationCharge() throws Exception {
+    var scenario = hydratedClaimScenario(() -> {});
+    when(scenario.results().serialize(any(), any())).thenReturn(SerializedJobResult.empty());
+    when(lifecycleFacade.completeSuccess(
+            eq(scenario.job()), any(), any(), any(), any(), anyLong(), anyLong(), eq(2)))
+        .thenReturn(false);
+
+    jobTask.call();
+
+    verify(lifecycleFacade)
+        .completeSuccess(
+            eq(scenario.job()), any(), any(), any(), any(), anyLong(), anyLong(), eq(2));
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(3, scenario.job().getAttempts());
+  }
+
+  @Test
+  void minimalSuccessUsesClaimAttemptsAfterHydrationCharge() throws Exception {
+    var scenario = hydratedClaimScenario(() -> {});
+    when(scenario.results().serialize(any(), any())).thenReturn(SerializedJobResult.empty());
+    when(lifecycleFacade.completeSuccess(
+            eq(scenario.job()), any(), any(), any(), any(), anyLong(), anyLong(), eq(2)))
+        .thenThrow(new RatchetTransientStoreException("busy"));
+    when(lifecycleFacade.completeSuccessMinimal(
+            eq(scenario.job()), any(), any(), anyLong(), anyLong(), eq(2)))
+        .thenReturn(false);
+
+    jobTask.call();
+
+    verify(lifecycleFacade)
+        .completeSuccessMinimal(eq(scenario.job()), any(), any(), anyLong(), anyLong(), eq(2));
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
+  }
+
+  @Test
+  void nonRetryableFailureUsesClaimAttemptsAfterHydrationCharge() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @Test
+  void continuationLimitUsesClaimAttemptsAfterHydrationCharge() throws Exception {
+    var scenario = hydratedClaimScenario(() -> JobContext.current().requestContinuation());
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @Test
+  void dlqUsesWorkersIncrementedAttemptCount() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(3);
+    when(retryPolicy.shouldRetry(3, failure)).thenReturn(false);
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 3))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, 3);
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+  }
+
+  @Test
+  void doubleChargeSupersedesWorkerWithoutRetryOrCompletion() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(4);
+    when(errorSanitizer.sanitize(failure)).thenReturn("safe body failure");
+
+    jobTask.call();
+
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    Assertions.assertEquals(3, scenario.job().getAttempts());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+    Assertions.assertEquals("safe body failure", scenario.execution().getErrorMessage());
+  }
+
+  @Test
+  void forcedFailureMissSavesDiscardedExecutionWithClaimAttempts() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenReturn(false);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
+  }
+
+  @Test
+  void failedIncrementLeavesForcedFailureFencedOnlyOnClaim() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+  }
+
+  @Test
+  void unboundCallbackUsesClaimAttemptsAfterHydrationCharge() throws Exception {
+    var scenario = hydratedClaimScenario(() -> {});
+    var original = scenario.job().getPayload();
+    scenario
+        .job()
+        .setPayload(
+            new JobPayload(
+                original.target(),
+                original.method(),
+                original.methodDescriptor(),
+                original.isStatic(),
+                Arrays.asList((Object) null),
+                List.of(0)));
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(eq(scenario.job()), any(), eq(2)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).moveToDlqAndHandlePermanentFailure(eq(scenario.job()), any(), eq(2));
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @Test
+  void batchClosedCancelUsesClaimAttemptsAfterHydrationCharge() throws Exception {
+    JobEntity job = createTestJob();
+    job.setAttempts(3);
+    job.setStatus(JobStatus.RUNNING);
+    initJobTaskFromClaimWithDefaultStubs(attemptFenceClaim(), job);
+    UUID parent = UUID.randomUUID();
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setDependsOn(parent);
+    when(jobStore.getJobStatus(parent)).thenReturn(JobStatus.CANCELED);
+    when(jobStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
+
+    jobTask.call();
+
+    ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+    verify(jobStore).commitCompletion(plan.capture());
+    Assertions.assertEquals(2, plan.getValue().expectedAttempts());
+    Assertions.assertEquals(7L, plan.getValue().expectedClaimSeq());
+    Assertions.assertEquals(JobStatus.CANCELED, plan.getValue().terminalStatus());
+    verify(observabilityFacade, never()).startExecution(any(), anyInt(), any());
+  }
+
   @Test
   void continuationPreservesAttemptsClearsErrorAndSkipsSuccessProcessing() throws Exception {
     var scenario =
@@ -273,7 +504,8 @@ class JobTaskTest {
     Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
     verify(scenario.results(), never()).serialize(any(), any());
     verify(lifecycleFacade, never())
-        .completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong());
+        .completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
     verify(observabilityFacade, never()).publishEvent(any(JobRetryingEvent.class));
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
@@ -283,6 +515,7 @@ class JobTaskTest {
   void existingCounterAdvancesAcrossRetriesWithoutChangingAttempts() throws Exception {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
     scenario.job().setAttempts(2);
+    jobTask.init(scenario.job());
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)));
     when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L))
@@ -388,7 +621,8 @@ class JobTaskTest {
               return payload.call();
             });
     when(scenario.results().serialize(any(), any())).thenReturn(SerializedJobResult.empty());
-    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(true);
     jobTask.call();
     Assertions.assertEquals(2, calls.get());
@@ -411,7 +645,8 @@ class JobTaskTest {
             1000);
     when(jobStore.capability(JobStateStore.class)).thenReturn(Optional.empty());
     when(scenario.results().serialize(any(), any())).thenReturn(SerializedJobResult.empty());
-    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(true);
     jobTask.call();
     Assertions.assertInstanceOf(UnsupportedOperationException.class, rejected.get());
@@ -546,7 +781,8 @@ class JobTaskTest {
             Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 10)));
     when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2}", 9, 7L))
         .thenReturn(StateWriteResult.VERSION_CONFLICT);
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
     jobTask.call();
     verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
@@ -567,7 +803,8 @@ class JobTaskTest {
     when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L))
         .thenReturn(StateWriteResult.VERSION_CONFLICT);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L)).thenReturn(1);
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
     jobTask.call();
     verify(scenario.store(), times(3)).getState(JOB_UUID, CONTINUATION_NS);
@@ -664,7 +901,8 @@ class JobTaskTest {
     Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
@@ -708,11 +946,15 @@ class JobTaskTest {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 2, scope);
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
     jobTask.call();
     InOrder order = inOrder(lifecycleFacade, observabilityFacade, scope);
-    order.verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false);
+    order
+        .verify(lifecycleFacade)
+        .completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     order
         .verify(observabilityFacade)
         .recordJobFailure(eq(scenario.job()), any(IllegalStateException.class), eq(1));
@@ -731,14 +973,17 @@ class JobTaskTest {
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               status.set(JobStatus.CANCELED);
               return false;
             });
     jobTask.call();
-    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
     verify(observabilityFacade).recordJobCancellation(scenario.job());
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
@@ -752,7 +997,8 @@ class JobTaskTest {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 2);
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
     when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":0}", 5))
         .thenThrow(new IllegalStateException("reset unavailable"));
@@ -765,7 +1011,8 @@ class JobTaskTest {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 2);
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(accepted);
     when(errorSanitizer.sanitize(any()))
         .thenAnswer(inv -> ((Throwable) inv.getArgument(0)).getMessage());
@@ -775,7 +1022,10 @@ class JobTaskTest {
         scenario.job().getLastError().contains("ratchet.execution.max-continuations"));
     if (accepted) {
       InOrder order = inOrder(lifecycleFacade, scenario.store());
-      order.verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false);
+      order
+          .verify(lifecycleFacade)
+          .completeFailure(
+              eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
       order.verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":0}", 5);
     } else {
       verify(scenario.store(), never()).updateState(any(), anyString(), anyString(), anyInt());
@@ -904,7 +1154,14 @@ class JobTaskTest {
             });
     if (!superseded) {
       when(lifecycleFacade.completeSuccess(
-              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+              any(JobEntity.class),
+              any(),
+              any(),
+              any(),
+              any(),
+              anyLong(),
+              anyLong(),
+              nullable(Integer.class)))
           .thenReturn(true);
     }
     jobTask.call();
@@ -919,11 +1176,13 @@ class JobTaskTest {
         .updateState(any(), eq(JobCheckpointWriter.NAMESPACE), anyString(), anyInt(), anyLong());
     if (superseded) {
       verify(observabilityFacade).recordJobCancellation(job);
-      verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+      verify(lifecycleFacade, never())
+          .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
       verify(jobStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), anyLong());
     } else {
       verify(lifecycleFacade)
-          .completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+          .completeSuccess(
+              eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     }
   }
 
@@ -964,10 +1223,19 @@ class JobTaskTest {
             });
     if (failure) {
       when(validationFacade.shouldNotRetry(error)).thenReturn(true);
-      when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+      when(lifecycleFacade.completeFailure(
+              eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+          .thenReturn(true);
     } else {
       when(lifecycleFacade.completeSuccess(
-              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+              any(JobEntity.class),
+              any(),
+              any(),
+              any(),
+              any(),
+              anyLong(),
+              anyLong(),
+              nullable(Integer.class)))
           .thenReturn(true);
     }
     try {
@@ -992,12 +1260,22 @@ class JobTaskTest {
             .verify(stateStore)
             .initState(eq(JOB_UUID), eq(JobProgressWriter.NAMESPACE), anyString(), eq(7L));
       }
-      if (failure) order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+      if (failure)
+        order
+            .verify(lifecycleFacade)
+            .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
       else
         order
             .verify(lifecycleFacade)
             .completeSuccess(
-                any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+                any(JobEntity.class),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyLong(),
+                anyLong(),
+                nullable(Integer.class));
       order.verify(jobStateFlusher).remove(writer.getValue());
       Assertions.assertFalse(writer.getValue().hasUnflushed());
       verify(jobStateFlusher).remove(progress.getValue());
@@ -1034,7 +1312,14 @@ class JobTaskTest {
               return "done";
             });
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
     jobTask.call();
     Assertions.assertNotNull(context.get());
@@ -1249,7 +1534,8 @@ class JobTaskTest {
               Assertions.assertTrue(context.isCurrentAttempt());
               return invocation.<Callable<?>>getArgument(2).call();
             });
-    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(true);
     jobTask.call();
     verify(jobStore).currentClaim(JOB_UUID);
@@ -1355,7 +1641,14 @@ class JobTaskTest {
         .thenAnswer(invocation -> invocation.<Callable<?>>getArgument(2).call());
     if (failure == null) {
       when(lifecycleFacade.completeSuccess(
-              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+              any(JobEntity.class),
+              any(),
+              any(),
+              any(),
+              any(),
+              anyLong(),
+              anyLong(),
+              nullable(Integer.class)))
           .thenReturn(true);
     } else if (!expectCooperative) {
       when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
@@ -1446,12 +1739,14 @@ class JobTaskTest {
         verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
       }
       if (expectCooperative) {
-        verify(lifecycleFacade, never()).completeFailure(any(JobEntity.class), any(), anyBoolean());
+        verify(lifecycleFacade, never())
+            .completeFailure(any(JobEntity.class), any(), anyBoolean(), nullable(Integer.class));
         verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
       }
       if (failure == null) {
         verify(lifecycleFacade)
-            .completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+            .completeSuccess(
+                eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
       }
       attempt.requestCancellation();
       Assertions.assertTrue(observed.isCancellationRequested());
@@ -1527,7 +1822,14 @@ class JobTaskTest {
       when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
           .thenAnswer(invocation -> ((Callable<?>) invocation.getArgument(2)).call());
       when(lifecycleFacade.completeSuccess(
-              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+              any(JobEntity.class),
+              any(),
+              any(),
+              any(),
+              any(),
+              anyLong(),
+              anyLong(),
+              nullable(Integer.class)))
           .thenReturn(true);
 
       jobTask.call();
@@ -1555,7 +1857,9 @@ class JobTaskTest {
       RuntimeException failure = new IllegalStateException("final attempt failed");
       doThrow(failure).when(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
       when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
-      when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+      when(lifecycleFacade.completeFailure(
+              eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+          .thenReturn(true);
 
       jobTask.call();
 
@@ -1621,6 +1925,7 @@ class JobTaskTest {
 
   @BeforeEach
   void setUp() {
+    lenient().when(jobStore.incrementRetryAttempt(any(), any())).thenReturn(1);
     CallbackRecorder.reset();
     OBSERVED_SIGNAL_DECISION.remove();
     OBSERVED_CUSTOM_ARGUMENT.remove();
@@ -1685,7 +1990,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(invocation -> ((Callable<?>) invocation.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -1703,7 +2015,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -1732,14 +2051,16 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(auditError)).thenReturn(false);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, auditError)).thenReturn(false);
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
 
     // The payload never ran, and the job was failed cleanly through the terminal DLQ path.
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     // No JobStartedEvent is published when the job fails before it begins executing.
     verify(observabilityFacade, never()).publishEvent(any(JobStartedEvent.class));
     Assertions.assertNull(
@@ -1761,7 +2082,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -1790,7 +2118,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -1816,7 +2151,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -1936,7 +2278,8 @@ class JobTaskTest {
       when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L)))
           .thenReturn(true);
     } else {
-      when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+      when(lifecycleFacade.completeFailure(
+              any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
           .thenReturn(true);
     }
 
@@ -1947,7 +2290,8 @@ class JobTaskTest {
       verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L));
     } else {
       verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-      verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+      verify(lifecycleFacade)
+          .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     }
   }
 
@@ -1965,12 +2309,14 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(error)).thenReturn(false);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, error)).thenReturn(false);
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
 
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   @Test
@@ -1992,7 +2338,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(false);
     if (saveFails) {
       doThrow(new IllegalStateException("execution store down"))
@@ -2069,7 +2422,11 @@ class JobTaskTest {
               throw failure;
             });
     lenient().when(validationFacade.shouldNotRetry(any())).thenReturn(nonRetryable);
-    lenient().when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    lenient()
+        .when(
+            lifecycleFacade.completeFailure(
+                eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
     if (saveFails) {
       doThrow(new IllegalStateException("execution store down"))
           .when(observabilityFacade)
@@ -2089,7 +2446,8 @@ class JobTaskTest {
         execution.getValue().getErrorClass());
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
     verify(scope, never()).failure(anyString(), anyString(), anyInt());
@@ -2126,7 +2484,8 @@ class JobTaskTest {
     jobTask.call();
 
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
     ArgumentCaptor<JobExecutionEntity> execution =
         ArgumentCaptor.forClass(JobExecutionEntity.class);
@@ -2157,7 +2516,8 @@ class JobTaskTest {
     Assertions.assertDoesNotThrow(jobTask::call);
 
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
     ArgumentCaptor<JobExecutionEntity> execution =
         ArgumentCaptor.forClass(JobExecutionEntity.class);
@@ -2218,7 +2578,8 @@ class JobTaskTest {
     Assertions.assertEquals("Hard timeout exceeded (30s)", execution.getValue().getErrorMessage());
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
     verify(timeoutHandler, never()).processCooperativeTimeout(any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
@@ -2327,7 +2688,8 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(interrupt)).thenReturn(false);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, interrupt)).thenReturn(false);
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     task.call();
@@ -2358,7 +2720,8 @@ class JobTaskTest {
               interruptedDuringRetryWrite.set(Thread.currentThread().isInterrupted());
               return 1;
             });
-    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               interruptedDuringFailureWrite.set(Thread.currentThread().isInterrupted());
@@ -2529,10 +2892,12 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any())).thenReturn(true);
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any(), nullable(Integer.class)))
+        .thenReturn(true);
     jobTask.call();
     ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
-    verify(lifecycleFacade).moveToDlqAndHandlePermanentFailure(eq(job), failure.capture());
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(eq(job), failure.capture(), nullable(Integer.class));
     Assertions.assertEquals(
         "Batch success callback was never given the batch result", failure.getValue().getMessage());
     ArgumentCaptor<JobExecutionEntity> execution =
@@ -2569,7 +2934,7 @@ class JobTaskTest {
     when(jobStore.findById(JOB_UUID))
         .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
     when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
-            any(JobEntity.class), any(PayloadDecryptionException.class)))
+            any(JobEntity.class), any(PayloadDecryptionException.class), eq(2)))
         .thenReturn(true);
 
     jobTask.call();
@@ -2577,7 +2942,7 @@ class JobTaskTest {
     ArgumentCaptor<JobEntity> dlqJob = ArgumentCaptor.forClass(JobEntity.class);
     verify(lifecycleFacade)
         .moveToDlqAndHandlePermanentFailure(
-            dlqJob.capture(), any(PayloadDecryptionException.class));
+            dlqJob.capture(), any(PayloadDecryptionException.class), eq(2));
     Assertions.assertEquals("poisoned-job", dlqJob.getValue().getBusinessKey());
     Assertions.assertEquals(JobExecutionType.SINGLE, dlqJob.getValue().getJobType());
     Assertions.assertEquals(JobPriority.HIGH, dlqJob.getValue().getPriority());
@@ -2586,7 +2951,7 @@ class JobTaskTest {
     Assertions.assertEquals(3, dlqJob.getValue().getMaxRetries());
     Assertions.assertEquals(JobStatus.RUNNING, dlqJob.getValue().getStatus());
     verify(lifecycleFacade, never())
-        .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+        .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), eq(2));
     verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
     verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
     // Non-retryable: never rescheduled, never increments the attempt counter.
@@ -2607,9 +2972,10 @@ class JobTaskTest {
 
     verify(lifecycleFacade)
         .moveToDlqAndHandlePermanentFailure(
-            any(JobEntity.class), any(PayloadDecryptionException.class));
+            any(JobEntity.class), any(PayloadDecryptionException.class), nullable(Integer.class));
     verify(lifecycleFacade, never())
-        .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+        .completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
     verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
   }
@@ -2638,7 +3004,7 @@ class JobTaskTest {
     when(jobStore.findById(JOB_UUID))
         .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
     when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
-            any(JobEntity.class), any(PayloadDecryptionException.class)))
+            any(JobEntity.class), any(PayloadDecryptionException.class), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -2646,7 +3012,7 @@ class JobTaskTest {
     ArgumentCaptor<JobEntity> failedChild = ArgumentCaptor.forClass(JobEntity.class);
     verify(lifecycleFacade)
         .moveToDlqAndHandlePermanentFailure(
-            failedChild.capture(), any(PayloadDecryptionException.class));
+            failedChild.capture(), any(PayloadDecryptionException.class), nullable(Integer.class));
     Assertions.assertEquals(JOB_UUID, failedChild.getValue().getId());
     Assertions.assertEquals(parentId, failedChild.getValue().getDependsOn());
   }
@@ -2660,12 +3026,13 @@ class JobTaskTest {
     doThrow(new IllegalStateException("batch store unavailable"))
         .when(lifecycleFacade)
         .moveToDlqAndHandlePermanentFailure(
-            any(JobEntity.class), any(PayloadDecryptionException.class));
+            any(JobEntity.class), any(PayloadDecryptionException.class), nullable(Integer.class));
 
     jobTask.call();
 
     verify(lifecycleFacade, never())
-        .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+        .completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(jobStore, never())
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(jobStore, never()).releaseClaim(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
@@ -2694,7 +3061,8 @@ class JobTaskTest {
     verify(observabilityFacade).recordEnvelopeVersionSkew(JOB_UUID, 2, 1);
     // Not poison: never dead-lettered.
     verify(lifecycleFacade, never())
-        .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+        .completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
   }
 
@@ -2779,7 +3147,8 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(true);
     when(errorSanitizer.sanitize(error)).thenReturn("safe do not retry");
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -2794,8 +3163,10 @@ class JobTaskTest {
     Assertions.assertEquals(2, job.getAttempts());
     verify(errorSanitizer, times(1)).sanitize(error);
     Assertions.assertEquals("safe do not retry", job.getLastError());
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   @Test
@@ -2843,11 +3214,14 @@ class JobTaskTest {
     RuntimeException error = new RuntimeException("worker failed after timeout");
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(false);
 
     jobTask.call();
 
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(payloadInvoker, never()).invoke(callback);
   }
 
@@ -2928,7 +3302,9 @@ class JobTaskTest {
     // The failure metric is recorded after the failure write, so break the handler before it.
     when(validationFacade.shouldNotRetry(original))
         .thenThrow(new IllegalStateException("validation failed"));
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
 
     task.call();
@@ -2950,12 +3326,15 @@ class JobTaskTest {
     // The failure metric is recorded after the failure write, so break the handler before it.
     when(validationFacade.shouldNotRetry(original))
         .thenThrow(new IllegalStateException("validation failed"));
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(false);
 
     task.call();
 
     verify(invoker, never()).invoke(any());
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   @Test
@@ -2968,7 +3347,9 @@ class JobTaskTest {
     // The failure metric is recorded after the failure write, so break the handler before it.
     when(validationFacade.shouldNotRetry(original))
         .thenThrow(new IllegalStateException("validation failed"));
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     doThrow(new LinkageError("boom")).when(invoker).invoke(any());
 
@@ -2987,13 +3368,17 @@ class JobTaskTest {
     RuntimeException error = new RuntimeException("do not retry");
     stubWorkerFailure(task, job, error);
     int failedAttempt = job.getAttempts() + 1;
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
 
     task.call();
 
     InOrder order = inOrder(lifecycleFacade, observabilityFacade);
-    order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    order
+        .verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     order.verify(observabilityFacade).recordJobFailure(job, error, failedAttempt);
     verify(observabilityFacade, times(1)).recordJobFailure(any(), any(), anyInt());
   }
@@ -3005,7 +3390,9 @@ class JobTaskTest {
     JobEntity job = jobWithFailureCallback();
     RuntimeException original = new RuntimeException("original");
     stubWorkerFailure(task, job, original);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     LinkageError callbackError = new LinkageError("boom");
     doThrow(callbackError).when(invoker).invoke(any());
@@ -3013,7 +3400,8 @@ class JobTaskTest {
     Assertions.assertDoesNotThrow(task::call);
 
     verify(invoker).invoke(any());
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(observabilityFacade).recordCallbackFailure(job, callbackError, 1);
   }
 
@@ -3024,7 +3412,8 @@ class JobTaskTest {
     task.initFromClaim(claimForNode("node-1"));
     when(jobStore.findById(JOB_UUID))
         .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
-    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any())).thenReturn(true);
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any(), nullable(Integer.class)))
+        .thenReturn(true);
 
     task.call();
 
@@ -3049,7 +3438,8 @@ class JobTaskTest {
 
     verify(invoker).invoke(job.getPayload());
     verify(invoker, never()).invoke(argThat(payload -> payload.method().equals("onFailure")));
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(observabilityFacade).recordJobCancellation(job);
   }
 
@@ -3071,7 +3461,9 @@ class JobTaskTest {
     // The failure metric is recorded after the failure write, so break the handler before it.
     when(validationFacade.shouldNotRetry(any()))
         .thenThrow(new IllegalStateException("validation failed"));
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     JobMdcContext.clear();
 
@@ -3103,14 +3495,16 @@ class JobTaskTest {
     // before it.
     when(retryPolicy.shouldRetry(1, error)).thenThrow(new IllegalStateException("policy failed"));
     when(errorSanitizer.sanitize(error)).thenReturn("safe original");
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
     verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     Assertions.assertEquals(1, job.getAttempts());
   }
 
@@ -3126,12 +3520,14 @@ class JobTaskTest {
     RuntimeException error = new RuntimeException("batch child failed");
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
 
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(lifecycleFacade, never()).scheduleNext(job);
   }
 
@@ -3168,7 +3564,15 @@ class JobTaskTest {
     jobTask.call();
 
     verify(lifecycleFacade, never())
-        .completeSuccess(any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+        .completeSuccess(
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class));
     verify(observabilityFacade).recordJobCancellation(job);
     verify(observabilityFacade, never()).publishEvent(any(JobCompletedEvent.class));
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
@@ -3185,7 +3589,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -3210,7 +3621,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     fixedClockTask.call();
@@ -3233,7 +3651,15 @@ class JobTaskTest {
     Assertions.assertEquals(recurringMasterId, startedEvent.getRecurringMasterId());
     Assertions.assertEquals(recurringMasterId, callbackEvent.getRecurringMasterId());
     verify(lifecycleFacade)
-        .completeSuccess(eq(job), any(), any(), eq(FIXED_NOW), eq(FIXED_NOW), eq(0L), anyLong());
+        .completeSuccess(
+            eq(job),
+            any(),
+            any(),
+            eq(FIXED_NOW),
+            eq(FIXED_NOW),
+            eq(0L),
+            anyLong(),
+            nullable(Integer.class));
     Assertions.assertEquals(FIXED_NOW, callbackEvent.getTimestamp());
     Assertions.assertEquals(1, callbackEvent.getCallbackAttempt());
   }
@@ -3251,7 +3677,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -3274,7 +3707,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -3366,7 +3806,8 @@ class JobTaskTest {
               flags.add(Thread.currentThread().isInterrupted());
               return 1;
             });
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               flags.add(Thread.currentThread().isInterrupted());
@@ -3379,7 +3820,8 @@ class JobTaskTest {
     InOrder order = inOrder(resourcePermitService, jobStore);
     order.verify(resourcePermitService).release("gpu", JOB_UUID, 0L);
     order.verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     // The failure path's store writes run with the interrupt flag clear.
     Assertions.assertEquals(List.of(false, false, false), flags);
     verifyNoAttemptRecorded();
@@ -3399,7 +3841,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -3442,7 +3891,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -3472,14 +3928,18 @@ class JobTaskTest {
     when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
         .thenThrow(auditError);
     when(validationFacade.shouldNotRetry(auditError)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
 
     jobTask.call();
 
     InOrder order = inOrder(resourcePermitService, observabilityFacade, lifecycleFacade);
     order.verify(resourcePermitService).tryAcquire("gpu", JOB_UUID, 7L, "node-1");
     order.verify(observabilityFacade).startExecution(JOB_UUID, 1, "node-1");
-    order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    order
+        .verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     order.verify(resourcePermitService).release("gpu", JOB_UUID, 7L);
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(observabilityFacade, never()).publishEvent(any(JobStartedEvent.class));
@@ -3497,11 +3957,14 @@ class JobTaskTest {
     when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1"))
         .thenThrow(unconfigured);
     when(validationFacade.shouldNotRetry(unconfigured)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
 
     jobTask.call();
 
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(resourcePermitService).tryAcquire("missing", JOB_UUID, 0L, "node-1");
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
@@ -3519,11 +3982,14 @@ class JobTaskTest {
     when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1"))
         .thenThrow(unconfigured);
     when(validationFacade.shouldNotRetry(unconfigured)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
 
     jobTask.call();
 
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(resourcePermitService).tryAcquire("missing", JOB_UUID, 0L, "node-1");
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
@@ -3681,7 +4147,8 @@ class JobTaskTest {
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(validationFacade, never()).shouldNotRetry(any());
     verifyNoAttemptRecorded();
   }
@@ -4028,8 +4495,7 @@ class JobTaskTest {
   private void assertOpenCircuitBackgroundRejection(boolean canceled, boolean saveFailsOnce)
       throws Exception {
     jobTask = newJobTaskWithTimeoutHandler(null);
-    JobEntity job = cancelScenario(true);
-    job.setAttempts(2);
+    JobEntity job = cancelScenario(true, 2);
     JobAttemptControl attempt = cancelAttempt();
     jobTask.attach(attempt);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
@@ -4140,7 +4606,8 @@ class JobTaskTest {
     Assertions.assertEquals(2, job.getAttempts());
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
     verify(resourcePermitService, times(!circuitOpen && !superseded ? 1 : 0))
@@ -4212,7 +4679,8 @@ class JobTaskTest {
             eq(7L));
     Assertions.assertEquals(2, job.getAttempts());
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), anyLong());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verifyNoAttemptRecorded();
   }
@@ -4364,7 +4832,8 @@ class JobTaskTest {
     verify(observabilityFacade, never()).recordJobStart(any());
     verify(observabilityFacade, never()).startExecution(any(), anyInt(), any());
     verify(observabilityFacade, never()).publishEvent(any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     Assertions.assertNull(JobContext.currentOrNull());
   }
 
@@ -4406,7 +4875,14 @@ class JobTaskTest {
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     task.call();
@@ -4468,14 +4944,29 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(transitionWins);
 
     jobTask.call();
 
     verify(resilienceStrategy, times(1)).execute(anyString(), any(), any(Callable.class));
     verify(lifecycleFacade, times(1))
-        .completeSuccess(any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+        .completeSuccess(
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class));
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, transitionWins ? times(1) : never())
@@ -4492,16 +4983,32 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(lifecycleFacade, times(2))
-        .completeSuccess(any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+        .completeSuccess(
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class));
     verify(lifecycleFacade, never())
-        .completeSuccessMinimal(any(JobEntity.class), any(), any(), anyLong(), anyLong());
+        .completeSuccessMinimal(
+            any(JobEntity.class), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade).recordSuccessFinalizationRetry(job);
@@ -4521,18 +5028,34 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
     when(lifecycleFacade.completeSuccessMinimal(
-            any(JobEntity.class), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(lifecycleFacade, times(5))
-        .completeSuccess(any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+        .completeSuccess(
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class));
     verify(lifecycleFacade)
-        .completeSuccessMinimal(any(JobEntity.class), any(), any(), anyLong(), anyLong());
+        .completeSuccessMinimal(
+            any(JobEntity.class), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, times(5)).recordSuccessFinalizationRetry(job);
@@ -4551,18 +5074,34 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
     when(lifecycleFacade.completeSuccessMinimal(
-            any(JobEntity.class), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
 
     jobTask.call();
 
     verify(lifecycleFacade, times(5))
-        .completeSuccess(any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+        .completeSuccess(
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class));
     verify(lifecycleFacade)
-        .completeSuccessMinimal(any(JobEntity.class), any(), any(), anyLong(), anyLong());
+        .completeSuccessMinimal(
+            any(JobEntity.class), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, times(5)).recordSuccessFinalizationRetry(job);
@@ -4576,7 +5115,8 @@ class JobTaskTest {
     var scenario = continuationScenario(bodies::incrementAndGet, 1000);
     when(scenario.results().serialize(any(), any())).thenReturn(SerializedJobResult.empty());
     jobTask.setTerminalRetryDelays(1, 2);
-    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("busy"));
     return scenario;
   }
@@ -4585,7 +5125,8 @@ class JobTaskTest {
   void handleSuccess_stuckFinalizationDoesNotMoveSuccessfulJobToFailurePath() throws Exception {
     AtomicInteger bodies = new AtomicInteger();
     var scenario = stuckSuccessScenario(bodies);
-    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccessMinimal(
+            any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("busy"))
         .thenThrow(new RatchetTransientStoreException("busy"))
         .thenThrow(new RatchetTransientStoreException("busy"))
@@ -4599,13 +5140,14 @@ class JobTaskTest {
     Assertions.assertNull(scenario.job().getJobResult());
     Assertions.assertNull(scenario.job().getResultType());
     verify(lifecycleFacade, times(4))
-        .completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong());
+        .completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(observabilityFacade).recordJobSuccess(eq(scenario.job()), anyLong());
     verify(observabilityFacade).saveExecution(scenario.execution());
     verify(observabilityFacade).recordSuccessFinalizationStuck(scenario.job());
     verify(observabilityFacade).recordSuccessFinalizationMinimal(scenario.job());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
   }
 
@@ -4614,7 +5156,8 @@ class JobTaskTest {
     AtomicInteger bodies = new AtomicInteger();
     var scenario = stuckSuccessScenario(bodies);
     AtomicInteger writes = new AtomicInteger();
-    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccessMinimal(
+            any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               int write = writes.incrementAndGet();
@@ -4636,14 +5179,16 @@ class JobTaskTest {
     verify(observabilityFacade).recordJobSuccess(eq(scenario.job()), anyLong());
     verify(observabilityFacade).saveExecution(scenario.execution());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
   void handleSuccess_stuckThenTerminalSkippedDiscardsExecution() throws Exception {
     AtomicInteger bodies = new AtomicInteger();
     var scenario = stuckSuccessScenario(bodies);
-    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccessMinimal(
+            any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("busy"))
         .thenReturn(false);
 
@@ -4655,7 +5200,8 @@ class JobTaskTest {
     verify(observabilityFacade).saveExecution(scenario.execution());
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
@@ -4663,7 +5209,8 @@ class JobTaskTest {
     AtomicInteger bodies = new AtomicInteger();
     var scenario = stuckSuccessScenario(bodies);
     AtomicInteger writes = new AtomicInteger();
-    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccessMinimal(
+            any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               int write = writes.incrementAndGet();
@@ -4686,7 +5233,8 @@ class JobTaskTest {
     verify(observabilityFacade).saveExecution(scenario.execution());
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
@@ -4698,7 +5246,8 @@ class JobTaskTest {
     AtomicInteger writes = new AtomicInteger();
     AtomicBoolean interruptedAfterReturn = new AtomicBoolean();
     AtomicReference<Throwable> workerFailure = new AtomicReference<>();
-    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccessMinimal(
+            any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               if (writes.incrementAndGet() == 2) {
@@ -4747,7 +5296,8 @@ class JobTaskTest {
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
     verify(observabilityFacade, never()).saveExecution(any());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
@@ -4816,7 +5366,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     signalTask.call();
@@ -4835,7 +5392,8 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(any()))
         .thenAnswer(inv -> realPolicy.shouldNotRetry(inv.getArgument(0)));
     when(errorSanitizer.sanitize(any())).thenReturn("safe invalid signal outcome");
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
@@ -4853,7 +5411,8 @@ class JobTaskTest {
     Assertions.assertEquals("UNKNOWN", exception.getPersistedOutcome());
     Assertions.assertInstanceOf(IllegalArgumentException.class, exception.getCause());
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   @Test
@@ -4910,7 +5469,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     signalTask.call();
@@ -4933,18 +5499,22 @@ class JobTaskTest {
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(validationFacade.shouldNotRetry(any(Throwable.class))).thenReturn(true);
     when(errorSanitizer.sanitize(any(Throwable.class))).thenReturn("safe decrypt failure");
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
 
-    verify(lifecycleFacade).completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     // Poison surfaces with its true type now (no IllegalArgumentException wrap); it is still DLQ'd.
     verify(observabilityFacade)
         .recordJobFailure(eq(job), any(PayloadDecryptionException.class), eq(1));
     verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   private static final AtomicReference<String> OBSERVED_ARG = new AtomicReference<>();
@@ -5013,7 +5583,14 @@ class JobTaskTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
 
     resolving.call();
@@ -5231,7 +5808,8 @@ class JobTaskTest {
         RuntimeException.class.getName(), execution.getValue().getErrorMessage());
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 37L);
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, never()).publishEvent(any(JobRetryingEvent.class));
   }
@@ -5260,7 +5838,9 @@ class JobTaskTest {
         new IllegalStateException("jdbc:mysql://user:hunter2@localhost/db person@example.com");
     doThrow(failure).when(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
     when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
     String expected;
     if (sanitizerThrows) {
       when(errorSanitizer.sanitize(failure)).thenThrow(new AssertionError("sanitizer failed"));
@@ -5306,8 +5886,10 @@ class JobTaskTest {
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
     verify(timeout, never()).processCooperativeTimeout(any());
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
-    verify(lifecycleFacade, never()).moveToDlqAndHandlePermanentFailure(any(), any());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    verify(lifecycleFacade, never())
+        .moveToDlqAndHandlePermanentFailure(any(), any(), nullable(Integer.class));
     verify(lifecycleFacade, never()).cancelChain(any());
     Assertions.assertNull(CallbackRecorder.context);
   }
@@ -5366,7 +5948,8 @@ class JobTaskTest {
     succeedBody();
     jobTask.call();
     verify(lifecycleFacade)
-        .completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+        .completeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verifyCanceledExecution(job);
   }
 
@@ -5457,7 +6040,14 @@ class JobTaskTest {
         .thenReturn(AcquireResult.ACQUIRED);
     succeedBody();
     when(lifecycleFacade.completeSuccess(
-            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+            any(JobEntity.class),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            nullable(Integer.class)))
         .thenReturn(true);
     doThrow(new RatchetTransientStoreException("lock wait timeout"))
         .doNothing()
@@ -5536,7 +6126,8 @@ class JobTaskTest {
     JobEntity job = cancelScenario(true);
     jobTask.attach(cancelAttempt());
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
-    when(lifecycleFacade.completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(true);
     succeedBody();
     jobTask.call();
@@ -5694,14 +6285,16 @@ class JobTaskTest {
 
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               status.set(JobStatus.CANCELED);
               return false;
             });
     jobTask.call();
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
 
     ArgumentCaptor<JobExecutionEntity> execution =
         ArgumentCaptor.forClass(JobExecutionEntity.class);
@@ -5793,7 +6386,8 @@ class JobTaskTest {
         List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED, ExecutionStatus.CANCELED), saved);
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     Assertions.assertTrue(attempt.isSuperseded());
   }
 
@@ -5817,7 +6411,8 @@ class JobTaskTest {
     jobTask.call();
 
     verify(observabilityFacade).recordJobCancellation(job);
-    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     Assertions.assertEquals(List.of(ExecutionStatus.CANCELED, ExecutionStatus.CANCELED), saved);
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
@@ -5940,7 +6535,8 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
-    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(eq(job), any()))
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
+            eq(job), any(), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               status.set(JobStatus.CANCELED);
@@ -5949,7 +6545,8 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(lifecycleFacade).moveToDlqAndHandlePermanentFailure(eq(job), any());
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(eq(job), any(), nullable(Integer.class));
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), saved);
     verify(observabilityFacade).recordJobCancellation(job);
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
@@ -5978,7 +6575,8 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               status.set(JobStatus.CANCELED);
@@ -5987,7 +6585,8 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     Assertions.assertEquals(List.of(ExecutionStatus.CANCELED), saved);
     verify(observabilityFacade).recordJobCancellation(job);
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
@@ -6381,10 +6980,12 @@ class JobTaskTest {
     jobTask.attach(attempt);
     jobTask.setTerminalRetryDelays(1, 2);
     succeedBody();
-    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new RatchetTransientStoreException("busy"));
     CountDownLatch stuck = new CountDownLatch(1);
-    when(lifecycleFacade.completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccessMinimal(
+            any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               stuck.countDown();
@@ -6500,8 +7101,7 @@ class JobTaskTest {
       throws Exception {
     JobTimeoutHandler handler = realTimeoutHandler();
     jobTask = newJobTaskWithTimeoutHandler(handler);
-    JobEntity job = cancelScenario(true);
-    job.setAttempts(2);
+    JobEntity job = cancelScenario(true, 2);
     CancelRace race = cancelRace();
     JobAttemptControl attempt = cancelAttempt();
     jobTask.attach(attempt);
@@ -6780,8 +7380,13 @@ class JobTaskTest {
   }
 
   private JobEntity cancelScenario(boolean keyed) {
+    return cancelScenario(keyed, 0);
+  }
+
+  private JobEntity cancelScenario(boolean keyed, int attempts) {
     JobEntity job = createTestJob();
     job.setClaimSeq(7L);
+    job.setAttempts(attempts);
     if (keyed) job.setBusinessKey("held");
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);

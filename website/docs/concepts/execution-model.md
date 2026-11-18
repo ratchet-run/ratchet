@@ -269,6 +269,12 @@ scheduler.enqueue(() -> longRunningTask())
     .submit();
 ```
 
+Once the watchdog has counted the timeout against the attempt, the run can no longer finish the
+job, even before the watchdog schedules the retry. If the body returns successfully after that
+point, Ratchet discards the result, and the job runs again under the watchdog's retry or ends
+FAILED when no retries are left. If the run finishes first, its result stands and the watchdog's
+timeout handling is skipped.
+
 ### Stopping at a safe point
 
 An interrupt lands wherever the job body happens to be blocked: waiting for a pooled bean, a JDBC connection, or a cache lock. The code it interrupts may report the timeout as an unrelated error and leave container state half-changed. A job that works in units, such as pages of a table, can stop between units instead. `JobContext` tells it when to stop:

@@ -19,6 +19,7 @@ import io.micronaut.core.annotation.Creator;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.time.Instant;
+import run.ratchet.api.Nullable;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
@@ -72,9 +73,10 @@ public class MicronautPostExecutionHandler extends PostExecutionHandler {
       Instant start,
       Instant end,
       long durationMs,
-      long queueWaitMs) {
+      long queueWaitMs,
+      @Nullable Integer expectedAttempts) {
     return super.completeSuccessInCurrentTransaction(
-        source, resultJson, resultType, start, end, durationMs, queueWaitMs);
+        source, resultJson, resultType, start, end, durationMs, queueWaitMs, expectedAttempts);
   }
 
   @Override

@@ -85,7 +85,91 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
         completedBatch,
         dependencies,
         null,
+        null,
         events);
+  }
+
+  @Test
+  void matchingAttemptCountCommitsCompletion() {
+    var job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "node-1"));
+    var claim = store().findById(job.getId()).orElseThrow();
+    Instant now = Instant.now();
+    var plan =
+        new JobCompletionPlan(
+            job.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            "\"result\"",
+            "java.lang.String",
+            null,
+            claim.getAttempts(),
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(),
+            claim.getClaimSeq(),
+            claim.getAttempts(),
+            List.of());
+
+    assertTrue(store().commitCompletion(plan).committed());
+    var completed = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, completed.getStatus());
+    assertEquals(claim.getAttempts(), completed.getAttempts());
+    assertEquals("\"result\"", completed.getJobResult());
+  }
+
+  @Test
+  void timeoutChargeRejectsSuccessUnderSameClaim() {
+    assertTimeoutChargeRejectsCompletion(JobStatus.SUCCEEDED);
+  }
+
+  @Test
+  void timeoutChargeRejectsFailureUnderSameClaim() {
+    assertTimeoutChargeRejectsCompletion(JobStatus.FAILED);
+  }
+
+  private void assertTimeoutChargeRejectsCompletion(JobStatus terminal) {
+    var job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "node-1"));
+    var claim = store().findById(job.getId()).orElseThrow();
+    int baseline = claim.getAttempts();
+    assertEquals(baseline + 1, store().incrementRetryAttempt(job.getId(), claim.getClaimSeq()));
+    var before = store().findById(job.getId()).orElseThrow();
+    Instant now = Instant.now();
+    var plan =
+        new JobCompletionPlan(
+            job.getId(),
+            JobStatus.RUNNING,
+            terminal,
+            "\"late result\"",
+            "java.lang.String",
+            "late failure",
+            baseline,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(),
+            claim.getClaimSeq(),
+            baseline,
+            List.of());
+
+    assertFalse(store().commitCompletion(plan).committed());
+    var untouched = store().findById(job.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, untouched.getStatus());
+    assertEquals(baseline + 1, untouched.getAttempts());
+    assertEquals(before.getClaimSeq(), untouched.getClaimSeq());
+    assertEquals(before.getVersion(), untouched.getVersion());
+    assertEquals(before.getJobResult(), untouched.getJobResult());
+    assertEquals(before.getLastError(), untouched.getLastError());
+    assertEquals(before.getExecutionEndTime(), untouched.getExecutionEndTime());
+    assertEquals(before.getTerminalStatus(), untouched.getTerminalStatus());
   }
 
   @Test
@@ -134,6 +218,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             List.of(transition),
             null,
+            null,
             List.of());
     assertFalse(store().commitCompletion(wrongParent).committed());
     assertEquals(original.getPayload(), store().findById(child.getId()).orElseThrow().getPayload());
@@ -153,6 +238,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             null,
             List.of(transition),
+            null,
             null,
             List.of());
     assertTrue(store().commitCompletion(correct).committed());
@@ -209,6 +295,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             batch.getId(),
             null,
             List.of(transition),
+            null,
             null,
             List.of());
     var bothInTransaction = new CountDownLatch(2);
@@ -274,6 +361,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
                 null,
                 List.of(),
                 null,
+                null,
                 List.of());
 
         assertTrue(store().commitCompletion(plan).committed());
@@ -323,6 +411,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             List.of(transition),
             null,
+            null,
             List.of());
     assertTrue(store().commitCompletion(plan).committed());
     assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
@@ -353,6 +442,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             UUID.randomUUID(),
             null,
             List.of(),
+            null,
             null,
             List.of());
     Assertions.assertThrows(RuntimeException.class, () -> store().commitCompletion(plan));
@@ -424,6 +514,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             List.of(),
             claimed.getClaimSeq(),
+            null,
             List.of());
     var stale =
         new JobCompletionPlan(
@@ -442,6 +533,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             List.of(),
             claimed.getClaimSeq() - 1,
+            null,
             List.of());
     assertFalse(store().commitCompletion(stale).committed());
     assertEquals(JobStatus.RUNNING, store().getJobStatus(child.getId()));
@@ -486,6 +578,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             List.of(),
             null,
+            null,
             List.of());
     var completed = store().commitCompletion(childPlan);
     assertTrue(completed.committed());
@@ -508,6 +601,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             new BatchCompletion(1, 1, 0),
             List.of(),
+            null,
             null,
             List.of());
     assertTrue(store().commitCompletion(parentPlan).committed());
@@ -673,6 +767,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             List.of(dependency),
             first.claimSeq(),
+            null,
             List.of());
     assertFalse(store().commitCompletion(stale).committed());
     var untouched = store().findById(parent.getId()).orElseThrow();
@@ -711,6 +806,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null,
             List.of(dependency),
             current.claimSeq(),
+            null,
             List.of());
     assertTrue(store().commitCompletion(valid).committed());
     assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());

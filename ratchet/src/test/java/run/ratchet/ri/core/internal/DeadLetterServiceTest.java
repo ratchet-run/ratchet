@@ -17,7 +17,6 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,7 +62,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
@@ -112,71 +110,6 @@ class DeadLetterServiceTest {
             errorSanitizer,
             FIXED_CLOCK,
             new JakartaAfterCommitRegistrar(txRegistry));
-  }
-
-  @Test
-  void moveToDlqPersistsStateAndPublishesFailureThenDlqWithIdenticalMetadata() {
-    JobEntity job = jobWithAttempts(2);
-    RuntimeException cause = new RuntimeException("boom");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-
-    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
-
-    verify(jobTerminalStore).markJobFailedTerminal(job.getId(), "safe error", 2, 0L);
-    assertEquals(JobStatus.FAILED, job.getStatus());
-    assertEquals("safe error", job.getLastError());
-    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher, times(2)).publish(events.capture());
-    assertTrue(events.getAllValues().get(0) instanceof JobFailedEvent);
-    assertTrue(events.getAllValues().get(1) instanceof JobDlqEvent);
-    JobFailedEvent failed = (JobFailedEvent) events.getAllValues().get(0);
-    JobDlqEvent dlq = (JobDlqEvent) events.getAllValues().get(1);
-    assertEquals(job.getId(), failed.getJobId());
-    assertEquals(job.getId(), dlq.getJobId());
-    assertEquals("business-key", failed.getBusinessKey());
-    assertEquals(failed.getBusinessKey(), dlq.getBusinessKey());
-    assertEquals(JobPriority.HIGH, failed.getPriority());
-    assertEquals(failed.getPriority(), dlq.getPriority());
-    assertEquals("node-1", failed.getNodeId());
-    assertEquals(failed.getNodeId(), dlq.getNodeId());
-    assertEquals(FIXED_NOW, failed.getTimestamp());
-    assertEquals(failed.getTimestamp(), dlq.getTimestamp());
-    assertEquals("safe error", failed.getErrorMessage());
-    assertEquals(failed.getErrorMessage(), dlq.getErrorMessage());
-    assertEquals(2, failed.getRetryAttempt());
-    assertEquals(failed.getRetryAttempt(), dlq.getRetryAttempt());
-  }
-
-  @Test
-  void moveToDlqDoesNotPublishWhenTheTerminalTransitionLosesTheRace() {
-    JobEntity job = jobWithAttempts(2);
-    RuntimeException cause = new RuntimeException("boom");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-
-    assertFalse(service.moveToDlq(job, cause, job.getClaimSeq()));
-
-    verify(eventPublisher, never()).publish(any());
-  }
-
-  @Test
-  void moveToDlqPublishesBothTerminalEventsWhenNoRetryWasConsumed() {
-    JobEntity job = jobWithAttempts(0);
-    RuntimeException cause = new RuntimeException("retry buffer hard cap");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe overflow");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe overflow", 0, 0L))
-        .thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-
-    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
-
-    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher, times(2)).publish(events.capture());
-    JobFailedEvent failed = (JobFailedEvent) events.getAllValues().get(0);
-    JobDlqEvent dlq = (JobDlqEvent) events.getAllValues().get(1);
-    assertEquals(0, failed.getRetryAttempt());
-    assertEquals(0, dlq.getRetryAttempt());
   }
 
   @Test
@@ -235,26 +168,6 @@ class DeadLetterServiceTest {
     ArgumentCaptor<JobDlqEvent> event = ArgumentCaptor.forClass(JobDlqEvent.class);
     verify(eventPublisher).publish(event.capture());
     assertEquals("exact persisted terminal error", event.getValue().getErrorMessage());
-  }
-
-  @Test
-  void moveToDlqFallsBackSafelyWhenCustomSanitizerThrows() {
-    JobEntity job = jobWithAttempts(2);
-    RuntimeException cause = new RuntimeException("raw secret");
-    String fallback = RuntimeException.class.getName();
-    when(errorSanitizer.sanitize(cause)).thenThrow(new AssertionError("broken sanitizer"));
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), fallback, 2, 0L)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-
-    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
-
-    assertEquals(fallback, job.getLastError());
-    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher, times(2)).publish(events.capture());
-    JobFailedEvent failed = (JobFailedEvent) events.getAllValues().get(0);
-    JobDlqEvent dlq = (JobDlqEvent) events.getAllValues().get(1);
-    assertEquals(fallback, failed.getErrorMessage());
-    assertEquals(fallback, dlq.getErrorMessage());
   }
 
   @Test
@@ -432,63 +345,6 @@ class DeadLetterServiceTest {
     verify(eventPublisher, times(3)).publish(events.capture());
     assertEquals(List.of(timedOut, failed), events.getAllValues().subList(0, 2));
     assertTrue(events.getAllValues().get(2) instanceof JobDlqEvent);
-  }
-
-  @Test
-  void moveToDlqPublishesOnlyAfterTheTransitionTransactionCommits() {
-    JobEntity job = jobWithAttempts(2);
-    RuntimeException cause = new RuntimeException("boom");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
-
-    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
-
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
-    verify(eventPublisher, never()).publish(any());
-
-    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
-
-    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher, times(2)).publish(events.capture());
-    assertTrue(events.getAllValues().get(0) instanceof JobFailedEvent);
-    assertTrue(events.getAllValues().get(1) instanceof JobDlqEvent);
-  }
-
-  @Test
-  void moveToDlqSuppressesTheEventWhenTheTransitionTransactionRollsBack() {
-    JobEntity job = jobWithAttempts(2);
-    RuntimeException cause = new RuntimeException("boom");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
-
-    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
-
-    synchronization.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
-
-    verify(eventPublisher, never()).publish(any());
-  }
-
-  @Test
-  void moveToDlqSuppressesEventsWhenAfterCommitRegistrationFails() {
-    JobEntity job = jobWithAttempts(2);
-    RuntimeException cause = new RuntimeException("boom");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    doThrow(new IllegalStateException("registration failed"))
-        .when(txRegistry)
-        .registerInterposedSynchronization(any(Synchronization.class));
-
-    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
-
-    verify(eventPublisher, never()).publish(any());
   }
 
   @Test

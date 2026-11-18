@@ -341,7 +341,7 @@ public class RetryBufferManager {
     boolean transitioned;
     try {
       JobEntity job = toDlqJob(claim);
-      transitioned = lifecycleFacade.moveToDlqAndHandlePermanentFailure(job, overflow);
+      transitioned = lifecycleFacade.moveToDlqAndHandlePermanentFailure(job, overflow, null);
     } catch (Exception e) {
       log.errorf(
           e,

@@ -373,6 +373,8 @@ SEVERE: Job 12345 exceeded timeout of 1800s. Cancelling execution. Elapsed: 30m 
 
 **After timeout:** If the job has retries remaining, it is rescheduled for another attempt. If retries are exhausted, it moves to the DLQ.
 
+**A job that finished runs again:** A job body can return successfully just after the watchdog has counted the timeout against the attempt. Ratchet then discards the result, even if the job still shows RUNNING, and the job runs again under the watchdog's retry, or moves to the DLQ when no retries are left. See [Timeout Handling](../concepts/execution-model.md#timeout-handling).
+
 ## Thread pool exhaustion
 
 **Symptom:** Jobs stay in PENDING even though the poller is running and claiming jobs.

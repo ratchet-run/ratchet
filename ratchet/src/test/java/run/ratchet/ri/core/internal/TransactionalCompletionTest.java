@@ -70,7 +70,7 @@ class TransactionalCompletionTest {
 
   private TransactionalCompletion complete(JobEntity job) {
     Instant now = Instant.now();
-    return handler.completeSuccessInCurrentTransaction(job, "result", "type", now, now, 1, 0);
+    return handler.completeSuccessInCurrentTransaction(job, "result", "type", now, now, 1, 0, null);
   }
 
   @Test

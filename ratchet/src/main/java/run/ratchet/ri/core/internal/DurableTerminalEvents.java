@@ -193,6 +193,7 @@ public class DurableTerminalEvents {
         plan.completedBatch(),
         plan.dependencies(),
         plan.expectedClaimSeq(),
+        plan.expectedAttempts(),
         rows);
   }
 

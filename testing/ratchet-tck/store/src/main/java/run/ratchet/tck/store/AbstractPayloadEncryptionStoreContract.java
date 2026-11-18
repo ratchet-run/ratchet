@@ -184,6 +184,7 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
             null,
             List.of(transition),
             null,
+            null,
             List.of());
 
     assertTrue(store().commitCompletion(plan).committed());

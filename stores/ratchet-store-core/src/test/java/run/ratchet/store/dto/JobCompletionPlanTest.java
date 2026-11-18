@@ -18,12 +18,38 @@ package run.ratchet.store.dto;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobExecutionType;
 
 class JobCompletionPlanTest {
+  @Test
+  void attemptsFenceRequiresClaimSequence() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobCompletionPlan(
+                UUID.randomUUID(),
+                JobStatus.RUNNING,
+                JobStatus.SUCCEEDED,
+                null,
+                null,
+                null,
+                0,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                0,
+                List.of()));
+  }
+
   @Test
   void batchRequiresCompleteNonnegativeCountersWithoutOverflow() {
     assertThrows(

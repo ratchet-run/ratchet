@@ -27,6 +27,7 @@ import java.util.IdentityHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -97,12 +98,13 @@ public class JobSuccessFinalizer {
       Instant start,
       Instant end,
       long durationMs,
-      long queueWaitMs) {
+      long queueWaitMs,
+      @Nullable Integer expectedAttempts) {
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         boolean updated =
             lifecycle.completeSuccess(
-                job, resultJson, resultType, start, end, durationMs, queueWaitMs);
+                job, resultJson, resultType, start, end, durationMs, queueWaitMs, expectedAttempts);
         return updated ? Outcome.COMPLETED_FULL : Outcome.TERMINAL_SKIPPED;
       } catch (RuntimeException e) {
         if (!isTransientStoreFailure(e)) throw e;
@@ -124,7 +126,7 @@ public class JobSuccessFinalizer {
     }
 
     return finalizeMinimalSuccess(
-        job, resultJson, resultType, start, end, durationMs, queueWaitMs, true);
+        job, resultJson, resultType, start, end, durationMs, queueWaitMs, true, expectedAttempts);
   }
 
   /** Makes one reducer-preserving minimal success write after full retries are exhausted. */
@@ -135,9 +137,10 @@ public class JobSuccessFinalizer {
       Instant start,
       Instant end,
       long durationMs,
-      long queueWaitMs) {
+      long queueWaitMs,
+      @Nullable Integer expectedAttempts) {
     return finalizeMinimalSuccess(
-        job, resultJson, resultType, start, end, durationMs, queueWaitMs, false);
+        job, resultJson, resultType, start, end, durationMs, queueWaitMs, false, expectedAttempts);
   }
 
   Outcome finalizeMinimalSuccess(
@@ -148,7 +151,8 @@ public class JobSuccessFinalizer {
       Instant end,
       long durationMs,
       long queueWaitMs,
-      boolean reportStuck) {
+      boolean reportStuck,
+      @Nullable Integer expectedAttempts) {
     try {
       boolean preserveResult =
           batchStore != null
@@ -161,8 +165,16 @@ public class JobSuccessFinalizer {
       boolean updated =
           preserveResult
               ? lifecycle.completeSuccess(
-                  job, resultJson, resultType, start, end, durationMs, queueWaitMs)
-              : lifecycle.completeSuccessMinimal(job, start, end, durationMs, queueWaitMs);
+                  job,
+                  resultJson,
+                  resultType,
+                  start,
+                  end,
+                  durationMs,
+                  queueWaitMs,
+                  expectedAttempts)
+              : lifecycle.completeSuccessMinimal(
+                  job, start, end, durationMs, queueWaitMs, expectedAttempts);
       if (updated) {
         observer.recordSuccessFinalizationMinimal(job);
         log.warnf(

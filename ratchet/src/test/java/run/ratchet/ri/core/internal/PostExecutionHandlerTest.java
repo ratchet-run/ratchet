@@ -136,6 +136,38 @@ class PostExecutionHandlerTest {
   }
 
   @Test
+  void completionPlanCarriesAttemptsFenceOnlyForRunning() {
+    JobEntity source = job(JobExecutionType.SINGLE);
+    source.setClaimSeq(7L);
+    source.setStatus(JobStatus.SUCCEEDED);
+    for (JobStatus expected : List.of(JobStatus.RUNNING, JobStatus.WAITING)) {
+      var plan =
+          PostExecutionHandler.completionPlan(
+              source, expected, null, WorkflowCompletionPlan.empty(), 2);
+      assertEquals(
+          expected == JobStatus.RUNNING ? Integer.valueOf(2) : null, plan.expectedAttempts());
+      assertEquals(
+          expected == JobStatus.RUNNING ? Long.valueOf(7L) : null, plan.expectedClaimSeq());
+    }
+  }
+
+  @Test
+  void timeoutCompletionHasNoAttemptsFence() {
+    JobEntity source = job(JobExecutionType.SINGLE);
+    source.setClaimSeq(7L);
+    when(workflowScheduler.planCompletion(any(), eq(false)))
+        .thenReturn(WorkflowCompletionPlan.empty());
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
+
+    assertFalse(handler.completeTimeoutFailure(source, JobStatus.RUNNING, false, null, List.of()));
+
+    ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+    verify(jobTerminalStore).commitCompletion(plan.capture());
+    assertEquals(null, plan.getValue().expectedAttempts());
+    assertEquals(7L, plan.getValue().expectedClaimSeq());
+  }
+
+  @Test
   void successRunsBatchFollowupAfterCompletionTransactionReturns() {
     useCompletionTransaction();
     JobEntity child = job(JobExecutionType.BATCH_CHILD);
@@ -145,7 +177,7 @@ class PostExecutionHandlerTest {
     assertFollowupAfterCommit(progress, committed);
 
     Instant now = Instant.now();
-    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0));
+    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0, null));
 
     verify(completionTransaction).complete(any());
     verify(batchService).afterChildCompletion(progress);
@@ -171,7 +203,7 @@ class PostExecutionHandlerTest {
         failure,
         assertThrows(
             IllegalStateException.class,
-            () -> handler.completeSuccess(child, null, null, now, now, 0, 0)));
+            () -> handler.completeSuccess(child, null, null, now, now, 0, 0, null)));
     verifyNoInteractions(batchService, afterCommitRegistrar);
 
     assertDirectTimeoutUsesRegistrar(child, progress);
@@ -200,7 +232,8 @@ class PostExecutionHandlerTest {
             });
     assertFollowupAfterCommit(progress, committed);
 
-    assertTrue(handler.moveToDlqAndHandlePermanentFailure(child, new RuntimeException("boom")));
+    assertTrue(
+        handler.moveToDlqAndHandlePermanentFailure(child, new RuntimeException("boom"), null));
 
     verify(completionTransaction).complete(any());
     verify(batchService).afterChildCompletion(progress);
@@ -259,7 +292,7 @@ class PostExecutionHandlerTest {
     stubSuccessfulCommit(committed);
     Instant now = Instant.now();
 
-    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0));
+    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0, null));
     verify(batchService).afterChildCompletion(completedProgress);
     verifyNoInteractions(afterCommitRegistrar);
     assertDirectTimeoutUsesRegistrar(child, directProgress);
@@ -313,7 +346,7 @@ class PostExecutionHandlerTest {
     when(jobTerminalStore.commitCompletion(any()))
         .thenReturn(new JobCompletionResult(true, progress));
     Instant now = Instant.parse("2026-09-15T00:00:00Z");
-    assertTrue(handler.completeSuccess(child, "42", "java.lang.Integer", now, now, 5L, 2L));
+    assertTrue(handler.completeSuccess(child, "42", "java.lang.Integer", now, now, 5L, 2L, null));
     ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
     verify(jobTerminalStore).commitCompletion(plan.capture());
     assertEquals(batchId, plan.getValue().batchId());
@@ -335,7 +368,7 @@ class PostExecutionHandlerTest {
     JobEntity child = job(JobExecutionType.BATCH_CHILD);
     when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
     Instant now = Instant.now();
-    assertFalse(handler.completeSuccess(child, null, null, now, now, 0, 0));
+    assertFalse(handler.completeSuccess(child, null, null, now, now, 0, 0, null));
     verifyNoInteractions(workflowScheduler, batchService, deadLetterService, pollerScheduler);
   }
 
@@ -347,7 +380,7 @@ class PostExecutionHandlerTest {
     Instant now = Instant.now();
     assertThrows(
         IllegalStateException.class,
-        () -> handler.completeSuccess(child, null, null, now, now, 0, 0));
+        () -> handler.completeSuccess(child, null, null, now, now, 0, 0, null));
     verifyNoInteractions(workflowScheduler, batchService, deadLetterService, pollerScheduler);
   }
 
@@ -360,7 +393,7 @@ class PostExecutionHandlerTest {
     when(batchService.afterChildCompletion(progress))
         .thenThrow(new IllegalStateException("parent temporarily unavailable"));
     Instant now = Instant.now();
-    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0));
+    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0, null));
     verify(workflowScheduler).publishTerminalEvent(any());
     verifyNoInteractions(deadLetterService);
   }
@@ -454,7 +487,7 @@ class PostExecutionHandlerTest {
     BatchProgress progress = new BatchProgress(batchId, 1, 0, 1, null);
     when(jobTerminalStore.commitCompletion(any()))
         .thenReturn(new JobCompletionResult(true, progress));
-    assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, failure));
+    assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, failure, null));
     InOrder order = inOrder(jobTerminalStore, batchService);
     order.verify(jobTerminalStore).commitCompletion(any());
     order.verify(batchService).afterChildCompletion(progress);
@@ -465,7 +498,8 @@ class PostExecutionHandlerTest {
   void failureCompositeSkipsEffectsWhenTerminalRaceIsLost() {
     JobEntity job = job(JobExecutionType.BATCH_CHILD);
     when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
-    assertFalse(handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("boom")));
+    assertFalse(
+        handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("boom"), null));
     verifyNoInteractions(batchService);
     verify(deadLetterService, never()).recordDlqTransitionInCurrentTransaction(any(), any(), any());
   }
@@ -477,7 +511,7 @@ class PostExecutionHandlerTest {
         .thenThrow(new IllegalStateException("batch store unavailable"));
     assertThrows(
         IllegalStateException.class,
-        () -> handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("boom")));
+        () -> handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("boom"), null));
     verifyNoInteractions(batchService, pollerScheduler);
     verify(deadLetterService, never()).recordDlqTransitionInCurrentTransaction(any(), any(), any());
   }
@@ -488,7 +522,7 @@ class PostExecutionHandlerTest {
     WorkflowCompletionPlan plan = new WorkflowCompletionPlan(List.of(), List.of(), true);
     when(workflowScheduler.planCompletion(any(), eq(false))).thenReturn(plan);
     when(jobTerminalStore.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
-    assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("boom")));
+    assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("boom"), null));
     verify(workflowScheduler).publishCompletion(plan);
     verify(pollerScheduler).wakeup();
   }
@@ -680,7 +714,8 @@ class PostExecutionHandlerTest {
     JobEntity job = job(JobExecutionType.BATCH_CHILD);
     job.setClaimSeq(37L);
     when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
-    assertFalse(handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("stale")));
+    assertFalse(
+        handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("stale"), null));
     var plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
     verify(jobTerminalStore).commitCompletion(plan.capture());
     assertEquals(37L, plan.getValue().expectedClaimSeq().longValue());

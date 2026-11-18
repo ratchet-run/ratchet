@@ -438,7 +438,7 @@ public class OrphanRecoveryTimer {
         error = failure.getClass().getName();
       }
       job.setLastError(error == null ? failure.getClass().getName() : error);
-      if (!lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+      if (!lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null)) {
         log.warnf(
             "Rejected orphan failure for job %s, stale claimSeq %s, node %s",
             orphan.jobId(), orphan.claimSeq(), orphan.pickedBy());

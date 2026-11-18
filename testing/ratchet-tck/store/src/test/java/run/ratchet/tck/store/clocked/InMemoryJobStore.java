@@ -340,6 +340,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     JobEntity job = jobs.get(plan.jobId());
     if (job == null
         || job.getStatus() != plan.expectedStatus()
+        || (plan.expectedAttempts() != null && job.getAttempts() != plan.expectedAttempts())
         || (plan.expectedClaimSeq() != null
             && !Objects.equals(job.getClaimSeq(), plan.expectedClaimSeq()))) {
       return JobCompletionResult.notCommitted();

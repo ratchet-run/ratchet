@@ -76,6 +76,7 @@ public abstract class CompletionFaultDecorator implements JobTerminalStore {
               null,
               plan.dependencies(),
               plan.expectedClaimSeq(),
+              plan.expectedAttempts(),
               List.of());
       try {
         delegate.commitCompletion(invalid);

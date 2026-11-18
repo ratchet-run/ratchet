@@ -163,6 +163,8 @@ public class JobTask implements Callable<Void> {
   private volatile long terminalRetryBaseDelayMs = 1_000;
   private volatile long terminalRetryMaxDelayMs = 30_000;
   private JobClaimDto claim;
+  private volatile int claimAttempts;
+  private Integer expectedAttempts;
   private Long loadedClaimSeq;
   private JobExecutionEntity currentExecution;
   private TracingCollector.ExecutionScope currentScope =
@@ -356,6 +358,7 @@ public class JobTask implements Callable<Void> {
                     null,
                     List.of(),
                     expectedClaimSeq(),
+                    expectedAttempts,
                     List.of()))
             .committed()) {
           outcomeWritten = true;
@@ -382,7 +385,7 @@ public class JobTask implements Callable<Void> {
             jobId,
             sanitizeError(e),
             effective().instant().plus(BATCH_CHECK_RETRY_BACKOFF),
-            claim != null ? claim.attempts() : jobEntity.getAttempts(),
+            claimAttempts,
             expectedClaimSeq(),
             this::warnRejectedOwnerWrite)) {
           outcomeWritten = true;
@@ -585,7 +588,8 @@ public class JobTask implements Callable<Void> {
               currentExecution.markFailed(unbound.getClass().getName(), sanitizeError(unbound));
               observabilityFacade.saveExecution(currentExecution);
             }
-            if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(jobEntity, unbound)) {
+            if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(
+                jobEntity, unbound, expectedAttempts)) {
               outcomeWritten = true;
             } else {
               markAttemptSuperseded();
@@ -687,10 +691,14 @@ public class JobTask implements Callable<Void> {
   public void init(JobEntity job) {
     this.job = job;
     this.claim = null;
+    this.claimAttempts = job.getAttempts();
+    this.expectedAttempts = claimAttempts;
   }
 
   public void initFromClaim(JobClaimDto claim) {
     this.claim = claim;
+    this.claimAttempts = claim.attempts();
+    this.expectedAttempts = claimAttempts;
     this.job = null;
   }
 
@@ -785,7 +793,7 @@ public class JobTask implements Callable<Void> {
         jobId);
     JobEntity poisonedJob = poisonedJobSnapshot(jobId);
     try {
-      if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex)) {
+      if (lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex, expectedAttempts)) {
         outcomeWritten = true;
       } else {
         markAttemptSuperseded();
@@ -831,11 +839,10 @@ public class JobTask implements Callable<Void> {
             + " claim for an upgraded peer. Upgrade this node to drain these rows.",
         jobId, ex.version(), ex.maxSupportedVersion());
     Instant newScheduledTime = effective().instant().plus(UPGRADE_PENDING_BACKOFF);
-    // A claim-initialized task carries the attempt count on the claim; an entity-initialized one
-    // (buffered-entity resubmission, claim == null) carries it on the job. Reading only the claim
-    // would zero a non-zero persisted count on the entity path, contrary to the preserve-attempts
-    // contract this method documents.
-    int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
+    // claimAttempts comes from the claim, or from the job on the entity path (buffered-entity
+    // resubmission, claim == null), so a non-zero persisted count is preserved as this method
+    // documents.
+    int attempts = claimAttempts;
     try {
       if (rescheduleWithoutChargingAttempt(
           jobId,
@@ -928,7 +935,7 @@ public class JobTask implements Callable<Void> {
       boolean failed = false;
       try {
         job.setLastError(safeError);
-        if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+        if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, expectedAttempts)) {
           outcomeWritten = true;
           job.setStatus(JobStatus.FAILED);
           failed = true;
@@ -936,6 +943,9 @@ public class JobTask implements Callable<Void> {
           markAttemptSuperseded();
           // A cancel that was already handled is not counted again.
           if (!cancelHandled && jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
+          if (!cancelHandled) {
+            saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+          }
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -1135,7 +1145,7 @@ public class JobTask implements Callable<Void> {
             job.getId(),
             "Permit check failed transiently for resource: " + resourceName,
             effective().instant().plusMillis(retryDelay),
-            claim != null ? claim.attempts() : job.getAttempts(),
+            claimAttempts,
             claimSeq,
             this::warnRejectedOwnerWrite)) {
           outcomeWritten = true;
@@ -1167,7 +1177,7 @@ public class JobTask implements Callable<Void> {
           job.getId(),
           "Waiting for resource: " + resourceName,
           effective().instant().plusMillis(retryDelay),
-          claim != null ? claim.attempts() : job.getAttempts(),
+          claimAttempts,
           claimSeq,
           this::warnRejectedOwnerWrite)) {
         return false;
@@ -1234,7 +1244,7 @@ public class JobTask implements Callable<Void> {
         jobEntity.getId(),
         "Circuit breaker OPEN for service: " + serviceName,
         newScheduledTime,
-        claim != null ? claim.attempts() : jobEntity.getAttempts(),
+        claimAttempts,
         expectedClaimSeq(),
         () -> {
           if (jobWasCanceled()) {
@@ -1506,17 +1516,34 @@ public class JobTask implements Callable<Void> {
       return;
     }
 
-    int attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq());
-    if (attempt == -1) {
+    int attempt;
+    try {
+      attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq());
+    } catch (Throwable incrementFailure) {
+      expectedAttempts = null;
+      throw incrementFailure;
+    }
+    if (attempt != claimAttempts + 1) {
       if (jobWasCanceled()) {
         handleCanceledDuringExecution(cancelStart());
         return;
       }
-      warnRejectedOwnerWrite();
+      if (attempt == -1) {
+        warnRejectedOwnerWrite();
+      } else {
+        // The timeout watchdog also charged this claim. Its retry or terminal write owns the job
+        // and writes its own attempt count.
+        markAttemptSuperseded();
+        log.warnf(
+            "Job %s reached %s attempts on this worker's charge, expected %s; deferring to the"
+                + " timeout watchdog",
+            job.getId(), attempt, claimAttempts + 1);
+      }
       saveDeferredExecutionFailure(ex);
       return;
     }
 
+    expectedAttempts = attempt;
     job.setAttempts(attempt);
     logIfTimeout(ex);
 
@@ -1673,12 +1700,7 @@ public class JobTask implements Callable<Void> {
       }
     }
     Instant scheduled = effective().instant().plus(delay);
-    if (jobStore.releaseClaim(
-        job.getId(),
-        null,
-        scheduled,
-        claim != null ? claim.attempts() : job.getAttempts(),
-        expectedClaimSeq())) {
+    if (jobStore.releaseClaim(job.getId(), null, scheduled, claimAttempts, expectedClaimSeq())) {
       outcomeWritten = true;
       job.setStatus(JobStatus.PENDING);
       job.setScheduledTime(scheduled);
@@ -1832,7 +1854,8 @@ public class JobTask implements Callable<Void> {
                           start,
                           end,
                           Duration.between(start, end).toMillis(),
-                          queueWaitMs(start));
+                          queueWaitMs(start),
+                          expectedAttempts);
                   outcome.serializedResult = serialized;
                   outcome.end = end;
                   outcome.completion = completion;
@@ -2078,12 +2101,20 @@ public class JobTask implements Callable<Void> {
 
     JobSuccessFinalizer.Outcome finalizationState =
         successFinalizer.finalizeSuccess(
-            job, resultJson, resultType, start, endTime, executionMs, queueMs);
+            job, resultJson, resultType, start, endTime, executionMs, queueMs, expectedAttempts);
     if (finalizationState == JobSuccessFinalizer.Outcome.INTERRUPTED) {
       workerInterrupted = true;
       finalizationState =
           successFinalizer.finalizeMinimalSuccess(
-              job, resultJson, resultType, start, endTime, executionMs, queueMs, true);
+              job,
+              resultJson,
+              resultType,
+              start,
+              endTime,
+              executionMs,
+              queueMs,
+              true,
+              expectedAttempts);
     }
     if (finalizationState == JobSuccessFinalizer.Outcome.STUCK && attempt != null) {
       log.warnf(
@@ -2100,7 +2131,14 @@ public class JobTask implements Callable<Void> {
           if (wait.revoked()) return;
           finalizationState =
               successFinalizer.finalizeMinimalSuccess(
-                  job, resultJson, resultType, start, endTime, executionMs, queueMs);
+                  job,
+                  resultJson,
+                  resultType,
+                  start,
+                  endTime,
+                  executionMs,
+                  queueMs,
+                  expectedAttempts);
           if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
             interrupted |= Thread.interrupted();
             if (terminalRetryRevoked()) return;
@@ -2195,7 +2233,7 @@ public class JobTask implements Callable<Void> {
 
     job.setAttempts(attempt);
     job.setLastError(sanitized);
-    if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+    if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, expectedAttempts)) {
       outcomeWritten = true;
       job.setStatus(JobStatus.FAILED);
       callbackInvoker.invokeOnFailure(job, ex);

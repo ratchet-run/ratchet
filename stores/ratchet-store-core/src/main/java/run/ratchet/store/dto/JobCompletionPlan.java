@@ -23,7 +23,12 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
 import run.ratchet.store.entity.JobExecutionType;
 
-/** Immutable scheduler mutations that must commit with a job's terminal transition. */
+/**
+ * Immutable scheduler mutations that must commit with a job's terminal transition.
+ *
+ * <p>A non-null {@code expectedAttempts} additionally requires the stored attempt count to match
+ * and requires a non-null {@code expectedClaimSeq}. Null leaves the attempt count unfenced.
+ */
 public record JobCompletionPlan(
     UUID jobId,
     JobStatus expectedStatus,
@@ -40,6 +45,7 @@ public record JobCompletionPlan(
     BatchCompletion completedBatch,
     List<DependencyTransition> dependencies,
     @Nullable Long expectedClaimSeq,
+    @Nullable Integer expectedAttempts,
     List<OutboxEvent> outboxEvents) {
 
   public JobCompletionPlan {
@@ -49,6 +55,9 @@ public record JobCompletionPlan(
         && terminalStatus != JobStatus.FAILED
         && terminalStatus != JobStatus.CANCELED) {
       throw new IllegalArgumentException("Completion requires a terminal status");
+    }
+    if (expectedAttempts != null && expectedClaimSeq == null) {
+      throw new IllegalArgumentException("An attempts fence requires an expected claim sequence");
     }
     dependencies = List.copyOf(dependencies);
     outboxEvents = outboxEvents == null ? List.of() : List.copyOf(outboxEvents);

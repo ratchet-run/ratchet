@@ -119,7 +119,11 @@ class DurableCompletionTest {
 
   @Test
   void successRowsAndPublishedObjectsShareIdsAndClock() {
-    assertTrue(handler.completeSuccess(job(), null, null, now, now, 5, 0));
+    JobEntity source = job();
+    source.setClaimSeq(7L);
+    assertTrue(handler.completeSuccess(source, null, null, now, now, 5, 0, 1));
+    assertEquals(1, plan().expectedAttempts());
+    assertEquals(7L, plan().expectedClaimSeq());
     assertEquals(1, plan().outboxEvents().size());
     var row = plan().outboxEvents().get(0);
     var event = assertInstanceOf(JobCompletedEvent.class, published.get(0));
@@ -132,7 +136,7 @@ class DurableCompletionTest {
 
   @Test
   void terminalFailureRowsMatchOrderedPublishedPair() {
-    assertTrue(handler.completeFailure(job(), JobStatus.RUNNING, false));
+    assertTrue(handler.completeFailure(job(), JobStatus.RUNNING, false, null));
     assertEquals(2, plan().outboxEvents().size());
     assertInstanceOf(JobFailedEvent.class, published.get(0));
     assertInstanceOf(JobDlqEvent.class, published.get(1));
@@ -185,7 +189,7 @@ class DurableCompletionTest {
       names = {"ROLLBACK_ONLY", "REGISTRATION_FAILED", "REGISTERED"})
   void suppressedOrNotYetCommittedCallbackNeverQueuesDeletes(AfterCommitRegistrar.Result result) {
     when(registrar.registerAfterCommit(any())).thenReturn(result);
-    assertTrue(handler.completeSuccess(job(), null, null, now, now, 1, 0));
+    assertTrue(handler.completeSuccess(job(), null, null, now, now, 1, 0, null));
     assertFalse(plan().outboxEvents().isEmpty());
     assertTrue(published.isEmpty());
     verifyNoInteractions(executor);
@@ -207,7 +211,7 @@ class DurableCompletionTest {
             registrar,
             null,
             disabled);
-    assertTrue(handler.completeSuccess(job(), null, null, now, now, 1, 0));
+    assertTrue(handler.completeSuccess(job(), null, null, now, now, 1, 0, null));
     assertTrue(plan().outboxEvents().isEmpty());
     verify(workflow).publishTerminalEvent(any(JobCompletedEvent.class));
     verifyNoInteractions(executor);
@@ -216,7 +220,7 @@ class DurableCompletionTest {
   @Test
   void losingCompletionNeverPublishesOrEnqueues() {
     when(store.commitCompletion(any())).thenReturn(new JobCompletionResult(false, null));
-    assertFalse(handler.completeSuccess(job(), null, null, now, now, 1, 0));
+    assertFalse(handler.completeSuccess(job(), null, null, now, now, 1, 0, null));
     assertTrue(published.isEmpty());
     verifyNoInteractions(executor, registrar);
   }
