@@ -122,34 +122,128 @@ A provider must also return a release executor: a pool it owns, separate from it
 @ApplicationScoped
 public class CustomExecutorProvider implements ExecutorProvider {
 
-    private final ScheduledExecutorService releases = Executors.newScheduledThreadPool(2);
+    private volatile ClassLoader applicationClassLoader =
+        Thread.currentThread().getContextClassLoader();
+    private final ThreadLocal<ClassLoader> previousLoader = new ThreadLocal<>();
+
+    @Override
+    public void initializeApplicationClassLoader(ClassLoader applicationClassLoader) {
+        this.applicationClassLoader = applicationClassLoader;
+    }
+
+    private void beforeTask(Thread thread) {
+        previousLoader.set(thread.getContextClassLoader());
+        thread.setContextClassLoader(applicationClassLoader);
+    }
+
+    private void afterTask() {
+        try {
+            Thread.currentThread().setContextClassLoader(previousLoader.get());
+        } finally {
+            previousLoader.remove();
+        }
+    }
+
+    private class ContextScheduler extends ScheduledThreadPoolExecutor {
+        ContextScheduler(ThreadFactory factory) {
+            super(2, factory);
+            setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+            setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        }
+
+        @Override
+        protected void beforeExecute(Thread thread, Runnable task) {
+            super.beforeExecute(thread, task);
+            beforeTask(thread);
+        }
+
+        @Override
+        protected void afterExecute(Runnable task, Throwable failure) {
+            try {
+                super.afterExecute(task, failure);
+            } finally {
+                afterTask();
+            }
+        }
+    }
+
+    private class ContextJobExecutor extends ThreadPoolExecutor {
+        ContextJobExecutor() {
+            super(
+                8,                               // core pool size
+                32,                              // max pool size
+                60, TimeUnit.SECONDS,            // keep-alive
+                new LinkedBlockingQueue<>(1000), // work queue
+                new ThreadPoolExecutor.CallerRunsPolicy()
+            );
+            setRejectedExecutionHandler((task, pool) -> {
+                // CallerRunsPolicy bypasses the worker hooks.
+                Thread thread = Thread.currentThread();
+                ClassLoader previous = thread.getContextClassLoader();
+                thread.setContextClassLoader(applicationClassLoader);
+                try {
+                    new ThreadPoolExecutor.CallerRunsPolicy().rejectedExecution(task, pool);
+                } finally {
+                    thread.setContextClassLoader(previous);
+                }
+            });
+        }
+
+        @Override
+        protected void beforeExecute(Thread thread, Runnable task) {
+            super.beforeExecute(thread, task);
+            beforeTask(thread);
+        }
+
+        @Override
+        protected void afterExecute(Runnable task, Throwable failure) {
+            try {
+                super.afterExecute(task, failure);
+            } finally {
+                afterTask();
+            }
+        }
+    }
+
+    private final ExecutorService jobExecutor = new ContextJobExecutor();
+    private final ScheduledExecutorService scheduler =
+        new ContextScheduler(Executors.defaultThreadFactory());
+    private final ScheduledExecutorService releases =
+        new ContextScheduler(Executors.defaultThreadFactory());
+
+    @Override
+    public ExecutorService getJobExecutor() {
+        return jobExecutor;
+    }
+
+    @Override
+    public ScheduledExecutorService getScheduledExecutor() {
+        return scheduler;
+    }
 
     @Override
     public ScheduledExecutorService getReleaseExecutor() {
         return releases;
     }
 
-  @Override
-  public ExecutorService getJobExecutor() {
-    return new ThreadPoolExecutor(
-        8,                          // core pool size
-        32,                         // max pool size
-        60, TimeUnit.SECONDS,       // keep-alive
-        new LinkedBlockingQueue<>(1000),  // work queue
-        new ThreadPoolExecutor.CallerRunsPolicy()
-    );
-  }
-
-  @Override
-  public ScheduledExecutorService getScheduledExecutor() {
-    return Executors.newScheduledThreadPool(2);
-  }
-
     @PreDestroy
-    void shutdownReleases() {
-        releases.shutdownNow();
+    void shutdown() {
+        shutdown(releases);
+        shutdown(jobExecutor);
+        shutdown(scheduler);
     }
 
+    private static void shutdown(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 }
 ```
 

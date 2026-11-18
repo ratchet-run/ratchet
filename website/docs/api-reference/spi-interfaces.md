@@ -506,11 +506,23 @@ This interface is marked `@Incubating` and may change.
 ```java
 @Incubating
 public interface ExecutorProvider {
+    void initializeApplicationClassLoader(ClassLoader applicationClassLoader);
     ExecutorService getJobExecutor();
+
+    default Optional<ExecutorService> getJobExecutor(String target) {
+        return ExecutorTargets.PLATFORM.equals(target)
+            ? Optional.of(getJobExecutor())
+            : Optional.empty();
+    }
+
     ScheduledExecutorService getScheduledExecutor();
     ScheduledExecutorService getReleaseExecutor();
 }
 ```
+
+The runtime calls `initializeApplicationClassLoader` before starting workers. All returned executors must use that loader for tasks, including executors obtained before initialization. Each accessor returns the same instance for the provider lifecycle. The default `getJobExecutor(String)` resolves only `ExecutorTargets.PLATFORM`; other targets return `Optional.empty()`.
+
+The example requires Java 21. It uses virtual threads for the default job executor and scheduler. It does not register a separate `ExecutorTargets.VIRTUAL` target.
 
 ### getJobExecutor
 
@@ -540,32 +552,100 @@ Returns the provider-owned executor for release retries. It must be a stable ins
 ### Example
 
 ```java
-@Alternative @Priority(APPLICATION)
+@Alternative
+@Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
 public class VirtualThreadExecutorProvider implements ExecutorProvider {
 
-    private final ScheduledExecutorService releases = Executors.newScheduledThreadPool(2);
+    private volatile ClassLoader applicationClassLoader =
+        Thread.currentThread().getContextClassLoader();
+    private final ThreadLocal<ClassLoader> previousLoader = new ThreadLocal<>();
+
+    @Override
+    public void initializeApplicationClassLoader(ClassLoader applicationClassLoader) {
+        this.applicationClassLoader = applicationClassLoader;
+    }
+
+    private void beforeTask(Thread thread) {
+        previousLoader.set(thread.getContextClassLoader());
+        thread.setContextClassLoader(applicationClassLoader);
+    }
+
+    private void afterTask() {
+        try {
+            Thread.currentThread().setContextClassLoader(previousLoader.get());
+        } finally {
+            previousLoader.remove();
+        }
+    }
+
+    private class ContextScheduler extends ScheduledThreadPoolExecutor {
+        ContextScheduler(ThreadFactory factory) {
+            super(2, factory);
+            setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+            setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        }
+
+        @Override
+        protected void beforeExecute(Thread thread, Runnable task) {
+            super.beforeExecute(thread, task);
+            beforeTask(thread);
+        }
+
+        @Override
+        protected void afterExecute(Runnable task, Throwable failure) {
+            try {
+                super.afterExecute(task, failure);
+            } finally {
+                afterTask();
+            }
+        }
+    }
+
+    private final ExecutorService jobExecutor = Executors.newThreadPerTaskExecutor(task -> {
+        // Each task gets a fresh virtual thread, so its loader needs no restoration.
+        Thread thread = Thread.ofVirtual().unstarted(task);
+        thread.setContextClassLoader(applicationClassLoader);
+        return thread;
+    });
+    private final ScheduledExecutorService scheduler =
+        new ContextScheduler(Thread.ofVirtual().factory());
+    private final ScheduledExecutorService releases =
+        new ContextScheduler(Executors.defaultThreadFactory());
+
+    @Override
+    public ExecutorService getJobExecutor() {
+        return jobExecutor;
+    }
+
+    @Override
+    public ScheduledExecutorService getScheduledExecutor() {
+        return scheduler;
+    }
 
     @Override
     public ScheduledExecutorService getReleaseExecutor() {
         return releases;
     }
 
-    @Override
-    public ExecutorService getJobExecutor() {
-        return Executors.newVirtualThreadPerTaskExecutor();
-    }
-
-    @Override
-    public ScheduledExecutorService getScheduledExecutor() {
-        return Executors.newScheduledThreadPool(2, Thread.ofVirtual().factory());
-    }
-
     @PreDestroy
-    void shutdownReleases() {
-        releases.shutdownNow();
+    void shutdown() {
+        shutdown(releases);
+        shutdown(jobExecutor);
+        shutdown(scheduler);
     }
 
+    private static void shutdown(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 }
 ```
 
