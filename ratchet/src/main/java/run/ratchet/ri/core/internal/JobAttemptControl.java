@@ -336,9 +336,9 @@ public final class JobAttemptControl {
   }
 
   /**
-   * Holds the timeout for the worker before it forces FAILED: claims it if unclaimed and keeps it
-   * if the worker already owns it. Returns false once the watchdog has claimed it or it was handed
-   * back.
+   * Holds the timeout for the worker before it decides the outcome: claims it if unclaimed and
+   * keeps it if the worker already owns it. Returns false once the watchdog has claimed it or it
+   * was handed back.
    */
   public boolean holdTimeoutForWorker() {
     while (true) {
@@ -387,9 +387,23 @@ public final class JobAttemptControl {
     }
   }
 
-  /** Reports whether the timeout watchdog owns the timeout transition. */
-  public boolean isTimeoutClaimedByWatchdog() {
-    return timeoutOwner.get() == TimeoutOwner.WATCHDOG;
+  private volatile @Nullable Runnable handedBackFinish;
+
+  /**
+   * Hands the timeout back so the watchdog runs {@code finish} instead of a timeout transition
+   * after it claims the handed-back timeout.
+   */
+  public boolean handBackTimeoutToWatchdog(Runnable finish) {
+    handedBackFinish = finish;
+    if (handBackTimeoutToWatchdog()) {
+      return true;
+    }
+    handedBackFinish = null;
+    return false;
+  }
+
+  @Nullable Runnable handedBackFinish() {
+    return handedBackFinish;
   }
 
   /** Reports whether a failed cooperative transition is waiting for the watchdog. */

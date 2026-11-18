@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -370,24 +371,26 @@ class JobTaskTest {
   }
 
   @Test
-  void watchdogChargeSupersedesWorkerWithoutRetryOrCompletion() throws Exception {
+  void watchdogClaimBeforeWorkerHoldDefersWithoutCharge() throws Exception {
     RuntimeException failure = new IllegalStateException("body");
     var scenario =
         hydratedClaimScenario(
             () -> {
               throw failure;
             });
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+    AtomicBoolean claimed = new AtomicBoolean();
+    when(errorSanitizer.sanitize(failure))
         .thenAnswer(
             invocation -> {
-              Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
-              return -1;
+              if (claimed.compareAndSet(false, true)) {
+                Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+              }
+              return "safe body failure";
             });
-    when(errorSanitizer.sanitize(failure)).thenReturn("safe body failure");
 
     jobTask.call();
 
-    verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L, 2);
+    verify(jobStore, never()).incrementRetryAttempt(any(), any(), any());
     Assertions.assertTrue(scenario.attempt().isSuperseded());
     Assertions.assertEquals(3, scenario.job().getAttempts());
     verify(lifecycleFacade, never())
@@ -397,6 +400,113 @@ class JobTaskTest {
     Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
     Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
     Assertions.assertEquals("safe body failure", scenario.execution().getErrorMessage());
+  }
+
+  @Test
+  void workerHoldStopsWatchdogFromOverridingDlqDecision() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenAnswer(
+            invocation -> {
+              Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
+              return 3;
+            });
+    when(retryPolicy.shouldRetry(3, failure)).thenReturn(false);
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 3))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, 3);
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+    Assertions.assertFalse(scenario.attempt().handBackTimeoutToWatchdog());
+    Assertions.assertTrue(scenario.attempt().holdTimeoutForWorker());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+  }
+
+  @Test
+  void nonRetryableFailureHoldsTimeoutBeforeItsWrite() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenAnswer(
+            invocation -> {
+              watchdogClaimed.set(scenario.attempt().claimTimeoutForWatchdog());
+              return true;
+            });
+
+    jobTask.call();
+
+    Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
+    verify(jobStore, never()).incrementRetryAttempt(any(), any(), any());
+  }
+
+  @Test
+  void handedBackFinisherDoesNotTouchWorkerState() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenThrow(new IllegalStateException("write failed"));
+    jobTask.call();
+    Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    JobStatus status = scenario.job().getStatus();
+    String error = scenario.job().getLastError();
+    doReturn(true)
+        .when(lifecycleFacade)
+        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(2));
+
+    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+    scenario.attempt().handedBackFinish().run();
+
+    Assertions.assertEquals(status, scenario.job().getStatus());
+    Assertions.assertEquals(error, scenario.job().getLastError());
+    verify(observabilityFacade, times(1)).saveExecution(scenario.execution());
+  }
+
+  @Test
+  void handedBackFinisherMissFinishesCanceledJob() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenThrow(new IllegalStateException("write failed"));
+    jobTask.call();
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    scenario.attempt().attachCancelFinish(record, release);
+    doReturn(false)
+        .when(lifecycleFacade)
+        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(2));
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+
+    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+    scenario.attempt().handedBackFinish().run();
+
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(record).run();
+    verify(release).run();
   }
 
   @Test
@@ -413,7 +523,6 @@ class JobTaskTest {
     jobTask.call();
 
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L, 2);
-    Assertions.assertFalse(scenario.attempt().isTimeoutClaimedByWatchdog());
     Assertions.assertTrue(scenario.attempt().isSuperseded());
     Assertions.assertEquals(3, scenario.job().getAttempts());
     verify(lifecycleFacade, never())
@@ -454,21 +563,48 @@ class JobTaskTest {
             () -> {
               throw failure;
             });
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    scenario.job().setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    when(errorSanitizer.sanitize(failure)).thenReturn("safe body failure");
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
         .thenThrow(new IllegalStateException("unknown"));
     when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
         .thenThrow(new IllegalStateException("write failed"));
 
+    JobEntity stored = createTestJob();
+    stored.setAttempts(4);
+    when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(stored));
+
     jobTask.call();
+
+    stored.setAttempts(5);
 
     verify(lifecycleFacade, times(1))
         .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
     Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
-    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
     Assertions.assertNotEquals(JobStatus.FAILED, scenario.job().getStatus());
     verify(observabilityFacade).saveExecution(scenario.execution());
     Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
     Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+    doReturn(true)
+        .when(lifecycleFacade)
+        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
+    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+    scenario.attempt().handedBackFinish().run();
+
+    ArgumentCaptor<JobEntity> copy = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade, times(2))
+        .completeFailure(copy.capture(), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
+    Assertions.assertSame(failure, CallbackRecorder.failure);
+    Assertions.assertNotSame(scenario.job(), copy.getValue());
+    Assertions.assertEquals("safe body failure", copy.getValue().getLastError());
+    Assertions.assertEquals(5, copy.getValue().getAttempts());
+    verify(lifecycleFacade)
+        .completeFailure(
+            same(copy.getValue()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
+    verify(jobStore, times(1)).incrementRetryAttempt(any(), any(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
   }
 
   @Test
@@ -531,6 +667,10 @@ class JobTaskTest {
             () -> {
               throw failure;
             });
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    scenario.job().setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    when(errorSanitizer.sanitize(failure)).thenReturn("safe body failure");
     when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
     when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
         .thenThrow(new IllegalStateException("write failed"));
@@ -543,6 +683,23 @@ class JobTaskTest {
     verify(observabilityFacade).saveExecution(scenario.execution());
     Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
     Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+    doReturn(true)
+        .when(lifecycleFacade)
+        .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(2));
+    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+    scenario.attempt().handedBackFinish().run();
+
+    ArgumentCaptor<JobEntity> copy = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade, times(2))
+        .completeFailure(copy.capture(), eq(JobStatus.RUNNING), eq(false), eq(2));
+    Assertions.assertSame(failure, CallbackRecorder.failure);
+    Assertions.assertNotSame(scenario.job(), copy.getValue());
+    Assertions.assertEquals("safe body failure", copy.getValue().getLastError());
+    Assertions.assertEquals(3, copy.getValue().getAttempts());
+    verify(lifecycleFacade)
+        .completeFailure(same(copy.getValue()), eq(JobStatus.RUNNING), eq(false), eq(2));
+    verify(jobStore, never()).incrementRetryAttempt(any(), any(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
   }
 
   @Test
@@ -553,13 +710,20 @@ class JobTaskTest {
             () -> {
               throw failure;
             });
-    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
-    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+    scenario.attempt().requestUserCancel();
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenReturn(JobStatus.RUNNING)
+        .thenThrow(new LinkageError("cancel check"))
+        .thenReturn(JobStatus.RUNNING);
+    when(errorSanitizer.sanitize(failure))
         .thenAnswer(
             invocation -> {
               Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
-              throw new IllegalStateException("write failed");
-            });
+              return "safe body failure";
+            })
+        .thenReturn("safe body failure");
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenThrow(new IllegalStateException("write failed"));
 
     jobTask.call();
 
@@ -590,7 +754,7 @@ class JobTaskTest {
   }
 
   @Test
-  void watchdogClaimAfterSupersedeCheckDefersForcedFailure() throws Exception {
+  void workerHoldAfterSupersedeCheckPreventsWatchdogForcedFailure() throws Exception {
     RuntimeException failure = new IllegalStateException("body");
     var scenario =
         hydratedClaimScenario(
@@ -604,19 +768,17 @@ class JobTaskTest {
         .thenAnswer(
             invocation -> {
               if (calls.incrementAndGet() == 2) {
-                Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+                Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
               }
               return "safe body failure";
             });
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenReturn(true);
 
     jobTask.call();
 
-    verify(lifecycleFacade, never())
-        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
-    verify(jobStore, never()).findByIdLatest(any());
-    verify(observabilityFacade).saveExecution(scenario.execution());
-    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
-    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+    verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
+    verify(jobStore).findByIdLatest(JOB_UUID);
   }
 
   @Test
@@ -644,7 +806,7 @@ class JobTaskTest {
   }
 
   @Test
-  void forcedFailureWithKnownAttemptsDoesNotHoldTimeout() throws Exception {
+  void forcedFailureWithKnownAttemptsHoldsTimeout() throws Exception {
     RuntimeException failure = new IllegalStateException("body");
     var scenario =
         hydratedClaimScenario(
@@ -662,7 +824,7 @@ class JobTaskTest {
 
     jobTask.call();
 
-    Assertions.assertEquals(Boolean.TRUE, watchdogClaimed.get());
+    Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
     verify(jobStore, never()).findByIdLatest(any());
   }
 
@@ -2783,7 +2945,7 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void supersededDuringFailureHandlingDoesNotForceAnOutcome() throws Exception {
+  void workerHoldDuringFailureHandlingPreventsWatchdogOutcome() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
     JobAttemptControl attempt =
@@ -2796,21 +2958,20 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(failure))
         .thenAnswer(
             call -> {
-              Assertions.assertTrue(attempt.claimTimeoutForWatchdog());
+              Assertions.assertFalse(attempt.claimTimeoutForWatchdog());
               throw new IllegalStateException("failure classification failed");
             });
+
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
 
     Assertions.assertDoesNotThrow(jobTask::call);
 
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong(), any());
-    verify(lifecycleFacade, never())
-        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
-    ArgumentCaptor<JobExecutionEntity> execution =
-        ArgumentCaptor.forClass(JobExecutionEntity.class);
-    verify(observabilityFacade).saveExecution(execution.capture());
-    Assertions.assertEquals(
-        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
   }
 
   @Test
@@ -7330,6 +7491,7 @@ class JobTaskTest {
         .thenAnswer(invocation -> Optional.of(storedRow(race.status().get())));
 
     jobTask.call();
+    Assertions.assertTrue(attempt.isTimeoutHandedBack());
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
     runWatchdog(handler, attempt, new FutureTask<>(() -> null));
 
@@ -7342,7 +7504,7 @@ class JobTaskTest {
   @Test
   void retryWrittenAndThenCanceledFromPending_keepsTheExecutionFailed() throws Exception {
     // The worker's retry write commits, so this attempt failed. A later cancel of the PENDING job
-    // is not this attempt's cancel, and the watchdog that reads CANCELED leaves it alone.
+    // is not this attempt's cancel. The worker keeps the timeout, so the watchdog skips the store.
     JobTimeoutHandler handler = realTimeoutHandler();
     jobTask = newJobTaskWithTimeoutHandler(handler);
     cancelScenario(true);
@@ -7353,13 +7515,13 @@ class JobTaskTest {
     when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
         .thenReturn(true);
     recordSaves(race, status -> {});
-    when(jobStore.findById(JOB_UUID))
-        .thenAnswer(invocation -> Optional.of(storedRow(race.status().get())));
 
     jobTask.call();
+    Assertions.assertFalse(attempt.isTimeoutHandedBack());
     race.status().set(JobStatus.CANCELED);
     runWatchdog(handler, attempt, new FutureTask<>(() -> null));
 
+    verify(jobStore, never()).findById(JOB_UUID);
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
     verify(observabilityFacade, never()).recordJobCancellation(any());
   }
@@ -7622,7 +7784,8 @@ class JobTaskTest {
   /** A real timeout handler over the store mock, whose transition wrapper runs the transition. */
   @SuppressWarnings("unchecked")
   private JobTimeoutHandler realTimeoutHandler() {
-    when(lifecycleFacade.handleTimeoutTransition(any(), anyBoolean(), any(Supplier.class)))
+    lenient()
+        .when(lifecycleFacade.handleTimeoutTransition(any(), anyBoolean(), any(Supplier.class)))
         .thenAnswer(
             invocation ->
                 ((Optional<?>) invocation.getArgument(2, Supplier.class).get()).isPresent());

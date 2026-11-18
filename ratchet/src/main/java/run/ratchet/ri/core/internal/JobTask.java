@@ -932,19 +932,10 @@ public class JobTask implements Callable<Void> {
       } catch (Throwable sanitizerError) {
         safeError = t.getClass().getName();
       }
-      // The increment's outcome is unknown, so the write carries no attempts fence. Holding the
-      // timeout first stops the watchdog from charging under this claim; the re-read keeps a charge
-      // that committed.
-      boolean heldTimeout = false;
+      // The increment's outcome is unknown, so the write carries no attempts fence. The worker took
+      // the timeout before the increment, so the watchdog cannot charge under this claim; the
+      // re-read keeps a charge that committed.
       if (expectedAttempts == null) {
-        if (attempt != null && !attempt.holdTimeoutForWorker()) {
-          log.infof(
-              "Job %s timeout claimed by the watchdog — deferring forced failure to the watchdog",
-              job.getId());
-          saveDeferredExecutionFailure(t);
-          return;
-        }
-        heldTimeout = attempt != null;
         refreshAttemptsBeforeForcedFailure();
       }
       boolean failed = false;
@@ -954,13 +945,15 @@ public class JobTask implements Callable<Void> {
         if (attempt == null) {
           log.errorf(
               lastResort,
-              "Job %s could not be transitioned to FAILED — will require orphan recovery",
+              "Job %s could not be transitioned to FAILED — left RUNNING until orphan recovery,"
+                  + " which resets it only after this node stops heartbeating",
               job.getId());
         } else {
-          boolean workerHolds = heldTimeout || attempt.holdTimeoutForWorker();
-          // The hard task survives the worker only when handed back. The watchdog claims it at
-          // the deadline; incrementAlreadyApplied avoids charging an already-counted attempt again.
-          if (workerHolds && attempt.handBackTimeoutToWatchdog()) {
+          boolean workerHolds = attempt.holdTimeoutForWorker();
+          // The watchdog runs this forced write at the deadline instead of a timeout transition,
+          // so it neither charges nor reschedules.
+          Runnable finish = forcedFailureFinisher(safeError, t);
+          if (workerHolds && attempt.handBackTimeoutToWatchdog(finish)) {
             log.warnf(
                 lastResort,
                 "Job %s forced FAILED write failed — handing timeout back to the watchdog to finish"
@@ -973,7 +966,8 @@ public class JobTask implements Callable<Void> {
             } catch (Throwable retryFailure) {
               log.errorf(
                   retryFailure,
-                  "Job %s could not be transitioned to FAILED — will require orphan recovery",
+                  "Job %s could not be transitioned to FAILED — left RUNNING until orphan recovery,"
+                      + " which resets it only after this node stops heartbeating",
                   job.getId());
             }
           } else {
@@ -988,6 +982,63 @@ public class JobTask implements Callable<Void> {
         invokeOnFailureAfterLastResort(t);
       }
     }
+  }
+
+  private Runnable forcedFailureFinisher(String safeError, Throwable failure) {
+    // The finisher runs on the watchdog thread after the worker returns, so it works on a copy.
+    JobEntity copy = PostExecutionHandler.completionSnapshot(job, job.getStatus());
+    copy.setOnFailurePayload(job.getOnFailurePayload());
+    copy.setParams(job.getParams());
+    copy.setCallerPrincipal(job.getCallerPrincipal());
+    Integer expected = expectedAttempts;
+    JobAttemptControl control = attempt;
+    PostExecutionHandler lifecycle = lifecycleFacade;
+    JobStore store = jobStore;
+    LifecycleCallbackInvoker callbacks = callbackInvoker;
+    return () -> {
+      try {
+        if (expected == null) {
+          try {
+            store
+                .findByIdLatest(copy.getId())
+                .ifPresent(stored -> copy.setAttempts(stored.getAttempts()));
+          } catch (Throwable readFailure) {
+            log.warnf(
+                readFailure,
+                "Job %s could not refresh attempts before forced failure; writing %s attempts",
+                copy.getId(),
+                copy.getAttempts());
+          }
+        }
+        copy.setLastError(safeError);
+        if (lifecycle.completeFailure(copy, JobStatus.RUNNING, false, expected)) {
+          log.infof("Job %s watchdog finished the forced FAILED write", copy.getId());
+          if (callbacks != null) {
+            try {
+              callbacks.invokeOnFailureInJobContext(copy, failure);
+            } catch (Throwable callbackError) {
+              log.errorf(
+                  callbackError,
+                  "Job %s onFailure callback failed after last-resort failure handling",
+                  copy.getId());
+            }
+          }
+        } else {
+          control.markSuperseded();
+          if (store.getJobStatus(copy.getId()) == JobStatus.CANCELED) {
+            control.finishCancelFoundByTimeout();
+          } else {
+            log.warnf("Job %s forced FAILED write missed because the claim moved on", copy.getId());
+          }
+        }
+      } catch (Throwable writeFailure) {
+        log.errorf(
+            writeFailure,
+            "Job %s could not be transitioned to FAILED — left RUNNING until orphan recovery,"
+                + " which resets it only after this node stops heartbeating",
+            copy.getId());
+      }
+    };
   }
 
   private boolean forceFailure(String safeError) {
@@ -1562,6 +1613,26 @@ public class JobTask implements Callable<Void> {
       return;
     }
 
+    // The worker takes the timeout before it charges or decides this attempt, so the watchdog
+    // cannot decide it as well. A watchdog that claimed the timeout first owns the outcome.
+    if (attempt != null && !attempt.holdTimeoutForWorker()) {
+      log.infof(
+          "Job %s timeout claimed by the watchdog first — deferring failure to the watchdog",
+          job.getId());
+      saveDeferredExecutionFailure(ex);
+      return;
+    }
+
+    handleHeldFailure(ex, sanitized);
+    // The worker took the timeout but wrote no outcome, for example after a missed write whose
+    // cancel it could not read. Handing the timeout back lets the watchdog find that cancel at the
+    // deadline; its writes are fenced on this claim, so it cannot decide the attempt again.
+    if (attempt != null && !outcomeWritten && !cancelHandled) {
+      attempt.handBackTimeoutToWatchdog();
+    }
+  }
+
+  private void handleHeldFailure(Throwable ex, String sanitized) {
     flushStateQuietly();
 
     // Non-retryable: skip retry count increment
@@ -1590,14 +1661,8 @@ public class JobTask implements Callable<Void> {
         handleCanceledDuringExecution(cancelStart());
         return;
       }
-      // A fenced charge can miss after the watchdog charges this attempt first.
-      if (this.attempt != null && this.attempt.isTimeoutClaimedByWatchdog()) {
-        markAttemptSuperseded();
-        log.warnf(
-            "Job %s timeout watchdog charged this attempt first; worker defers to it", job.getId());
-      } else {
-        warnRejectedOwnerWrite();
-      }
+      // A missed charge means a cancel won or the claim moved on.
+      warnRejectedOwnerWrite();
       saveDeferredExecutionFailure(ex);
       return;
     }

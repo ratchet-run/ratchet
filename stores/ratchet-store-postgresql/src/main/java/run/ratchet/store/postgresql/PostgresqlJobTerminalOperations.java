@@ -136,10 +136,9 @@ final class PostgresqlJobTerminalOperations {
         "increment_retry_attempt",
         () -> {
           try {
-            Query query = ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 2);
-            if (expectedAttempts != null) {
-              query.setParameter(expectedClaimSeq == null ? 2 : 3, expectedAttempts);
-            }
+            Query query =
+                ClaimFence.bind(
+                    ctx.em().createNativeQuery(sql), expectedClaimSeq, expectedAttempts, 2);
             Object result = query.setParameter(1, id).getSingleResult();
             return ((Number) result).intValue();
           } catch (NoResultException e) {

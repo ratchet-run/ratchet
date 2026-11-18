@@ -579,23 +579,9 @@ public class JobTimeoutHandler {
     if (!incrementAlreadyApplied && retryAllowed) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq, readAttempts);
       if (newAttempts < 0) {
-        JobEntity latest = jobCrudStore.findByIdLatest(jobId).orElse(null);
-        if (latest != null
-            && latest.getStatus() == JobStatus.RUNNING
-            && Objects.equals(latest.getClaimSeq(), expectedClaimSeq)
-            && latest.getAttempts() > readAttempts) {
-          newAttempts = latest.getAttempts();
-          log.infof("Job %s worker charged this attempt first (%s attempts)", jobId, newAttempts);
-        } else {
-          if (attempt != null) {
-            attempt.markSuperseded();
-          }
-          log.warnf(
-              "Job %s timeout retry increment missed: claim moved on or row is no longer retryable",
-              jobId);
-          miss.set(TimeoutMiss.WRITE_MISSED);
-          return Optional.empty();
-        }
+        warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId, attempt);
+        miss.set(TimeoutMiss.WRITE_MISSED);
+        return Optional.empty();
       }
     }
     if (retryAllowed && newAttempts <= job.getMaxRetries()) {
@@ -1005,6 +991,15 @@ public class JobTimeoutHandler {
     }
     if (!attempt.claimTimeoutForWatchdog()) {
       log.debugf("Job %s already stopped cooperatively; the worker owns the timeout", jobId);
+      return;
+    }
+    Runnable finish = attempt.handedBackFinish();
+    if (finish != null) {
+      try {
+        finish.run();
+      } catch (Exception e) {
+        log.errorf(e, "Timeout post-processing error for job %s", jobId);
+      }
       return;
     }
     attempt.requestCancellation();

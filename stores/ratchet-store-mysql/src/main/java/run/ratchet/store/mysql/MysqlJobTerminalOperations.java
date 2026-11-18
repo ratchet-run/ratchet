@@ -150,10 +150,11 @@ final class MysqlJobTerminalOperations {
               () -> {
                 try {
                   Query query =
-                      ClaimFence.bind(ctx.em().createNativeQuery(updateSql), expectedClaimSeq, 2);
-                  if (expectedAttempts != null) {
-                    query.setParameter(expectedClaimSeq == null ? 2 : 3, expectedAttempts);
-                  }
+                      ClaimFence.bind(
+                          ctx.em().createNativeQuery(updateSql),
+                          expectedClaimSeq,
+                          expectedAttempts,
+                          2);
                   return query.setParameter(1, UuidByteArrayConverter.toBytes(id)).executeUpdate();
                 } catch (RuntimeException e) {
                   throw ctx.translateTransientStoreException("increment retry attempt", e);

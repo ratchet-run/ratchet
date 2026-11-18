@@ -492,11 +492,11 @@ public class PostExecutionHandler {
         batchCompletion,
         workflow.dependencies(),
         expectedClaimSeq,
-        expectedClaimSeq != null ? expectedAttempts : null,
+        expectedAttempts,
         List.of());
   }
 
-  private static JobEntity completionSnapshot(JobEntity source, JobStatus status) {
+  static JobEntity completionSnapshot(JobEntity source, JobStatus status) {
     JobEntity snapshot = new JobEntity();
     snapshot.setId(source.getId());
     snapshot.setClaimSeq(source.getClaimSeq());

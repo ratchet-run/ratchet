@@ -211,6 +211,26 @@ class JobAttemptControlTest {
   }
 
   @Test
+  void handbackPublishesFinisherOnlyOnSuccess() {
+    JobAttemptControl attempt = newAttempt();
+    Runnable finish = () -> {};
+    assertTrue(attempt.holdTimeoutForWorker());
+    assertTrue(attempt.handBackTimeoutToWatchdog(finish));
+    assertSame(finish, attempt.handedBackFinish());
+    assertTrue(attempt.claimTimeoutForWatchdog());
+    assertSame(finish, attempt.handedBackFinish());
+  }
+
+  @Test
+  void failedHandbackAfterWatchdogPassedClearsFinisher() {
+    JobAttemptControl attempt = newAttempt();
+    assertTrue(attempt.holdTimeoutForWorker());
+    assertFalse(attempt.claimTimeoutForWatchdog());
+    assertFalse(attempt.handBackTimeoutToWatchdog(() -> {}));
+    assertNull(attempt.handedBackFinish());
+  }
+
+  @Test
   void watchdogCanClaimUnclaimedTimeoutAndExcludeWorker() {
     JobAttemptControl attempt = newAttempt();
     assertTrue(attempt.claimTimeoutForWatchdog());

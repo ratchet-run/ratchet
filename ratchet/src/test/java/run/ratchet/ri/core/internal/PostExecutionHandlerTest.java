@@ -136,19 +136,26 @@ class PostExecutionHandlerTest {
   }
 
   @Test
-  void completionPlanCarriesAttemptsFenceOnlyForRunning() {
+  void completionPlanRejectsAttemptsFenceWithoutClaimSequence() {
     JobEntity source = job(JobExecutionType.SINGLE);
     source.setClaimSeq(7L);
     source.setStatus(JobStatus.SUCCEEDED);
-    for (JobStatus expected : List.of(JobStatus.RUNNING, JobStatus.WAITING)) {
-      var plan =
-          PostExecutionHandler.completionPlan(
-              source, expected, null, WorkflowCompletionPlan.empty(), 2);
-      assertEquals(
-          expected == JobStatus.RUNNING ? Integer.valueOf(2) : null, plan.expectedAttempts());
-      assertEquals(
-          expected == JobStatus.RUNNING ? Long.valueOf(7L) : null, plan.expectedClaimSeq());
-    }
+    var plan =
+        PostExecutionHandler.completionPlan(
+            source, JobStatus.RUNNING, null, WorkflowCompletionPlan.empty(), 2);
+    assertEquals(2, plan.expectedAttempts());
+    assertEquals(7L, plan.expectedClaimSeq());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            PostExecutionHandler.completionPlan(
+                source, JobStatus.WAITING, null, WorkflowCompletionPlan.empty(), 2));
+    source.setClaimSeq(null);
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            PostExecutionHandler.completionPlan(
+                source, JobStatus.RUNNING, null, WorkflowCompletionPlan.empty(), 2));
   }
 
   @Test
