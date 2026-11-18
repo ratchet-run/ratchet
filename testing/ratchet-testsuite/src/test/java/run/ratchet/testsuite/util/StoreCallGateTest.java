@@ -85,50 +85,63 @@ class StoreCallGateTest {
   }
 
   @Test
-  void completedNormallyRequiresANormalReturnOnTheSameThread() throws Exception {
+  void returnedOnAndCalledOnMatchTheResultAndThread() throws Exception {
     UUID jobId = UUID.randomUUID();
     Thread executorThread = executor.submit(Thread::currentThread).get(5, TimeUnit.SECONDS);
     executor.submit(() -> Callers.right(jobId)).get(5, TimeUnit.SECONDS);
 
-    assertTrue(StoreCallGate.completedNormally(jobId, "getJobStatus", executorThread));
-    assertFalse(StoreCallGate.completedNormally(jobId, "getJobStatus", Thread.currentThread()));
+    assertTrue(StoreCallGate.returnedOn(jobId, "getJobStatus", executorThread, true));
+    assertFalse(StoreCallGate.returnedOn(jobId, "getJobStatus", executorThread, false));
+    assertTrue(StoreCallGate.calledOn(jobId, "getJobStatus", executorThread));
+    assertFalse(StoreCallGate.calledOn(jobId, "getJobStatus", Thread.currentThread()));
+    assertFalse(StoreCallGate.returnedOn(jobId, "getJobStatus", Thread.currentThread(), true));
 
     UUID throwingJobId = UUID.randomUUID();
     Future<?> throwing = executor.submit(() -> Callers.throwing(throwingJobId));
     ExecutionException failure =
         assertThrows(ExecutionException.class, () -> throwing.get(5, TimeUnit.SECONDS));
     assertInstanceOf(IllegalStateException.class, failure.getCause());
-    assertFalse(StoreCallGate.completedNormally(throwingJobId, "getJobStatus", executorThread));
+    assertFalse(StoreCallGate.returnedOn(throwingJobId, "getJobStatus", executorThread, null));
+    assertFalse(StoreCallGate.returnedOn(throwingJobId, "getJobStatus", executorThread, true));
+    assertTrue(StoreCallGate.calledOn(throwingJobId, "getJobStatus", executorThread));
+    assertFalse(StoreCallGate.calledOn(throwingJobId, "getJobStatus", Thread.currentThread()));
   }
 
   private static final class Callers {
-    static void right(UUID jobId) {
+    static boolean right(UUID jobId) {
       StoreCallGate.Pause fired = StoreCallGate.enter("getJobStatus", jobId);
       boolean completed = false;
+      Object returned = null;
       try {
+        returned = Boolean.TRUE;
         completed = true;
+        return true;
       } finally {
-        StoreCallGate.exit("getJobStatus", jobId, fired, completed);
+        StoreCallGate.exit("getJobStatus", jobId, fired, completed, returned);
       }
     }
 
-    static void wrong(UUID jobId) {
+    static boolean wrong(UUID jobId) {
       StoreCallGate.Pause fired = StoreCallGate.enter("getJobStatus", jobId);
       boolean completed = false;
+      Object returned = null;
       try {
+        returned = Boolean.TRUE;
         completed = true;
+        return true;
       } finally {
-        StoreCallGate.exit("getJobStatus", jobId, fired, completed);
+        StoreCallGate.exit("getJobStatus", jobId, fired, completed, returned);
       }
     }
 
     static void throwing(UUID jobId) {
       StoreCallGate.Pause fired = StoreCallGate.enter("getJobStatus", jobId);
       boolean completed = false;
+      Object returned = null;
       try {
         throw new IllegalStateException("Store call failed");
       } finally {
-        StoreCallGate.exit("getJobStatus", jobId, fired, completed);
+        StoreCallGate.exit("getJobStatus", jobId, fired, completed, returned);
       }
     }
   }

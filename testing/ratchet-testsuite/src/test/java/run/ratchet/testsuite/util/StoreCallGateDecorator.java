@@ -52,12 +52,14 @@ public abstract class StoreCallGateDecorator implements JobStore {
   public Optional<JobEntity> findById(UUID id) {
     StoreCallGate.Pause fired = StoreCallGate.enter("findById", id);
     boolean completed = false;
+    Object returned = null;
     try {
       Optional<JobEntity> result = delegate.findById(id);
+      returned = result;
       completed = true;
       return result;
     } finally {
-      StoreCallGate.exit("findById", id, fired, completed);
+      StoreCallGate.exit("findById", id, fired, completed, returned);
     }
   }
 
@@ -65,12 +67,14 @@ public abstract class StoreCallGateDecorator implements JobStore {
   public @Nullable JobStatus getJobStatus(UUID id) {
     StoreCallGate.Pause fired = StoreCallGate.enter("getJobStatus", id);
     boolean completed = false;
+    Object returned = null;
     try {
       JobStatus result = delegate.getJobStatus(id);
+      returned = result;
       completed = true;
       return result;
     } finally {
-      StoreCallGate.exit("getJobStatus", id, fired, completed);
+      StoreCallGate.exit("getJobStatus", id, fired, completed, returned);
     }
   }
 
@@ -78,12 +82,14 @@ public abstract class StoreCallGateDecorator implements JobStore {
   public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     StoreCallGate.Pause fired = StoreCallGate.enter("incrementRetryAttempt", id);
     boolean completed = false;
+    Object returned = null;
     try {
       int result = delegate.incrementRetryAttempt(id, expectedClaimSeq);
+      returned = result;
       completed = true;
       return result;
     } finally {
-      StoreCallGate.exit("incrementRetryAttempt", id, fired, completed);
+      StoreCallGate.exit("incrementRetryAttempt", id, fired, completed, returned);
     }
   }
 
@@ -96,13 +102,15 @@ public abstract class StoreCallGateDecorator implements JobStore {
       @Nullable Long expectedClaimSeq) {
     StoreCallGate.Pause fired = StoreCallGate.enter("scheduleJobRetry", id);
     boolean completed = false;
+    Object returned = null;
     try {
       boolean result =
           delegate.scheduleJobRetry(id, error, newScheduledTime, attempts, expectedClaimSeq);
+      returned = result;
       completed = true;
       return result;
     } finally {
-      StoreCallGate.exit("scheduleJobRetry", id, fired, completed);
+      StoreCallGate.exit("scheduleJobRetry", id, fired, completed, returned);
     }
   }
 
@@ -110,12 +118,14 @@ public abstract class StoreCallGateDecorator implements JobStore {
   public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
     StoreCallGate.Pause fired = StoreCallGate.enter("releaseBusinessKeyHold", jobId);
     boolean completed = false;
+    Object returned = null;
     try {
       boolean result = delegate.releaseBusinessKeyHold(jobId, claimSeq);
+      returned = result;
       completed = true;
       return result;
     } finally {
-      StoreCallGate.exit("releaseBusinessKeyHold", jobId, fired, completed);
+      StoreCallGate.exit("releaseBusinessKeyHold", jobId, fired, completed, returned);
     }
   }
 }

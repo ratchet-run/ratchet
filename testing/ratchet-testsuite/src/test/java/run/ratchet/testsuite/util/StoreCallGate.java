@@ -17,6 +17,7 @@ package run.ratchet.testsuite.util;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -117,8 +118,8 @@ public final class StoreCallGate {
     return calls(jobId).contains(method);
   }
 
-  /** Returns whether this method returned normally on the given thread since the last reset. */
-  public static boolean completedNormally(UUID jobId, String method, Thread thread) {
+  /** Returns whether this method returned the given result on this thread since the last reset. */
+  public static boolean returnedOn(UUID jobId, String method, Thread thread, Object result) {
     requireCovered(method);
     synchronized (RETURNS_LOCK) {
       List<ReturnedCall> returned = RETURNED_CALLS.get(jobId);
@@ -126,11 +127,25 @@ public final class StoreCallGate {
           && returned.stream()
               .anyMatch(
                   call ->
-                      call.method().equals(method) && call.thread() == thread && call.completed());
+                      call.method().equals(method)
+                          && call.thread() == thread
+                          && call.completed()
+                          && Objects.equals(call.result(), result));
     }
   }
 
-  private record ReturnedCall(String method, Thread thread, boolean completed) {}
+  /** Returns whether this method returned or threw on this thread since the last reset. */
+  public static boolean calledOn(UUID jobId, String method, Thread thread) {
+    requireCovered(method);
+    synchronized (RETURNS_LOCK) {
+      List<ReturnedCall> returned = RETURNED_CALLS.get(jobId);
+      return returned != null
+          && returned.stream()
+              .anyMatch(call -> call.method().equals(method) && call.thread() == thread);
+    }
+  }
+
+  private record ReturnedCall(String method, Thread thread, boolean completed, Object result) {}
 
   private static void requireCovered(String method) {
     if (!GATED_METHODS.contains(method)) {
@@ -238,12 +253,12 @@ public final class StoreCallGate {
   }
 
   /** Counts matching watches and marks a fired pause as returned. */
-  static void exit(String method, UUID jobId, Pause fired, boolean completed) {
+  static void exit(String method, UUID jobId, Pause fired, boolean completed, Object result) {
     if (jobId == null) return;
     synchronized (RETURNS_LOCK) {
       RETURNED_CALLS
           .computeIfAbsent(jobId, ignored -> new CopyOnWriteArrayList<>())
-          .add(new ReturnedCall(method, Thread.currentThread(), completed));
+          .add(new ReturnedCall(method, Thread.currentThread(), completed, result));
       for (Watch watch : WATCHES) {
         if (watch.method.equals(method) && watch.jobId.equals(jobId)) {
           synchronized (watch) {
