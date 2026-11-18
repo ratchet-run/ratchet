@@ -101,6 +101,11 @@ closures contain changed modules. Pull requests use a reduced matrix that
 covers every selected dimension value. Every other event selects the full
 matrix and the full unit suite; the merge queue still skips heavy lanes.
 
+The `mysql-read-committed` job runs the MySQL store suite with
+`-Dratchet.mysql.test.isolation=2` whenever the MySQL store's module closure
+changes (the store, the shared store code, the TCK or anything they depend on),
+and on every non-PR event. It is part of `CI required`.
+
 The Spring Boot consumer lane has one row that compiles Ratchet on Java 21 and
 runs the consumer on Java 17, matching how releases are built. Pull requests keep
 that row as its own group, so it runs whenever the PostgreSQL consumer rows are selected.
