@@ -157,15 +157,21 @@ The `scheduler_business_key_reservation` table (or MongoDB collection) owns acti
 uniqueness across queue jobs and recurring masters. Terminal rows keep their `business_key` for
 audit/search, but they do not block a future active job from using the same key.
 
-The physical column is wider in some stores, but the API contract is the portable minimum: after
-trimming, a business key may contain up to 255 printable ASCII characters. Oracle can count its
-`VARCHAR2(255)` limit in bytes, and SQL Server's indexed `VARCHAR` columns use the database
-collation's code page. Printable ASCII is one byte and round-trips unchanged in both, so Ratchet
-rejects other values before persistence rather than allowing store-specific conversion or failure.
+The physical column is wider in some stores, but the API contract is the portable minimum:
+after trimming, a business key may contain up to 255 printable ASCII characters. Oracle can
+count its `VARCHAR2(255)` limit in bytes. SQL Server stores business keys in `NVARCHAR(255)`
+after V018, while the RI retains the portable ASCII restriction.
 
-Idempotency keys follow the same rule with a 36-character limit. Oracle stores them in
-`VARCHAR2(36)` and SQL Server in `VARCHAR(36)`, so a multibyte key could overflow the Oracle column,
-and SQL Server could store two distinct keys as the same value.
+Idempotency keys follow the same API rule with a 36-character limit. Oracle stores them in
+`VARCHAR2(36)` and SQL Server uses `NVARCHAR(36)`. Direct store callers can persist Unicode
+keys on SQL Server; this does not expand the RI's cross-store API contract.
+
+SQL Server also uses bounded `NVARCHAR` for resource names, tags, signal keys, node ids and
+caller/configured text. The table above uses generic SQL type names; see the
+[SQL Server deployment guide](../deployment/sqlserver.md#unicode-keys-and-migration-v018)
+for its physical types. The migration gives key columns the binary `Latin1_General_100_BIN2` collation.
+Free-text columns keep their existing collation. Values already
+changed to `?` or an unaccented letter cannot be recovered by changing the column type.
 
 ### Indexes
 

@@ -107,11 +107,11 @@ final class SqlserverJobRecurringAndResetOperations {
     // by primary key so cancellation locks only the queue rows of the jobs it cancels, whatever
     // plan SQL Server picks for the join. Lock ids in job_id byte order, the order of the other
     // multi-row queue writes, and lock every chunk before the first write. Chunks keep statements
-    // under SQL Server's 2,100-parameter limit. Cast the tag so SQL Server can seek
-    // idx_job_tag_tag_job. Keep the NVARCHAR comparison as a second predicate so a look-alike tag
-    // never matches. The writes seek the primary key, as the batch cancel's do: a scan would wait
-    // on rows that an open cancel of another tag has written. SQL Server rejects FORCESEEK on the
-    // target of an UPDATE or DELETE, so each write puts the hint on an alias.
+    // under SQL Server's 2,100-parameter limit. The tag parameter and column are both NVARCHAR, so
+    // the read seeks idx_job_tag_tag_job. The writes seek the primary key, as the batch cancel's
+    // do: a scan would wait on rows that an open cancel of another tag has written. SQL Server
+    // rejects FORCESEEK on the target of an UPDATE or DELETE, so each write puts the hint on an
+    // alias.
     // language=SQL Server
     String candidatesSql =
         """
@@ -119,18 +119,14 @@ final class SqlserverJobRecurringAndResetOperations {
         FROM scheduler_job_tag t
         JOIN scheduler_job_queue q ON q.job_id = t.job_id
         JOIN scheduler_job j ON j.job_id = t.job_id
-        WHERE t.tag = CAST(? AS VARCHAR(8000)) AND t.tag = ?
+        WHERE t.tag = ?
           AND j.job_type <> 'RECURRING'
           AND j.terminal_status IS NULL
           AND q.status IN ('PENDING','PAUSED','WAITING')
         ORDER BY q.job_id
         """;
     List<?> candidateRows =
-        ctx.em()
-            .createNativeQuery(candidatesSql)
-            .setParameter(1, tag)
-            .setParameter(2, tag)
-            .getResultList();
+        ctx.em().createNativeQuery(candidatesSql).setParameter(1, tag).getResultList();
     List<UUID> candidates = new ArrayList<>(candidateRows.size());
     for (Object row : candidateRows) {
       candidates.add(SqlserverJobRowMapper.uuidOrNull(row));
