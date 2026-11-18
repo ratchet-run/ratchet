@@ -285,12 +285,21 @@ public class DefaultJobExecutorService implements JobExecutorService {
       RatchetOptions options) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
-    this.outcomeRetries = new OutcomeWriteRetries(() -> executorProvider.getReleaseExecutor());
+    this.outcomeRetries =
+        new OutcomeWriteRetries(
+            () -> executorProvider.getReleaseExecutor(),
+            () -> executorProvider.getScheduledExecutor());
     this.holdReleases = new HeldKeyReleases(jobStore, () -> executorProvider.getReleaseExecutor());
     this.permitReleases =
-        new PermitReleases(resourcePermitService, () -> executorProvider.getReleaseExecutor());
+        new PermitReleases(
+            resourcePermitService,
+            () -> executorProvider.getReleaseExecutor(),
+            () -> executorProvider.getScheduledExecutor());
     this.claimReschedules =
-        new ClaimReschedules(jobStore, () -> executorProvider.getReleaseExecutor());
+        new ClaimReschedules(
+            jobStore,
+            () -> executorProvider.getReleaseExecutor(),
+            () -> executorProvider.getScheduledExecutor());
     this.executorProvider = executorProvider;
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;

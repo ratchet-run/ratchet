@@ -1374,6 +1374,80 @@ class JobTimeoutHandlerTest {
     assertRetriedHardTimeout(true);
   }
 
+  @Test
+  void unknownWatchdogRescheduleSkipsCancelRecordButReleasesHold() {
+    assertCancelAfterFailedTimeoutWrite(true);
+  }
+
+  @Test
+  void failedWatchdogIncrementStillRecordsCancelAndReleasesHold() {
+    assertCancelAfterFailedTimeoutWrite(false);
+  }
+
+  private void assertCancelAfterFailedTimeoutWrite(boolean rescheduleReached) {
+    JobEntity first = jobWithMaxRetries(3);
+    JobEntity canceled = jobWithMaxRetries(3);
+    canceled.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(first), Optional.of(canceled));
+    if (rescheduleReached) {
+      when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L, 0)).thenReturn(1);
+      when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(7L)))
+          .thenThrow(new IllegalStateException("committed then threw"));
+    } else {
+      when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L, 0))
+          .thenThrow(new IllegalStateException("increment failed"));
+    }
+    ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
+    ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    List<Runnable> pending = new ArrayList<>();
+    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+        .thenAnswer(
+            invocation -> {
+              pending.add(invocation.getArgument(0));
+              return null;
+            });
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    // Match JobTask's cancelRecord hook: the attempt can finish and release the hold while
+    // the live uncertainty gate suppresses attributing a later cancel to this attempt.
+    attempt.attachCancelFinish(
+        () -> {
+          if (!attempt.timeoutOutcomeUnknown()) record.run();
+        },
+        release);
+    attempt.workerStarted();
+    assertFalse(attempt.workerEnded());
+    handler.scheduleTimeoutMonitoring(
+        attempt,
+        mock(Future.class),
+        timers,
+        Instant.EPOCH,
+        new OutcomeWriteRetries(() -> releases, null, System::nanoTime));
+    ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+    verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
+    tasks.getAllValues().get(1).run();
+    assertEquals(rescheduleReached, attempt.timeoutOutcomeUnknown());
+    assertEquals(1, pending.size());
+
+    pending.remove(0).run();
+
+    assertTrue(pending.isEmpty());
+    verify(record, times(rescheduleReached ? 0 : 1)).run();
+    verify(release).run();
+    attempt.finishCancelFoundByTimeout();
+    verify(release).run();
+  }
+
+  @Test
+  void refusedWatchdogRescheduleClearsUnknownFlag() throws Exception {
+    missTimeoutWrite("reschedule");
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.CANCELED);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    invokeHardTimeout(attempt, mock(Future.class));
+    assertFalse(attempt.timeoutOutcomeUnknown());
+  }
+
   private void assertRetriedHardTimeout(boolean claimEnded) {
     JobEntity first = jobWithMaxRetries(3);
     JobEntity retry = jobWithMaxRetries(3);
@@ -1402,7 +1476,7 @@ class JobTimeoutHandlerTest {
         mock(Future.class),
         timers,
         Instant.EPOCH,
-        new OutcomeWriteRetries(() -> releases, clock::get));
+        new OutcomeWriteRetries(() -> releases, null, clock::get));
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
 

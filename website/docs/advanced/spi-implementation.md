@@ -845,7 +845,9 @@ SQL stores compare the locked queue row's attempts after checking its claim sequ
 includes the expected attempts in the same update filter as status and claim sequence. Do not
 merge the planned count with the stored count: a committed timeout charge under the same claim
 must reject the worker's completion. Workers pass the claim-time count, or the count returned
-by their own successful increment. Timeout owners and unclaimed completions pass null.
+by their own successful increment. When the worker's own increment throws, its forced FAILED
+write has no attempt fence (`expectedAttempts` is null). It is fenced on the claim only and
+writes the count it re-reads from the store. Timeout owners and unclaimed completions pass null.
 
 ### Claim-fenced job state
 

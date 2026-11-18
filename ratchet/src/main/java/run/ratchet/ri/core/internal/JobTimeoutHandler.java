@@ -595,9 +595,14 @@ public class JobTimeoutHandler {
     }
     if (retryAllowed && newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
+      // The reschedule can leave the job live, so a later CANCELED row may be a cancel of
+      // the job it produced. On SQL stores the charge and reschedule share the REQUIRES_NEW
+      // transaction: a throw before commit rolls both back, so the flag is conservative.
+      if (attempt != null) attempt.markTimeoutOutcomeUnknown();
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(
               jobId, sanitizedError, retryTime, newAttempts, expectedClaimSeq);
+      if (!rescheduled && attempt != null) attempt.clearTimeoutOutcomeUnknown();
       if (rescheduled) {
         publishHardTimeoutRetryEvents(
             job, sanitizedError, newAttempts, retryTime, timeoutSec, observedElapsedTime);

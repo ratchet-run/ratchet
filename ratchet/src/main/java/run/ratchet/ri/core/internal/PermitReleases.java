@@ -30,9 +30,9 @@ import run.ratchet.ri.core.ResourcePermitService;
  * names the attempt's claim, so a retry never removes a permit that a newer attempt of the same job
  * holds. A permit has no expiry, so a failed release is retried with backoff, from {@link
  * #FIRST_RETRY_DELAY} up to {@link #MAX_RETRY_DELAY} between tries, until it lands or the node
- * stops. A permit still held when the release executor refuses a retry, as it does once the node
- * stops, stays until this node's start-up clean-up or, after its heartbeat stops, another node's
- * stale-node clean-up removes it.
+ * stops. A refused retry is resubmitted from the scheduled executor while this node runs. A permit
+ * still held when scheduling stops stays until this node's start-up clean-up or, after its
+ * heartbeat stops, another node's stale-node clean-up removes it.
  */
 final class PermitReleases {
   static final Duration FIRST_RETRY_DELAY = Duration.ofSeconds(5);
@@ -40,19 +40,24 @@ final class PermitReleases {
   private final ResourcePermitService permits;
   private final ReleaseRetries retries;
 
-  PermitReleases(ResourcePermitService permits, Supplier<ScheduledExecutorService> scheduler) {
-    this(permits, scheduler, System::nanoTime);
+  PermitReleases(
+      ResourcePermitService permits,
+      Supplier<ScheduledExecutorService> scheduler,
+      Supplier<ScheduledExecutorService> timer) {
+    this(permits, scheduler, timer, System::nanoTime);
   }
 
   /** Takes the monotonic clock that times the repeated warnings, so tests can move it. */
   PermitReleases(
       ResourcePermitService permits,
       Supplier<ScheduledExecutorService> scheduler,
+      Supplier<ScheduledExecutorService> timer,
       LongSupplier nanoTime) {
     this.permits = permits;
     this.retries =
         new ReleaseRetries(
             scheduler,
+            timer,
             ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),
             nanoTime);
   }

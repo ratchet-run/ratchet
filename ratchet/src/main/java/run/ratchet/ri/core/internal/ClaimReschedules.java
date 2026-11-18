@@ -39,26 +39,36 @@ import run.ratchet.store.spi.JobRetryStore;
  * and attempt count, so a charge committed under the same claim always wins. No write charges an
  * attempt. A rejected write runs the caller's callback. There is one entry per ended attempt whose
  * write still fails, so at most the attempts this node ended during the outage. Entries are dropped
- * when the release executor stops; this node's shutdown reset or, after its heartbeat stops, orphan
- * recovery handles those rows. The revoked check only avoids a write the timeout watchdog has taken
- * over.
+ * only when both executors refuse or this node stops; this node's shutdown reset or, after its
+ * heartbeat stops, orphan recovery handles those rows. The revoked check only avoids a write the
+ * timeout watchdog has taken over. Refused release tasks are resubmitted from the scheduled
+ * executor while this node runs.
  */
 class ClaimReschedules {
   private static final Logger log = Logger.getLogger(ClaimReschedules.class);
   private final JobRetryStore store;
   private final Supplier<ScheduledExecutorService> scheduler;
+  private final Supplier<ScheduledExecutorService> timer;
   private final LongSupplier clock;
   private final ConcurrentHashMap<Key, Pending> pending = new ConcurrentHashMap<>();
   // Scheduling and insertion share this monitor, including the empty-map transition.
   private boolean scheduled;
   private boolean stopping;
+  private long refusalDelaySeconds;
 
-  ClaimReschedules(JobRetryStore store, Supplier<ScheduledExecutorService> scheduler) {
-    this(store, scheduler, System::nanoTime);
+  ClaimReschedules(
+      JobRetryStore store,
+      Supplier<ScheduledExecutorService> scheduler,
+      Supplier<ScheduledExecutorService> timer) {
+    this(store, scheduler, timer, System::nanoTime);
   }
 
   ClaimReschedules(
-      JobRetryStore store, Supplier<ScheduledExecutorService> scheduler, LongSupplier clock) {
+      JobRetryStore store,
+      Supplier<ScheduledExecutorService> scheduler,
+      Supplier<ScheduledExecutorService> timer,
+      LongSupplier clock) {
+    this.timer = timer;
     this.store = store;
     this.scheduler = scheduler;
     this.clock = clock;
@@ -91,8 +101,29 @@ class ClaimReschedules {
     ScheduledExecutorService executor = null;
     try {
       executor = scheduler.get();
-      if (executor == null) return false;
+      if (executor == null) return resubmit();
       executor.schedule(this::drain, 1, TimeUnit.SECONDS);
+      scheduled = true;
+      refusalDelaySeconds = 0;
+      return true;
+    } catch (RuntimeException failure) {
+      stopping = ReleaseRetries.isStopping(failure, executor);
+      if (stopping) {
+        log.infof(
+            "This node is stopping; claim reschedules left to this node's shutdown reset or orphan"
+                + " recovery");
+      }
+      return !stopping && resubmit();
+    }
+  }
+
+  private boolean resubmit() {
+    if (timer == null) return false;
+    ScheduledExecutorService executor = null;
+    try {
+      executor = timer.get();
+      refusalDelaySeconds = Math.min(60, refusalDelaySeconds == 0 ? 1 : refusalDelaySeconds * 2);
+      executor.schedule(this::rearm, refusalDelaySeconds, TimeUnit.SECONDS);
       scheduled = true;
       return true;
     } catch (RuntimeException failure) {
@@ -106,6 +137,20 @@ class ClaimReschedules {
     }
   }
 
+  private synchronized void rearm() {
+    scheduled = false;
+    if (!pending.isEmpty() && !schedule()) dropPending();
+  }
+
+  private void dropPending() {
+    if (!stopping)
+      log.warnf(
+          "Could not re-arm claim reschedules; %s pending items pass to this node's"
+              + " shutdown reset or orphan recovery",
+          pending.size());
+    pending.clear();
+  }
+
   private void drain() {
     try {
       drainDue();
@@ -114,12 +159,7 @@ class ClaimReschedules {
       synchronized (this) {
         scheduled = false;
         if (!pending.isEmpty() && !schedule()) {
-          if (!stopping)
-            log.warnf(
-                "Could not re-arm claim reschedules; %s pending items pass to this node's"
-                    + " shutdown reset or orphan recovery",
-                pending.size());
-          pending.clear();
+          dropPending();
         }
       }
     }

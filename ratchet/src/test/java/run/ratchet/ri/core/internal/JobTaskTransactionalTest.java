@@ -179,9 +179,9 @@ class JobTaskTransactionalTest {
             flusher,
             timeoutHandler,
             new HeldKeyReleases(store, () -> mock(ScheduledExecutorService.class)),
-            new PermitReleases(permits, () -> mock(ScheduledExecutorService.class)),
-            new ClaimReschedules(store, () -> mock(ScheduledExecutorService.class)),
-            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class)),
+            new PermitReleases(permits, () -> mock(ScheduledExecutorService.class), null),
+            new ClaimReschedules(store, () -> mock(ScheduledExecutorService.class), null),
+            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class), null),
             Clock.fixed(NOW, ZoneOffset.UTC),
             null,
             RatchetOptions.defaults());

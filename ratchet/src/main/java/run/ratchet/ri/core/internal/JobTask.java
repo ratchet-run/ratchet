@@ -980,6 +980,10 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  private boolean outcomeUnknown() {
+    return outcomeWriteUnknown || (attempt != null && attempt.timeoutOutcomeUnknown());
+  }
+
   private Runnable forcedFailureFinisher(String safeError, Throwable failure) {
     // Retries may outlive the worker, so use a copy and captured collaborators.
     JobEntity copy = PostExecutionHandler.completionSnapshot(job, job.getStatus());
@@ -987,20 +991,24 @@ public class JobTask implements Callable<Void> {
     copy.setParams(job.getParams());
     copy.setCallerPrincipal(job.getCallerPrincipal());
     Integer expected = expectedAttempts;
-    boolean writeUnknown = outcomeWriteUnknown;
     JobAttemptControl control = attempt;
     PostExecutionHandler lifecycle = lifecycleFacade;
     JobStore store = jobStore;
     LifecycleCallbackInvoker callbacks = callbackInvoker;
     return () -> {
       if (expected == null) {
-        JobEntity stored =
-            store
-                .findByIdLatest(copy.getId())
-                .orElseThrow(
-                    () ->
-                        new IllegalStateException(
-                            "Missing job before forced failure: " + copy.getId()));
+        Optional<JobEntity> latest = store.findByIdLatest(copy.getId());
+        if (latest.isEmpty()) {
+          try {
+            if (control != null) control.markSuperseded();
+          } catch (Throwable supersedeError) {
+            log.errorf(
+                supersedeError, "Job %s could not mark its attempt superseded", copy.getId());
+          }
+          log.infof("Job %s no longer exists; forced FAILED write dropped", copy.getId());
+          return;
+        }
+        JobEntity stored = latest.get();
         copy.setAttempts(stored.getAttempts());
       }
       copy.setLastError(safeError);
@@ -1022,7 +1030,7 @@ public class JobTask implements Callable<Void> {
           log.errorf(supersedeError, "Job %s could not mark its attempt superseded", copy.getId());
         }
         try {
-          if (!writeUnknown
+          if (!outcomeUnknown()
               && control != null
               && store.getJobStatus(copy.getId()) == JobStatus.CANCELED) {
             control.finishCancelFoundByTimeout();
@@ -1386,7 +1394,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private boolean wasJobCanceledDuringExecution() {
-    if (outcomeWriteUnknown) return false;
+    if (outcomeUnknown()) return false;
     JobStatus freshStatus = jobStore.getJobStatus(job.getId());
     if (freshStatus == null) {
       log.warnf("Job %s was deleted during execution - treating as canceled", job.getId());
@@ -1417,7 +1425,7 @@ public class JobTask implements Callable<Void> {
    * and the batch.
    */
   private void handleCanceledDuringExecution(Instant start) {
-    if (outcomeWriteUnknown) return;
+    if (outcomeUnknown()) return;
     cancelHandled = true;
     if (attempt != null && !attempt.claimCancelFinish()) return;
     recordCanceledAttempt(start);
@@ -1425,7 +1433,7 @@ public class JobTask implements Callable<Void> {
 
   /** Ends this attempt's execution CANCELED and records the cancellation. */
   private void recordCanceledAttempt(Instant start) {
-    if (outcomeWriteUnknown) return;
+    if (outcomeUnknown()) return;
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = effective().instant();
@@ -1448,8 +1456,7 @@ public class JobTask implements Callable<Void> {
    * its own. An attempt that wrote its own outcome, such as a retry, was not the one canceled.
    */
   private void recordCancelFoundByTimeout() {
-    if (job != null && !outcomeWritten && !outcomeWriteUnknown)
-      recordCanceledAttempt(cancelStart());
+    if (job != null && !outcomeWritten && !outcomeUnknown()) recordCanceledAttempt(cancelStart());
   }
 
   /** Releases the business-key hold of the claim this attempt runs under. */
@@ -1505,7 +1512,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private boolean jobWasCanceled() {
-    if (outcomeWriteUnknown) return false;
+    if (outcomeUnknown()) return false;
     if (Thread.currentThread().isInterrupted()) return false;
     try {
       return jobStore.getJobStatus(job.getId()) == JobStatus.CANCELED;
@@ -1653,7 +1660,7 @@ public class JobTask implements Callable<Void> {
    */
   private void leaveUnconfirmedCancelToWatchdog() {
     if (forcedWritePending
-        || outcomeWriteUnknown
+        || outcomeUnknown()
         || attempt == null
         || outcomeWritten
         || cancelHandled

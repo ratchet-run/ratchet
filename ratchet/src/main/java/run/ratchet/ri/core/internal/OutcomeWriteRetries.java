@@ -31,14 +31,19 @@ final class OutcomeWriteRetries {
   static final Duration MAX_RETRY_DELAY = Duration.ofMinutes(1);
   private final ReleaseRetries retries;
 
-  OutcomeWriteRetries(Supplier<ScheduledExecutorService> scheduler) {
-    this(scheduler, System::nanoTime);
+  OutcomeWriteRetries(
+      Supplier<ScheduledExecutorService> scheduler, Supplier<ScheduledExecutorService> timer) {
+    this(scheduler, timer, System::nanoTime);
   }
 
-  OutcomeWriteRetries(Supplier<ScheduledExecutorService> scheduler, LongSupplier nanoTime) {
+  OutcomeWriteRetries(
+      Supplier<ScheduledExecutorService> scheduler,
+      Supplier<ScheduledExecutorService> timer,
+      LongSupplier nanoTime) {
     retries =
         new ReleaseRetries(
             scheduler,
+            timer,
             ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),
             nanoTime);
   }

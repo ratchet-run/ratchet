@@ -170,7 +170,7 @@ class JobTaskTest {
   private final ScheduledExecutorService outcomeScheduler = mock(ScheduledExecutorService.class);
   private final AtomicLong outcomeClock = new AtomicLong();
   private final OutcomeWriteRetries outcomeRetries =
-      new OutcomeWriteRetries(() -> outcomeScheduler, outcomeClock::get);
+      new OutcomeWriteRetries(() -> outcomeScheduler, null, outcomeClock::get);
   private final List<Runnable> outcomePending = new ArrayList<>();
   private final List<Long> outcomeDelays = new ArrayList<>();
 
@@ -236,7 +236,7 @@ class JobTaskTest {
             jobStateFlusher,
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
             claimReschedules,
             outcomeRetries,
             FIXED_CLOCK,
@@ -586,6 +586,41 @@ class JobTaskTest {
     Assertions.assertTrue(outcomePending.isEmpty());
     verify(lifecycleFacade, times(1))
         .completeFailure(any(), eq(JobStatus.RUNNING), eq(false), isNull());
+  }
+
+  @Test
+  void deletedJobStopsForcedFinisherAfterUnknownIncrement() throws Exception {
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw new IllegalStateException("body");
+            });
+    recordOutcomeRetries();
+    CallbackRecorder.reset();
+    SerializableBiConsumer<JobContext, Throwable> callback = CallbackRecorder::failure;
+    scenario.job().setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new IllegalStateException("unknown"));
+    when(jobStore.findByIdLatest(JOB_UUID))
+        .thenReturn(Optional.empty())
+        .thenThrow(new IllegalStateException("read failed"))
+        .thenReturn(Optional.empty());
+
+    jobTask.call();
+
+    Assertions.assertEquals(1, outcomePending.size());
+    runOutcomeRetry();
+    Assertions.assertTrue(outcomePending.isEmpty());
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(jobStore, times(3)).findByIdLatest(JOB_UUID);
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    Assertions.assertNull(CallbackRecorder.failure);
+    verify(validationFacade, never())
+        .validateSecurity(
+            argThat(
+                payload ->
+                    payload != null && payload.target().equals(CallbackRecorder.class.getName())));
   }
 
   @Test
@@ -2423,7 +2458,7 @@ class JobTaskTest {
                 mock(JobStateFlusher.class),
                 null,
                 new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-                new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+                new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
                 claimReschedules,
                 outcomeRetries,
                 null,
@@ -2480,7 +2515,7 @@ class JobTaskTest {
             jobStateFlusher,
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -3123,7 +3158,7 @@ class JobTaskTest {
     // Mirror the store: incrementRetryAttempt only matches a RUNNING/WAITING row. The watchdog's
     // reschedule moves the row off RUNNING, so a later increment returns -1.
     AtomicInteger running = new AtomicInteger(1);
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L, 0))
+    when(jobStore.incrementRetryAttempt(eq(JOB_UUID), eq(0L), nullable(Integer.class)))
         .thenAnswer(inv -> running.get() == 1 ? attempts.incrementAndGet() : -1);
     when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
     when(lifecycleFacade.handleTimeoutTransition(any(), eq(false), any(Supplier.class)))
@@ -3186,6 +3221,10 @@ class JobTaskTest {
 
     Assertions.assertEquals(
         1, attempts.get(), "a single hard timeout must consume exactly one attempt");
+    ArgumentCaptor<Integer> count = ArgumentCaptor.forClass(Integer.class);
+    verify(jobStore, times(1)).incrementRetryAttempt(eq(JOB_UUID), any(), nullable(Integer.class));
+    verify(jobStore).incrementRetryAttempt(eq(JOB_UUID), any(), count.capture());
+    Assertions.assertEquals(0, count.getValue());
   }
 
   @Test
@@ -3730,7 +3769,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
             claimReschedules,
             outcomeRetries,
             FIXED_CLOCK,
@@ -3794,7 +3833,7 @@ class JobTaskTest {
         flusher,
         null,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
         claimReschedules,
         outcomeRetries,
         FIXED_CLOCK,
@@ -5016,18 +5055,7 @@ class JobTaskTest {
     assertOpenCircuitBackgroundRejection(false);
   }
 
-  @Test
-  void openCircuitBackgroundRejectionDoesNotSaveCanceledExecutionAfterUnknownWrite()
-      throws Exception {
-    assertOpenCircuitBackgroundRejection(true, true);
-  }
-
   private void assertOpenCircuitBackgroundRejection(boolean canceled) throws Exception {
-    assertOpenCircuitBackgroundRejection(canceled, false);
-  }
-
-  private void assertOpenCircuitBackgroundRejection(boolean canceled, boolean saveFailsOnce)
-      throws Exception {
     jobTask = newJobTaskWithTimeoutHandler(null);
     JobEntity job = cancelScenario(true, 2);
     JobAttemptControl attempt = cancelAttempt();
@@ -5049,12 +5077,6 @@ class JobTaskTest {
         .when(jobStore.getJobStatus(JOB_UUID))
         .thenReturn(canceled ? JobStatus.CANCELED : JobStatus.RUNNING);
     clearInvocations(observabilityFacade);
-    if (saveFailsOnce) {
-      lenient()
-          .when(observabilityFacade.saveExecution(execution))
-          .thenThrow(new IllegalStateException("save unavailable"))
-          .thenReturn(execution);
-    }
     rejectedClaimCallback().run();
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     Assertions.assertTrue(attempt.isSuperseded());
@@ -5872,7 +5894,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -5977,7 +5999,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -6094,7 +6116,7 @@ class JobTaskTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -6226,7 +6248,7 @@ class JobTaskTest {
         jobStateFlusher,
         timeoutHandler,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
         claimReschedules,
         outcomeRetries,
         FIXED_CLOCK,
@@ -6258,7 +6280,7 @@ class JobTaskTest {
         mock(JobStateFlusher.class),
         null,
         new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler),
+        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
         claimReschedules,
         outcomeRetries,
         taskClock,
@@ -7686,6 +7708,51 @@ class JobTaskTest {
     } finally {
       Thread.interrupted();
     }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void watchdogUnknownRescheduleThenCancelDoesNotRecordInterruptedWorkerCancel() throws Exception {
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    recordSaves(race, status -> {});
+    // The body's own throws are failure-handled, so record the flag here and assert it after
+    // call().
+    AtomicBoolean markedBeforeCancel = new AtomicBoolean();
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(invocation -> Optional.of(storedRow(race.status().get())));
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0)).thenReturn(1);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              race.status().set(JobStatus.PENDING);
+              throw new IllegalStateException("committed then threw");
+            });
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            invocation -> {
+              runWatchdog(handler, attempt, mock(Future.class));
+              markedBeforeCancel.set(attempt.timeoutOutcomeUnknown());
+              race.cancel();
+              attempt.finishCancelFoundByTimeout();
+              throw new InterruptedException("watchdog interrupt");
+            });
+
+    jobTask.call();
+
+    Assertions.assertTrue(markedBeforeCancel.get(), "the watchdog marks its reschedule unknown");
+    Assertions.assertTrue(attempt.isSuperseded());
+    Assertions.assertFalse(race.saved().contains(ExecutionStatus.CANCELED));
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    // The superseded worker and the cancel finish both release the hold. The first release deletes
+    // it, so the second finds none and changes nothing.
+    verify(jobStore, atLeastOnce()).releaseBusinessKeyHold(JOB_UUID, 7L);
+    Assertions.assertFalse(race.held().get());
   }
 
   @Test

@@ -86,7 +86,31 @@ class PermitReleasesTest {
   private final AtomicLong clock = new AtomicLong(42_000_000_000L);
 
   private PermitReleases releases() {
-    return new PermitReleases(permits, () -> scheduler, clock::get);
+    return new PermitReleases(permits, () -> scheduler, null, clock::get);
+  }
+
+  @Test
+  void refusedPermitRetryResubmitsFromTimer() {
+    ScheduledExecutorService timer = mock(ScheduledExecutorService.class);
+    doThrow(new RejectedExecutionException("busy"))
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    PermitReleases releases = new PermitReleases(permits, () -> scheduler, () -> timer, clock::get);
+    Thread.currentThread().interrupt();
+    assertFalse(releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
+    Thread.interrupted();
+    verifyNoInteractions(permits);
+    ArgumentCaptor<Runnable> resubmit = ArgumentCaptor.forClass(Runnable.class);
+    verify(timer).schedule(resubmit.capture(), eq(FIRST_DELAY_MS), eq(TimeUnit.MILLISECONDS));
+    doAnswer(invocation -> null)
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    resubmit.getValue().run();
+    verifyNoInteractions(permits);
+    ArgumentCaptor<Runnable> write = ArgumentCaptor.forClass(Runnable.class);
+    verify(scheduler, times(2)).schedule(write.capture(), eq(0L), eq(TimeUnit.MILLISECONDS));
+    write.getValue().run();
+    verify(permits).release(RESOURCE, JOB_ID, CLAIM_SEQ);
   }
 
   @Test
@@ -369,7 +393,7 @@ class PermitReleasesTest {
         .releasePermit(RESOURCE, JOB_ID, CLAIM_SEQ);
     when(store.wakeWaiters(RESOURCE)).thenReturn(List.of());
 
-    new PermitReleases(service, () -> scheduler).release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    new PermitReleases(service, () -> scheduler, null).release(RESOURCE, JOB_ID, CLAIM_SEQ);
     verify(store, never()).wakeWaiters(anyString());
     scheduled(1, FIRST_DELAY_MS).run();
 
