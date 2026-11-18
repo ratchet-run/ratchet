@@ -771,12 +771,13 @@ Preserve validation and encryption behavior, and increment only the state versio
 ### No-charge claim release
 
 `JobRetryStore.releaseClaim(id, reason, scheduledTime, expectedAttempts, claimSeq)` returns a
-claim a worker gives back before running its payload. Atomically require RUNNING status,
-matching `claim_seq`, and `attempts == expectedAttempts`. WAITING jobs are rejected. Do not
+claim a worker gives back before running its payload or when a finished run asks to continue
+later. Atomically require RUNNING status, matching `claim_seq`, and
+`attempts == expectedAttempts`. WAITING jobs are rejected. Do not
 write attempts: a timeout charge committed by `incrementRetryAttempt` under the same claim
 must make the release return false, leaving the watchdog free to schedule its charged retry
-with `scheduleJobRetry`. Set the reason and scheduled time, clear `picked_by`/`picked_at`, and
-add one to the job version. For batch children, serialize the parent-status check and child update with pause/resume,
+with `scheduleJobRetry`. Set the reason as `last_error` (null clears it) and the scheduled time,
+clear `picked_by`/`picked_at`, and add one to the job version. For batch children, serialize the parent-status check and child update with pause/resume,
 releasing into PAUSED with paused-from PENDING when the parent is PAUSED. The entire operation
 uses one REQUIRED transaction. The background drainer's revoked check only avoids a write;
 the attempt-count and claim-sequence fences enforce ownership.
