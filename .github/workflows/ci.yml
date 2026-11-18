@@ -89,6 +89,7 @@ jobs:
       micronaut_native: ${{ steps.select.outputs.micronaut_native }}
       has_micronaut_native: ${{ steps.select.outputs.has_micronaut_native }}
       has_showcase: ${{ steps.select.outputs.has_showcase }}
+      has_mysql_read_committed: ${{ steps.select.outputs.has_mysql_read_committed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -180,6 +181,39 @@ jobs:
         with:
           name: tck-conformance-reports
           path: stores/ratchet-store-*/target/tck-conformance-report.md
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Locally installed snapshots must not reach the cache post-step.
+        if: always()
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
+
+  # MySQL supports REPEATABLE READ and READ COMMITTED. The default suite runs
+  # REPEATABLE READ. Locking reads, gap locks and fenced-write checks depend on the level.
+  mysql-read-committed:
+    name: MySQL store at READ COMMITTED
+    needs: changes
+    if: ${{ needs.changes.outputs.has_mysql_read_committed == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
+      - name: MySQL store tests at READ COMMITTED
+        run: |
+          mvn -B -ntp clean install -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true -Dmaven.javadoc.skip=true -Djacoco.skip=true -Dcyclonedx.skip=true -pl stores/ratchet-store-mysql -am
+          mvn -B -ntp test -pl stores/ratchet-store-mysql -Dratchet.mysql.test.isolation=2
+      - name: Upload MySQL READ COMMITTED test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mysql-read-committed-surefire
+          path: stores/ratchet-store-mysql/target/surefire-reports/
       - name: Keep Ratchet artifacts out of the saved cache
         # Locally installed snapshots must not reach the cache post-step.
         if: always()
@@ -1058,7 +1092,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, spring-boot-runtime, spring-boot-native, spring-boot-micrometer, micronaut-consumer, micronaut-native, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, mysql-read-committed, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, spring-boot-runtime, spring-boot-native, spring-boot-micrometer, micronaut-consumer, micronaut-native, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
