@@ -500,7 +500,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public boolean releaseClaim(
-      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq) {
+      UUID id,
+      @Nullable String reason,
+      Instant scheduledTime,
+      int expectedAttempts,
+      long claimSeq) {
     return lifecycle.releaseClaim(id, reason, scheduledTime, expectedAttempts, claimSeq);
   }
 

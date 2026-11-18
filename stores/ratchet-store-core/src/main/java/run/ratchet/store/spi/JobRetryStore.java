@@ -72,9 +72,9 @@ public interface JobRetryStore {
 
   /**
    * Returns a claimed job to PENDING without charging an attempt, when a worker gives its claim
-   * back before running the payload. Applies only to a RUNNING job whose claim sequence and attempt
-   * count match. Does not write attempts: a charge committed under the same claim (for example by
-   * the timeout watchdog) makes this release miss.
+   * back before running the payload or when a finished run asks to continue later. Applies only to
+   * a RUNNING job whose claim sequence and attempt count match. Does not write attempts: a charge
+   * committed under the same claim (for example by the timeout watchdog) makes this release miss.
    *
    * <p>Records the reason as the last error, sets the scheduled time, and clears picked-by and
    * picked-at. A batch child whose parent is PAUSED goes to PAUSED with a paused-from status of
@@ -86,7 +86,7 @@ public interface JobRetryStore {
    * <p>Transaction attribute: {@code REQUIRED}.
    *
    * @param id job id to release; never {@code null}
-   * @param reason last-error message to record
+   * @param reason last-error message to record; null clears it
    * @param scheduledTime instant at which the job becomes eligible for re-pickup
    * @param expectedAttempts attempt count received with the claim
    * @param claimSeq claim sequence received by the owner
@@ -95,7 +95,7 @@ public interface JobRetryStore {
    * @throws RatchetTransientStoreException on a transient store failure
    */
   boolean releaseClaim(
-      UUID id, String reason, Instant scheduledTime, int expectedAttempts, long claimSeq);
+      UUID id, @Nullable String reason, Instant scheduledTime, int expectedAttempts, long claimSeq);
 
   /**
    * Atomically resets a FAILED job to PENDING in one operation to avoid TOCTOU gaps. The reset

@@ -1673,8 +1673,12 @@ public class JobTask implements Callable<Void> {
       }
     }
     Instant scheduled = effective().instant().plus(delay);
-    if (jobStore.scheduleJobRetry(
-        job.getId(), null, scheduled, job.getAttempts(), expectedClaimSeq())) {
+    if (jobStore.releaseClaim(
+        job.getId(),
+        null,
+        scheduled,
+        claim != null ? claim.attempts() : job.getAttempts(),
+        expectedClaimSeq())) {
       outcomeWritten = true;
       job.setStatus(JobStatus.PENDING);
       job.setScheduledTime(scheduled);
