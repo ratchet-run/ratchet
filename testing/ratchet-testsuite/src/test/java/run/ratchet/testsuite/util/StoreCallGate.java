@@ -35,7 +35,7 @@ public final class StoreCallGate {
   private static final CopyOnWriteArrayList<Pause> PAUSES = new CopyOnWriteArrayList<>();
   private static final CopyOnWriteArrayList<Watch> WATCHES = new CopyOnWriteArrayList<>();
   private static final ConcurrentHashMap<UUID, List<String>> CALLS = new ConcurrentHashMap<>();
-  private static final ConcurrentHashMap<UUID, List<String>> RETURNED_CALLS =
+  private static final ConcurrentHashMap<UUID, List<ReturnedCall>> RETURNED_CALLS =
       new ConcurrentHashMap<>();
   private static final Object RETURNS_LOCK = new Object();
   // StoreCallGateDecoratorTest keeps this set aligned with the decorator overrides.
@@ -95,9 +95,10 @@ public final class StoreCallGate {
     requireCovered(method);
     Watch watch = new Watch(method, jobId);
     synchronized (RETURNS_LOCK) {
-      List<String> returned = RETURNED_CALLS.get(jobId);
+      List<ReturnedCall> returned = RETURNED_CALLS.get(jobId);
       if (returned != null) {
-        watch.count.set((int) returned.stream().filter(method::equals).count());
+        watch.count.set(
+            (int) returned.stream().filter(call -> call.method().equals(method)).count());
       }
       WATCHES.add(watch);
     }
@@ -115,6 +116,21 @@ public final class StoreCallGate {
     requireCovered(method);
     return calls(jobId).contains(method);
   }
+
+  /** Returns whether this method returned normally on the given thread since the last reset. */
+  public static boolean completedNormally(UUID jobId, String method, Thread thread) {
+    requireCovered(method);
+    synchronized (RETURNS_LOCK) {
+      List<ReturnedCall> returned = RETURNED_CALLS.get(jobId);
+      return returned != null
+          && returned.stream()
+              .anyMatch(
+                  call ->
+                      call.method().equals(method) && call.thread() == thread && call.completed());
+    }
+  }
+
+  private record ReturnedCall(String method, Thread thread, boolean completed) {}
 
   private static void requireCovered(String method) {
     if (!GATED_METHODS.contains(method)) {
@@ -222,10 +238,12 @@ public final class StoreCallGate {
   }
 
   /** Counts matching watches and marks a fired pause as returned. */
-  static void exit(String method, UUID jobId, Pause fired) {
+  static void exit(String method, UUID jobId, Pause fired, boolean completed) {
     if (jobId == null) return;
     synchronized (RETURNS_LOCK) {
-      RETURNED_CALLS.computeIfAbsent(jobId, ignored -> new CopyOnWriteArrayList<>()).add(method);
+      RETURNED_CALLS
+          .computeIfAbsent(jobId, ignored -> new CopyOnWriteArrayList<>())
+          .add(new ReturnedCall(method, Thread.currentThread(), completed));
       for (Watch watch : WATCHES) {
         if (watch.method.equals(method) && watch.jobId.equals(jobId)) {
           synchronized (watch) {

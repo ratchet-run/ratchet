@@ -51,30 +51,39 @@ public abstract class StoreCallGateDecorator implements JobStore {
   @Override
   public Optional<JobEntity> findById(UUID id) {
     StoreCallGate.Pause fired = StoreCallGate.enter("findById", id);
+    boolean completed = false;
     try {
-      return delegate.findById(id);
+      Optional<JobEntity> result = delegate.findById(id);
+      completed = true;
+      return result;
     } finally {
-      StoreCallGate.exit("findById", id, fired);
+      StoreCallGate.exit("findById", id, fired, completed);
     }
   }
 
   @Override
   public @Nullable JobStatus getJobStatus(UUID id) {
     StoreCallGate.Pause fired = StoreCallGate.enter("getJobStatus", id);
+    boolean completed = false;
     try {
-      return delegate.getJobStatus(id);
+      JobStatus result = delegate.getJobStatus(id);
+      completed = true;
+      return result;
     } finally {
-      StoreCallGate.exit("getJobStatus", id, fired);
+      StoreCallGate.exit("getJobStatus", id, fired, completed);
     }
   }
 
   @Override
   public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     StoreCallGate.Pause fired = StoreCallGate.enter("incrementRetryAttempt", id);
+    boolean completed = false;
     try {
-      return delegate.incrementRetryAttempt(id, expectedClaimSeq);
+      int result = delegate.incrementRetryAttempt(id, expectedClaimSeq);
+      completed = true;
+      return result;
     } finally {
-      StoreCallGate.exit("incrementRetryAttempt", id, fired);
+      StoreCallGate.exit("incrementRetryAttempt", id, fired, completed);
     }
   }
 
@@ -86,20 +95,27 @@ public abstract class StoreCallGateDecorator implements JobStore {
       int attempts,
       @Nullable Long expectedClaimSeq) {
     StoreCallGate.Pause fired = StoreCallGate.enter("scheduleJobRetry", id);
+    boolean completed = false;
     try {
-      return delegate.scheduleJobRetry(id, error, newScheduledTime, attempts, expectedClaimSeq);
+      boolean result =
+          delegate.scheduleJobRetry(id, error, newScheduledTime, attempts, expectedClaimSeq);
+      completed = true;
+      return result;
     } finally {
-      StoreCallGate.exit("scheduleJobRetry", id, fired);
+      StoreCallGate.exit("scheduleJobRetry", id, fired, completed);
     }
   }
 
   @Override
   public boolean releaseBusinessKeyHold(UUID jobId, long claimSeq) {
     StoreCallGate.Pause fired = StoreCallGate.enter("releaseBusinessKeyHold", jobId);
+    boolean completed = false;
     try {
-      return delegate.releaseBusinessKeyHold(jobId, claimSeq);
+      boolean result = delegate.releaseBusinessKeyHold(jobId, claimSeq);
+      completed = true;
+      return result;
     } finally {
-      StoreCallGate.exit("releaseBusinessKeyHold", jobId, fired);
+      StoreCallGate.exit("releaseBusinessKeyHold", jobId, fired, completed);
     }
   }
 }

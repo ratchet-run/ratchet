@@ -127,6 +127,9 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
     cancelWhileTheWatchdogWaits(key, job);
     worker.release();
     awaitWorkerReturned();
+    assertTrue(
+        StoreCallGate.completedNormally(job.id(), "releaseBusinessKeyHold", worker.thread()),
+        "The worker's own hold release must succeed, not a later retry");
     assertEquals(
         List.of(ExecutionStatus.CANCELED),
         executionStatuses(job),
@@ -157,6 +160,10 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
     watchdog.release();
     watchdog.awaitReturned(Duration.ofSeconds(15));
     worker.release();
+    worker.awaitReturned(Duration.ofSeconds(15));
+    assertTrue(
+        StoreCallGate.completedNormally(job.id(), "releaseBusinessKeyHold", worker.thread()),
+        "The worker's own hold release must succeed, not a later retry");
 
     assertCancelFinished(key, job);
     assertNoRetryWritesAndUnchangedAttempts(job, attempts);
