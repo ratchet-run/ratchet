@@ -631,6 +631,8 @@ class JobTaskTest {
         .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
     Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
     Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
   }
 
   @Test
@@ -779,6 +781,10 @@ class JobTaskTest {
 
     verify(lifecycleFacade).completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
     verify(jobStore).findByIdLatest(JOB_UUID);
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+    Assertions.assertEquals("safe body failure", scenario.execution().getErrorMessage());
   }
 
   @Test
@@ -7499,6 +7505,224 @@ class JobTaskTest {
         List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
     verify(observabilityFacade).recordJobCancellation(job);
     Assertions.assertFalse(race.held().get(), "the key must not stay held");
+  }
+
+  @Test
+  void watchdogPassedBeforeMissedRetryWrite_workerRechecksCancel() throws Exception {
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    retryAfterAnOrdinaryFailure();
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0))
+        .thenAnswer(
+            invocation -> {
+              boolean claimed = attempt.claimTimeoutForWatchdog();
+              watchdogClaimed.set(claimed);
+              Assertions.assertFalse(claimed);
+              return 1;
+            });
+    AtomicInteger cancelReads = new AtomicInteger();
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              if (race.status().get() != JobStatus.CANCELED) return JobStatus.RUNNING;
+              if (cancelReads.getAndIncrement() == 0) throw new IllegalStateException("store down");
+              return JobStatus.CANCELED;
+            });
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              race.cancel();
+              return false;
+            });
+    recordSaves(race, status -> {});
+
+    jobTask.call();
+
+    Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
+    Assertions.assertEquals(2, cancelReads.get());
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade).recordJobCancellation(job);
+    Assertions.assertFalse(attempt.isTimeoutHandedBack());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void watchdogPassedRecheckClearsInterrupt() throws Exception {
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    retryAfterAnOrdinaryFailure();
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0))
+        .thenAnswer(
+            invocation -> {
+              boolean claimed = attempt.claimTimeoutForWatchdog();
+              watchdogClaimed.set(claimed);
+              Assertions.assertFalse(claimed);
+              return 1;
+            });
+    AtomicReference<Boolean> recheckInterrupted = new AtomicReference<>();
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              if (race.status().get() != JobStatus.CANCELED) return JobStatus.RUNNING;
+              recheckInterrupted.set(Thread.currentThread().isInterrupted());
+              return JobStatus.CANCELED;
+            });
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              race.cancel();
+              Thread.currentThread().interrupt();
+              return false;
+            });
+    recordSaves(race, status -> {});
+
+    try {
+      jobTask.call();
+
+      Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
+      Assertions.assertEquals(Boolean.FALSE, recheckInterrupted.get());
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      Assertions.assertEquals(
+          List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+      verify(observabilityFacade).recordJobCancellation(job);
+      Assertions.assertFalse(attempt.isTimeoutHandedBack());
+      verify(lifecycleFacade, never())
+          .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+      verify(lifecycleFacade, never())
+          .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void forcedFailureMissWithUnconfirmedCancel_handsTimeoutBack() throws Exception {
+    JobTimeoutHandler handler = realTimeoutHandler();
+    jobTask = newJobTaskWithTimeoutHandler(handler);
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    failBody(() -> new IllegalStateException("body"));
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0))
+        .thenAnswer(
+            invocation -> {
+              race.cancel();
+              throw new IllegalStateException("increment failed");
+            });
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null)).thenReturn(false);
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              if (race.status().get() == JobStatus.CANCELED) {
+                throw new IllegalStateException("store down");
+              }
+              return JobStatus.RUNNING;
+            });
+    recordSaves(race, status -> {});
+    when(jobStore.findById(JOB_UUID))
+        .thenAnswer(invocation -> Optional.of(storedRow(race.status().get())));
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false, null);
+    Assertions.assertTrue(attempt.isTimeoutHandedBack());
+    Assertions.assertNull(attempt.handedBackFinish());
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
+    runWatchdog(handler, attempt, new FutureTask<>(() -> null));
+
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade).recordJobCancellation(job);
+  }
+
+  @Test
+  void forcedFailureMissAfterWatchdogPassed_workerRechecksCancel() throws Exception {
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    failBody(() -> new IllegalStateException("body"));
+    AtomicReference<Boolean> watchdogClaimed = new AtomicReference<>();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0))
+        .thenAnswer(
+            invocation -> {
+              boolean claimed = attempt.claimTimeoutForWatchdog();
+              watchdogClaimed.set(claimed);
+              Assertions.assertFalse(claimed);
+              race.cancel();
+              throw new IllegalStateException("increment failed");
+            });
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null)).thenReturn(false);
+    AtomicInteger cancelReads = new AtomicInteger();
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              if (race.status().get() != JobStatus.CANCELED) return JobStatus.RUNNING;
+              if (cancelReads.getAndIncrement() == 0) throw new IllegalStateException("store down");
+              return JobStatus.CANCELED;
+            });
+    recordSaves(race, status -> {});
+
+    jobTask.call();
+
+    Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
+    Assertions.assertEquals(2, cancelReads.get());
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false, null);
+    Assertions.assertEquals(
+        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
+    verify(observabilityFacade).recordJobCancellation(job);
+    Assertions.assertFalse(attempt.isTimeoutHandedBack());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  @Test
+  void supersededFailureHandlingErrorWithUnconfirmedCancel_handsTimeoutBack() throws Exception {
+    JobEntity job = cancelScenario(true);
+    CancelRace race = cancelRace();
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    retryAfterAnOrdinaryFailure();
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              race.cancel();
+              return false;
+            });
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              if (race.status().get() == JobStatus.CANCELED) {
+                throw new IllegalStateException("store down");
+              }
+              return JobStatus.RUNNING;
+            });
+    doThrow(new IllegalStateException("observer failed"))
+        .when(observabilityFacade)
+        .recordJobFailure(eq(job), any(), eq(1));
+    recordSaves(race, status -> {});
+
+    jobTask.call();
+
+    Assertions.assertTrue(attempt.isSuperseded());
+    Assertions.assertTrue(attempt.isTimeoutHandedBack());
+    Assertions.assertNull(attempt.handedBackFinish());
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
+    verify(observabilityFacade).recordJobFailure(eq(job), any(), eq(1));
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test

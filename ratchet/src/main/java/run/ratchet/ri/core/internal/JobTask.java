@@ -920,6 +920,7 @@ public class JobTask implements Callable<Void> {
     } catch (Throwable failureHandlingError) {
       if (attempt != null && attempt.isSuperseded()) {
         saveDeferredExecutionFailure(t);
+        leaveUnconfirmedCancelToWatchdog();
         return;
       }
       log.errorf(
@@ -979,8 +980,11 @@ public class JobTask implements Callable<Void> {
         }
       }
       if (failed) {
+        // The forced write ended the job, so its execution ends FAILED with the body's error.
+        saveDeferredExecutionFailure(t.getClass().getName(), safeError);
         invokeOnFailureAfterLastResort(t);
       }
+      leaveUnconfirmedCancelToWatchdog();
     }
   }
 
@@ -1624,11 +1628,31 @@ public class JobTask implements Callable<Void> {
     }
 
     handleHeldFailure(ex, sanitized);
-    // The worker took the timeout but wrote no outcome, for example after a missed write whose
-    // cancel it could not read. Handing the timeout back lets the watchdog find that cancel at the
-    // deadline; its writes are fenced on this claim, so it cannot decide the attempt again.
-    if (attempt != null && !outcomeWritten && !cancelHandled) {
-      attempt.handBackTimeoutToWatchdog();
+    leaveUnconfirmedCancelToWatchdog();
+  }
+
+  /**
+   * After a held failure that wrote no outcome and confirmed no cancel, for example a missed write
+   * whose cancel read failed, hands the timeout back so the watchdog checks for that cancel at the
+   * deadline. Its writes are fenced on this claim, so it cannot decide the attempt again. If the
+   * watchdog already passed, it will not check, so the worker reads the status once more itself.
+   */
+  private void leaveUnconfirmedCancelToWatchdog() {
+    if (attempt == null || outcomeWritten || cancelHandled || !attempt.holdTimeoutForWorker()) {
+      return;
+    }
+    if (attempt.handBackTimeoutToWatchdog()) return;
+    // The read runs with the interrupt cleared, as the watchdog's own cancel check does.
+    boolean interrupted = Thread.interrupted();
+    try {
+      if (jobStore.getJobStatus(attempt.jobId()) == JobStatus.CANCELED) {
+        handleCanceledDuringExecution(cancelStart());
+      }
+    } catch (RuntimeException e) {
+      log.warnf(
+          e, "Job %s could not check for a cancel that beat its failure write", attempt.jobId());
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
     }
   }
 
