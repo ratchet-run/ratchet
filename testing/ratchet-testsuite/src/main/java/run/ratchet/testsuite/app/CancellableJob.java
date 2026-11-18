@@ -19,10 +19,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import run.ratchet.api.JobContext;
 
 /** A cancellable body whose exit can be held while the test checks its business key. */
 public class CancellableJob {
+  /** The thread that ran the body. */
+  public static final AtomicReference<Thread> WORKER = new AtomicReference<>();
+
   public static final AtomicBoolean STARTED = new AtomicBoolean();
   public static final AtomicBoolean SAW_REQUEST = new AtomicBoolean();
   public static final AtomicBoolean INTERRUPTED = new AtomicBoolean();
@@ -33,6 +37,7 @@ public class CancellableJob {
   private static volatile CountDownLatch release = new CountDownLatch(1);
 
   public static void execute() {
+    WORKER.set(Thread.currentThread());
     STARTED.set(true);
     try {
       for (int i = 0; i < 600; i++) {
@@ -61,6 +66,7 @@ public class CancellableJob {
    * it ignores in {@link #INTERRUPTED}.
    */
   public static void executeIgnoringInterrupts() {
+    WORKER.set(Thread.currentThread());
     STARTED.set(true);
     try {
       while (!JobContext.current().isCancellationRequested()) {
@@ -97,6 +103,7 @@ public class CancellableJob {
   }
 
   public static void reset() {
+    WORKER.set(null);
     STARTED.set(false);
     SAW_REQUEST.set(false);
     INTERRUPTED.set(false);
