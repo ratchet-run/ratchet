@@ -72,6 +72,11 @@ public class CoreOnlyStoreExtension implements Extension {
           EventOutboxStore.class,
           TransactionalCompletionStore.class);
 
+  /** The optional store capabilities shared by the capability tests. */
+  public static Set<Class<?>> optionalCapabilities() {
+    return OPTIONAL_CAPABILITIES;
+  }
+
   <T> void demoteStoreToCore(@Observes ProcessBeanAttributes<T> event) {
     BeanAttributes<T> attributes = event.getBeanAttributes();
     Set<Type> beanTypes = attributes.getTypes();
