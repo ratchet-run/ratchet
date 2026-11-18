@@ -226,11 +226,14 @@ final class SqlserverBoostedClaimCandidates {
               : """
               AND (scheduled_time > ? OR (scheduled_time = ? AND job_id > ?))
               """;
+      // READPAST changes nothing under RCSI. Under lock-based READ COMMITTED it skips rows
+      // another transaction holds, as the lock statement does; that statement still re-checks
+      // every candidate.
       // language=SQL Server
       return """
       SELECT TOP (?) job_id, scheduled_time,
         priority + FLOOR(GREATEST(0, DATEDIFF(SECOND, scheduled_time, ?)/60.0) / ?) AS effective_priority
-      FROM scheduler_job_queue WITH (INDEX(idx_claim_pending_priority))
+      FROM scheduler_job_queue WITH (INDEX(idx_claim_pending_priority), READPAST)
       WHERE job_type = CAST(? AS VARCHAR(8000)) AND priority = ?
         AND status = 'PENDING' AND scheduled_time <= ?%s
       %s

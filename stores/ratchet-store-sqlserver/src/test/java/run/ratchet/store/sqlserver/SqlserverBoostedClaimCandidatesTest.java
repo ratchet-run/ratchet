@@ -99,6 +99,7 @@ class SqlserverBoostedClaimCandidatesTest {
     List<Statement> locks = queries.locks();
     assertEquals(List.of(7, 1), locks.stream().map(s -> s.lockedIds().size()).toList());
     assertEquals(2100, locks.get(0).highestParameter());
+    assertPagesUseReadpast(queries);
     queries.assertParameterBudget();
   }
 
@@ -175,6 +176,7 @@ class SqlserverBoostedClaimCandidatesTest {
             .lock("job_id, scheduled_time")
             .isEmpty());
     assertEquals(union, queries.statements.get(0).sql.contains("UNION ALL"));
+    assertPagesUseReadpast(queries);
     if (union) {
       assertEquals(1, queries.statements.size());
       assertEquals(streams * (6 + filters), queries.statements.get(0).highestParameter());
@@ -184,6 +186,14 @@ class SqlserverBoostedClaimCandidatesTest {
       assertTrue(queries.statements.stream().allMatch(s -> s.sql.contains("SELECT TOP (?)")));
     }
     queries.assertParameterBudget();
+  }
+
+  private static void assertPagesUseReadpast(RecordingQueries queries) {
+    List<Statement> pages = queries.statements.stream().filter(Statement::isPage).toList();
+    assertFalse(pages.isEmpty());
+    for (Statement page : pages) {
+      assertTrue(page.sql.contains("INDEX(idx_claim_pending_priority), READPAST"), page.sql);
+    }
   }
 
   private static SqlserverBoostedClaimCandidates candidates(
@@ -293,6 +303,10 @@ class SqlserverBoostedClaimCandidatesTest {
 
     int highestParameter() {
       return parameters.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
+    }
+
+    boolean isPage() {
+      return sql.contains("FROM scheduler_job_queue WITH (INDEX(idx_claim_pending_priority)");
     }
 
     boolean isLock() {
