@@ -208,19 +208,33 @@ public class LayeringArchitectureTest {
   /**
    * {@code run.ratchet.api.internal..} is qualified-exported to {@code run.ratchet.ri} and the
    * Spring adapter's named automatic module at the JPMS level. The same restriction applies on the
-   * classpath, where module-info exports are not enforced.
+   * classpath, where module-info exports are not enforced. The shared managed thread factory
+   * resolver also serves coordinator-common.
    */
   @ArchTest
   static final ArchRule apiInternalIsConsumedOnlyByReferenceImplementation =
       classes()
           .that()
           .resideInAPackage("run.ratchet.api.internal..")
+          .and()
+          .doNotHaveFullyQualifiedName("run.ratchet.api.internal.ManagedThreadFactories")
           .should()
           .onlyHaveDependentClassesThat()
           .resideInAnyPackage("run.ratchet.api..", RI, SPRING_ADAPTER)
           .because(
               "run.ratchet.api.internal is exported only to run.ratchet.ri and the Spring "
                   + "adapter in module-info; classpath consumers must respect the same boundary");
+
+  @ArchTest
+  static final ArchRule managedThreadFactoryResolverAlsoServesCoordinatorCommon =
+      classes()
+          .that()
+          .haveFullyQualifiedName("run.ratchet.api.internal.ManagedThreadFactories")
+          .should()
+          .onlyHaveDependentClassesThat()
+          .resideInAnyPackage(
+              "run.ratchet.api..", RI, SPRING_ADAPTER, "run.ratchet.coordinator.common..")
+          .because("coordinator-common shares managed thread factory lookup with the RI");
 
   /**
    * RI-internal sub-packages stay inside the RI module except for the Spring adapter, whose named

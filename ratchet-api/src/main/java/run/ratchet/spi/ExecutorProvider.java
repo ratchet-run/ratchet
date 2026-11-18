@@ -22,7 +22,7 @@ import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.Incubating;
 
 /**
- * Supplies the thread pools used for job execution and scheduling.
+ * Supplies the thread pools used for job execution, scheduling, and release retries.
  *
  * <p>Each accessor must return a stable executor instance for the provider lifecycle. Consumers may
  * retain returned references for cancellation, delayed scheduling, and lifecycle coordination.
@@ -78,4 +78,17 @@ public interface ExecutorProvider {
    * @return scheduled executor; never {@code null}
    */
   ScheduledExecutorService getScheduledExecutor();
+
+  /**
+   * Returns the executor for retried store writes that free what an ended attempt held:
+   * business-key holds, resource permits, and claims.
+   *
+   * <p>This must be a different instance from {@link #getScheduledExecutor()}, so a release that
+   * blocks in the store cannot delay the heartbeat or timeout watchdog. The runtime refuses to
+   * start when both accessors return the same instance. The provider owns this executor and is
+   * responsible for disposing it during application shutdown; callers must not shut it down.
+   *
+   * @return release executor; never {@code null}
+   */
+  ScheduledExecutorService getReleaseExecutor();
 }

@@ -179,6 +179,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       ScheduledExecutorService scheduledExecutor =
           options.events().durable() ? durableExecutor : resolveScheduledExecutorForStartup();
       if (scheduledExecutor != null) {
+        checkReleaseExecutorForStartup(scheduledExecutor);
         nodeLiveness.startHeartbeat(scheduledExecutor);
         recurringScheduler.configure(
             options.recurring().pollMs(),
@@ -228,6 +229,23 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     } catch (RuntimeException | Error failure) {
       onShutdown();
       throw failure;
+    }
+  }
+
+  private void checkReleaseExecutorForStartup(ScheduledExecutorService scheduledExecutor) {
+    ScheduledExecutorService releaseExecutor;
+    try {
+      releaseExecutor = executorProvider.getReleaseExecutor();
+    } catch (RuntimeException e) {
+      log.error(
+          "Release retries are unavailable during Ratchet startup; failed releases are left to"
+              + " hold expiry, start-up and stale-node clean-up, shutdown reset, and orphan recovery.",
+          e);
+      return;
+    }
+    if (releaseExecutor == scheduledExecutor) {
+      throw new IllegalStateException(
+          "ExecutorProvider.getReleaseExecutor() must differ from getScheduledExecutor()");
     }
   }
 

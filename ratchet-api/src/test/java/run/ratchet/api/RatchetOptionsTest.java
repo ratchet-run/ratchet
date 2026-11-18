@@ -269,9 +269,7 @@ class RatchetOptionsTest {
     assertEquals(
         "java:comp/DefaultManagedScheduledExecutorService",
         options.execution().scheduledExecutorJndi());
-    assertEquals(
-        "java:comp/DefaultManagedThreadFactory",
-        options.execution().coordinatorThreadFactoryJndi());
+    assertEquals("java:comp/DefaultManagedThreadFactory", options.execution().threadFactoryJndi());
     assertEquals(60L, options.recurring().startupGraceSeconds());
     assertEquals(500, options.timeout().signalTimeoutBatchSize());
     assertEquals(0L, options.timeout().cancellationGraceSeconds());
@@ -288,8 +286,7 @@ class RatchetOptionsTest {
                 execution ->
                     execution
                         .defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL)
-                        .coordinatorThreadFactoryJndi(
-                            "java:jboss/ee/concurrency/factory/RatchetCoordinator")
+                        .threadFactoryJndi("java:jboss/ee/concurrency/factory/RatchetCoordinator")
                         .maxConcurrency("workflow-branch", 4)
                         .virtualThreadLimit("workflow-join", 19)
                         .rateLimitPerMinute("single", 50))
@@ -308,7 +305,7 @@ class RatchetOptionsTest {
     assertEquals(RatchetOptions.ThreadingMode.VIRTUAL, options.execution().defaultThreadingMode());
     assertEquals(
         "java:jboss/ee/concurrency/factory/RatchetCoordinator",
-        options.execution().coordinatorThreadFactoryJndi());
+        options.execution().threadFactoryJndi());
     assertEquals(4, options.execution().maxConcurrency("WORKFLOW_BRANCH", -1));
     assertEquals(19, options.execution().virtualThreadLimit("WORKFLOW_JOIN", -1));
     assertEquals(50, options.execution().rateLimitPerMinute("SINGLE"));
@@ -446,7 +443,7 @@ class RatchetOptionsTest {
                         .rateLimitPerMinute("BATCH_CHILD", 23)
                         .jobExecutorJndi("java:app/concurrent/JobExecutor")
                         .scheduledExecutorJndi("java:app/concurrent/ScheduledExecutor")
-                        .coordinatorThreadFactoryJndi("java:app/concurrent/CoordinatorFactory")
+                        .threadFactoryJndi("java:app/concurrent/CoordinatorFactory")
                         .virtualExecutorJndi("java:app/concurrent/VirtualExecutor")
                         .virtualCounterAccounting(true))
             .node(

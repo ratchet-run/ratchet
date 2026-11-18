@@ -23,12 +23,14 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.internal.ExecutorProviderClosedException;
 import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ExecutorProvider;
 
@@ -49,6 +51,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
   private volatile ExecutorService jobExecutor;
   private volatile ScheduledExecutorService scheduledExecutor;
+  private volatile ScheduledExecutorService releaseExecutor;
   private volatile ExecutorService virtualJobExecutor;
   private volatile boolean closed;
 
@@ -139,9 +142,24 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
                     2, namedThreadFactory("ratchet-standalone-scheduler"))));
   }
 
+  @Override
+  public ScheduledExecutorService getReleaseExecutor() {
+    return lazyInit(
+        () -> releaseExecutor,
+        value -> releaseExecutor = value,
+        () -> {
+          ScheduledThreadPoolExecutor pool =
+              new ScheduledThreadPoolExecutor(2, namedThreadFactory("ratchet-standalone-release"));
+          pool.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+          pool.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+          pool.setRemoveOnCancelPolicy(true);
+          return classLoader.wrap(pool);
+        });
+  }
+
   /**
-   * Double-checked-locking memoizer shared by the three pool getters: a volatile read outside the
-   * lock avoids synchronizing on every call after first init, {@code ensureOpen()} runs only on the
+   * Double-checked-locking memoizer shared by the pool getters: a volatile read outside the lock
+   * avoids synchronizing on every call after first init, {@code ensureOpen()} runs only on the
    * construction path so a pool never gets created after {@link #shutdown()}.
    */
   private <T> T lazyInit(Supplier<T> getter, Consumer<T> setter, Supplier<T> factory) {
@@ -164,6 +182,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
     // Set before shutting the pools down so a concurrent lazy getter (which locks on this) cannot
     // resurrect a pool after @PreDestroy and leak its threads.
     closed = true;
+    shutdownIfPresent(releaseExecutor);
     shutdownIfPresent(jobExecutor);
     shutdownIfPresent(virtualJobExecutor);
     shutdownIfPresent(scheduledExecutor);
@@ -171,7 +190,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
 
   private void ensureOpen() {
     if (closed) {
-      throw new IllegalStateException("StandaloneExecutorProvider is shut down");
+      throw new ExecutorProviderClosedException("StandaloneExecutorProvider is shut down");
     }
   }
 

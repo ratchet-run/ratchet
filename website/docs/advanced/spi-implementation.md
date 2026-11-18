@@ -363,11 +363,14 @@ public class SpringBeanResolver implements BeanResolver {
 
 Provides thread pools for job execution and scheduling.
 
+A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
+
 ```java
 @Incubating
 public interface ExecutorProvider {
     ExecutorService getJobExecutor();
     ScheduledExecutorService getScheduledExecutor();
+    ScheduledExecutorService getReleaseExecutor();
 }
 ```
 
@@ -378,6 +381,13 @@ public interface ExecutorProvider {
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
 public class VirtualThreadExecutorProvider implements ExecutorProvider {
+
+    private final ScheduledExecutorService releases = Executors.newScheduledThreadPool(2);
+
+    @Override
+    public ScheduledExecutorService getReleaseExecutor() {
+        return releases;
+    }
 
     private final ExecutorService jobExecutor =
         Executors.newVirtualThreadPerTaskExecutor();
@@ -399,6 +409,7 @@ public class VirtualThreadExecutorProvider implements ExecutorProvider {
     void shutdown() {
         jobExecutor.shutdown();
         scheduler.shutdown();
+        releases.shutdownNow();
     }
 }
 ```

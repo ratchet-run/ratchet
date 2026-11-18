@@ -497,6 +497,8 @@ public interface SchedulerLifecycleHook {
 
 Provides thread pools for job execution and scheduling. Override to use virtual threads, custom thread factories, or managed executors.
 
+A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
+
 :::info
 This interface is marked `@Incubating` and may change.
 :::
@@ -506,6 +508,7 @@ This interface is marked `@Incubating` and may change.
 public interface ExecutorProvider {
     ExecutorService getJobExecutor();
     ScheduledExecutorService getScheduledExecutor();
+    ScheduledExecutorService getReleaseExecutor();
 }
 ```
 
@@ -525,12 +528,28 @@ ScheduledExecutorService getScheduledExecutor()
 
 Returns the executor for scheduling polling and delayed tasks.
 
+### getReleaseExecutor
+
+```java
+ScheduledExecutorService getReleaseExecutor()
+```
+
+Returns the provider-owned executor for release retries. It must be a stable instance distinct from the scheduler.
+
+
 ### Example
 
 ```java
 @Alternative @Priority(APPLICATION)
 @ApplicationScoped
 public class VirtualThreadExecutorProvider implements ExecutorProvider {
+
+    private final ScheduledExecutorService releases = Executors.newScheduledThreadPool(2);
+
+    @Override
+    public ScheduledExecutorService getReleaseExecutor() {
+        return releases;
+    }
 
     @Override
     public ExecutorService getJobExecutor() {
@@ -541,6 +560,12 @@ public class VirtualThreadExecutorProvider implements ExecutorProvider {
     public ScheduledExecutorService getScheduledExecutor() {
         return Executors.newScheduledThreadPool(2, Thread.ofVirtual().factory());
     }
+
+    @PreDestroy
+    void shutdownReleases() {
+        releases.shutdownNow();
+    }
+
 }
 ```
 

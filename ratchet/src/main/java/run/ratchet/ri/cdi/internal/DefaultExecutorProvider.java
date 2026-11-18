@@ -16,21 +16,28 @@
 package run.ratchet.ri.cdi.internal;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.internal.ExecutorProviderClosedException;
+import run.ratchet.api.internal.ManagedThreadFactories;
 import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ExecutorProvider;
 
 /**
- * Default {@link ExecutorProvider} that delegates to the container's managed executor services.
+ * Default {@link ExecutorProvider} using managed executors and an owned release pool.
  *
  * <p>Resolves {@code java:comp/DefaultManagedExecutorService} and {@code
  * java:comp/DefaultManagedScheduledExecutorService} via direct JNDI lookup. These names are
@@ -58,6 +65,10 @@ import run.ratchet.spi.ExecutorProvider;
  * and sets {@code job-executor-jndi} to that name. The values flow in through {@link
  * RatchetOptions#execution()}.
  *
+ * <p>Release retries use an owned two-thread pool built from the managed thread factory configured
+ * by {@code ratchet.worker.thread-factory-jndi}. The container's default scheduled executor can be
+ * shared with other applications; this pool keeps Ratchet release retries off that scheduler.
+ *
  * <p>Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
  * ExecutorProvider} bean — for example {@code StandaloneExecutorProvider} for plain-CDI/SE runs.
  *
@@ -78,6 +89,11 @@ public class DefaultExecutorProvider implements ExecutorProvider {
   private final String jobExecutorJndi;
   private final String scheduledExecutorJndi;
   private final String virtualExecutorJndi;
+  private final String threadFactoryJndi;
+  private volatile ThreadFactory resolvedThreadFactory;
+  private ScheduledThreadPoolExecutor releasePool;
+  private ScheduledExecutorService releaseExecutor;
+  private boolean closed;
 
   private volatile ExecutorService resolvedJobExecutor;
   private volatile ScheduledExecutorService resolvedScheduledExecutor;
@@ -85,9 +101,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
 
   /** Direct-construction path (tests, plain-SE): uses the well-known container JNDI names. */
   protected DefaultExecutorProvider() {
-    this.jobExecutorJndi = JOB_EXECUTOR_JNDI;
-    this.scheduledExecutorJndi = SCHEDULED_EXECUTOR_JNDI;
-    this.virtualExecutorJndi = null;
+    this(RatchetOptions.defaults());
   }
 
   @Inject
@@ -95,6 +109,12 @@ public class DefaultExecutorProvider implements ExecutorProvider {
     this.jobExecutorJndi = options.execution().jobExecutorJndi();
     this.scheduledExecutorJndi = options.execution().scheduledExecutorJndi();
     this.virtualExecutorJndi = options.execution().virtualExecutorJndi();
+    this.threadFactoryJndi = options.execution().threadFactoryJndi();
+  }
+
+  DefaultExecutorProvider(ThreadFactory factory) {
+    this(RatchetOptions.defaults());
+    this.resolvedThreadFactory = factory;
   }
 
   @PostConstruct
@@ -108,6 +128,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
     try {
       InitialContext context = newInitialContext();
       synchronized (this) {
+        if (closed) return;
         if (resolvedJobExecutor == null) {
           resolvedJobExecutor =
               classLoader.wrap(lookup(context, jobExecutorJndi, ExecutorService.class));
@@ -131,6 +152,18 @@ public class DefaultExecutorProvider implements ExecutorProvider {
           "Eager managed-executor resolution deferred to first use (job=%s, scheduled=%s)",
           jobExecutorJndi,
           scheduledExecutorJndi);
+    }
+    try {
+      synchronized (this) {
+        if (!closed && resolvedThreadFactory == null) {
+          resolvedThreadFactory =
+              ManagedThreadFactories.resolve(
+                  newInitialContext(), threadFactoryJndi, "Release executor");
+        }
+      }
+    } catch (IllegalStateException e) {
+      if (!(e.getCause() instanceof NamingException)) throw e;
+      log.debug("Eager managed-thread-factory resolution deferred to first use", e);
     }
   }
 
@@ -228,5 +261,59 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       }
     }
     return executor;
+  }
+
+  @Override
+  public synchronized ScheduledExecutorService getReleaseExecutor() {
+    if (closed) throw new ExecutorProviderClosedException("DefaultExecutorProvider is shut down");
+    if (releaseExecutor == null) {
+      ThreadFactory factory = resolvedThreadFactory;
+      if (factory == null) {
+        factory =
+            ManagedThreadFactories.resolve(
+                newInitialContext(), threadFactoryJndi, "Release executor");
+        resolvedThreadFactory = factory;
+      }
+      ThreadFactory managedFactory = factory;
+      AtomicInteger counter = new AtomicInteger();
+      releasePool =
+          new ScheduledThreadPoolExecutor(
+              2,
+              runnable -> {
+                Thread thread = managedFactory.newThread(runnable);
+                try {
+                  thread.setName("ratchet-release-" + counter.incrementAndGet());
+                } catch (SecurityException ignored) {
+                  // Some containers keep control of managed thread names.
+                }
+                return thread;
+              });
+      releasePool.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+      releasePool.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+      releasePool.setRemoveOnCancelPolicy(true);
+      releaseExecutor = classLoader.wrap(releasePool);
+    }
+    return releaseExecutor;
+  }
+
+  @PreDestroy
+  public void shutdown() {
+    ScheduledThreadPoolExecutor pool;
+    synchronized (this) {
+      closed = true;
+      pool = releasePool;
+    }
+    if (pool == null) return;
+    // Let a release that is already in the store finish: an interrupt can break its pooled
+    // connection. Wait outside the lock, so a release that tries to reschedule is not held up.
+    pool.shutdown();
+    try {
+      if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+        pool.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      pool.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
   }
 }

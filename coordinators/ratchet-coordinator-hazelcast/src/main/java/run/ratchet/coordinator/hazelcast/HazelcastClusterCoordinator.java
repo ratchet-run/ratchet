@@ -129,7 +129,7 @@ public class HazelcastClusterCoordinator extends AbstractPushCoordinator
       RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
       threading =
           CoordinatorThreading.managed(
-              "ratchet-coordinator-hazelcast", options.execution().coordinatorThreadFactoryJndi());
+              "ratchet-coordinator-hazelcast", options.execution().threadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,

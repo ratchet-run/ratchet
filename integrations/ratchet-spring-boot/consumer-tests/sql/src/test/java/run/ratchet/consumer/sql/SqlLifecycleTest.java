@@ -366,6 +366,7 @@ class SqlLifecycleTest {
     } finally {
       executors.workers.shutdownNow();
       executors.scheduler.shutdownNow();
+      executors.releases.shutdownNow();
     }
   }
 
@@ -393,6 +394,7 @@ class SqlLifecycleTest {
       context.close();
       executors.workers.shutdownNow();
       executors.scheduler.shutdownNow();
+      executors.releases.shutdownNow();
     }
   }
 
@@ -429,6 +431,7 @@ class SqlLifecycleTest {
       context.close();
       executors.workers.shutdownNow();
       executors.scheduler.shutdownNow();
+      executors.releases.shutdownNow();
     }
   }
 
@@ -807,6 +810,7 @@ class SqlLifecycleTest {
 
   public static class ApplicationExecutors implements ExecutorProvider {
     private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+    final ScheduledExecutorService releases = classLoader.wrap(Executors.newScheduledThreadPool(2));
 
     @Override
     public void initializeApplicationClassLoader(ClassLoader loader) {
@@ -823,6 +827,10 @@ class SqlLifecycleTest {
     }
 
     @Override
+    public ScheduledExecutorService getReleaseExecutor() {
+      return releases;
+    }
+
     public ScheduledExecutorService getScheduledExecutor() {
       return scheduler;
     }
@@ -846,6 +854,11 @@ class SqlLifecycleTest {
 
         @Override
         public ExecutorService getJobExecutor() {
+          throw new IllegalStateException("intentional executor unavailable");
+        }
+
+        @Override
+        public ScheduledExecutorService getReleaseExecutor() {
           throw new IllegalStateException("intentional executor unavailable");
         }
 
