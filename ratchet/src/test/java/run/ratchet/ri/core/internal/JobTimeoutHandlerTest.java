@@ -192,6 +192,90 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void handedBackTimeoutSurvivesCancelAndReschedulesWithoutSecondCharge() {
+    JobEntity job = jobWithMaxRetries(3);
+    job.setAttempts(3);
+    job.setClaimSeq(7L);
+    job.setPickedBy("node-1");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(3), eq(7L)))
+        .thenReturn(true);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2, 7L, "node-1");
+
+    hardTaskAfterHandlesCancel(attempt, true).run();
+
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(3), eq(7L));
+  }
+
+  @Test
+  void handedBackTimeoutChargesOnceWhenIncrementDidNotCommit() {
+    JobEntity job = jobWithMaxRetries(3);
+    job.setAttempts(2);
+    job.setClaimSeq(7L);
+    job.setPickedBy("node-1");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(3);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(3), eq(7L)))
+        .thenReturn(true);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2, 7L, "node-1");
+
+    hardTaskAfterHandlesCancel(attempt, true).run();
+
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 7L);
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(3), eq(7L));
+  }
+
+  @Test
+  void cancelledTimeoutWithoutHandbackDoesNotFire() {
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2, 7L, "node-1");
+
+    hardTaskAfterHandlesCancel(attempt, false).run();
+
+    verify(jobCrudStore, never()).findById(any());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+  }
+
+  private Runnable hardTaskAfterHandlesCancel(JobAttemptControl attempt, boolean handBack) {
+    // Advance scheduled tasks explicitly; FutureTask preserves cancellation before the deadline.
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    List<FutureTask<Void>> tasks = new ArrayList<>();
+    when(scheduler.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS)))
+        .thenAnswer(
+            invocation -> {
+              FutureTask<Void> task =
+                  new FutureTask<>(invocation.getArgument(0, Runnable.class), null);
+              tasks.add(task);
+              ScheduledFuture<?> scheduled = mock(ScheduledFuture.class);
+              lenient().when(scheduled.cancel(false)).thenAnswer(ignored -> task.cancel(false));
+              return scheduled;
+            });
+    Future<?> future = mock(Future.class);
+    // Without a handback the cancelled task never reads the worker's future.
+    lenient().when(future.isDone()).thenReturn(true);
+    var handles =
+        handler.scheduleTimeoutMonitoring(attempt, future, scheduler, attempt.executionStartTime());
+    assertTrue(attempt.holdTimeoutForWorker());
+    if (handBack) {
+      assertTrue(attempt.handBackTimeoutToWatchdog());
+    }
+
+    handles.cancel();
+
+    FutureTask<Void> hard = tasks.get(tasks.size() - 1);
+    assertEquals(!handBack, hard.isCancelled());
+    return () -> {
+      hard.run();
+      if (handBack) {
+        assertDoesNotThrow(() -> hard.get());
+      }
+    };
+  }
+
+  @Test
   void hardTimeoutOfCancelledBatchChildIsTerminal() {
     UUID parentId = UUID.randomUUID();
     JobEntity job = jobWithMaxRetries(3);

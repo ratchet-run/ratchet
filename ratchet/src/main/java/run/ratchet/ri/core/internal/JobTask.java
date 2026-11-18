@@ -935,6 +935,7 @@ public class JobTask implements Callable<Void> {
       // The increment's outcome is unknown, so the write carries no attempts fence. Holding the
       // timeout first stops the watchdog from charging under this claim; the re-read keeps a charge
       // that committed.
+      boolean heldTimeout = false;
       if (expectedAttempts == null) {
         if (attempt != null && !attempt.holdTimeoutForWorker()) {
           log.infof(
@@ -943,33 +944,67 @@ public class JobTask implements Callable<Void> {
           saveDeferredExecutionFailure(t);
           return;
         }
+        heldTimeout = attempt != null;
         refreshAttemptsBeforeForcedFailure();
       }
       boolean failed = false;
       try {
-        job.setLastError(safeError);
-        if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, expectedAttempts)) {
-          outcomeWritten = true;
-          job.setStatus(JobStatus.FAILED);
-          failed = true;
+        failed = forceFailure(safeError);
+      } catch (Throwable lastResort) {
+        if (attempt == null) {
+          log.errorf(
+              lastResort,
+              "Job %s could not be transitioned to FAILED — will require orphan recovery",
+              job.getId());
         } else {
-          markAttemptSuperseded();
-          // A cancel that was already handled is not counted again.
-          if (!cancelHandled && jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
-          if (!cancelHandled) {
-            saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+          boolean workerHolds = heldTimeout || attempt.holdTimeoutForWorker();
+          // The hard task survives the worker only when handed back. The watchdog claims it at
+          // the deadline; incrementAlreadyApplied avoids charging an already-counted attempt again.
+          if (workerHolds && attempt.handBackTimeoutToWatchdog()) {
+            log.warnf(
+                lastResort,
+                "Job %s forced FAILED write failed — handing timeout back to the watchdog to finish"
+                    + " at its deadline",
+                job.getId());
+            saveDeferredExecutionFailure(t);
+          } else if (workerHolds) {
+            try {
+              failed = forceFailure(safeError);
+            } catch (Throwable retryFailure) {
+              log.errorf(
+                  retryFailure,
+                  "Job %s could not be transitioned to FAILED — will require orphan recovery",
+                  job.getId());
+            }
+          } else {
+            log.infof(
+                "Job %s timeout owned by the watchdog — deferring forced failure to the watchdog",
+                job.getId());
+            saveDeferredExecutionFailure(t);
           }
         }
-      } catch (Throwable lastResort) {
-        log.errorf(
-            lastResort,
-            "Job %s could not be transitioned to FAILED — will require orphan recovery",
-            job.getId());
       }
       if (failed) {
         invokeOnFailureAfterLastResort(t);
       }
     }
+  }
+
+  private boolean forceFailure(String safeError) {
+    job.setLastError(safeError);
+    if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, expectedAttempts)) {
+      outcomeWritten = true;
+      job.setStatus(JobStatus.FAILED);
+      return true;
+    } else {
+      markAttemptSuperseded();
+      // A cancel that was already handled is not counted again.
+      if (!cancelHandled && jobWasCanceled()) handleCanceledDuringExecution(cancelStart());
+      if (!cancelHandled) {
+        saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+      }
+    }
+    return false;
   }
 
   private void refreshAttemptsBeforeForcedFailure() {

@@ -414,6 +414,130 @@ class JobTaskTest {
   }
 
   @Test
+  void forcedFailureThrowAfterFailedIncrementHandsTimeoutBack() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenThrow(new IllegalStateException("write failed"));
+
+    jobTask.call();
+
+    verify(lifecycleFacade, times(1))
+        .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
+    Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
+    Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+    Assertions.assertNotEquals(JobStatus.FAILED, scenario.job().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+  }
+
+  @Test
+  void forcedFailureThrowRetriesOnceWhenWatchdogPassed() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenAnswer(
+            invocation -> {
+              Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
+              throw new IllegalStateException("write failed");
+            })
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade, times(2))
+        .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
+    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
+    Assertions.assertEquals(JobStatus.FAILED, scenario.job().getStatus());
+  }
+
+  @Test
+  void forcedFailureRetryThrowLeavesTimeoutWithWorker() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L))
+        .thenThrow(new IllegalStateException("unknown"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, null))
+        .thenAnswer(
+            invocation -> {
+              Assertions.assertFalse(scenario.attempt().claimTimeoutForWatchdog());
+              throw new IllegalStateException("write failed");
+            })
+        .thenThrow(new IllegalStateException("retry failed"));
+
+    jobTask.call();
+
+    verify(lifecycleFacade, times(2))
+        .completeFailure(scenario.job(), JobStatus.RUNNING, false, null);
+    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
+    Assertions.assertNotEquals(JobStatus.FAILED, scenario.job().getStatus());
+  }
+
+  @Test
+  void forcedFailureThrowWithKnownAttemptsHandsTimeoutBack() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenThrow(new IllegalStateException("write failed"));
+
+    jobTask.call();
+
+    verify(lifecycleFacade, times(1)).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
+    Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
+    Assertions.assertNotEquals(JobStatus.FAILED, scenario.job().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+  }
+
+  @Test
+  void forcedFailureThrowDefersWhenWatchdogOwnsTimeout() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    when(validationFacade.shouldNotRetry(failure)).thenThrow(new IllegalStateException("policy"));
+    when(lifecycleFacade.completeFailure(scenario.job(), JobStatus.RUNNING, false, 2))
+        .thenAnswer(
+            invocation -> {
+              Assertions.assertTrue(scenario.attempt().claimTimeoutForWatchdog());
+              throw new IllegalStateException("write failed");
+            });
+
+    jobTask.call();
+
+    verify(lifecycleFacade, times(1)).completeFailure(scenario.job(), JobStatus.RUNNING, false, 2);
+    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(failure.getClass().getName(), scenario.execution().getErrorClass());
+  }
+
+  @Test
   void failedIncrementLeavesForcedFailureFencedOnlyOnClaim() throws Exception {
     RuntimeException failure = new IllegalStateException("body");
     var scenario =
