@@ -598,11 +598,16 @@ public class JobTimeoutHandler {
       // The reschedule can leave the job live, so a later CANCELED row may be a cancel of
       // the job it produced. On SQL stores the charge and reschedule share the REQUIRES_NEW
       // transaction: a throw before commit rolls both back, so the flag is conservative.
+      // A miss clears only a mark this try set. An earlier try's reschedule may have committed
+      // before it threw, and this try's write then misses on the claim that followed it.
+      boolean earlierOutcomeUnknown = attempt != null && attempt.timeoutOutcomeUnknown();
       if (attempt != null) attempt.markTimeoutOutcomeUnknown();
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(
               jobId, sanitizedError, retryTime, newAttempts, expectedClaimSeq);
-      if (!rescheduled && attempt != null) attempt.clearTimeoutOutcomeUnknown();
+      if (!rescheduled && attempt != null && !earlierOutcomeUnknown) {
+        attempt.clearTimeoutOutcomeUnknown();
+      }
       if (rescheduled) {
         publishHardTimeoutRetryEvents(
             job, sanitizedError, newAttempts, retryTime, timeoutSec, observedElapsedTime);

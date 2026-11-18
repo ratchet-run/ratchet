@@ -1448,6 +1448,58 @@ class JobTimeoutHandlerTest {
     assertFalse(attempt.timeoutOutcomeUnknown());
   }
 
+  @Test
+  void laterMissedRescheduleKeepsEarlierUnknownFlag() {
+    JobEntity first = jobWithMaxRetries(3);
+    // The first try's reschedule committed before it threw, and a newer claim now runs the job.
+    JobEntity reclaimed = jobWithMaxRetries(3);
+    reclaimed.setAttempts(1);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(first), Optional.of(reclaimed));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L, 0)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(7L)))
+        .thenThrow(new IllegalStateException("committed then threw"))
+        .thenReturn(false);
+    // The newer claim is canceled before the retry's missed write is checked.
+    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.CANCELED);
+    ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
+    ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    List<Runnable> pending = new ArrayList<>();
+    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+        .thenAnswer(
+            invocation -> {
+              pending.add(invocation.getArgument(0));
+              return null;
+            });
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(
+        () -> {
+          if (!attempt.timeoutOutcomeUnknown()) record.run();
+        },
+        release);
+    attempt.workerStarted();
+    assertFalse(attempt.workerEnded());
+    handler.scheduleTimeoutMonitoring(
+        attempt,
+        mock(Future.class),
+        timers,
+        Instant.EPOCH,
+        new OutcomeWriteRetries(() -> releases, null, System::nanoTime));
+    ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+    verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
+    tasks.getAllValues().get(1).run();
+    assertTrue(attempt.timeoutOutcomeUnknown());
+    assertEquals(1, pending.size());
+
+    pending.remove(0).run();
+
+    assertTrue(pending.isEmpty());
+    assertTrue(attempt.timeoutOutcomeUnknown(), "the earlier try's mark must survive the miss");
+    verify(record, never()).run();
+    verify(release).run();
+  }
+
   private void assertRetriedHardTimeout(boolean claimEnded) {
     JobEntity first = jobWithMaxRetries(3);
     JobEntity retry = jobWithMaxRetries(3);
