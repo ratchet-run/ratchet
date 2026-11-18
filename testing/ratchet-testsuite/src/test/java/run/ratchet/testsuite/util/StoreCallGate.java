@@ -23,8 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Test hook that pauses or watches chosen calls on the deployed store bean. {@link
@@ -35,6 +35,9 @@ public final class StoreCallGate {
   private static final CopyOnWriteArrayList<Pause> PAUSES = new CopyOnWriteArrayList<>();
   private static final CopyOnWriteArrayList<Watch> WATCHES = new CopyOnWriteArrayList<>();
   private static final ConcurrentHashMap<UUID, List<String>> CALLS = new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<UUID, List<String>> RETURNED_CALLS =
+      new ConcurrentHashMap<>();
+  private static final Object RETURNS_LOCK = new Object();
   // StoreCallGateDecoratorTest keeps this set aligned with the decorator overrides.
   private static final Set<String> GATED_METHODS =
       Set.of(
@@ -65,12 +68,28 @@ public final class StoreCallGate {
   }
 
   /**
-   * Counts the calls of {@code method} for this job, from any thread, as each returns or throws.
+   * Pauses the first later call of {@code method} from inside {@code caller} for any job id, except
+   * on the arming thread or for a null id. Use only while one job can reach that call. The test
+   * must check {@link Pause#jobId()} after it fires.
+   */
+  public static Pause pauseNext(String method, Class<?> caller) {
+    return pause(method, null, caller);
+  }
+
+  /**
+   * Counts calls of {@code method} for this job that returned or threw since the last reset,
+   * including calls completed before this watch was created.
    */
   public static Watch watch(String method, UUID jobId) {
     requireCovered(method);
     Watch watch = new Watch(method, jobId);
-    WATCHES.add(watch);
+    synchronized (RETURNS_LOCK) {
+      List<String> returned = RETURNED_CALLS.get(jobId);
+      if (returned != null) {
+        watch.count.set((int) returned.stream().filter(method::equals).count());
+      }
+      WATCHES.add(watch);
+    }
     return watch;
   }
 
@@ -101,12 +120,16 @@ public final class StoreCallGate {
    * transaction when the test ends.
    */
   public static void reset(Duration awaitReturn) {
-    PAUSES.forEach(Pause::release);
+    PAUSES.forEach(
+        pause -> {
+          pause.state.compareAndSet(Pause.State.ARMED, Pause.State.RETIRED);
+          pause.release();
+        });
     long deadline = System.nanoTime() + awaitReturn.toNanos();
     try {
       for (Pause pause : PAUSES) {
-        if (pause.fired.get()) {
-          if (!pause.awaitReturned(Duration.ofNanos(Math.max(0, deadline - System.nanoTime())))) {
+        if (pause.state.get() == Pause.State.FIRED) {
+          if (!pause.waitForReturn(Duration.ofNanos(Math.max(0, deadline - System.nanoTime())))) {
             throw new AssertionError(
                 "Paused "
                     + pause.method
@@ -116,10 +139,17 @@ public final class StoreCallGate {
                     + awaitReturn);
           }
         }
+        if (pause.expired) {
+          throw new AssertionError(
+              "Paused " + pause.method + " call for job " + pause.jobId + " expired");
+        }
       }
     } finally {
       PAUSES.clear();
-      WATCHES.clear();
+      synchronized (RETURNS_LOCK) {
+        WATCHES.clear();
+        RETURNED_CALLS.clear();
+      }
       CALLS.clear();
     }
   }
@@ -133,7 +163,7 @@ public final class StoreCallGate {
     CALLS.computeIfAbsent(jobId, ignored -> new CopyOnWriteArrayList<>()).add(method);
     for (Pause pause : PAUSES) {
       if (!pause.method.equals(method)
-          || !pause.jobId.equals(jobId)
+          || (pause.targetJobId != null && !pause.targetJobId.equals(jobId))
           || Thread.currentThread() == pause.armingThread) {
         continue;
       }
@@ -142,19 +172,28 @@ public final class StoreCallGate {
               .walk(
                   frames ->
                       frames.anyMatch(frame -> frame.getClassName().equals(pause.callerClassName)));
-      if (fromCaller && pause.fired.compareAndSet(false, true)) {
+      if (fromCaller && pause.state.compareAndSet(Pause.State.ARMED, Pause.State.FIRED)) {
+        pause.jobId = jobId;
+        pause.thread = Thread.currentThread();
         pause.parked.countDown();
         long deadline = System.nanoTime() + MAX_PAUSE.toNanos();
         boolean interrupted = false;
+        boolean wasReleased = false;
         try {
           long remaining;
           while ((remaining = deadline - System.nanoTime()) > 0) {
             try {
-              pause.released.await(remaining, TimeUnit.NANOSECONDS);
+              if (pause.released.await(remaining, TimeUnit.NANOSECONDS)) {
+                wasReleased = true;
+                break;
+              }
               break;
             } catch (InterruptedException ex) {
               interrupted = true;
             }
+          }
+          if (!wasReleased) {
+            pause.expired = true;
           }
         } finally {
           if (interrupted) {
@@ -170,11 +209,14 @@ public final class StoreCallGate {
   /** Counts matching watches and marks a fired pause as returned. */
   static void exit(String method, UUID jobId, Pause fired) {
     if (jobId == null) return;
-    for (Watch watch : WATCHES) {
-      if (watch.method.equals(method) && watch.jobId.equals(jobId)) {
-        synchronized (watch) {
-          watch.count.incrementAndGet();
-          watch.notifyAll();
+    synchronized (RETURNS_LOCK) {
+      RETURNED_CALLS.computeIfAbsent(jobId, ignored -> new CopyOnWriteArrayList<>()).add(method);
+      for (Watch watch : WATCHES) {
+        if (watch.method.equals(method) && watch.jobId.equals(jobId)) {
+          synchronized (watch) {
+            watch.count.incrementAndGet();
+            watch.notifyAll();
+          }
         }
       }
     }
@@ -186,21 +228,41 @@ public final class StoreCallGate {
   /** A single store call that can be held until the test releases it. */
   public static final class Pause {
     private final String method;
-    private final UUID jobId;
+    private final UUID targetJobId;
+    private volatile UUID jobId;
+    private volatile Thread thread;
     private final String callerClassName;
     private final String callerSimpleName;
     private final Thread armingThread;
-    private final AtomicBoolean fired = new AtomicBoolean();
+
+    private enum State {
+      ARMED,
+      FIRED,
+      RETIRED
+    }
+
+    private final AtomicReference<State> state = new AtomicReference<>(State.ARMED);
+    private volatile boolean expired;
     private final CountDownLatch parked = new CountDownLatch(1);
     private final CountDownLatch released = new CountDownLatch(1);
     private final CountDownLatch returned = new CountDownLatch(1);
 
     private Pause(String method, UUID jobId, Class<?> caller) {
       this.method = method;
-      this.jobId = jobId;
+      this.targetJobId = jobId;
       this.callerClassName = caller.getName();
       this.callerSimpleName = caller.getSimpleName();
       armingThread = Thread.currentThread();
+    }
+
+    /** Returns the job id of the paused call, or null before it fires. */
+    public UUID jobId() {
+      return jobId;
+    }
+
+    /** Returns the thread of the paused call, or null before it fires. */
+    public Thread thread() {
+      return thread;
     }
 
     /** Waits until the chosen store call reaches the gate. */
@@ -228,9 +290,18 @@ public final class StoreCallGate {
       released.countDown();
     }
 
-    boolean awaitReturned(Duration timeout) {
+    /** Waits for the paused store call to return or throw. */
+    public void awaitReturned(Duration timeout) {
+      if (!waitForReturn(timeout)) {
+        throw new AssertionError(
+            "Paused " + method + " call for job " + jobId + " did not return within " + timeout);
+      }
+    }
+
+    private boolean waitForReturn(Duration timeout) {
       try {
-        return !fired.get() || returned.await(timeout.toNanos(), TimeUnit.NANOSECONDS);
+        return state.get() != State.FIRED
+            || returned.await(timeout.toNanos(), TimeUnit.NANOSECONDS);
       } catch (InterruptedException ex) {
         Thread.currentThread().interrupt();
         throw new AssertionError(ex);

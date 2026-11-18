@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.enterprise.inject.Instance;
@@ -57,20 +58,18 @@ import run.ratchet.testsuite.util.StoreCallGate;
 /**
  * Races a user cancel against the hard-timeout watchdog on a real server and database.
  *
- * <p>In both tests the job body runs past its deadline, the watchdog interrupts it, and the worker
- * saves its execution FAILED and leaves the outcome to the watchdog. {@link StoreCallGate} then
- * holds the watchdog at one store call while the test cancels the job, so the cancel lands in the
- * same window on every run:
+ * <p>The watchdog interrupts the body at its deadline. Store-call gates place the cancel in four
+ * windows:
  *
  * <ol>
- *   <li>before the watchdog reads the job, so the read finds it CANCELED;
- *   <li>after the watchdog read the job RUNNING and before its retry write, so the store rejects
- *       the write.
+ *   <li>Before the worker reads the status, so the worker sees the cancel itself.
+ *   <li>After the worker saved FAILED and before it released its hold, with the watchdog reading
+ *       CANCELED before the worker ends, so the worker finishes the cancel.
+ *   <li>After the worker's {@code call()} returned and before the watchdog reads the row, so the
+ *       watchdog finishes the cancel.
+ *   <li>After the watchdog read the row RUNNING and before its retry write, which the store
+ *       rejects.
  * </ol>
- *
- * <p>The worker's {@code call()} has returned before the cancel commits, so the watchdog takes the
- * branch where it finishes the cancel itself: the execution ends CANCELED and the business key is
- * free at once.
  */
 class HardTimeoutCancelRaceIT extends BaseRatchetIT {
   private static final Duration TIMEOUT = Duration.ofSeconds(3);
@@ -115,10 +114,51 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
   }
 
   @Test
+  void cancelBeforeTheWorkerReadsTheStatus_endsCanceledAndFreesTheKey() {
+    String key = "timeout-worker-read-cancel-" + UUID.randomUUID();
+    StoreCallGate.Pause watchdog = StoreCallGate.pauseNext("findById", JobTimeoutHandler.class);
+    JobHandle job = submitTimingOut(key);
+    // JobTask reads the status before starting the body, so arm only once the body is running.
+    StoreCallGate.Pause worker = StoreCallGate.pauseNext("getJobStatus", JobTask.class);
+
+    awaitWorkerAndWatchdogParked(worker, watchdog, job);
+    int attempts = store.findById(job.id()).orElseThrow().getAttempts();
+    cancelWhileTheWatchdogWaits(key, job);
+    worker.release();
+    awaitWorkerReturned();
+    watchdog.release();
+
+    assertCancelFinished(key, job);
+    assertNoRetryWritesAndUnchangedAttempts(job, attempts);
+  }
+
+  @Test
+  void cancelWhileTheWorkerReleasesItsHold_endsCanceledAndFreesTheKey() {
+    String key = "timeout-worker-release-cancel-" + UUID.randomUUID();
+    StoreCallGate.Pause worker = StoreCallGate.pauseNext("releaseBusinessKeyHold", JobTask.class);
+    StoreCallGate.Pause watchdog = StoreCallGate.pauseNext("findById", JobTimeoutHandler.class);
+    JobHandle job = submitTimingOut(key);
+
+    awaitWorkerAndWatchdogParked(worker, watchdog, job);
+    assertEquals(
+        List.of(ExecutionStatus.FAILED),
+        executionStatuses(job),
+        "The worker must save its execution before releasing its hold");
+    int attempts = store.findById(job.id()).orElseThrow().getAttempts();
+    cancelWhileTheWatchdogWaits(key, job);
+    watchdog.release();
+    watchdog.awaitReturned(Duration.ofSeconds(15));
+    worker.release();
+
+    assertCancelFinished(key, job);
+    assertNoRetryWritesAndUnchangedAttempts(job, attempts);
+  }
+
+  @Test
   void cancelThatTheWatchdogReadsAfterTheWorkerEnded_endsCanceledAndFreesTheKey() {
     String key = "timeout-read-cancel-" + UUID.randomUUID();
+    StoreCallGate.Pause read = StoreCallGate.pauseNext("findById", JobTimeoutHandler.class);
     JobHandle job = submitTimingOut(key);
-    StoreCallGate.Pause read = StoreCallGate.pause("findById", job.id(), JobTimeoutHandler.class);
     StoreCallGate.Watch release = StoreCallGate.watch("releaseBusinessKeyHold", job.id());
 
     awaitWorkerLeftTheTimeoutToTheWatchdog(read, release, job);
@@ -129,21 +169,29 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
     assertFalse(
         StoreCallGate.called(job.id(), "incrementRetryAttempt"),
         "The watchdog must not write a retry for a job it read as CANCELED");
+    assertFalse(
+        StoreCallGate.called(job.id(), "scheduleJobRetry"),
+        "The watchdog must not reschedule a job it read as CANCELED");
   }
 
   @Test
   void cancelThatMakesTheWatchdogsRetryWriteMiss_endsCanceledAndFreesTheKey() {
     String key = "timeout-write-cancel-" + UUID.randomUUID();
-    JobHandle job = submitTimingOut(key);
     StoreCallGate.Pause write =
-        StoreCallGate.pause("incrementRetryAttempt", job.id(), JobTimeoutHandler.class);
+        StoreCallGate.pauseNext("incrementRetryAttempt", JobTimeoutHandler.class);
+    JobHandle job = submitTimingOut(key);
     StoreCallGate.Watch release = StoreCallGate.watch("releaseBusinessKeyHold", job.id());
 
     awaitWorkerLeftTheTimeoutToTheWatchdog(write, release, job);
+    int attempts = store.findById(job.id()).orElseThrow().getAttempts();
     cancelWhileTheWatchdogWaits(key, job);
     write.release();
 
     assertCancelFinished(key, job);
+    assertEquals(
+        attempts,
+        store.findById(job.id()).orElseThrow().getAttempts(),
+        "The store must reject the watchdog's retry increment on a CANCELED row");
     assertFalse(
         StoreCallGate.called(job.id(), "scheduleJobRetry"),
         "The rejected retry increment must not be followed by a reschedule");
@@ -189,7 +237,25 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
   private void awaitWorkerLeftTheTimeoutToTheWatchdog(
       StoreCallGate.Pause watchdog, StoreCallGate.Watch release, JobHandle job) {
     watchdog.awaitParked(Duration.ofSeconds(30));
+    assertEquals(job.id(), watchdog.jobId(), "The pause must hold this job's watchdog");
     release.awaitCalls(1, Duration.ofSeconds(15));
+    awaitWorkerReturned();
+    assertEquals(
+        List.of(ExecutionStatus.FAILED),
+        executionStatuses(job),
+        "The worker must leave the outcome to the watchdog");
+  }
+
+  private void awaitWorkerAndWatchdogParked(
+      StoreCallGate.Pause worker, StoreCallGate.Pause watchdog, JobHandle job) {
+    worker.awaitParked(Duration.ofSeconds(30));
+    assertEquals(job.id(), worker.jobId(), "The pause must hold this job's worker");
+    assertSame(CancellableJob.WORKER.get(), worker.thread());
+    watchdog.awaitParked(Duration.ofSeconds(30));
+    assertEquals(job.id(), watchdog.jobId(), "The pause must hold this job's watchdog");
+  }
+
+  private void awaitWorkerReturned() {
     Thread worker = CancellableJob.WORKER.get();
     assertNotNull(worker);
     await()
@@ -198,10 +264,19 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
             () ->
                 Arrays.stream(worker.getStackTrace())
                     .noneMatch(frame -> frame.getClassName().equals(JobTask.class.getName())));
+  }
+
+  private void assertNoRetryWritesAndUnchangedAttempts(JobHandle job, int attempts) {
+    assertFalse(
+        StoreCallGate.called(job.id(), "incrementRetryAttempt"),
+        "The watchdog must not write a retry for a job it read as CANCELED");
+    assertFalse(
+        StoreCallGate.called(job.id(), "scheduleJobRetry"),
+        "The watchdog must not reschedule a job it read as CANCELED");
     assertEquals(
-        List.of(ExecutionStatus.FAILED),
-        executionStatuses(job),
-        "The worker must leave the outcome to the watchdog");
+        attempts,
+        store.findById(job.id()).orElseThrow().getAttempts(),
+        "The cancel must leave the attempt count unchanged");
   }
 
   /** The cancel commits while the job row is still RUNNING, so it places a hold on the key. */
@@ -214,17 +289,18 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
 
   /** Both checks run and report, so a regression shows each part that broke. */
   private void assertCancelFinished(String key, JobHandle job) {
-    // HeldKeyReleases retries a failed release after 5 s, so that retry must not pass this check.
     assertAll(
+        // HeldKeyReleases retries a failed release after 5 s, so that retry must not pass this
+        // check.
+        () ->
+            await()
+                .atMost(Duration.ofSeconds(3))
+                .until(() -> scheduler.findBusinessKeyHolder(key).isEmpty()),
         () ->
             await()
                 .atMost(Duration.ofSeconds(10))
                 .untilAsserted(
-                    () -> assertEquals(List.of(ExecutionStatus.CANCELED), executionStatuses(job))),
-        () ->
-            await()
-                .atMost(Duration.ofSeconds(3))
-                .until(() -> scheduler.findBusinessKeyHolder(key).isEmpty()));
+                    () -> assertEquals(List.of(ExecutionStatus.CANCELED), executionStatuses(job))));
     JobAssertions.assertJobCanceled(store, job);
     assertNotNull(
         scheduler.schedule(Duration.ofHours(1), SimpleJob::execute).withBusinessKey(key).submit(),
