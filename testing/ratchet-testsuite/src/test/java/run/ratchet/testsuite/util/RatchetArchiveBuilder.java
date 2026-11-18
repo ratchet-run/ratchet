@@ -258,11 +258,15 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
-  /** Adds {@link StoreCallGate} and its decorator for pausing or watching covered store calls. */
+  /**
+   * Adds {@link StoreCallGate} and its decorator for pausing, faulting or watching covered store
+   * calls.
+   */
   public RatchetArchiveBuilder addStoreCallGate() {
     archive.addClasses(
         StoreCallGate.class,
         StoreCallGate.Pause.class,
+        StoreCallGate.Fault.class,
         StoreCallGate.Watch.class,
         StoreCallGateDecorator.class);
     return this;

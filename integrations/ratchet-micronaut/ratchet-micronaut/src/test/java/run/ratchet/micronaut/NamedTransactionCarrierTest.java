@@ -156,7 +156,7 @@ class NamedTransactionCarrierTest {
                     context
                         .getBean(PostExecutionHandler.class)
                         .completeSuccessInCurrentTransaction(
-                            new JobEntity(), null, null, null, null, 0, 0));
+                            new JobEntity(), null, null, null, null, 0, 0, null));
             return null;
           });
     }

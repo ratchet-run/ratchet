@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
@@ -193,12 +194,13 @@ public class PostExecutionHandler {
       Instant start,
       Instant end,
       long durationMs,
-      long queueWaitMs) {
+      long queueWaitMs,
+      @Nullable Integer expectedAttempts) {
     return inCompletionTransaction(
         () -> {
           JobEntity completed =
               successSnapshot(source, resultJson, resultType, start, end, durationMs, queueWaitMs);
-          return complete(completed, JobStatus.RUNNING, false, null, List.of());
+          return complete(completed, JobStatus.RUNNING, false, null, List.of(), expectedAttempts);
         });
   }
 
@@ -210,7 +212,8 @@ public class PostExecutionHandler {
       Instant start,
       Instant end,
       long durationMs,
-      long queueWaitMs) {
+      long queueWaitMs,
+      @Nullable Integer expectedAttempts) {
     if (!JobTransaction.active()) {
       throw new IllegalStateException("Job completion requires an active JobTransaction carrier");
     }
@@ -234,7 +237,8 @@ public class PostExecutionHandler {
           false,
           null,
           List.of(),
-          CompletionReads.transactional(store))) {
+          CompletionReads.transactional(store),
+          expectedAttempts)) {
         throw new CompletionRejectedException();
       }
       return new TransactionalCompletion(pending);
@@ -270,17 +274,31 @@ public class PostExecutionHandler {
 
   @Transactional(value = TxType.NOT_SUPPORTED)
   public boolean completeSuccessMinimal(
-      JobEntity source, Instant start, Instant end, long durationMs, long queueWaitMs) {
-    return completeSuccess(source, null, null, start, end, durationMs, queueWaitMs);
+      JobEntity source,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs,
+      @Nullable Integer expectedAttempts) {
+    return completeSuccess(
+        source, null, null, start, end, durationMs, queueWaitMs, expectedAttempts);
   }
 
   @Transactional(value = TxType.NOT_SUPPORTED)
-  public boolean completeFailure(JobEntity source, JobStatus expectedStatus, boolean cancelChain) {
-    return inCompletionTransaction(() -> completeFailureBody(source, expectedStatus, cancelChain));
+  public boolean completeFailure(
+      JobEntity source,
+      JobStatus expectedStatus,
+      boolean cancelChain,
+      @Nullable Integer expectedAttempts) {
+    return inCompletionTransaction(
+        () -> completeFailureBody(source, expectedStatus, cancelChain, expectedAttempts));
   }
 
   private boolean completeFailureBody(
-      JobEntity source, JobStatus expectedStatus, boolean cancelChain) {
+      JobEntity source,
+      JobStatus expectedStatus,
+      boolean cancelChain,
+      @Nullable Integer expectedAttempts) {
     JobEntity completed = completionSnapshot(source, JobStatus.FAILED);
     String error = completed.getLastError() != null ? completed.getLastError() : "Job failed";
     completed.setLastError(error);
@@ -298,7 +316,8 @@ public class PostExecutionHandler {
                 completed.getPriority(),
                 completed.getPickedBy(),
                 error,
-                completed.getAttempts())));
+                completed.getAttempts())),
+        expectedAttempts);
   }
 
   @Transactional(value = TxType.REQUIRED, rollbackOn = Exception.class)
@@ -313,16 +332,8 @@ public class PostExecutionHandler {
         expectedStatus,
         cancelChain,
         cause,
-        eventsBeforeDlq);
-  }
-
-  private boolean complete(
-      JobEntity completed,
-      JobStatus expectedStatus,
-      boolean cancelChain,
-      Throwable cause,
-      List<AbstractJobSchedulerEvent> failureEvents) {
-    return complete(completed, expectedStatus, cancelChain, cause, failureEvents, null);
+        eventsBeforeDlq,
+        null);
   }
 
   private boolean complete(
@@ -331,7 +342,19 @@ public class PostExecutionHandler {
       boolean cancelChain,
       Throwable cause,
       List<AbstractJobSchedulerEvent> failureEvents,
-      CompletionReads reads) {
+      @Nullable Integer expectedAttempts) {
+    return complete(
+        completed, expectedStatus, cancelChain, cause, failureEvents, null, expectedAttempts);
+  }
+
+  private boolean complete(
+      JobEntity completed,
+      JobStatus expectedStatus,
+      boolean cancelChain,
+      Throwable cause,
+      List<AbstractJobSchedulerEvent> failureEvents,
+      CompletionReads reads,
+      @Nullable Integer expectedAttempts) {
     WorkflowCompletionPlan workflow =
         completed.getJobType() == JobExecutionType.BATCH_CHILD
             ? WorkflowCompletionPlan.empty()
@@ -362,7 +385,8 @@ public class PostExecutionHandler {
       }
       if (preparedDlq == null) events = durable.prepare(events);
     }
-    JobCompletionPlan plan = completionPlan(completed, expectedStatus, null, workflow);
+    JobCompletionPlan plan =
+        completionPlan(completed, expectedStatus, null, workflow, expectedAttempts);
     if (durableEnabled) plan = durable.withEvents(plan, events);
     JobCompletionResult result = jobTerminalStore.commitCompletion(plan);
     if (!result.committed()) {
@@ -449,7 +473,9 @@ public class PostExecutionHandler {
       JobEntity completed,
       JobStatus expectedStatus,
       JobCompletionPlan.BatchCompletion batchCompletion,
-      WorkflowCompletionPlan workflow) {
+      WorkflowCompletionPlan workflow,
+      @Nullable Integer expectedAttempts) {
+    Long expectedClaimSeq = expectedStatus == JobStatus.RUNNING ? completed.getClaimSeq() : null;
     return new JobCompletionPlan(
         completed.getId(),
         expectedStatus,
@@ -465,11 +491,12 @@ public class PostExecutionHandler {
         completed.getJobType() == JobExecutionType.BATCH_CHILD ? completed.getDependsOn() : null,
         batchCompletion,
         workflow.dependencies(),
-        expectedStatus == JobStatus.RUNNING ? completed.getClaimSeq() : null,
+        expectedClaimSeq,
+        expectedAttempts,
         List.of());
   }
 
-  private static JobEntity completionSnapshot(JobEntity source, JobStatus status) {
+  static JobEntity completionSnapshot(JobEntity source, JobStatus status) {
     JobEntity snapshot = new JobEntity();
     snapshot.setId(source.getId());
     snapshot.setClaimSeq(source.getClaimSeq());
@@ -519,12 +546,13 @@ public class PostExecutionHandler {
    *     had already left RUNNING
    */
   @Transactional(value = TxType.NOT_SUPPORTED)
-  public boolean moveToDlqAndHandlePermanentFailure(JobEntity job, Throwable ex) {
+  public boolean moveToDlqAndHandlePermanentFailure(
+      JobEntity job, Throwable ex, @Nullable Integer expectedAttempts) {
     return inCompletionTransaction(
         () -> {
           requireFailureRoutingMetadata(job);
           job.setLastError(deadLetterService.sanitizeForCompletion(ex));
-          if (!completeFailureBody(job, JobStatus.RUNNING, false)) {
+          if (!completeFailureBody(job, JobStatus.RUNNING, false, expectedAttempts)) {
             return false;
           }
           job.setStatus(JobStatus.FAILED);

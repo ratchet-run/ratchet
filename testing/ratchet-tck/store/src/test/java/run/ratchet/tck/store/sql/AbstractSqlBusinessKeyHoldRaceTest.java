@@ -712,6 +712,7 @@ public abstract class AbstractSqlBusinessKeyHoldRaceTest {
                         null,
                         List.of(),
                         job.getClaimSeq(),
+                        null,
                         List.of()))
                 .committed());
   }

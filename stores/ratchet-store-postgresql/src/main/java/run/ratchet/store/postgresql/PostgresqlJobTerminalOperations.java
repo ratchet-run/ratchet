@@ -119,24 +119,27 @@ final class PostgresqlJobTerminalOperations {
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+  int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     // language=PostgreSQL
     String sql =
         """
         UPDATE scheduler_job_queue
         SET attempts = attempts + 1, updated_at = statement_timestamp(), version = version + 1
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s%s
         RETURNING attempts
         """
-            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
+            .formatted(
+                expectedClaimSeq == null ? "" : " AND claim_seq = ?",
+                expectedAttempts == null ? "" : " AND attempts = ?");
     return ctx.timedStoreOperation(
         "increment_retry_attempt",
         () -> {
           try {
-            Object result =
-                ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 2)
-                    .setParameter(1, id)
-                    .getSingleResult();
+            Query query =
+                ClaimFence.bind(
+                    ctx.em().createNativeQuery(sql), expectedClaimSeq, expectedAttempts, 2);
+            Object result = query.setParameter(1, id).getSingleResult();
             return ((Number) result).intValue();
           } catch (NoResultException e) {
             return -1;

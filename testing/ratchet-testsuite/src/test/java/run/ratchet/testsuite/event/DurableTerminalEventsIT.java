@@ -179,7 +179,7 @@ class DurableTerminalEventsIT extends BaseRatchetIT {
             1L);
     JobCompletionPlan plan =
         PostExecutionHandler.completionPlan(
-            job, JobStatus.RUNNING, null, WorkflowCompletionPlan.empty());
+            job, JobStatus.RUNNING, null, WorkflowCompletionPlan.empty(), null);
     JobCompletionPlan withRow =
         new JobCompletionPlan(
             plan.jobId(),
@@ -197,6 +197,7 @@ class DurableTerminalEventsIT extends BaseRatchetIT {
             plan.completedBatch(),
             plan.dependencies(),
             plan.expectedClaimSeq(),
+            plan.expectedAttempts(),
             List.of(TerminalEventMapper.toRow(event, old)));
     List<Object> seen = new CopyOnWriteArrayList<>();
     Consumer<Object> listener = seen::add;

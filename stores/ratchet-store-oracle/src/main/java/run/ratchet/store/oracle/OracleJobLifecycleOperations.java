@@ -57,8 +57,9 @@ final class OracleJobLifecycleOperations
   }
 
   @Override
-  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
-    return terminals.incrementRetryAttempt(id, expectedClaimSeq);
+  public int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
+    return terminals.incrementRetryAttempt(id, expectedClaimSeq, expectedAttempts);
   }
 
   @Override

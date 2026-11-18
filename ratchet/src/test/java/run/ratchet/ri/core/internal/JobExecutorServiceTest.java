@@ -118,33 +118,7 @@ class JobExecutorServiceTest {
   void allReleaseHandOffsUseReleaseExecutor() throws Exception {
     JobStore store = mock(JobStore.class);
     ResourcePermitService permits = mock(ResourcePermitService.class);
-    DefaultJobExecutorService wiredService =
-        new DefaultJobExecutorService(
-            poolRegistry,
-            timeoutHandler,
-            executorProvider,
-            store,
-            permits,
-            null,
-            null,
-            null,
-            null,
-            null,
-            new JobTransaction(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            mock(AfterCommitRegistrar.class),
-            mock(JobStateFlusher.class),
-            FIXED_CLOCK,
-            null,
-            RatchetOptions.builder().build());
+    DefaultJobExecutorService wiredService = wiredReleaseService(store, permits);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
     when(executorProvider.getReleaseExecutor()).thenReturn(releases);
     // Exercise the helpers installed by the real service constructor. Do not rebuild their wiring.
@@ -169,6 +143,73 @@ class JobExecutorServiceTest {
     Mockito.verifyNoInteractions(store, permits);
   }
 
+  @Test
+  void refusedReleaseHandOffsUseScheduledExecutorForResubmission() throws Exception {
+    JobStore store = mock(JobStore.class);
+    ResourcePermitService permits = mock(ResourcePermitService.class);
+    DefaultJobExecutorService wiredService = wiredReleaseService(store, permits);
+    ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
+    when(executorProvider.getReleaseExecutor()).thenReturn(releases);
+    when(executorProvider.getScheduledExecutor()).thenReturn(timers);
+    Mockito.doThrow(new RejectedExecutionException("busy"))
+        .when(releases)
+        .schedule(any(Runnable.class), Mockito.anyLong(), any(TimeUnit.class));
+    PermitReleases permitReleases =
+        serviceField(wiredService, "permitReleases", PermitReleases.class);
+    OutcomeWriteRetries outcomes =
+        serviceField(wiredService, "outcomeRetries", OutcomeWriteRetries.class);
+    ClaimReschedules claims =
+        serviceField(wiredService, "claimReschedules", ClaimReschedules.class);
+    try {
+      Thread.currentThread().interrupt();
+      permitReleases.release("gpu", JOB_ID, 2);
+      outcomes.run(
+          "outcome",
+          () -> {
+            throw new AssertionError("write on caller");
+          });
+      assertTrue(claims.handOff(JOB_ID, 2, "release", FIXED_NOW, 0, () -> false, () -> {}));
+    } finally {
+      Thread.interrupted();
+    }
+    verify(executorProvider, Mockito.times(3)).getScheduledExecutor();
+    verify(timers, Mockito.times(2))
+        .schedule(any(Runnable.class), eq(5_000L), eq(TimeUnit.MILLISECONDS));
+    verify(timers).schedule(any(Runnable.class), eq(1L), eq(TimeUnit.SECONDS));
+    Mockito.verifyNoInteractions(store, permits);
+  }
+
+  private DefaultJobExecutorService wiredReleaseService(
+      JobStore store, ResourcePermitService permits) {
+    return new DefaultJobExecutorService(
+        poolRegistry,
+        timeoutHandler,
+        executorProvider,
+        store,
+        permits,
+        null,
+        null,
+        null,
+        null,
+        null,
+        new JobTransaction(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        mock(AfterCommitRegistrar.class),
+        mock(JobStateFlusher.class),
+        FIXED_CLOCK,
+        null,
+        RatchetOptions.builder().build());
+  }
+
   private <T> T serviceField(DefaultJobExecutorService instance, String name, Class<T> type)
       throws Exception {
     Field field = DefaultJobExecutorService.class.getDeclaredField(name);
@@ -188,7 +229,8 @@ class JobExecutorServiceTest {
     Assertions.assertEquals("job " + JOB_ID + " has no claim sequence", failure.getMessage());
     verify(jobExecutor, never()).execute(any(Runnable.class));
     verify(timeoutHandler, never())
-        .scheduleTimeoutMonitoring(any(JobAttemptControl.class), any(), any(), any());
+        .scheduleTimeoutMonitoring(
+            any(JobAttemptControl.class), any(), any(), any(), any(OutcomeWriteRetries.class));
     verify(pool).releasePermit(JobExecutionType.SINGLE);
   }
 
@@ -209,8 +251,19 @@ class JobExecutorServiceTest {
     ExecutionResult result = service.execute(job, "platform");
     verify(timeoutHandler)
         .scheduleTimeoutMonitoring(
-            eq(attempt), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
+            eq(attempt),
+            any(Future.class),
+            eq(scheduledExecutor),
+            eq(FIXED_NOW),
+            eq(serviceField(service, "outcomeRetries", OutcomeWriteRetries.class)));
     assertFalse(result.isRejected());
+    Method createTask = DefaultJobExecutorService.class.getDeclaredMethod("createTask");
+    createTask.setAccessible(true);
+    JobTask task = (JobTask) createTask.invoke(service);
+    Field retries = JobTask.class.getDeclaredField("outcomeRetries");
+    retries.setAccessible(true);
+    assertSame(
+        serviceField(service, "outcomeRetries", OutcomeWriteRetries.class), retries.get(task));
     ArgumentCaptor<Runnable> queued = ArgumentCaptor.forClass(Runnable.class);
     verify(jobExecutor).execute(queued.capture());
     attempt.cancelExecution(result.future());
@@ -237,7 +290,11 @@ class JobExecutorServiceTest {
     ExecutionResult result = service.execute(job, "platform");
     verify(timeoutHandler)
         .scheduleTimeoutMonitoring(
-            eq(attempt), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
+            eq(attempt),
+            any(Future.class),
+            eq(scheduledExecutor),
+            eq(FIXED_NOW),
+            any(OutcomeWriteRetries.class));
     assertFalse(result.isRejected());
     ArgumentCaptor<Runnable> queued = ArgumentCaptor.forClass(Runnable.class);
     verify(jobExecutor).execute(queued.capture());
@@ -365,7 +422,8 @@ class JobExecutorServiceTest {
             any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class)))
+            any(Instant.class),
+            any(OutcomeWriteRetries.class)))
         .thenReturn(
             new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
 
@@ -378,7 +436,11 @@ class JobExecutorServiceTest {
     verify(hardTimeout).cancel(false);
     verify(timeoutHandler)
         .scheduleTimeoutMonitoring(
-            any(JobAttemptControl.class), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
+            any(JobAttemptControl.class),
+            any(Future.class),
+            eq(scheduledExecutor),
+            eq(FIXED_NOW),
+            any(OutcomeWriteRetries.class));
   }
 
   @Test
@@ -397,7 +459,8 @@ class JobExecutorServiceTest {
             any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class)))
+            any(Instant.class),
+            any(OutcomeWriteRetries.class)))
         .thenThrow(new RejectedExecutionException("scheduler stopped"));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
@@ -417,7 +480,8 @@ class JobExecutorServiceTest {
             any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class)))
+            any(Instant.class),
+            any(OutcomeWriteRetries.class)))
         .thenReturn(
             new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
 
@@ -443,7 +507,8 @@ class JobExecutorServiceTest {
             any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class)))
+            any(Instant.class),
+            any(OutcomeWriteRetries.class)))
         .thenReturn(
             new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
     doAnswer(
@@ -487,7 +552,8 @@ class JobExecutorServiceTest {
             any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class)))
+            any(Instant.class),
+            any(OutcomeWriteRetries.class)))
         .thenReturn(
             new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null, () -> {}));
     AtomicReference<Thread> runner = new AtomicReference<>();

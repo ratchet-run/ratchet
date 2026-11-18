@@ -93,6 +93,7 @@ class OutboxEventTest {
         null,
         List.of(),
         null,
+        null,
         events);
   }
 }

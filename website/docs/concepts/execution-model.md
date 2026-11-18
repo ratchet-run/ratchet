@@ -120,9 +120,11 @@ The `ThreadPoolManager` maintains one or more thread pools for job execution. Th
 
 When an attempt ends, Ratchet releases what it held: its business-key hold, its resource permit and, when it gives the job back, its claim. A release that fails, or that starts on a thread that is still interrupted, is retried on a separate 2-thread release pool. The heartbeat and the timeout watchdog run on the scheduled executor, so a release that blocks in the store cannot delay them.
 
+The release pool also retries an attempt's outcome write that a hard timeout or a failed failure write left RUNNING. This includes the watchdog's timeout transition and the forced FAILED write. It retries until the write lands or the node stops. A retry the release executor refuses while the node runs is resubmitted from the scheduled executor. This applies to outcome writes, permit releases and claim reschedules.
+
 In Jakarta EE, Ratchet builds the release pool from the managed thread factory named by `ratchet.worker.thread-factory-jndi` (default `java:comp/DefaultManagedThreadFactory`). The container's default managed scheduled executor can be shared with other applications on the server. Ratchet keeps its own release retries off it, but other applications' work can still delay the timers that run there.
 
-A custom `ExecutorProvider` must return a release executor that is not its scheduled executor. The runtime refuses to start if both are the same instance.
+A custom `ExecutorProvider` must return a release executor that is not its scheduled executor. The runtime refuses to start if both are the same instance. Size the release executor for this store work.
 
 The coordinator tracks pool utilization metrics, which feed back into the `PollingStrategy` to adjust polling aggressiveness.
 
@@ -276,6 +278,12 @@ scheduler.enqueue(() -> longRunningTask())
     .withTimeout(Duration.ofMinutes(5))
     .submit();
 ```
+
+Once the watchdog has counted the timeout against the attempt, the run can no longer finish the
+job, even before the watchdog schedules the retry. If the body returns successfully after that
+point, Ratchet discards the result, and the job runs again under the watchdog's retry or ends
+FAILED when no retries are left. If the run finishes first, its result stands and the watchdog's
+timeout handling is skipped.
 
 ### Stopping at a safe point
 

@@ -833,6 +833,22 @@ The orphan scan calls `releaseBusinessKeyHolds` and `deleteExpiredBusinessKeyHol
 
 `NodeStore.deleteInactiveNodesByIds` must keep the row of a node that still has a hold from one of its claims, so the next orphan scan finds the node again and calls `releaseBusinessKeyHolds` for it once more. Read the remaining holds with a read that neither skips nor waits for a locked hold row, then delete only the other nodes. A transactional store does both in one transaction. `AbstractActiveBusinessKeyContract` checks this rule.
 
+### Attempt-fenced terminal completion
+
+`JobTerminalStore.commitCompletion(JobCompletionPlan)` atomically checks the primary status,
+`expectedClaimSeq` when non-null, and `expectedAttempts` when non-null before applying any
+terminal, dependency, batch, reservation, or outbox effects. A non-null `expectedAttempts`
+requires a non-null `expectedClaimSeq`. A mismatch returns `JobCompletionResult.notCommitted()`
+with no writes. Null omits only the attempt-count comparison.
+
+SQL stores compare the locked queue row's attempts after checking its claim sequence. MongoDB
+includes the expected attempts in the same update filter as status and claim sequence. Do not
+merge the planned count with the stored count: a committed timeout charge under the same claim
+must reject the worker's completion. Workers pass the claim-time count, or the count returned
+by their own successful increment. When the worker's own increment throws, its forced FAILED
+write has no attempt fence (`expectedAttempts` is null). It is fenced on the claim only and
+writes the count it re-reads from the store. Timeout owners and unclaimed completions pass null.
+
 ### Claim-fenced job state
 
 The `JobStateStore` overloads that accept `expectedClaimSeq` return `StateWriteResult`.
@@ -841,6 +857,16 @@ The claim fence must be atomic with the state write. Check both RUNNING status a
 Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Return
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
+
+### Attempt-fenced retry charge
+
+`JobRetryStore.incrementRetryAttempt(id, expectedClaimSeq, expectedAttempts)` adds one to the
+attempt count and returns the new count. Atomically require RUNNING or WAITING status, the
+claim sequence when given, and `attempts == expectedAttempts` when given. A miss returns -1
+and writes nothing. The worker passes the count it was claimed with and the hard-timeout watchdog
+passes the count it read, so when both charge the same attempt only the first increment
+commits. The signal timeout on WAITING jobs passes no count, so it has no attempt fence.
+Add one to the job version.
 
 ### No-charge claim release
 

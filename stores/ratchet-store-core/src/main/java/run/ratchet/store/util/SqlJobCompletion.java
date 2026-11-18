@@ -96,6 +96,9 @@ public final class SqlJobCompletion {
     if (plan.expectedClaimSeq() != null
         && ((Number) primary[4]).longValue() != plan.expectedClaimSeq())
       return JobCompletionResult.notCommitted();
+    if (plan.expectedAttempts() != null
+        && ((Number) primary[3]).intValue() != plan.expectedAttempts())
+      return JobCompletionResult.notCommitted();
     for (var dependency : plan.dependencies()) {
       Object[] row = locked.get(dependency.jobId());
       if (row == null

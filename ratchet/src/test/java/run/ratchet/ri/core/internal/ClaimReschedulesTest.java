@@ -36,6 +36,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -44,6 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.spi.JobRetryStore;
 
@@ -55,7 +57,7 @@ class ClaimReschedulesTest {
   private final AtomicLong clock = new AtomicLong();
   private final ArrayDeque<Runnable> tasks = new ArrayDeque<>();
   private final ClaimReschedules reschedules =
-      new ClaimReschedules(store, () -> scheduler, clock::get);
+      new ClaimReschedules(store, () -> scheduler, null, clock::get);
 
   @BeforeEach
   void captureTasks() {
@@ -241,14 +243,15 @@ class ClaimReschedulesTest {
   @Test
   void missingOrThrowingSchedulerRefusesHandoff() {
     assertFalse(
-        new ClaimReschedules(store, () -> null)
+        new ClaimReschedules(store, () -> null, null)
             .handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
     assertFalse(
         new ClaimReschedules(
                 store,
                 () -> {
                   throw new IllegalStateException("missing");
-                })
+                },
+                null)
             .handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
     verifyNoInteractions(store);
   }
@@ -278,6 +281,93 @@ class ClaimReschedulesTest {
     assertEquals(1, tasks.size());
     drainAt(2);
     verify(store).releaseClaim(JOB, "release", TIME, 2, 8L);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void refusedHandoffRetainsItemAndUsesOneTimerWithCappedBackoff() {
+    ScheduledExecutorService timer = mock(ScheduledExecutorService.class);
+    ArrayDeque<Runnable> rearms = new ArrayDeque<>();
+    doAnswer(
+            invocation -> {
+              rearms.add(invocation.getArgument(0));
+              return null;
+            })
+        .when(timer)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+    doThrow(new RejectedExecutionException("busy"))
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    ClaimReschedules retrying =
+        new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
+    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
+    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}));
+    assertEquals(1, rearms.size());
+    for (int i = 0; i < 7; i++) rearms.remove().run();
+    ArgumentCaptor<Long> delays = ArgumentCaptor.forClass(Long.class);
+    verify(timer, times(8)).schedule(any(Runnable.class), delays.capture(), eq(TimeUnit.SECONDS));
+    assertEquals(List.of(1L, 2L, 4L, 8L, 16L, 32L, 60L, 60L), delays.getAllValues());
+    verifyNoInteractions(store);
+    captureTasks();
+    rearms.remove().run();
+    verifyNoInteractions(store);
+    drainAt(100);
+    verify(store).releaseClaim(JOB, "release", TIME, 2, 7L);
+    assertTrue(rearms.isEmpty());
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void refusedDrainRearmRetainsPendingUntilTimerResubmits() {
+    ScheduledExecutorService timer = mock(ScheduledExecutorService.class);
+    ArrayDeque<Runnable> rearms = new ArrayDeque<>();
+    doAnswer(
+            invocation -> {
+              rearms.add(invocation.getArgument(0));
+              return null;
+            })
+        .when(timer)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+    ClaimReschedules retrying =
+        new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
+        .thenThrow(new RatchetTransientStoreException("down"))
+        .thenReturn(true);
+    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> fail("rejected")));
+    doThrow(new RejectedExecutionException("busy"))
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    drainAt(1);
+    assertEquals(1, rearms.size());
+    captureTasks();
+    rearms.remove().run();
+    drainAt(5);
+    verify(store, times(2)).releaseClaim(JOB, "release", TIME, 2, 7L);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void bothExecutorsRefusingDropsHandoffAndDrainItems() {
+    ScheduledExecutorService timer = mock(ScheduledExecutorService.class);
+    doThrow(new RejectedExecutionException("busy"))
+        .when(timer)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    ClaimReschedules retrying =
+        new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
+        .thenThrow(new RatchetTransientStoreException("down"));
+    assertTrue(retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> fail("rejected")));
+    doThrow(new RejectedExecutionException("busy"))
+        .when(scheduler)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    drainAt(1);
+    assertFalse(retrying.handOff(JOB, 8, "release", TIME, 2, () -> false, () -> fail("rejected")));
+    captureTasks();
+    assertTrue(retrying.handOff(JOB, 9, "release", TIME, 2, () -> false, () -> {}));
+    drainAt(100);
+    verify(store).releaseClaim(JOB, "release", TIME, 2, 7L);
+    verify(store).releaseClaim(JOB, "release", TIME, 2, 9L);
+    verify(store, never()).releaseClaim(eq(JOB), any(), any(), anyInt(), eq(8L));
     assertTrue(tasks.isEmpty());
   }
 }

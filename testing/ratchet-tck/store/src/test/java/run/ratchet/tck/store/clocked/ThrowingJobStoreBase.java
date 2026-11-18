@@ -307,7 +307,8 @@ public abstract class ThrowingJobStoreBase
   // ----- JobRetryStore -----
 
   @Override
-  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+  public int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     return fail("incrementRetryAttempt");
   }
 

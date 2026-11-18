@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -72,7 +73,7 @@ class JobSuccessFinalizerTest {
     job.setDependsOn(batchId);
     job.setJobType(JobExecutionType.BATCH_CHILD);
     when(batches.findBatchById(batchId)).thenReturn(Optional.of(batch));
-    when(lifecycleFacade.completeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L))
+    when(lifecycleFacade.completeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L, 2))
         .thenThrow(new RatchetTransientStoreException("busy"))
         .thenThrow(new RatchetTransientStoreException("busy"))
         .thenThrow(new RatchetTransientStoreException("busy"))
@@ -84,10 +85,10 @@ class JobSuccessFinalizerTest {
     finalizer.configureBatchStore(batches);
     assertEquals(
         JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL,
-        finalizer.finalizeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L));
+        finalizer.finalizeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L, 2));
     verify(lifecycleFacade, times(6))
-        .completeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L);
-    verify(lifecycleFacade, never()).completeSuccessMinimal(job, START, END, 1000L, 0L);
+        .completeSuccess(job, "7", "java.lang.Long", START, END, 1000L, 0L, 2);
+    verify(lifecycleFacade, never()).completeSuccessMinimal(job, START, END, 1000L, 0L, 2);
   }
 
   @AfterEach
@@ -97,7 +98,7 @@ class JobSuccessFinalizerTest {
 
   @Test
   void transientConflictRetriesAndPersistsTheFullResult() {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(true);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
@@ -106,28 +107,31 @@ class JobSuccessFinalizerTest {
 
     assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_FULL, outcome);
     assertEquals(List.of(25L), delays);
-    verify(lifecycleFacade, times(2)).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+    verify(lifecycleFacade, times(2))
+        .completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null);
     verify(lifecycleFacade, never())
-        .completeSuccessMinimal(any(JobEntity.class), any(), any(), anyLong(), anyLong());
+        .completeSuccessMinimal(
+            any(JobEntity.class), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(observer).recordSuccessFinalizationRetry(job);
   }
 
   @org.junit.jupiter.params.ParameterizedTest
   @org.junit.jupiter.params.provider.ValueSource(strings = {"08003", "40001"})
   void transactionBoundarySqlFailuresUseExistingBoundedRetries(String state) {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(
             new IllegalStateException("transaction failed", new SQLException("temporary", state)))
         .thenReturn(true);
     assertEquals(
         JobSuccessFinalizer.Outcome.COMPLETED_FULL, finalizeSuccess(finalizer(delays::add, 0L)));
     assertEquals(List.of(25L), delays);
-    verify(lifecycleFacade, times(2)).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+    verify(lifecycleFacade, times(2))
+        .completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null);
   }
 
   @Test
   void poolClosedConnectionWithoutSqlStateUsesBoundedRetries() {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(
             new IllegalStateException("rollback failed", new SQLException("Connection is closed")))
         .thenReturn(true);
@@ -147,7 +151,7 @@ class JobSuccessFinalizerTest {
   @Test
   void permanentSqlConstraintFailureIsNotRetried() {
     var failure = new IllegalStateException("constraint", new SQLException("duplicate", "23505"));
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(failure);
     Assertions.assertSame(
         failure,
@@ -155,30 +159,33 @@ class JobSuccessFinalizerTest {
             IllegalStateException.class, () -> finalizeSuccess(finalizer(delays::add, 0L))));
     assertEquals(List.of(), delays);
     verify(lifecycleFacade, never())
-        .completeSuccessMinimal(any(JobEntity.class), any(), any(), anyLong(), anyLong());
+        .completeSuccessMinimal(
+            any(JobEntity.class), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
   }
 
   @Test
   void exhaustedFullWritesFallBackToMinimalSuccess() {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenReturn(true);
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L, null))
+        .thenReturn(true);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
     JobSuccessFinalizer.Outcome outcome = finalizeSuccess(finalizer);
 
     assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL, outcome);
     assertEquals(List.of(25L, 50L, 100L, 200L), delays);
-    verify(lifecycleFacade, times(5)).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+    verify(lifecycleFacade, times(5))
+        .completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null);
     verify(observer, times(5)).recordSuccessFinalizationRetry(job);
     verify(observer).recordSuccessFinalizationMinimal(job);
   }
 
   @Test
   void minimalWriteConflictReportsStuckWithoutChangingTheOutcomeToFailure() {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L, null))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
@@ -191,7 +198,7 @@ class JobSuccessFinalizerTest {
 
   @Test
   void falseCompareAndSwapReturnsTerminalSkippedWithoutRetrying() {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenReturn(false);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
@@ -204,7 +211,7 @@ class JobSuccessFinalizerTest {
 
   @Test
   void interruptedRetryReportsToCallerBeforeMinimalSuccess() {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
     JobSuccessFinalizer finalizer =
         finalizer(
@@ -219,13 +226,13 @@ class JobSuccessFinalizerTest {
     assertEquals(JobSuccessFinalizer.Outcome.INTERRUPTED, outcome);
     assertEquals(List.of(25L), delays);
     assertFalse(Thread.currentThread().isInterrupted());
-    verify(lifecycleFacade).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
-    verify(lifecycleFacade, never()).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(lifecycleFacade).completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null);
+    verify(lifecycleFacade, never()).completeSuccessMinimal(job, START, END, 1_000L, 25L, null);
   }
 
   @Test
   void jitterIsAddedToTheConfiguredBackoff() {
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(true);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 7L);
@@ -238,7 +245,7 @@ class JobSuccessFinalizerTest {
   @Test
   void nonTransientStoreFailureStillEscapesToTheJobFailurePath() {
     IllegalStateException storeFailure = new IllegalStateException("database unavailable");
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenThrow(storeFailure);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
@@ -251,9 +258,10 @@ class JobSuccessFinalizerTest {
 
   @Test
   void minimalSuccessWritesOnceAndRecordsCompletion() {
-    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenReturn(true);
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L, null))
+        .thenReturn(true);
     assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL, finalizeMinimalSuccess());
-    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L, null);
     verify(observer).recordSuccessFinalizationMinimal(job);
     assertTrue(delays.isEmpty());
   }
@@ -261,16 +269,16 @@ class JobSuccessFinalizerTest {
   @Test
   void minimalSuccessReturnsTerminalSkipped() {
     assertEquals(JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED, finalizeMinimalSuccess());
-    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L, null);
     verify(observer, never()).recordSuccessFinalizationMinimal(any());
   }
 
   @Test
   void minimalSuccessReturnsStuckWithoutRepeatingStuckObservation() {
-    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L, null))
         .thenThrow(new RatchetTransientStoreException("busy"));
     assertEquals(JobSuccessFinalizer.Outcome.STUCK, finalizeMinimalSuccess());
-    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
+    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L, null);
     verify(observer, never()).recordSuccessFinalizationStuck(any());
     assertTrue(delays.isEmpty());
   }
@@ -278,7 +286,8 @@ class JobSuccessFinalizerTest {
   @Test
   void minimalSuccessPropagatesNonTransientFailure() {
     IllegalStateException failure = new IllegalStateException("invalid write");
-    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenThrow(failure);
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L, null))
+        .thenThrow(failure);
     Assertions.assertSame(
         failure, assertThrows(IllegalStateException.class, this::finalizeMinimalSuccess));
   }
@@ -292,22 +301,22 @@ class JobSuccessFinalizerTest {
     job.setDependsOn(batchId);
     job.setJobType(JobExecutionType.BATCH_CHILD);
     when(batches.findBatchById(batchId)).thenReturn(Optional.of(batch));
-    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null))
         .thenReturn(true);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
     finalizer.configureBatchStore(batches);
     assertEquals(
         JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL,
-        finalizer.finalizeMinimalSuccess(job, "json", "type", START, END, 1_000L, 25L));
-    verify(lifecycleFacade).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+        finalizer.finalizeMinimalSuccess(job, "json", "type", START, END, 1_000L, 25L, null));
+    verify(lifecycleFacade).completeSuccess(job, "json", "type", START, END, 1_000L, 25L, null);
     verify(lifecycleFacade, never())
-        .completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong());
+        .completeSuccessMinimal(any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(observer).recordSuccessFinalizationMinimal(job);
   }
 
   private JobSuccessFinalizer.Outcome finalizeMinimalSuccess() {
     return finalizer(delays::add, 0L)
-        .finalizeMinimalSuccess(job, "json", "type", START, END, 1_000L, 25L);
+        .finalizeMinimalSuccess(job, "json", "type", START, END, 1_000L, 25L, null);
   }
 
   private JobSuccessFinalizer finalizer(JobSuccessFinalizer.Sleeper sleeper, long jitter) {
@@ -315,6 +324,6 @@ class JobSuccessFinalizerTest {
   }
 
   private JobSuccessFinalizer.Outcome finalizeSuccess(JobSuccessFinalizer finalizer) {
-    return finalizer.finalizeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+    return finalizer.finalizeSuccess(job, "json", "type", START, END, 1_000L, 25L, null);
   }
 }

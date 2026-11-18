@@ -37,6 +37,46 @@ class InMemoryJobStoreTest {
   private static final Instant NOW = Instant.parse("2026-05-09T12:00:00Z");
 
   @Test
+  void completionRejectsAttemptCountChangedUnderSameClaim() {
+    InMemoryJobStore store = new InMemoryJobStore(Clock.fixed(NOW, ZoneOffset.UTC));
+    JobEntity job = new JobEntity();
+    job.setStatus(JobStatus.RUNNING);
+    job.setClaimSeq(7L);
+    job.setAttempts(2);
+    store.save(job);
+    var claim = store.findById(job.getId()).orElseThrow();
+    int baseline = claim.getAttempts();
+    job.setAttempts(baseline + 1);
+    for (JobStatus terminal : List.of(JobStatus.SUCCEEDED, JobStatus.FAILED)) {
+      var plan =
+          new JobCompletionPlan(
+              job.getId(),
+              JobStatus.RUNNING,
+              terminal,
+              "result",
+              "text",
+              "error",
+              baseline,
+              NOW,
+              NOW,
+              0L,
+              0L,
+              null,
+              null,
+              List.of(),
+              claim.getClaimSeq(),
+              baseline,
+              List.of());
+      Assertions.assertFalse(store.commitCompletion(plan).committed());
+      var untouched = store.findById(job.getId()).orElseThrow();
+      assertEquals(JobStatus.RUNNING, untouched.getStatus());
+      assertEquals(baseline + 1, untouched.getAttempts());
+      Assertions.assertNull(untouched.getJobResult());
+      Assertions.assertNull(untouched.getLastError());
+    }
+  }
+
+  @Test
   void findTimedOutSignalJobsRejectsZeroLimit() {
     InMemoryJobStore store = new InMemoryJobStore(Clock.fixed(NOW, ZoneOffset.UTC));
     store.save(waitingJob(NOW.minusSeconds(1)));
@@ -93,6 +133,7 @@ class InMemoryJobStoreTest {
             null,
             List.of(dependency),
             null,
+            null,
             List.of());
 
     assertThrows(RatchetTransientStoreException.class, () -> store.commitCompletion(plan));
@@ -122,6 +163,7 @@ class InMemoryJobStoreTest {
             null,
             null,
             List.of(),
+            null,
             null,
             List.of());
 

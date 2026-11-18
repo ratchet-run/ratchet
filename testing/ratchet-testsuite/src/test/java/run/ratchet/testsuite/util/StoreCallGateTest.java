@@ -30,6 +30,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -85,6 +87,35 @@ class StoreCallGateTest {
   }
 
   @Test
+  void matchingFaultThrowsOnceAndThenReachesTheDelegate() throws Exception {
+    UUID jobId = UUID.randomUUID();
+    AtomicInteger delegateCalls = new AtomicInteger();
+    BooleanSupplier delegate = () -> delegateCalls.incrementAndGet() > 0;
+    Thread executorThread = executor.submit(Thread::currentThread).get(5, TimeUnit.SECONDS);
+    StoreCallGate.Fault fault = StoreCallGate.failNext("getJobStatus", Callers.class);
+    StoreCallGate.Watch watch = StoreCallGate.watch("getJobStatus", jobId);
+
+    Future<?> first = executor.submit(() -> Callers.right(jobId, delegate));
+    fault.awaitFired(Duration.ofSeconds(5));
+    ExecutionException failure =
+        assertThrows(ExecutionException.class, () -> first.get(5, TimeUnit.SECONDS));
+    assertInstanceOf(IllegalStateException.class, failure.getCause());
+    assertEquals("StoreCallGate fault in getJobStatus", failure.getCause().getMessage());
+    assertEquals(jobId, fault.jobId());
+    assertSame(executorThread, fault.thread());
+    assertEquals(0, delegateCalls.get());
+    assertEquals(1, watch.count());
+    assertTrue(StoreCallGate.calledOn(jobId, "getJobStatus", executorThread));
+    assertFalse(StoreCallGate.returnedOn(jobId, "getJobStatus", executorThread, null));
+    assertFalse(StoreCallGate.returnedOn(jobId, "getJobStatus", executorThread, true));
+
+    assertTrue(executor.submit(() -> Callers.right(jobId, delegate)).get(5, TimeUnit.SECONDS));
+    assertEquals(1, delegateCalls.get());
+    assertEquals(2, watch.count());
+    assertTrue(StoreCallGate.returnedOn(jobId, "getJobStatus", executorThread, true));
+  }
+
+  @Test
   void returnedOnAndCalledOnMatchTheResultAndThread() throws Exception {
     UUID jobId = UUID.randomUUID();
     Thread executorThread = executor.submit(Thread::currentThread).get(5, TimeUnit.SECONDS);
@@ -109,13 +140,18 @@ class StoreCallGateTest {
 
   private static final class Callers {
     static boolean right(UUID jobId) {
+      return right(jobId, () -> true);
+    }
+
+    static boolean right(UUID jobId, BooleanSupplier delegate) {
       StoreCallGate.Pause fired = StoreCallGate.enter("getJobStatus", jobId);
       boolean completed = false;
       Object returned = null;
       try {
-        returned = Boolean.TRUE;
+        boolean result = delegate.getAsBoolean();
+        returned = result;
         completed = true;
-        return true;
+        return result;
       } finally {
         StoreCallGate.exit("getJobStatus", jobId, fired, completed, returned);
       }

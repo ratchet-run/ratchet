@@ -588,7 +588,8 @@ public class BatchService {
             JobStatus.PENDING,
             new JobCompletionPlan.BatchCompletion(
                 batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems()),
-            workflow);
+            workflow,
+            null);
     if (durableEnabled) plan = durable.withEvents(plan, terminalEvents);
     JobCompletionResult committed = jobTerminalStore.commitCompletion(plan);
     if (!committed.committed()) {

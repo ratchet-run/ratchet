@@ -243,7 +243,7 @@ class TransactionCarrierContractTest {
       context.registerSingleton(BatchCompletionTransaction.class, completion);
       context.start();
       PostExecutionHandler handler = context.getBean(PostExecutionHandler.class);
-      assertFalse(handler.completeFailure(new JobEntity(), JobStatus.RUNNING, false));
+      assertFalse(handler.completeFailure(new JobEntity(), JobStatus.RUNNING, false, null));
       verify(completion).complete(any());
     }
   }

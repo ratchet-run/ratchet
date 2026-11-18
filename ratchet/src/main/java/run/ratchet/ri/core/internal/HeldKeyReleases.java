@@ -47,7 +47,7 @@ final class HeldKeyReleases {
   void release(UUID jobId, long claimSeq) {
     retries.release(
         new ReleaseRetries.Release(
-            "business-key hold for job " + jobId,
+            "release of the business-key hold for job " + jobId,
             "its expiry",
             Logger.Level.DEBUG,
             () -> store.releaseBusinessKeyHold(jobId, claimSeq)));

@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -122,8 +123,10 @@ class JobTaskAuthorizationTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
-            new PermitReleases(resourcePermitService, () -> mock(ScheduledExecutorService.class)),
-            new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class)),
+            new PermitReleases(
+                resourcePermitService, () -> mock(ScheduledExecutorService.class), null),
+            new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class), null),
+            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class), null),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -173,13 +176,15 @@ class JobTaskAuthorizationTest {
         new JobAuthorizationException(JOB_UUID, "execute", OWNER_PRINCIPAL, "denied");
     doThrow(denial).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
     when(validationFacade.shouldNotRetry(denial)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(), any());
-    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   @Test
@@ -193,7 +198,8 @@ class JobTaskAuthorizationTest {
         new JobAuthorizationException(JOB_UUID, "execute", OWNER_PRINCIPAL, "denied");
     doThrow(denial).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
     when(validationFacade.shouldNotRetry(denial)).thenReturn(true);
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenReturn(false);
 
     jobTask.call();
@@ -216,7 +222,7 @@ class JobTaskAuthorizationTest {
     RuntimeException failure = new RuntimeException("authorization backend unavailable");
     doThrow(failure).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
     when(validationFacade.shouldNotRetry(failure)).thenReturn(false);
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L, 0)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, failure)).thenReturn(true);
     when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
     when(errorSanitizer.sanitize(failure)).thenReturn("authorization backend unavailable");
@@ -226,11 +232,12 @@ class JobTaskAuthorizationTest {
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(), any());
-    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L, 0);
     verify(retryPolicy).shouldRetry(1, failure);
     verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L));
     verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
-    verify(lifecycleFacade, never()).completeFailure(any(JobEntity.class), any(), eq(false));
+    verify(lifecycleFacade, never())
+        .completeFailure(any(JobEntity.class), any(), eq(false), nullable(Integer.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
   }
 
@@ -274,8 +281,10 @@ class JobTaskAuthorizationTest {
             mock(JobStateFlusher.class),
             null,
             new HeldKeyReleases(jobStore, () -> mock(ScheduledExecutorService.class)),
-            new PermitReleases(resourcePermitService, () -> mock(ScheduledExecutorService.class)),
-            new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class)),
+            new PermitReleases(
+                resourcePermitService, () -> mock(ScheduledExecutorService.class), null),
+            new ClaimReschedules(jobStore, () -> mock(ScheduledExecutorService.class), null),
+            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class), null),
             Clock.systemUTC(),
             null,
             RatchetOptions.defaults());
@@ -292,7 +301,8 @@ class JobTaskAuthorizationTest {
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     // Default DefaultResultPersistenceStrategy is a real object that handles exceptions
-    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(true);
 
     nullPolicyTask.call();
@@ -354,7 +364,8 @@ class JobTaskAuthorizationTest {
             });
     when(resultPersistenceStrategy.serialize(any(), any()))
         .thenReturn(new SerializedJobResult(null, null));
-    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(true);
   }
 }

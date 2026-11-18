@@ -848,6 +848,7 @@ public abstract class AbstractTransactionalCompletionStoreContract
         null,
         List.of(),
         job.getClaimSeq(),
+        null,
         List.of());
   }
 }

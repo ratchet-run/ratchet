@@ -38,6 +38,44 @@ import run.ratchet.store.spi.JobStore;
 
 class SqlJobCompletionTest {
   @Test
+  void attemptsMissReturnsNotCommittedWithoutWrites() {
+    var em = mock(EntityManager.class);
+    var store = mock(JobStore.class);
+    var locked = mock(Query.class, RETURNS_SELF);
+    UUID id = UUID.randomUUID();
+    Instant now = Instant.now();
+    when(em.createNativeQuery(startsWith("SELECT "))).thenReturn(locked);
+    when(locked.getResultList())
+        .thenReturn(List.<Object[]>of(new Object[] {"RUNNING", 0, now, 3, 7L}));
+    var plan =
+        new JobCompletionPlan(
+            id,
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            "result",
+            "text",
+            null,
+            2,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(),
+            7L,
+            2,
+            List.of());
+
+    assertEquals(
+        false,
+        SqlJobCompletion.commit(em, store, mock(BatchStore.class), plan, false, uuid -> uuid)
+            .committed());
+    verify(em, never()).createNativeQuery(startsWith("UPDATE "));
+    verifyNoInteractions(store);
+  }
+
+  @Test
   void queueRowsLockInUnsignedBinaryKeyOrder() {
     var em = mock(EntityManager.class);
     var store = mock(JobStore.class);
@@ -74,6 +112,7 @@ class SqlJobCompletionTest {
             null,
             null,
             List.of(dependency),
+            null,
             null,
             List.of());
     List<UUID> lockOrder = new ArrayList<>();
@@ -158,6 +197,7 @@ class SqlJobCompletionTest {
             staleBatch ? new JobCompletionPlan.BatchCompletion(2, 2, 0) : null,
             List.of(dependency),
             null,
+            null,
             List.of());
     Consumer<JobCompletionPlan.DependencyTransition> writer = mock(Consumer.class);
     if (stale) {
@@ -211,6 +251,7 @@ class SqlJobCompletionTest {
             null,
             null,
             List.of(),
+            null,
             null,
             List.of());
 

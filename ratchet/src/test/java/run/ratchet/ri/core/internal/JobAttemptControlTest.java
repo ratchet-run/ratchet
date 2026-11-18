@@ -236,6 +236,44 @@ class JobAttemptControlTest {
   }
 
   @Test
+  void holdTimeoutForWorkerClaimsUnclaimedTimeout() {
+    JobAttemptControl attempt = newAttempt();
+    assertTrue(attempt.holdTimeoutForWorker());
+    assertFalse(attempt.claimTimeoutForWatchdog());
+    assertFalse(attempt.isRevoked());
+  }
+
+  @Test
+  void holdTimeoutForWorkerKeepsWorkerOwnership() {
+    JobAttemptControl attempt = newAttempt();
+    assertTrue(attempt.claimTimeoutForWorker());
+    assertTrue(attempt.holdTimeoutForWorker());
+  }
+
+  @Test
+  void holdTimeoutForWorkerKeepsOwnershipAfterWatchdogPassed() {
+    JobAttemptControl attempt = newAttempt();
+    assertTrue(attempt.claimTimeoutForWorker());
+    assertFalse(attempt.claimTimeoutForWatchdog());
+    assertTrue(attempt.holdTimeoutForWorker());
+  }
+
+  @Test
+  void holdTimeoutForWorkerRejectsWatchdogOwnership() {
+    JobAttemptControl attempt = newAttempt();
+    assertTrue(attempt.claimTimeoutForWatchdog());
+    assertFalse(attempt.holdTimeoutForWorker());
+  }
+
+  @Test
+  void holdTimeoutForWorkerRejectsHandedBackTimeout() {
+    JobAttemptControl attempt = newAttempt();
+    assertTrue(attempt.claimTimeoutForWorker());
+    assertTrue(attempt.handBackTimeoutToWatchdog());
+    assertFalse(attempt.holdTimeoutForWorker());
+  }
+
+  @Test
   void requestUserCancel_setsUserAndGeneralCancelFlags() {
     // A user stop sets both the user flag and the general cancellation flag.
     JobAttemptControl attempt = newAttempt();

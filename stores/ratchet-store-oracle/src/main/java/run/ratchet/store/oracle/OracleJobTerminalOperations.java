@@ -131,24 +131,31 @@ final class OracleJobTerminalOperations {
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+  int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     try {
       // language=Oracle
       String updateSql =
           """
           UPDATE scheduler_job_queue
           SET attempts = attempts + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), version = version + 1
-          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s%s
           """
-              .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
+              .formatted(
+                  expectedClaimSeq == null ? "" : " AND claim_seq = ?",
+                  expectedAttempts == null ? "" : " AND attempts = ?");
       int updated =
           ctx.timedStoreOperation(
               "increment_retry_attempt",
               () -> {
                 try {
-                  return ClaimFence.bind(ctx.em().createNativeQuery(updateSql), expectedClaimSeq, 2)
-                      .setParameter(1, UuidRawConverter.toBytes(id))
-                      .executeUpdate();
+                  Query query =
+                      ClaimFence.bind(
+                          ctx.em().createNativeQuery(updateSql),
+                          expectedClaimSeq,
+                          expectedAttempts,
+                          2);
+                  return query.setParameter(1, UuidRawConverter.toBytes(id)).executeUpdate();
                 } catch (RuntimeException e) {
                   throw ctx.translateTransientStoreException("increment retry attempt", e);
                 }

@@ -79,12 +79,13 @@ public abstract class StoreCallGateDecorator implements JobStore {
   }
 
   @Override
-  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+  public int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     StoreCallGate.Pause fired = StoreCallGate.enter("incrementRetryAttempt", id);
     boolean completed = false;
     Object returned = null;
     try {
-      int result = delegate.incrementRetryAttempt(id, expectedClaimSeq);
+      int result = delegate.incrementRetryAttempt(id, expectedClaimSeq, expectedAttempts);
       returned = result;
       completed = true;
       return result;

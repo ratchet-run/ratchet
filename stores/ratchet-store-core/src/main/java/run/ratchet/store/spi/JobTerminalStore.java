@@ -40,13 +40,14 @@ public interface JobTerminalStore {
 
   /**
    * Commits a terminal transition, dependency mutations, and optional batch accounting atomically.
-   * A lost primary status guard returns notCommitted without applying any effects. A stale
-   * dependency or batch guard throws RatchetTransientStoreException and rolls back the entire
-   * operation, so the caller can rebuild its plan. Implementations must use one actual
-   * backing-store transaction (including one Mongo ClientSession); composing independently
-   * committed calls is invalid. Batch child counters and duration are incremented only by the
-   * winning primary transition. completedBatch also sets completion_processed and finalizes batch
-   * metrics in this transaction.
+   * A lost primary status, claim-sequence, or non-null expected-attempts guard returns notCommitted
+   * without applying any effects. The stored attempt count must equal plan.expectedAttempts() when
+   * non-null; null omits that comparison. A stale dependency or batch guard throws
+   * RatchetTransientStoreException and rolls back the entire operation, so the caller can rebuild
+   * its plan. Implementations must use one actual backing-store transaction (including one Mongo
+   * ClientSession); composing independently committed calls is invalid. Batch child counters and
+   * duration are incremented only by the winning primary transition. completedBatch also sets
+   * completion_processed and finalizes batch metrics in this transaction.
    *
    * <p>A store implementing {@link EventOutboxStore} inserts {@code plan.outboxEvents()} in this
    * same transaction only when the primary transition commits. A notCommitted result or a stale

@@ -26,4 +26,15 @@ public final class ClaimFence {
     if (expectedClaimSeq != null) query.setParameter(parameter, expectedClaimSeq);
     return query;
   }
+
+  /** Binds the claim sequence first, then the expected attempts, starting at {@code parameter}. */
+  public static Query bind(
+      Query query,
+      @Nullable Long expectedClaimSeq,
+      @Nullable Integer expectedAttempts,
+      int parameter) {
+    if (expectedClaimSeq != null) query.setParameter(parameter++, expectedClaimSeq);
+    if (expectedAttempts != null) query.setParameter(parameter, expectedAttempts);
+    return query;
+  }
 }

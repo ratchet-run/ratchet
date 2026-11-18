@@ -199,6 +199,7 @@ public final class JobAttemptControl {
   private final @Nullable String nodeId;
   private final AtomicBoolean superseded = new AtomicBoolean();
   private volatile boolean userCancelRequested;
+  private volatile boolean timeoutOutcomeUnknown;
   private final AtomicBoolean revoked = new AtomicBoolean();
   private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
@@ -253,6 +254,21 @@ public final class JobAttemptControl {
 
   public boolean isSuperseded() {
     return superseded.get();
+  }
+
+  /** Records that the watchdog's reschedule may have ended this attempt. */
+  public void markTimeoutOutcomeUnknown() {
+    timeoutOutcomeUnknown = true;
+  }
+
+  /** Clears uncertainty when the watchdog's reschedule was explicitly rejected. */
+  public void clearTimeoutOutcomeUnknown() {
+    timeoutOutcomeUnknown = false;
+  }
+
+  /** Whether a later canceled row may belong to the job the watchdog rescheduled. */
+  public boolean timeoutOutcomeUnknown() {
+    return timeoutOutcomeUnknown;
   }
 
   /**
@@ -333,6 +349,24 @@ public final class JobAttemptControl {
   /** Claims the timeout transition for the cooperative worker. */
   public boolean claimTimeoutForWorker() {
     return timeoutOwner.compareAndSet(TimeoutOwner.UNCLAIMED, TimeoutOwner.WORKER);
+  }
+
+  /**
+   * Holds the timeout for the worker before it decides the outcome: claims it if unclaimed and
+   * keeps it if the worker already owns it. Returns false once the watchdog has claimed it or it
+   * was handed back.
+   */
+  public boolean holdTimeoutForWorker() {
+    while (true) {
+      TimeoutOwner owner = timeoutOwner.get();
+      if (owner == TimeoutOwner.UNCLAIMED) {
+        if (timeoutOwner.compareAndSet(owner, TimeoutOwner.WORKER)) {
+          return true;
+        }
+      } else {
+        return owner == TimeoutOwner.WORKER || owner == TimeoutOwner.WORKER_WATCHDOG_PASSED;
+      }
+    }
   }
 
   /** Claims the timeout for the watchdog, or records that it passed a worker-owned timeout. */

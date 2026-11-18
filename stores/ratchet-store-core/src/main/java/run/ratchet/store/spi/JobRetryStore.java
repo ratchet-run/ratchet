@@ -29,17 +29,23 @@ import run.ratchet.store.entity.JobEntity;
 public interface JobRetryStore {
 
   /**
-   * Increments the retry attempt count.
+   * Increments the retry attempt count for a RUNNING or WAITING job.
    *
    * <p>The increment also increments the job version ({@link JobEntity#getVersion()}), so a save of
    * an entity read before it fails its version check.
    *
    * @param id job id whose attempt counter should be incremented; never {@code null}
    * @param expectedClaimSeq claim sequence received by the owner; null for a non-owner mutation
-   * @return the new attempt count, or {@code -1} when no retryable job row matched the id
+   * @param expectedAttempts when non-null, atomically require the stored attempts to equal this
+   *     count; null applies no count check
+   * @return the new attempt count, or {@code -1} when no retryable row matched the id, claim
+   *     sequence, or expected count; a miss writes nothing and does not identify which condition
+   *     missed. A caller that needs to distinguish misses re-reads the row or uses its own
+   *     ownership state.
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
-  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq);
+  int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts);
 
   /**
    * Schedules the next retry attempt for a RUNNING or WAITING job. Implementations return {@code
@@ -58,7 +64,7 @@ public interface JobRetryStore {
    * @param newScheduledTime instant at which the job becomes eligible for re-pickup; never {@code
    *     null}
    * @param attempts attempt counter to persist on the row (typically the post-increment value
-   *     returned by {@link #incrementRetryAttempt(UUID, Long)})
+   *     returned by {@link #incrementRetryAttempt(UUID, Long, Integer)})
    * @param expectedClaimSeq claim sequence received by the owner; null for a non-owner mutation
    * @return {@code true} when the row was RUNNING or WAITING and was rescheduled, {@code false}
    *     otherwise

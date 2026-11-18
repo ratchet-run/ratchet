@@ -69,7 +69,8 @@ class ReleaseSchedulingShutdownTest {
       } finally {
         Thread.interrupted();
       }
-      ClaimReschedules reschedules = new ClaimReschedules(mock(JobRetryStore.class), executor);
+      ClaimReschedules reschedules =
+          new ClaimReschedules(mock(JobRetryStore.class), executor, null);
       assertFalse(
           assertDoesNotThrow(
               () ->

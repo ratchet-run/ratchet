@@ -329,6 +329,15 @@ public class JobTimeoutHandler {
       Future<?> future,
       ScheduledExecutorService scheduler,
       Instant executionStartTime) {
+    return scheduleTimeoutMonitoring(attempt, future, scheduler, executionStartTime, null);
+  }
+
+  public TimeoutHandles scheduleTimeoutMonitoring(
+      JobAttemptControl attempt,
+      Future<?> future,
+      ScheduledExecutorService scheduler,
+      Instant executionStartTime,
+      OutcomeWriteRetries retries) {
     UUID jobId = attempt.jobId();
     long timeoutSec = attempt.timeoutSeconds();
     AtomicBoolean softTimeoutSent = new AtomicBoolean(false);
@@ -357,7 +366,7 @@ public class JobTimeoutHandler {
       }
       ScheduledFuture<?> hard =
           scheduler.schedule(
-              () -> handleHardTimeoutById(attempt, future), timeoutSec, TimeUnit.SECONDS);
+              () -> handleHardTimeoutById(attempt, future, retries), timeoutSec, TimeUnit.SECONDS);
       trackAttempt(attempt);
       return new TimeoutHandles(
           soft, cancellationRequest, hard, attempt, () -> untrackAttempt(attempt));
@@ -557,9 +566,9 @@ public class JobTimeoutHandler {
     }
     job.setClaimSeq(expectedClaimSeq);
     job.setPickedBy(nodeId);
-    boolean incrementAlreadyApplied =
-        baselineAttempts != null && job.getAttempts() > baselineAttempts;
-    int newAttempts = incrementAlreadyApplied ? job.getAttempts() : job.getAttempts() + 1;
+    int readAttempts = job.getAttempts();
+    boolean incrementAlreadyApplied = baselineAttempts != null && readAttempts > baselineAttempts;
+    int newAttempts = incrementAlreadyApplied ? readAttempts : readAttempts + 1;
     if (incrementAlreadyApplied) {
       log.infof(
           "Job %s timeout retry increment was already applied (%s attempts)", jobId, newAttempts);
@@ -577,7 +586,7 @@ public class JobTimeoutHandler {
     // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
     // attempts are part of commitCompletion, including for stores without ambient JTA.
     if (!incrementAlreadyApplied && retryAllowed) {
-      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq);
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq, readAttempts);
       if (newAttempts < 0) {
         warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId, attempt);
         miss.set(TimeoutMiss.WRITE_MISSED);
@@ -586,9 +595,19 @@ public class JobTimeoutHandler {
     }
     if (retryAllowed && newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
+      // The reschedule can leave the job live, so a later CANCELED row may be a cancel of
+      // the job it produced. On SQL stores the charge and reschedule share the REQUIRES_NEW
+      // transaction: a throw before commit rolls both back, so the flag is conservative.
+      // A miss clears only a mark this try set. An earlier try's reschedule may have committed
+      // before it threw, and this try's write then misses on the claim that followed it.
+      boolean earlierOutcomeUnknown = attempt != null && attempt.timeoutOutcomeUnknown();
+      if (attempt != null) attempt.markTimeoutOutcomeUnknown();
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(
               jobId, sanitizedError, retryTime, newAttempts, expectedClaimSeq);
+      if (!rescheduled && attempt != null && !earlierOutcomeUnknown) {
+        attempt.clearTimeoutOutcomeUnknown();
+      }
       if (rescheduled) {
         publishHardTimeoutRetryEvents(
             job, sanitizedError, newAttempts, retryTime, timeoutSec, observedElapsedTime);
@@ -749,7 +768,7 @@ public class JobTimeoutHandler {
       retryAllowed = parentLock == RetryParentLock.LOCKED;
     }
     if (retryAllowed) {
-      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null);
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null, null);
       if (newAttempts < 0) {
         return Optional.empty();
       }
@@ -982,7 +1001,8 @@ public class JobTimeoutHandler {
     }
   }
 
-  private void handleHardTimeoutById(JobAttemptControl attempt, Future<?> future) {
+  private void handleHardTimeoutById(
+      JobAttemptControl attempt, Future<?> future, OutcomeWriteRetries retries) {
     UUID jobId = attempt.jobId();
     Instant executionStartTime = attempt.executionStartTime();
     long timeoutSec = attempt.timeoutSeconds();
@@ -1001,25 +1021,32 @@ public class JobTimeoutHandler {
 
     // Claim ownership of the retry/finalize for this timeout BEFORE interrupting the worker, so the
     // interrupt that lands in JobTask.handleFailure already sees the marker and defers to us. The
-    // marker is cleared in processHardTimeout's finally once this path is done with it.
+    // marker covers the first try only; retries run after this method's finally clears it.
     watchdogCancelledJobIds.add(jobId);
 
     attempt.cancelExecution(future);
     attempt.flushStateQuietly();
 
+    // Each try re-reads the original claim, reuses a committed charge, and stops on a fenced miss.
+    Runnable transition =
+        () ->
+            processHardTimeout(
+                jobId,
+                timeoutSec,
+                elapsed,
+                attempt.baselineAttempts(),
+                false,
+                attempt.claimSeq(),
+                attempt.nodeId(),
+                attempt);
     try {
-      processHardTimeout(
-          jobId,
-          timeoutSec,
-          elapsed,
-          attempt.baselineAttempts(),
-          false,
-          attempt.claimSeq(),
-          attempt.nodeId(),
-          attempt);
+      if (retries != null) {
+        retries.run("hard-timeout transition for job " + jobId, transition);
+      } else {
+        transition.run();
+      }
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
-      throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);
     } finally {
       watchdogCancelledJobIds.remove(jobId);
     }

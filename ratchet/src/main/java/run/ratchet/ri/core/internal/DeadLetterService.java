@@ -30,8 +30,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.Nullable;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
@@ -172,38 +170,6 @@ public class DeadLetterService {
   }
 
   /**
-   * Moves a job to the terminal DLQ state.
-   *
-   * <p>Because this method owns the terminal transition, a winning call publishes the ordered
-   * terminal event pair {@link JobFailedEvent} then {@link JobDlqEvent}. Both events are deferred
-   * until the transition transaction commits.
-   *
-   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
-   * Transactional}.
-   *
-   * @return {@code true} when this call moved the live job to FAILED, or {@code false} when another
-   *     path had already moved it out of RUNNING
-   */
-  public boolean moveToDlq(JobEntity job, Throwable cause, @Nullable Long expectedClaimSeq) {
-    // Post hot/cold-split: setStatus(FAILED)+save() is rejected by the MySQL store's hot-mutation
-    // guard. The terminal transition (DELETE hot + UPDATE cold to FAILED + DELETE bkres) is now
-    // a single explicit store call that captures total_attempts atomically.
-    String sanitized = sanitizeSafely(cause);
-    boolean transitioned =
-        jobTerminalStore.markJobFailedTerminal(
-            job.getId(), sanitized, job.getAttempts(), expectedClaimSeq);
-    if (!transitioned) {
-      log.warnf(
-          "Rejected owner write for job %s, stale claimSeq %s, node %s",
-          job.getId(), expectedClaimSeq, job.getPickedBy());
-      return false;
-    }
-
-    recordServiceOwnedTransition(job, sanitized);
-    return true;
-  }
-
-  /**
    * Records a DLQ transition that the caller has already applied with a successful status CAS.
    *
    * <p>This path deliberately does not repeat the terminal store mutation. It publishes only the
@@ -264,55 +230,12 @@ public class DeadLetterService {
     return cause == null ? "null" : cause.getClass().getName();
   }
 
-  private void recordServiceOwnedTransition(JobEntity job, String sanitized) {
-    job.setStatus(JobStatus.FAILED);
-    job.setLastError(sanitized);
-    publishTerminalEvents(job, sanitized);
-
-    log.warnf("Job %s moved to DLQ", job.getId());
-  }
-
   private void recordCallerOwnedTransition(
       JobEntity job, String sanitized, List<? extends AbstractJobSchedulerEvent> eventsBeforeDlq) {
     job.setLastError(sanitized);
     publishDlqEvent(job, sanitized, eventsBeforeDlq);
 
     log.warnf("Job %s moved to DLQ", job.getId());
-  }
-
-  private void publishTerminalEvents(JobEntity job, String sanitizedError) {
-    if (eventPublisher == null) {
-      return;
-    }
-    Instant timestamp = effective().instant();
-    int attempts = Math.max(0, job.getAttempts());
-    JobFailedEvent failedEvent =
-        new JobFailedEvent(
-            job.getId(),
-            job.getBusinessKey(),
-            job.getRecurringMasterId(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            timestamp,
-            sanitizedError,
-            attempts);
-    JobDlqEvent dlqEvent =
-        new JobDlqEvent(
-            job.getId(),
-            job.getBusinessKey(),
-            job.getRecurringMasterId(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            timestamp,
-            sanitizedError,
-            attempts);
-    publishAfterCommit(
-        () -> {
-          eventPublisher.publish(failedEvent);
-          eventPublisher.publish(dlqEvent);
-        });
   }
 
   private void publishDlqEvent(

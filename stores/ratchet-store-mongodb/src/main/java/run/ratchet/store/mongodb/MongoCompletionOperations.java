@@ -53,17 +53,17 @@ final class MongoCompletionOperations {
       MongoBusinessKeyReservations reservations,
       ClientSession session,
       JobCompletionPlan plan) {
+    var filter = and(eq(ID, plan.jobId()), eq(STATUS, plan.expectedStatus().name()));
+    if (plan.expectedClaimSeq() != null)
+      filter = and(filter, eq(CLAIM_SEQ, plan.expectedClaimSeq()));
+    if (plan.expectedAttempts() != null)
+      filter = and(filter, eq(ATTEMPTS, plan.expectedAttempts()));
     Instant now = Instant.now();
     long changed =
         ctx.jobs()
             .updateOne(
                 session,
-                plan.expectedClaimSeq() == null
-                    ? and(eq(ID, plan.jobId()), eq(STATUS, plan.expectedStatus().name()))
-                    : and(
-                        eq(ID, plan.jobId()),
-                        eq(STATUS, plan.expectedStatus().name()),
-                        eq(CLAIM_SEQ, plan.expectedClaimSeq())),
+                filter,
                 combine(
                     set(STATUS, plan.terminalStatus().name()),
                     set(JOB_RESULT, plan.resultJson()),

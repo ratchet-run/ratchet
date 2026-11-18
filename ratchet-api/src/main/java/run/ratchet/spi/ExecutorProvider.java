@@ -81,7 +81,9 @@ public interface ExecutorProvider {
 
   /**
    * Returns the executor for retried store writes that free what an ended attempt held:
-   * business-key holds, resource permits, and claims.
+   * business-key holds, resource permits, and claims. Also retries outcome writes of an attempt
+   * that a hard timeout or a failed failure write left RUNNING. A task this executor refuses while
+   * the node runs is resubmitted from the scheduled executor.
    *
    * <p>This must be a different instance from {@link #getScheduledExecutor()}, so a release that
    * blocks in the store cannot delay the heartbeat or timeout watchdog. The runtime refuses to

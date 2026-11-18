@@ -81,7 +81,7 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
     job = store().save(job);
 
     store().claimNextBatch(1, "node-1");
-    int attempts = store().incrementRetryAttempt(job.getId(), null);
+    int attempts = store().incrementRetryAttempt(job.getId(), null, null);
     // Reschedule via scheduleJobRetry (RUNNING -> PENDING, null) to retry while preserving the
     // attempt
     // count. compareAndSwapStatus rejects a terminal expected on every store, and

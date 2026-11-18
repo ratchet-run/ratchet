@@ -28,12 +28,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Test hook that pauses or watches chosen calls on the deployed store bean. {@link
+ * Test hook that pauses, faults or watches chosen calls on the deployed store bean. {@link
  * StoreCallGateDecorator} feeds it, and a test arms it in-container. Nothing ships in a production
  * module.
  */
 public final class StoreCallGate {
   private static final CopyOnWriteArrayList<Pause> PAUSES = new CopyOnWriteArrayList<>();
+  private static final CopyOnWriteArrayList<Fault> FAULTS = new CopyOnWriteArrayList<>();
   private static final CopyOnWriteArrayList<Watch> WATCHES = new CopyOnWriteArrayList<>();
   private static final ConcurrentHashMap<UUID, List<String>> CALLS = new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<UUID, List<ReturnedCall>> RETURNED_CALLS =
@@ -86,6 +87,17 @@ public final class StoreCallGate {
     Pause pause = new Pause(method, null, caller, callerMethod);
     PAUSES.add(pause);
     return pause;
+  }
+
+  /**
+   * Fails the first later matching call from inside {@code caller}, except on the arming thread or
+   * for a null job id. Later matching calls pass through.
+   */
+  public static Fault failNext(String method, Class<?> caller) {
+    requireCovered(method);
+    Fault fault = new Fault(method, caller);
+    FAULTS.add(fault);
+    return fault;
   }
 
   /**
@@ -156,10 +168,10 @@ public final class StoreCallGate {
 
   /**
    * Releases every pause, waits up to {@code awaitReturn} for paused calls to return, then forgets
-   * all pauses, watches and recorded calls. It waits only for each paused store call to return, not
-   * for the engine to finish the rest of that operation. A passing test has already waited for the
-   * outcome it checks. For {@code @AfterEach}, so no engine thread stays parked inside a
-   * transaction when the test ends.
+   * all pauses, faults, watches and recorded calls. It waits only for each paused store call to
+   * return, not for the engine to finish the rest of that operation. A passing test has already
+   * waited for the outcome it checks. For {@code @AfterEach}, so no engine thread stays parked
+   * inside a transaction when the test ends.
    */
   public static void reset(Duration awaitReturn) {
     PAUSES.forEach(
@@ -188,6 +200,7 @@ public final class StoreCallGate {
       }
     } finally {
       PAUSES.clear();
+      FAULTS.clear();
       synchronized (RETURNS_LOCK) {
         WATCHES.clear();
         RETURNED_CALLS.clear();
@@ -197,12 +210,30 @@ public final class StoreCallGate {
   }
 
   /**
-   * Records the call and parks the thread when an armed pause matches. Returns that pause or null.
+   * Records the call, throws when an armed fault matches, or parks when a pause matches. Returns
+   * that pause or null.
    */
   static Pause enter(String method, UUID jobId) {
     // Let a call without a job id reach the store unchanged.
     if (jobId == null) return null;
     CALLS.computeIfAbsent(jobId, ignored -> new CopyOnWriteArrayList<>()).add(method);
+    for (Fault fault : FAULTS) {
+      if (!fault.method.equals(method) || Thread.currentThread() == fault.armingThread) {
+        continue;
+      }
+      boolean fromCaller =
+          StackWalker.getInstance()
+              .walk(
+                  frames ->
+                      frames.anyMatch(frame -> frame.getClassName().equals(fault.callerClassName)));
+      if (fromCaller && fault.state.compareAndSet(Fault.State.ARMED, Fault.State.FIRED)) {
+        fault.jobId = jobId;
+        fault.thread = Thread.currentThread();
+        fault.fired.countDown();
+        exit(method, jobId, null, false, null);
+        throw new IllegalStateException("StoreCallGate fault in " + method);
+      }
+    }
     for (Pause pause : PAUSES) {
       if (!pause.method.equals(method)
           || (pause.targetJobId != null && !pause.targetJobId.equals(jobId))
@@ -270,6 +301,52 @@ public final class StoreCallGate {
     }
     if (fired != null) {
       fired.returned.countDown();
+    }
+  }
+
+  /** A single store call that fails before reaching the delegate. */
+  public static final class Fault {
+    private final String method;
+    private final String callerClassName;
+    private final Thread armingThread;
+    private volatile UUID jobId;
+    private volatile Thread thread;
+
+    private enum State {
+      ARMED,
+      FIRED
+    }
+
+    private final AtomicReference<State> state = new AtomicReference<>(State.ARMED);
+    private final CountDownLatch fired = new CountDownLatch(1);
+
+    private Fault(String method, Class<?> caller) {
+      this.method = method;
+      callerClassName = caller.getName();
+      armingThread = Thread.currentThread();
+    }
+
+    /** Returns the job id of the failed call, or null before it fires. */
+    public UUID jobId() {
+      return jobId;
+    }
+
+    /** Returns the thread of the failed call, or null before it fires. */
+    public Thread thread() {
+      return thread;
+    }
+
+    /** Waits until the chosen store call reaches the fault. */
+    public void awaitFired(Duration timeout) {
+      try {
+        if (!fired.await(timeout.toNanos(), TimeUnit.NANOSECONDS)) {
+          throw new AssertionError(
+              "No " + method + " call from " + callerClassName + " fired within " + timeout);
+        }
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError(ex);
+      }
     }
   }
 

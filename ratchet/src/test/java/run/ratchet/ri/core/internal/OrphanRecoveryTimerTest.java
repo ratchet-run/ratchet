@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -725,7 +726,7 @@ class OrphanRecoveryTimerTest {
             any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenReturn(new OrphanRecovery(1, 0, 0, List.of(new ExhaustedOrphan(id, 7, 3, "dead"))));
     when(jobCrudStore.findById(id)).thenReturn(Optional.of(job));
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null)).thenReturn(true);
 
     timer.recoverNow();
 
@@ -734,7 +735,7 @@ class OrphanRecoveryTimerTest {
         "Node dead stopped while running this job; crash redelivery limit (3) reached",
         job.getLastError());
     InOrder order = inOrder(lifecycleFacade, callbackInvoker);
-    order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    order.verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false, null);
     order.verify(callbackInvoker).accept(eq(job), any(Throwable.class));
   }
 
@@ -753,7 +754,7 @@ class OrphanRecoveryTimerTest {
     assertEquals(
         "Node unknown stopped while running this job; crash redelivery limit (3) reached",
         job.getLastError());
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false, null);
     verifyNoMoreInteractions(callbackInvoker);
   }
 
@@ -769,12 +770,13 @@ class OrphanRecoveryTimerTest {
         .thenReturn(new OrphanRecovery(1, 0, 0, List.of(new ExhaustedOrphan(id, 7, 3, null))));
     when(jobCrudStore.findById(id)).thenThrow(new IllegalStateException("decrypt failed"));
     when(jobBulkStore.findOrphanCompletionSnapshot(id)).thenReturn(Optional.of(snapshot));
-    when(lifecycleFacade.completeFailure(snapshot, JobStatus.RUNNING, false)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(snapshot, JobStatus.RUNNING, false, null))
+        .thenReturn(true);
 
     timer.recoverNow();
 
     assertEquals(7L, snapshot.getClaimSeq());
-    verify(lifecycleFacade).completeFailure(snapshot, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(snapshot, JobStatus.RUNNING, false, null);
     verifyNoMoreInteractions(callbackInvoker);
   }
 
@@ -798,14 +800,14 @@ class OrphanRecoveryTimerTest {
                     new ExhaustedOrphan(goodId, 2, 3, "dead"))));
     when(jobCrudStore.findById(badId)).thenReturn(Optional.of(bad));
     when(jobCrudStore.findById(goodId)).thenReturn(Optional.of(good));
-    when(lifecycleFacade.completeFailure(bad, JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(bad, JobStatus.RUNNING, false, null))
         .thenThrow(new IllegalStateException("store unavailable"));
 
     timer.recoverNow();
     timer.recoverNow();
 
-    verify(lifecycleFacade, times(2)).completeFailure(bad, JobStatus.RUNNING, false);
-    verify(lifecycleFacade, times(2)).completeFailure(good, JobStatus.RUNNING, false);
+    verify(lifecycleFacade, times(2)).completeFailure(bad, JobStatus.RUNNING, false, null);
+    verify(lifecycleFacade, times(2)).completeFailure(good, JobStatus.RUNNING, false, null);
   }
 
   @Test
@@ -898,7 +900,8 @@ class OrphanRecoveryTimerTest {
               events.add("page 2");
               return new OrphanRecovery(1, 0, 0, exhaustedRows.subList(2, 3));
             });
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               JobEntity job = invocation.getArgument(0);
@@ -924,16 +927,17 @@ class OrphanRecoveryTimerTest {
     timer.recoverNow();
     verify(jobBulkStore, times(2)).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
     verify(lifecycleFacade, times(510))
-        .completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+        .completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   @Test
   void rejectedCompletionDoesNotBlockNextRow() {
     JobEntity job = exhaustedJob(7);
     JobEntity next = exhaustedJob(8);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null)).thenReturn(false);
     timer.recoverNow();
-    verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false, null);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
     verify(jobBulkStore)
         .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
@@ -947,8 +951,8 @@ class OrphanRecoveryTimerTest {
     JobEntity next = exhaustedJob(9);
     when(jobCrudStore.findById(missing.getId())).thenReturn(Optional.empty());
     timer.recoverNow();
-    verify(lifecycleFacade, never()).completeFailure(missing, JobStatus.RUNNING, false);
-    verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false);
+    verify(lifecycleFacade, never()).completeFailure(missing, JobStatus.RUNNING, false, null);
+    verify(lifecycleFacade).completeFailure(next, JobStatus.RUNNING, false, null);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
     verify(jobBulkStore)
         .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
@@ -960,10 +964,10 @@ class OrphanRecoveryTimerTest {
   void completionExceptionDoesNotBlockNextRow() {
     JobEntity first = exhaustedJob(11);
     JobEntity second = exhaustedJob(12);
-    when(lifecycleFacade.completeFailure(first, JobStatus.RUNNING, false))
+    when(lifecycleFacade.completeFailure(first, JobStatus.RUNNING, false, null))
         .thenThrow(new IllegalStateException("completion unavailable"));
     timer.recoverNow();
-    verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false, null);
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
     verify(jobBulkStore)
         .deleteExpiredBusinessKeyHolds(FIXED_NOW, OrphanRecoveryTimer.EXPIRED_HOLD_LIMIT);
@@ -978,7 +982,7 @@ class OrphanRecoveryTimerTest {
         .when(callbackInvoker)
         .accept(eq(job), any(Throwable.class));
     timer.recoverNow();
-    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false, null);
   }
 
   @Test
@@ -989,14 +993,17 @@ class OrphanRecoveryTimerTest {
     exhaustedJob(12);
     when(jobBulkStore.resetOrphanJobsBefore(any(Instant.class), eq(3), eq(500)))
         .thenReturn(new OrphanRecovery(500, 498, 0, exhaustedRows));
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               clock.advance(OrphanRecoveryTimer.ORPHAN_SCAN_BUDGET.plusSeconds(1));
               return true;
             });
     timer.recoverNow();
-    verify(lifecycleFacade).completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
+    verify(lifecycleFacade)
+        .completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
     verify(resourcePermitService).sweepWaiters();
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 500);
     verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
@@ -1018,7 +1025,8 @@ class OrphanRecoveryTimerTest {
                   exhaustedRows.stream().filter(row -> !completed.contains(row.jobId())).toList();
               return new OrphanRecovery(remaining.size(), 0, 0, remaining);
             });
-    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
+    when(lifecycleFacade.completeFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               JobEntity job = invocation.getArgument(0);
@@ -1034,8 +1042,8 @@ class OrphanRecoveryTimerTest {
       clock.advance(Duration.ofSeconds(61));
     }
     assertEquals(Set.of(second.getId(), third.getId()), Set.copyOf(completed));
-    verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false);
-    verify(lifecycleFacade).completeFailure(third, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(second, JobStatus.RUNNING, false, null);
+    verify(lifecycleFacade).completeFailure(third, JobStatus.RUNNING, false, null);
   }
 
   @Test
@@ -1051,7 +1059,7 @@ class OrphanRecoveryTimerTest {
               return new OrphanRecovery(500, 499, 0, exhaustedRows);
             });
     timer.recoverNow();
-    verify(lifecycleFacade).completeFailure(first, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(first, JobStatus.RUNNING, false, null);
     verify(jobBulkStore)
         .resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, OrphanRecoveryTimer.ORPHAN_PAGE_SIZE);
   }
@@ -1139,7 +1147,9 @@ class OrphanRecoveryTimerTest {
                 any(Instant.class), eq(3), eq(OrphanRecoveryTimer.ORPHAN_PAGE_SIZE)))
         .thenAnswer(invocation -> new OrphanRecovery(exhaustedRows.size(), 0, 0, exhaustedRows));
     lenient().when(jobCrudStore.findById(job.getId())).thenReturn(Optional.of(job));
-    lenient().when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    lenient()
+        .when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null))
+        .thenReturn(true);
     return job;
   }
 

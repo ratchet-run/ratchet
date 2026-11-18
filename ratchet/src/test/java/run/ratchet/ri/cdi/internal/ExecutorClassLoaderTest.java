@@ -455,7 +455,7 @@ public class ExecutorClassLoaderTest {
               })
           .when(observer)
           .scheduleDelayedJobReadyCallback(anyLong());
-      when(store.incrementRetryAttempt(any(), any())).thenReturn(1);
+      when(store.incrementRetryAttempt(any(), any(), any())).thenReturn(1);
       when(store.scheduleJobRetry(any(), any(), any(), anyInt(), any())).thenReturn(true);
       RetryPolicy retry = mock(RetryPolicy.class);
       when(retry.shouldRetry(anyInt(), any())).thenReturn(true);

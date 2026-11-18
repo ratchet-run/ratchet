@@ -27,10 +27,12 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -142,6 +144,7 @@ class JobTaskTransactionalTest {
   @BeforeEach
   @SuppressWarnings("unchecked")
   void setUp() throws Exception {
+    lenient().when(store.incrementRetryAttempt(any(), any(), any())).thenReturn(1);
     job = new JobEntity();
     job.setId(UUID.randomUUID());
     job.setJobType(JobExecutionType.SINGLE);
@@ -176,8 +179,9 @@ class JobTaskTransactionalTest {
             flusher,
             timeoutHandler,
             new HeldKeyReleases(store, () -> mock(ScheduledExecutorService.class)),
-            new PermitReleases(permits, () -> mock(ScheduledExecutorService.class)),
-            new ClaimReschedules(store, () -> mock(ScheduledExecutorService.class)),
+            new PermitReleases(permits, () -> mock(ScheduledExecutorService.class), null),
+            new ClaimReschedules(store, () -> mock(ScheduledExecutorService.class), null),
+            new OutcomeWriteRetries(() -> mock(ScheduledExecutorService.class), null),
             Clock.fixed(NOW, ZoneOffset.UTC),
             null,
             RatchetOptions.defaults());
@@ -204,7 +208,7 @@ class JobTaskTransactionalTest {
     when(results.serialize(any(), any()))
         .thenReturn(new SerializedJobResult("42", "java.lang.Integer"));
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(completion);
     when(registrar.registerAfterCommit(any()))
         .thenAnswer(inv -> carrier.register(inv.getArgument(0)));
@@ -216,6 +220,74 @@ class JobTaskTransactionalTest {
     BODY.remove();
     Thread.interrupted();
     JobContext.clear();
+  }
+
+  private void initHydratedAttemptFenceClaim() {
+    job.setAttempts(3);
+    when(store.findById(job.getId())).thenReturn(Optional.of(job));
+    task.initFromClaim(
+        new JobClaimDto(
+            job.getId(),
+            JobStatus.RUNNING,
+            JobExecutionType.SINGLE,
+            JobPriority.NORMAL,
+            NOW,
+            1,
+            30,
+            "node",
+            NOW,
+            null,
+            2,
+            3,
+            null,
+            null,
+            7L));
+    attempt = new JobAttemptControl(job.getId(), NOW.plusSeconds(30), 30, NOW, 2, 7L, "node");
+    task.attach(attempt);
+  }
+
+  @Test
+  void transactionalSuccessUsesClaimAttemptsAfterHydrationCharge() {
+    initHydratedAttemptFenceClaim();
+
+    task.call();
+
+    verify(lifecycle)
+        .completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), eq(2));
+    assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
+  }
+
+  @Test
+  void rejectedAttemptsFenceRollsBackTransactionalSuccess() throws Exception {
+    initHydratedAttemptFenceClaim();
+    AtomicBoolean rolledBack = new AtomicBoolean();
+    doAnswer(
+            inv -> {
+              try {
+                return inv.callRealMethod();
+              } catch (CompletionRejectedException failure) {
+                rolledBack.set(true);
+                throw failure;
+              }
+            })
+        .when(carrier)
+        .run(any());
+    when(lifecycle.completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), eq(2)))
+        .thenThrow(new CompletionRejectedException());
+
+    task.call();
+
+    assertTrue(rolledBack.get());
+    verify(lifecycle)
+        .completeSuccessInCurrentTransaction(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), eq(2));
+    assertTrue(attempt.isSuperseded());
+    assertEquals(JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, execution.getErrorMessage());
+    verify(lifecycle, never()).runFollowups(any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
   }
 
   @Test
@@ -244,7 +316,8 @@ class JobTaskTransactionalTest {
     job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
     FutureTask<Void> future = new FutureTask<>(task);
     AtomicBoolean wrote = new AtomicBoolean();
-    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(finalizer.finalizeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               assertTrue(attempt.cancelExecution(future));
@@ -291,8 +364,8 @@ class JobTaskTransactionalTest {
     assertTrue(supplierFailure.get() instanceof InterruptedException);
     verify(timeoutHandler).isWatchdogCancelled(job.getId());
     assertEquals(TimeoutException.class.getName(), execution.getErrorClass());
-    verify(store, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verifyNoInteractions(finalizer);
   }
 
@@ -308,7 +381,8 @@ class JobTaskTransactionalTest {
               flags.add(Thread.currentThread().isInterrupted());
               return JobStatus.RUNNING;
             });
-    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(finalizer.finalizeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               flags.add(Thread.currentThread().isInterrupted());
@@ -344,13 +418,13 @@ class JobTaskTransactionalTest {
   void interruptedOrdinaryFailureClearsFailureWritesAndRestoresInterrupt() {
     job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
     List<Boolean> flags = new ArrayList<>();
-    when(store.incrementRetryAttempt(job.getId(), 7L))
+    when(store.incrementRetryAttempt(job.getId(), 7L, 0))
         .thenAnswer(
             inv -> {
               flags.add(Thread.currentThread().isInterrupted());
               return 1;
             });
-    when(lifecycle.completeFailure(eq(job), any(), anyBoolean()))
+    when(lifecycle.completeFailure(eq(job), any(), anyBoolean(), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               flags.add(Thread.currentThread().isInterrupted());
@@ -374,7 +448,7 @@ class JobTaskTransactionalTest {
     assertTrue(Thread.currentThread().isInterrupted());
     assertTrue(flags.size() >= 3);
     assertFalse(flags.contains(true));
-    verify(lifecycle).completeFailure(eq(job), any(), anyBoolean());
+    verify(lifecycle).completeFailure(eq(job), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
@@ -386,7 +460,7 @@ class JobTaskTransactionalTest {
           return 42;
         });
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               flags.add(Thread.currentThread().isInterrupted());
@@ -412,11 +486,20 @@ class JobTaskTransactionalTest {
   @Test
   void interruptedFinalizerReportsBeforeMinimalStoreWrite() {
     job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
-    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(finalizer.finalizeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(JobSuccessFinalizer.Outcome.INTERRUPTED);
     List<Boolean> flags = new ArrayList<>();
     when(finalizer.finalizeMinimalSuccess(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), eq(true)))
+            eq(job),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            anyLong(),
+            eq(true),
+            nullable(Integer.class)))
         .thenAnswer(
             inv -> {
               flags.add(Thread.currentThread().isInterrupted());
@@ -583,12 +666,12 @@ class JobTaskTransactionalTest {
     assertEquals(
         TimeoutException.class.getName() + ": Hard timeout exceeded (30s)",
         execution.getErrorMessage());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     verify(timeoutHandler, never()).processCooperativeTimeout(any());
-    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(lifecycle, never())
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(lifecycle, never()).runFollowups(any());
     verifyNoInteractions(finalizer);
   }
@@ -652,7 +735,7 @@ class JobTaskTransactionalTest {
     order
         .verify(lifecycle)
         .completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     order.verify(permits).release("res", job.getId(), 7L);
     verify(permits, times(1)).release("res", job.getId(), 7L);
     verify(lifecycle).runFollowups(completion);
@@ -677,7 +760,7 @@ class JobTaskTransactionalTest {
     task.call();
 
     verify(permits, times(1)).release("res", job.getId(), 7L);
-    verify(store).incrementRetryAttempt(job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
   }
 
   private static final ThreadLocal<Runnable> CALLBACK = new ThreadLocal<>();
@@ -691,13 +774,13 @@ class JobTaskTransactionalTest {
     AtomicInteger bodies = new AtomicInteger();
     BODY.set(() -> bodies.incrementAndGet());
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new IllegalStateException(new SQLTransientException("deadlock")))
         .thenReturn(completion);
     task.call();
     assertEquals(2, bodies.get());
     verify(carrier, times(2)).run(any());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     verify(lifecycle).runFollowups(completion);
   }
 
@@ -708,7 +791,7 @@ class JobTaskTransactionalTest {
     BODY.set(() -> bodies.incrementAndGet());
     FutureTask<Void> future = new FutureTask<>(task);
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenAnswer(
             invocation -> {
               assertTrue(attempt.cancelExecution(future));
@@ -722,10 +805,11 @@ class JobTaskTransactionalTest {
     verify(carrier, times(2)).run(any());
     verify(lifecycle, times(1))
         .completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     assertTrue(supplierFailure.get() instanceof InterruptedException);
     verify(observer).recordJobFailure(eq(job), any(InterruptedException.class), anyInt());
-    verify(lifecycle).completeFailure(eq(job), eq(JobStatus.RUNNING), anyBoolean());
+    verify(lifecycle)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), anyBoolean(), nullable(Integer.class));
     assertFalse(Thread.currentThread().isInterrupted());
     verify(lifecycle, never()).runFollowups(any());
   }
@@ -736,13 +820,13 @@ class JobTaskTransactionalTest {
     AtomicInteger bodies = new AtomicInteger();
     BODY.set(() -> bodies.incrementAndGet());
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new IllegalStateException(original));
-    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    when(store.incrementRetryAttempt(job.getId(), 7L, 0)).thenReturn(1);
     task.call();
     assertEquals(5, bodies.get());
     verify(carrier, times(5)).run(any());
-    verify(store).incrementRetryAttempt(job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
     verify(lifecycle, never()).runFollowups(any());
     assertEquals(
         CircuitBreakerExceptionFilter.Outcome.RECORDED,
@@ -783,7 +867,7 @@ class JobTaskTransactionalTest {
     task.call();
     assertSame(original, observed.get());
     verify(carrier).run(any());
-    verify(store).incrementRetryAttempt(job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
   }
 
   @Test
@@ -798,18 +882,18 @@ class JobTaskTransactionalTest {
     assertEquals(
         CircuitBreakerExceptionFilter.Outcome.IGNORED,
         callFilter.get().classify(supplierFailure.get()));
-    verify(store).incrementRetryAttempt(job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
   }
 
   @Test
   void deterministicCompletionErrorDoesNotRetryWholeTransaction() throws Exception {
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new IllegalArgumentException("constraint violation at flush"));
     task.call();
     assertEquals(IllegalArgumentException.class, supplierFailure.get().getClass());
     verify(carrier).run(any());
-    verify(store).incrementRetryAttempt(job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
   }
 
   @Test
@@ -849,7 +933,7 @@ class JobTaskTransactionalTest {
           return 42;
         });
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new CompletionRejectedException());
     task.call();
     if (status == JobStatus.CANCELED) {
@@ -861,7 +945,7 @@ class JobTaskTransactionalTest {
     }
     verify(lifecycle, never()).runFollowups(any());
     verifyNoInteractions(finalizer);
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
   }
 
   @Test
@@ -879,11 +963,11 @@ class JobTaskTransactionalTest {
     verify(observer).recordJobCancellation(job);
     verify(observer, never()).recordJobFailure(any(), any(), anyInt());
     verify(store, times(1)).releaseBusinessKeyHold(job.getId(), 7L);
-    verify(store, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     verify(lifecycle, never())
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verifyNoInteractions(finalizer);
   }
 
@@ -898,14 +982,14 @@ class JobTaskTransactionalTest {
           return 42;
         });
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new CompletionRejectedException());
     task.call();
     assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
     verify(observer).recordJobCancellation(job);
     verify(store, times(1)).releaseBusinessKeyHold(job.getId(), 7L);
     verify(lifecycle, never()).runFollowups(any());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     verifyNoInteractions(finalizer);
   }
 
@@ -938,12 +1022,12 @@ class JobTaskTransactionalTest {
     verify(carrier).run(any());
     verify(lifecycle, never())
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verifyNoInteractions(results);
     assertEquals(
         CircuitBreakerExceptionFilter.Outcome.IGNORED,
         callFilter.get().classify(supplierFailure.get()));
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     if (status == JobStatus.CANCELED) {
       assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
       verify(observer).recordJobCancellation(job);
@@ -980,7 +1064,7 @@ class JobTaskTransactionalTest {
         verify(lifecycle).runFollowups(completion);
         assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
       }
-      case ROLLED_BACK -> verify(store).incrementRetryAttempt(job.getId(), 7L);
+      case ROLLED_BACK -> verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
       case CANCELED -> assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
       case SUPERSEDED -> assertTrue(attempt.isSuperseded());
     }
@@ -1025,7 +1109,7 @@ class JobTaskTransactionalTest {
         verify(lifecycle).runFollowups(completion);
         assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
       }
-      case ROLLED_BACK -> verify(store).incrementRetryAttempt(job.getId(), 7L);
+      case ROLLED_BACK -> verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
       case CANCELED -> assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
       case SUPERSEDED -> assertTrue(attempt.isSuperseded());
     }
@@ -1129,9 +1213,9 @@ class JobTaskTransactionalTest {
     assertEquals(null, workerFailure.get());
     assertTrue(interruptedAfterReturn.get());
     assertEquals(1, bodies.get());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     verify(lifecycle, never()).runFollowups(any());
-    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     assertEquals(ExecutionStatus.RUNNING, execution.getStatus());
   }
 
@@ -1174,7 +1258,7 @@ class JobTaskTransactionalTest {
     assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
     verify(observer).recordJobCancellation(job);
     verify(lifecycle, never()).runFollowups(any());
-    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
   }
 
   @Test
@@ -1184,9 +1268,9 @@ class JobTaskTransactionalTest {
         .thenThrow(new IllegalArgumentException("invalid outcome read"));
     task.call();
     verify(transactions).terminalOutcome(job.getId(), 7L);
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     verify(lifecycle, never()).runFollowups(any());
-    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean());
+    verify(lifecycle, never()).completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
     assertEquals(ExecutionStatus.RUNNING, execution.getStatus());
   }
 
@@ -1254,8 +1338,9 @@ class JobTaskTransactionalTest {
     when(store.capability(TransactionalCompletionStore.class)).thenReturn(Optional.empty());
     task.call();
     verifyNoInteractions(carrier, finalizer);
-    verify(store, never()).incrementRetryAttempt(any(), any());
-    verify(lifecycle).completeFailure(job, JobStatus.RUNNING, false);
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
+    verify(lifecycle)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
   }
 
   @Test
@@ -1266,12 +1351,12 @@ class JobTaskTransactionalTest {
           return 42;
         });
     when(lifecycle.completeSuccessInCurrentTransaction(
-            eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new IllegalStateException(new SQLTransientException("deadlock")));
     task.call();
     assertTrue(Thread.currentThread().isInterrupted());
     verify(carrier).run(any());
-    verify(store).incrementRetryAttempt(job.getId(), 7L);
+    verify(store).incrementRetryAttempt(job.getId(), 7L, 0);
   }
 
   @Test
@@ -1281,7 +1366,7 @@ class JobTaskTransactionalTest {
           throw new IllegalStateException("body");
         });
     stubStrategyFallback();
-    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    when(store.incrementRetryAttempt(job.getId(), 7L, 0)).thenReturn(1);
     task.call();
     assertFallbackDidNotSucceed("body");
   }
@@ -1294,11 +1379,11 @@ class JobTaskTransactionalTest {
           return 42;
         });
     stubStrategyFallback();
-    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    when(store.incrementRetryAttempt(job.getId(), 7L, 0)).thenReturn(1);
     task.call();
     verify(lifecycle, never())
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     assertFallbackDidNotSucceed("marked for rollback");
   }
 
@@ -1307,7 +1392,7 @@ class JobTaskTransactionalTest {
     carrier.rollBackSilently();
     BODY.set(() -> 42);
     stubStrategyFallback();
-    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    when(store.incrementRetryAttempt(job.getId(), 7L, 0)).thenReturn(1);
     task.call();
     assertFallbackDidNotSucceed("rolled back without an error");
   }
@@ -1316,7 +1401,7 @@ class JobTaskTransactionalTest {
   void strategyFallbackWithoutRunningTheTransactionFailsAttempt() throws Exception {
     doReturn(42).when(resilience).execute(anyString(), any(), any());
     stubSuccessFinalizer();
-    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    when(store.incrementRetryAttempt(job.getId(), 7L, 0)).thenReturn(1);
     task.call();
     verify(carrier, never()).run(any());
     assertFallbackDidNotSucceed("without a committed transaction");
@@ -1345,9 +1430,9 @@ class JobTaskTransactionalTest {
     verify(carrier, times(2)).run(any());
     verify(lifecycle, times(1))
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
   }
 
   private void stubStrategyFallback() throws Exception {
@@ -1365,7 +1450,8 @@ class JobTaskTransactionalTest {
   }
 
   private void stubSuccessFinalizer() {
-    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(finalizer.finalizeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(JobSuccessFinalizer.Outcome.COMPLETED_FULL);
   }
 
@@ -1373,14 +1459,15 @@ class JobTaskTransactionalTest {
     assertEquals(ExecutionStatus.FAILED, execution.getStatus());
     assertEquals(IllegalStateException.class.getName(), execution.getErrorClass());
     assertTrue(execution.getErrorMessage().contains(phrase), execution.getErrorMessage());
-    verify(store, times(1)).incrementRetryAttempt(job.getId(), 7L);
+    verify(store, times(1)).incrementRetryAttempt(job.getId(), 7L, 0);
     verify(observer, never()).recordJobSuccess(any(), anyLong());
     verify(observer, times(1))
         .recordJobFailure(eq(job), any(IllegalStateException.class), anyInt());
     verify(lifecycle, never()).runFollowups(any());
     verify(transactions, never()).terminalOutcome(any(), anyLong());
     verify(finalizer, never())
-        .finalizeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong());
+        .finalizeSuccess(
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
   }
 
   @Test
@@ -1392,20 +1479,23 @@ class JobTaskTransactionalTest {
     task.call();
     verify(store).releaseClaim(eq(job.getId()), anyString(), eq(NOW), eq(0), eq(7L));
     verify(store, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
   }
 
   @Test
   void nonTransactionalJobUsesExistingFinalizerAndNeverCarrier() {
     job.setPayload(payload("ordinaryBody", "()Ljava/lang/Object;"));
-    when(finalizer.finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(finalizer.finalizeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenReturn(JobSuccessFinalizer.Outcome.COMPLETED_FULL);
     task.call();
-    verify(finalizer).finalizeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(finalizer)
+        .finalizeSuccess(
+            eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verifyNoInteractions(carrier);
     verify(lifecycle, never())
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
   }
 
@@ -1480,7 +1570,7 @@ class JobTaskTransactionalTest {
 
   private void assertRejectedTransaction(String phrase, boolean markRollback, boolean completed)
       throws Exception {
-    when(store.incrementRetryAttempt(job.getId(), 7L)).thenReturn(1);
+    when(store.incrementRetryAttempt(job.getId(), 7L, 0)).thenReturn(1);
     AtomicInteger bodies = new AtomicInteger();
     AtomicInteger successCallbacks = new AtomicInteger();
     job.setOnSuccessPayload(payload("afterCommit", "()V"));
@@ -1497,14 +1587,14 @@ class JobTaskTransactionalTest {
       verify(carrier, times(1)).run(any());
       verify(lifecycle, times(completed ? 1 : 0))
           .completeSuccessInCurrentTransaction(
-              any(), any(), any(), any(), any(), anyLong(), anyLong());
+              any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
       if (!completed) verifyNoInteractions(results);
       verify(transactions, never()).terminalOutcome(any(), anyLong());
       verify(lifecycle, never()).runFollowups(any());
       verify(observer, never()).recordJobSuccess(any(), anyLong());
       verify(observer, times(1))
           .recordJobFailure(eq(job), any(IllegalStateException.class), anyInt());
-      verify(store, times(1)).incrementRetryAttempt(job.getId(), 7L);
+      verify(store, times(1)).incrementRetryAttempt(job.getId(), 7L, 0);
       assertEquals(ExecutionStatus.FAILED, execution.getStatus());
       assertEquals(IllegalStateException.class.getName(), execution.getErrorClass());
       assertTrue(execution.getErrorMessage().contains(phrase), execution.getErrorMessage());
@@ -1533,10 +1623,10 @@ class JobTaskTransactionalTest {
     assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
     verify(observer).recordJobCancellation(job);
     verify(observer, never()).recordJobFailure(any(), any(), anyInt());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     verify(lifecycle, never())
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verify(lifecycle, never()).runFollowups(any());
     verify(store, times(1)).releaseBusinessKeyHold(job.getId(), 7L);
     verifyNoInteractions(finalizer);
@@ -1556,7 +1646,7 @@ class JobTaskTransactionalTest {
     verify(transactions, times(1)).terminalOutcome(job.getId(), 7L);
     verify(lifecycle, times(1)).runFollowups(completion);
     assertEquals(ExecutionStatus.SUCCEEDED, execution.getStatus());
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
   }
 
   @ParameterizedTest
@@ -1589,12 +1679,12 @@ class JobTaskTransactionalTest {
     verify(carrier).run(any());
     verify(lifecycle, never())
         .completeSuccessInCurrentTransaction(
-            any(), any(), any(), any(), any(), anyLong(), anyLong());
+            any(), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class));
     verifyNoInteractions(results);
     assertEquals(
         CircuitBreakerExceptionFilter.Outcome.IGNORED,
         callFilter.get().classify(supplierFailure.get()));
-    verify(store, never()).incrementRetryAttempt(any(), any());
+    verify(store, never()).incrementRetryAttempt(any(), any(), any());
     if (status == JobStatus.CANCELED) {
       assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
       verify(observer).recordJobCancellation(job);

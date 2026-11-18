@@ -105,8 +105,8 @@ class ReleaseExecutorIsolationTest {
             ? () -> provider.getScheduledExecutor()
             : () -> provider.getReleaseExecutor();
     HeldKeyReleases holds = new HeldKeyReleases(store, releases);
-    PermitReleases permitReleases = new PermitReleases(permits, releases);
-    ClaimReschedules claims = new ClaimReschedules(store, releases);
+    PermitReleases permitReleases = new PermitReleases(permits, releases, null);
+    ClaimReschedules claims = new ClaimReschedules(store, releases, null);
     try {
       liveness.init();
       doAnswer(
