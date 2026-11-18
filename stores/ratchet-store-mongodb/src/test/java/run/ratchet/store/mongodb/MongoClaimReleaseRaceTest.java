@@ -79,7 +79,8 @@ class MongoClaimReleaseRaceTest {
                         start,
                         () ->
                             charged.set(
-                                store.incrementRetryAttempt(claim.getId(), claim.getClaimSeq())),
+                                store.incrementRetryAttempt(
+                                    claim.getId(), claim.getClaimSeq(), null)),
                         failures));
         start.countDown();
         a.get(30, TimeUnit.SECONDS);

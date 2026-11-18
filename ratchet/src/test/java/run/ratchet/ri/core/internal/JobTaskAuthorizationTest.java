@@ -220,7 +220,7 @@ class JobTaskAuthorizationTest {
     RuntimeException failure = new RuntimeException("authorization backend unavailable");
     doThrow(failure).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
     when(validationFacade.shouldNotRetry(failure)).thenReturn(false);
-    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L, 0)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, failure)).thenReturn(true);
     when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
     when(errorSanitizer.sanitize(failure)).thenReturn("authorization backend unavailable");
@@ -230,7 +230,7 @@ class JobTaskAuthorizationTest {
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(), any());
-    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L, 0);
     verify(retryPolicy).shouldRetry(1, failure);
     verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L));
     verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());

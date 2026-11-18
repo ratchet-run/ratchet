@@ -338,7 +338,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
   @Test
   void compareAndSwapStatus_waitingToFailedSucceeds() {
     JobEntity job = persist(newWaitingJob("fail-waiting", Instant.now().plusSeconds(600)));
-    assertEquals(1, store().incrementRetryAttempt(job.getId(), null));
+    assertEquals(1, store().incrementRetryAttempt(job.getId(), null, null));
 
     boolean failed =
         store().compareAndSwapStatus(job.getId(), JobStatus.WAITING, JobStatus.FAILED, "timeout");
@@ -348,6 +348,19 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     assertEquals(JobStatus.FAILED, reloaded.getStatus());
     assertEquals("timeout", reloaded.getLastError());
     assertEquals(1, reloaded.getAttempts(), "Terminal row must preserve hot-row attempts");
+  }
+
+  @Test
+  void incrementRetryAttempt_waitingWithExpectedCount() {
+    JobEntity job = persist(newWaitingJob("retry-fence", Instant.now().plusSeconds(600)));
+    int count = job.getAttempts();
+    assertEquals(count + 1, store().incrementRetryAttempt(job.getId(), null, count));
+    JobEntity charged = store().findById(job.getId()).orElseThrow();
+    assertEquals(-1, store().incrementRetryAttempt(job.getId(), null, count));
+    JobEntity after = store().findById(job.getId()).orElseThrow();
+    assertEquals(count + 1, after.getAttempts());
+    assertEquals(JobStatus.WAITING, after.getStatus());
+    assertEquals(charged.getVersion(), after.getVersion());
   }
 
   private JobEntity newWaitingJob(String signalKey, Instant signalTimeout) {

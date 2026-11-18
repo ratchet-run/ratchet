@@ -131,24 +131,30 @@ final class MysqlJobTerminalOperations {
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+  int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     try {
       // language=MySQL
       String updateSql =
           """
           UPDATE scheduler_job_queue
           SET attempts = LAST_INSERT_ID(attempts + 1), updated_at = NOW(3), version = version + 1
-          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s%s
           """
-              .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
+              .formatted(
+                  expectedClaimSeq == null ? "" : " AND claim_seq = ?",
+                  expectedAttempts == null ? "" : " AND attempts = ?");
       int updated =
           ctx.timedStoreOperation(
               "increment_retry_attempt",
               () -> {
                 try {
-                  return ClaimFence.bind(ctx.em().createNativeQuery(updateSql), expectedClaimSeq, 2)
-                      .setParameter(1, UuidByteArrayConverter.toBytes(id))
-                      .executeUpdate();
+                  Query query =
+                      ClaimFence.bind(ctx.em().createNativeQuery(updateSql), expectedClaimSeq, 2);
+                  if (expectedAttempts != null) {
+                    query.setParameter(expectedClaimSeq == null ? 2 : 3, expectedAttempts);
+                  }
+                  return query.setParameter(1, UuidByteArrayConverter.toBytes(id)).executeUpdate();
                 } catch (RuntimeException e) {
                   throw ctx.translateTransientStoreException("increment retry attempt", e);
                 }

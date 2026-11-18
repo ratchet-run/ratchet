@@ -121,24 +121,29 @@ final class SqlserverJobTerminalOperations {
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+  int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     // language=SQL Server
     String sql =
         """
         UPDATE scheduler_job_queue
         SET attempts = attempts + 1, updated_at = SYSUTCDATETIME(), version = version + 1
         OUTPUT inserted.attempts
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s%s
         """
-            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
+            .formatted(
+                expectedClaimSeq == null ? "" : " AND claim_seq = ?",
+                expectedAttempts == null ? "" : " AND attempts = ?");
     return ctx.timedStoreOperation(
         "increment_retry_attempt",
         () -> {
           try {
+            Query query = ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 2);
+            if (expectedAttempts != null) {
+              query.setParameter(expectedClaimSeq == null ? 2 : 3, expectedAttempts);
+            }
             Object result =
-                ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 2)
-                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
-                    .getSingleResult();
+                query.setParameter(1, UuidByteArrayConverter.toBytes(id)).getSingleResult();
             return ((Number) result).intValue();
           } catch (NoResultException e) {
             return -1;

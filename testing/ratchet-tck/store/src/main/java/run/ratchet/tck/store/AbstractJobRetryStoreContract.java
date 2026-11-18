@@ -52,11 +52,11 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
 
     assertEquals(
         -1,
-        store().incrementRetryAttempt(saved.getId(), null),
+        store().incrementRetryAttempt(saved.getId(), null, null),
         "Retry attempts should not increment for non-retryable jobs");
 
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null, null));
   }
 
   @Test
@@ -81,7 +81,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     waiting.setSignalTimeout(Instant.now().minusSeconds(1));
     var saved = persist(waiting);
 
-    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null, null));
 
     Instant retryTime = Instant.now().plusSeconds(300);
     boolean retried = store().scheduleJobRetry(saved.getId(), "signal timeout", retryTime, 1, null);
@@ -137,7 +137,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   @Test
   void releaseClaim_missesAfterChargeUnderSameClaim() {
     JobEntity claimed = newReleaseClaim();
-    assertEquals(3, store().incrementRetryAttempt(claimed.getId(), claimed.getClaimSeq()));
+    assertEquals(3, store().incrementRetryAttempt(claimed.getId(), claimed.getClaimSeq(), null));
     assertFalse(
         store().releaseClaim(claimed.getId(), "release", Instant.now(), 2, claimed.getClaimSeq()));
     JobEntity charged = store().findById(claimed.getId()).orElseThrow();
@@ -206,6 +206,42 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertTrue(store().transitionFromPaused(parent.getId(), JobStatus.PENDING));
     assertEquals(1, batchStore().resumeBatchChildren(parent.getId()));
     assertTrue(store().tryPickUpJob(child.getId(), "node-2"));
+  }
+
+  @Test
+  void incrementRetryAttempt_matchingExpectedCountCharges() {
+    JobEntity claimed = newReleaseClaim();
+    int count = claimed.getAttempts();
+    assertEquals(
+        count + 1, store().incrementRetryAttempt(claimed.getId(), claimed.getClaimSeq(), count));
+    assertEquals(count + 1, store().findById(claimed.getId()).orElseThrow().getAttempts());
+  }
+
+  @Test
+  void incrementRetryAttempt_mismatchedExpectedCountMissesWithoutWrites() {
+    JobEntity claimed = newReleaseClaim();
+    assertEquals(
+        -1,
+        store()
+            .incrementRetryAttempt(
+                claimed.getId(), claimed.getClaimSeq(), claimed.getAttempts() + 1));
+    JobEntity after = store().findById(claimed.getId()).orElseThrow();
+    assertEquals(claimed.getAttempts(), after.getAttempts());
+    assertEquals(claimed.getStatus(), after.getStatus());
+    assertEquals(claimed.getVersion(), after.getVersion());
+  }
+
+  @Test
+  void incrementRetryAttempt_secondChargeFromSameReadMisses() {
+    JobEntity claimed = newReleaseClaim();
+    int count = claimed.getAttempts();
+    assertEquals(
+        count + 1, store().incrementRetryAttempt(claimed.getId(), claimed.getClaimSeq(), count));
+    JobEntity charged = store().findById(claimed.getId()).orElseThrow();
+    assertEquals(-1, store().incrementRetryAttempt(claimed.getId(), claimed.getClaimSeq(), count));
+    JobEntity after = store().findById(claimed.getId()).orElseThrow();
+    assertEquals(count + 1, after.getAttempts());
+    assertEquals(charged.getVersion(), after.getVersion());
   }
 
   private JobEntity newReleaseClaim() {
@@ -286,7 +322,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     // Accumulate retry metadata so the reset has something to actually clear; otherwise
     // asserting attempts==0 is vacuous (the row started at 0).
-    store().incrementRetryAttempt(saved.getId(), null);
+    store().incrementRetryAttempt(saved.getId(), null, null);
     store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "error");
 
     boolean reset = store().resetFailedToPending(saved.getId());
@@ -307,7 +343,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
 
   @Test
   void incrementRetryAttempt_unknownJob_returnsMinusOne() {
-    assertEquals(-1, store().incrementRetryAttempt(new UUID(0L, Long.MAX_VALUE), null));
+    assertEquals(-1, store().incrementRetryAttempt(new UUID(0L, Long.MAX_VALUE), null, null));
   }
 
   @Test
@@ -581,7 +617,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     JobEntity saved = persist(newPendingJob(tag));
     assertTrue(
         store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
-    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null, null));
     assertTrue(
         store()
             .compareAndSwapStatus(
@@ -595,7 +631,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
     assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 500).reset());
     var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
-    assertEquals(-1, store().incrementRetryAttempt(saved.getId(), first.claimSeq()));
+    assertEquals(-1, store().incrementRetryAttempt(saved.getId(), first.claimSeq(), null));
     assertFalse(
         store().scheduleJobRetry(saved.getId(), "stale", Instant.now(), 99, first.claimSeq()));
     assertFalse(store().markJobFailedTerminal(saved.getId(), "stale", 99, first.claimSeq()));
@@ -604,7 +640,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertEquals(0, untouched.getAttempts());
     assertNull(untouched.getLastError());
     assertEquals(current.claimSeq(), untouched.getClaimSeq().longValue());
-    assertEquals(1, store().incrementRetryAttempt(saved.getId(), current.claimSeq()));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), current.claimSeq(), null));
     assertTrue(
         store().scheduleJobRetry(saved.getId(), "current", Instant.now(), 1, current.claimSeq()));
   }
@@ -669,7 +705,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     JobEntity job = persist(newPendingJob());
     assertTrue(store().tryPickUpJob(job.getId(), "node-a"));
     JobEntity stale = store().findById(job.getId()).orElseThrow();
-    assertEquals(1, store().incrementRetryAttempt(job.getId(), stale.getClaimSeq()));
+    assertEquals(1, store().incrementRetryAttempt(job.getId(), stale.getClaimSeq(), null));
     assertStaleSaveRejected(stale);
     JobEntity after = store().findById(job.getId()).orElseThrow();
     assertEquals(1, after.getAttempts());

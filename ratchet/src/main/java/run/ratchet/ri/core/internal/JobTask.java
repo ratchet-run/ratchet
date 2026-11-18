@@ -1580,7 +1580,7 @@ public class JobTask implements Callable<Void> {
 
     int attempt;
     try {
-      attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq());
+      attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq(), claimAttempts);
     } catch (Throwable incrementFailure) {
       expectedAttempts = null;
       throw incrementFailure;
@@ -1590,16 +1590,13 @@ public class JobTask implements Callable<Void> {
         handleCanceledDuringExecution(cancelStart());
         return;
       }
-      if (attempt == -1) {
-        warnRejectedOwnerWrite();
-      } else {
-        // The timeout watchdog also charged this claim. Its retry or terminal write owns the job
-        // and writes its own attempt count.
+      // A fenced charge can miss after the watchdog charges this attempt first.
+      if (this.attempt != null && this.attempt.isTimeoutClaimedByWatchdog()) {
         markAttemptSuperseded();
         log.warnf(
-            "Job %s reached %s attempts on this worker's charge, expected %s; deferring to the"
-                + " timeout watchdog",
-            job.getId(), attempt, claimAttempts + 1);
+            "Job %s timeout watchdog charged this attempt first; worker defers to it", job.getId());
+      } else {
+        warnRejectedOwnerWrite();
       }
       saveDeferredExecutionFailure(ex);
       return;

@@ -215,16 +215,17 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
-  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+  public int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     return intMutation(
         "increment_retry_attempt",
         () -> {
+          Bson filter = and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING")));
+          if (expectedAttempts != null) filter = and(filter, eq(ATTEMPTS, expectedAttempts));
           Document doc =
               ctx.jobs()
                   .findOneAndUpdate(
-                      fenced(
-                          and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
-                          expectedClaimSeq),
+                      fenced(filter, expectedClaimSeq),
                       combine(
                           inc(ATTEMPTS, 1),
                           set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),

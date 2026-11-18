@@ -771,6 +771,15 @@ Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Re
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
 
+### Attempt-fenced retry charge
+
+`JobRetryStore.incrementRetryAttempt(id, expectedClaimSeq, expectedAttempts)` adds one to the
+attempt count and returns the new count. Atomically require RUNNING or WAITING status, the
+claim sequence when given, and `attempts == expectedAttempts` when given. A miss returns -1
+and writes nothing. The worker passes the count it was claimed with and the timeout watchdog
+passes the count it read, so when both charge the same attempt only the first increment
+commits. Add one to the job version.
+
 ### No-charge claim release
 
 `JobRetryStore.releaseClaim(id, reason, scheduledTime, expectedAttempts, claimSeq)` returns a

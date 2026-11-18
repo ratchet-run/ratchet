@@ -387,6 +387,11 @@ public final class JobAttemptControl {
     }
   }
 
+  /** Reports whether the timeout watchdog owns the timeout transition. */
+  public boolean isTimeoutClaimedByWatchdog() {
+    return timeoutOwner.get() == TimeoutOwner.WATCHDOG;
+  }
+
   /** Reports whether a failed cooperative transition is waiting for the watchdog. */
   public boolean isTimeoutHandedBack() {
     return timeoutOwner.get() == TimeoutOwner.HANDED_BACK;

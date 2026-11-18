@@ -367,8 +367,9 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
-    return lifecycle.incrementRetryAttempt(id, expectedClaimSeq);
+  public int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
+    return lifecycle.incrementRetryAttempt(id, expectedClaimSeq, expectedAttempts);
   }
 
   @Override

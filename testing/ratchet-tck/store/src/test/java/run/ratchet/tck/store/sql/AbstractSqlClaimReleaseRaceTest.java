@@ -59,7 +59,7 @@ public abstract class AbstractSqlClaimReleaseRaceTest {
               released.set(
                   store.releaseClaim(
                       claim.getId(), "release", Instant.now(), 2, claim.getClaimSeq())),
-          () -> charged.set(store.incrementRetryAttempt(claim.getId(), claim.getClaimSeq())));
+          () -> charged.set(store.incrementRetryAttempt(claim.getId(), claim.getClaimSeq(), null)));
       JobEntity after = store.findById(claim.getId()).orElseThrow();
       assertTrue(released.get() ^ (charged.get() == 3), "exactly one writer wins, round " + round);
       if (released.get()) {

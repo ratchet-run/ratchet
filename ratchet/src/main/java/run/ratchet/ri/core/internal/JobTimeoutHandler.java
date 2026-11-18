@@ -557,9 +557,9 @@ public class JobTimeoutHandler {
     }
     job.setClaimSeq(expectedClaimSeq);
     job.setPickedBy(nodeId);
-    boolean incrementAlreadyApplied =
-        baselineAttempts != null && job.getAttempts() > baselineAttempts;
-    int newAttempts = incrementAlreadyApplied ? job.getAttempts() : job.getAttempts() + 1;
+    int readAttempts = job.getAttempts();
+    boolean incrementAlreadyApplied = baselineAttempts != null && readAttempts > baselineAttempts;
+    int newAttempts = incrementAlreadyApplied ? readAttempts : readAttempts + 1;
     if (incrementAlreadyApplied) {
       log.infof(
           "Job %s timeout retry increment was already applied (%s attempts)", jobId, newAttempts);
@@ -577,11 +577,25 @@ public class JobTimeoutHandler {
     // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
     // attempts are part of commitCompletion, including for stores without ambient JTA.
     if (!incrementAlreadyApplied && retryAllowed) {
-      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq);
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq, readAttempts);
       if (newAttempts < 0) {
-        warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId, attempt);
-        miss.set(TimeoutMiss.WRITE_MISSED);
-        return Optional.empty();
+        JobEntity latest = jobCrudStore.findByIdLatest(jobId).orElse(null);
+        if (latest != null
+            && latest.getStatus() == JobStatus.RUNNING
+            && Objects.equals(latest.getClaimSeq(), expectedClaimSeq)
+            && latest.getAttempts() > readAttempts) {
+          newAttempts = latest.getAttempts();
+          log.infof("Job %s worker charged this attempt first (%s attempts)", jobId, newAttempts);
+        } else {
+          if (attempt != null) {
+            attempt.markSuperseded();
+          }
+          log.warnf(
+              "Job %s timeout retry increment missed: claim moved on or row is no longer retryable",
+              jobId);
+          miss.set(TimeoutMiss.WRITE_MISSED);
+          return Optional.empty();
+        }
       }
     }
     if (retryAllowed && newAttempts <= job.getMaxRetries()) {
@@ -749,7 +763,7 @@ public class JobTimeoutHandler {
       retryAllowed = parentLock == RetryParentLock.LOCKED;
     }
     if (retryAllowed) {
-      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null);
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null, null);
       if (newAttempts < 0) {
         return Optional.empty();
       }

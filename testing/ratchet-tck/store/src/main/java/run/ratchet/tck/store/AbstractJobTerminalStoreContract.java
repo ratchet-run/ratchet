@@ -137,7 +137,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     assertTrue(store().tryPickUpJob(job.getId(), "node-1"));
     var claim = store().findById(job.getId()).orElseThrow();
     int baseline = claim.getAttempts();
-    assertEquals(baseline + 1, store().incrementRetryAttempt(job.getId(), claim.getClaimSeq()));
+    assertEquals(
+        baseline + 1, store().incrementRetryAttempt(job.getId(), claim.getClaimSeq(), null));
     var before = store().findById(job.getId()).orElseThrow();
     Instant now = Instant.now();
     var plan =
@@ -661,7 +662,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   void compareAndSwapStatus_runningToFailedPreservesHotAttemptsAndTimingFields() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null, null));
 
     boolean marked =
         store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "boom");
