@@ -653,6 +653,91 @@ class SqlserverStringKeyLockingTest {
   }
 
   @Test
+  void businessKeyHoldReleaseDoesNotWaitForAnotherKeysOpenTransaction() {
+    UUID ownerA = UUID.randomUUID();
+    UUID ownerB = UUID.randomUUID();
+    seedBusinessKeyHolds(ownerA, ownerB);
+    holder.getTransaction().begin();
+    holder
+        .createNativeQuery(
+            """
+            SELECT business_key FROM scheduler_business_key_reservation
+              WITH (UPDLOCK, ROWLOCK, INDEX(pk_scheduler_business_key_reservation))
+            WHERE business_key = ?1
+            """)
+        .setParameter(1, "key-a")
+        .getResultList();
+    var operations = new LinkedHashMap<String, Consumer<SqlserverJobStoreImpl>>();
+    operations.put(
+        "releaseBusinessKeyHold key-b", s -> assertTrue(s.releaseBusinessKeyHold(ownerB, 1)));
+    assertEquals(List.of(), waited(operations), "hold releases that waited for key-a");
+    assertEquals(
+        1,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-a"));
+    assertEquals(
+        0,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-b"));
+  }
+
+  @Test
+  void expiredBusinessKeyHoldSweepSkipsAnotherKeysOpenTransaction() {
+    seedBusinessKeyHolds(UUID.randomUUID(), UUID.randomUUID());
+    holder.getTransaction().begin();
+    holder
+        .createNativeQuery(
+            """
+            SELECT business_key FROM scheduler_business_key_reservation
+              WITH (UPDLOCK, ROWLOCK, INDEX(pk_scheduler_business_key_reservation))
+            WHERE business_key = ?1
+            """)
+        .setParameter(1, "key-a")
+        .getResultList();
+    Instant now = Instant.now();
+    var operations = new LinkedHashMap<String, Consumer<SqlserverJobStoreImpl>>();
+    operations.put(
+        "deleteExpiredBusinessKeyHolds",
+        s -> assertEquals(1, s.deleteExpiredBusinessKeyHolds(now, 1)));
+    assertEquals(List.of(), waited(operations), "expiry sweeps that waited for key-a");
+    assertEquals(
+        1,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-a"));
+    assertEquals(
+        0,
+        count(
+            "SELECT COUNT(*) FROM scheduler_business_key_reservation WHERE business_key = ?",
+            "key-b"));
+    holder.getTransaction().rollback();
+    inSeed(s -> assertEquals(1, s.deleteExpiredBusinessKeyHolds(now, 1)));
+  }
+
+  private void seedBusinessKeyHolds(UUID ownerA, UUID ownerB) {
+    inSeed(
+        s -> {
+          for (var entry : Map.of("key-a", ownerA, "key-b", ownerB).entrySet()) {
+            seed.createNativeQuery(
+                    """
+                    INSERT INTO scheduler_business_key_reservation
+                      (business_key, owner_job_id, owner_table, held_until, held_by_node, held_claim_seq)
+                    VALUES (?1, ?2, 'QUEUE', ?3, 'node-a', 1)
+                    """)
+                .setParameter(1, entry.getKey())
+                .setParameter(2, UuidByteArrayConverter.toBytes(entry.getValue()))
+                .setParameter(
+                    3,
+                    Timestamp.from(
+                        Instant.now().minusSeconds(entry.getKey().equals("key-a") ? 120 : 60)))
+                .executeUpdate();
+          }
+        });
+  }
+
+  @Test
   void heartbeatAndNodeDeleteDoNotWaitForAnotherNodesHeartbeat() {
     Instant now = Instant.now();
     seed.getTransaction().begin();

@@ -26,14 +26,18 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
+import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrator;
+import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.tck.store.AbstractSchemaMigratorContract;
 import run.ratchet.tck.store.JdbcDriverDataSource;
 
@@ -465,6 +469,105 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
                     + ")")) {
       statement.setString(1, key);
       statement.executeUpdate();
+    }
+  }
+
+  @Test
+  void unicodeMigrationCanonicalisesResourceReferencesAndDeletesMisCasedPermits() throws Exception {
+    migrateThrough17();
+    UUID jobId = UUID.randomUUID();
+    long claimSeq = 1;
+    UUID permitId = ResourcePermitEntity.idFor("gpu", jobId, claimSeq);
+    try (var c = newJdbcConnection();
+        var statement = c.createStatement()) {
+      statement.executeUpdate(
+          "INSERT INTO scheduler_resource_limit (resource_name, max_concurrent) VALUES ('GPU', 1)");
+      for (String resource : List.of("gpu", "cpu", "GPU")) {
+        try (var insert =
+            c.prepareStatement(
+                """
+                INSERT INTO scheduler_job (job_id, job_type, payload, idempotency_key, resource_name)
+                VALUES (?, 'SINGLE', N'{}', ?, ?)
+                """)) {
+          insert.setBytes(
+              1,
+              UuidByteArrayConverter.toBytes(resource.equals("gpu") ? jobId : UUID.randomUUID()));
+          insert.setString(2, resource.equals("GPU") ? "canonical-key" : resource);
+          insert.setString(3, resource);
+          insert.executeUpdate();
+        }
+      }
+      try (var insert =
+          c.prepareStatement(
+              """
+              INSERT INTO scheduler_job_queue (job_id, job_type, scheduled_time, claim_seq)
+              VALUES (?, 'SINGLE', SYSUTCDATETIME(), ?)
+              """)) {
+        insert.setBytes(1, UuidByteArrayConverter.toBytes(jobId));
+        insert.setLong(2, claimSeq);
+        insert.executeUpdate();
+      }
+      statement.executeUpdate(
+          """
+          INSERT INTO scheduler_recurring_job (id, cron_expr, next_fire, payload, resource_name)
+          VALUES (0x00000000000000000000000000000001, '* * * * *', SYSUTCDATETIME(), N'{}', 'gpu')
+          """);
+      try (var insert =
+          c.prepareStatement(
+              """
+              INSERT INTO scheduler_resource_waiter
+                (job_id, resource_name, priority, wait_since, lease_until)
+              VALUES (?, 'Gpu', 2, SYSUTCDATETIME(), DATEADD(hour, 1, SYSUTCDATETIME()))
+              """)) {
+        insert.setBytes(1, UuidByteArrayConverter.toBytes(jobId));
+        insert.executeUpdate();
+      }
+      try (var insert =
+          c.prepareStatement(
+              """
+              INSERT INTO scheduler_resource_permit (id, resource_name, job_id, node_id)
+              VALUES (?, 'gpu', ?, 'node-a')
+              """)) {
+        insert.setBytes(1, UuidByteArrayConverter.toBytes(permitId));
+        insert.setBytes(2, UuidByteArrayConverter.toBytes(jobId));
+        insert.executeUpdate();
+      }
+    }
+    var migrator = new SchemaMigrator(dataSource(), dialect());
+    assertEquals(1, migrator.migrate().appliedCount());
+    for (int pass = 0; pass < 2; pass++) {
+      try (var c = newJdbcConnection();
+          var statement = c.createStatement()) {
+        for (String table :
+            List.of("scheduler_job", "scheduler_recurring_job", "scheduler_resource_waiter")) {
+          String query = "SELECT resource_name FROM " + table;
+          if (table.equals("scheduler_job")) query += " WHERE idempotency_key = 'gpu'";
+          try (var rows = statement.executeQuery(query)) {
+            assertTrue(rows.next());
+            assertEquals("GPU", rows.getString(1), table);
+            assertFalse(rows.next());
+          }
+        }
+        for (String resource : List.of("cpu", "GPU")) {
+          try (var query =
+              c.prepareStatement(
+                  "SELECT resource_name FROM scheduler_job WHERE idempotency_key = ?")) {
+            query.setString(1, resource.equals("GPU") ? "canonical-key" : resource);
+            try (var rows = query.executeQuery()) {
+              assertTrue(rows.next());
+              assertEquals(resource, rows.getString(1));
+              assertFalse(rows.next());
+            }
+          }
+        }
+        try (var rows = statement.executeQuery("SELECT COUNT(*) FROM scheduler_resource_permit")) {
+          assertTrue(rows.next());
+          assertEquals(0, rows.getInt(1));
+        }
+        if (pass == 0)
+          statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '018'");
+      }
+      assertEquals(pass == 0 ? 1 : 0, migrator.migrate().appliedCount());
     }
   }
 

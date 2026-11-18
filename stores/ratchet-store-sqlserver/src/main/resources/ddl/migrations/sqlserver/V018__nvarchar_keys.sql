@@ -2,6 +2,7 @@
 -- Stop writers before migration. SchemaMigrator executes this batch in one transaction.
 -- Key columns become binary (exact); free-text columns keep their current collation.
 -- BIN2 only makes keys more distinct, so unique keys cannot fail when rebuilt.
+-- Canonicalise resource references to limit names and delete leftover mis-cased permits.
 -- Values already replaced by a code-page conversion cannot be recovered here.
 IF EXISTS (SELECT 1 FROM scheduler_recurring_job WHERE LEN(business_key + '#') - 1 > 255)
     THROW 50018, 'V018: scheduler_recurring_job.business_key exceeds 255 characters', 1;
@@ -115,6 +116,21 @@ BEGIN
     JOIN sys.columns c ON c.object_id = OBJECT_ID(v.table_name) AND c.name = v.column_name;
     IF (SELECT COUNT(*) FROM @columns) < 38
         THROW 50018, 'V018: expected all 38 columns before converting to NVARCHAR', 1;
+    UPDATE j SET resource_name = l.resource_name
+    FROM scheduler_job j
+    JOIN scheduler_resource_limit l ON j.resource_name = l.resource_name
+    WHERE CAST(j.resource_name AS VARBINARY(100)) <> CAST(l.resource_name AS VARBINARY(100));
+    UPDATE r SET resource_name = l.resource_name
+    FROM scheduler_recurring_job r
+    JOIN scheduler_resource_limit l ON r.resource_name = l.resource_name
+    WHERE CAST(r.resource_name AS VARBINARY(100)) <> CAST(l.resource_name AS VARBINARY(100));
+    UPDATE w SET resource_name = l.resource_name
+    FROM scheduler_resource_waiter w
+    JOIN scheduler_resource_limit l ON w.resource_name = l.resource_name
+    WHERE CAST(w.resource_name AS VARBINARY(100)) <> CAST(l.resource_name AS VARBINARY(100));
+    DELETE p FROM scheduler_resource_permit p
+    JOIN scheduler_resource_limit l ON p.resource_name = l.resource_name
+    WHERE CAST(p.resource_name AS VARBINARY(100)) <> CAST(l.resource_name AS VARBINARY(100));
     WHILE @sequence <= (SELECT COUNT(*) FROM @statistics)
     BEGIN
         SELECT @sql = drop_sql FROM @statistics WHERE sequence = @sequence;
