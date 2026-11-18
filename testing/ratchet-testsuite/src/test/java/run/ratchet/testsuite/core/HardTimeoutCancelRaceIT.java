@@ -117,15 +117,23 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
   void cancelBeforeTheWorkerReadsTheStatus_endsCanceledAndFreesTheKey() {
     String key = "timeout-worker-read-cancel-" + UUID.randomUUID();
     StoreCallGate.Pause watchdog = StoreCallGate.pauseNext("findById", JobTimeoutHandler.class);
+    // The post-body read runs inside handleFailure; the read before the body does not.
+    StoreCallGate.Pause worker =
+        StoreCallGate.pauseNext("getJobStatus", JobTask.class, "handleFailure");
     JobHandle job = submitTimingOut(key);
-    // JobTask reads the status before starting the body, so arm only once the body is running.
-    StoreCallGate.Pause worker = StoreCallGate.pauseNext("getJobStatus", JobTask.class);
 
     awaitWorkerAndWatchdogParked(worker, watchdog, job);
     int attempts = store.findById(job.id()).orElseThrow().getAttempts();
     cancelWhileTheWatchdogWaits(key, job);
     worker.release();
     awaitWorkerReturned();
+    assertEquals(
+        List.of(ExecutionStatus.CANCELED),
+        executionStatuses(job),
+        "The worker must record its own cancellation before the watchdog resumes");
+    assertTrue(
+        scheduler.findBusinessKeyHolder(key).isEmpty(),
+        "The worker's hold release must free the key before the watchdog resumes");
     watchdog.release();
 
     assertCancelFinished(key, job);

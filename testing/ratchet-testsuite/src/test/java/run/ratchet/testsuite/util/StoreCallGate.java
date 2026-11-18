@@ -62,7 +62,7 @@ public final class StoreCallGate {
    */
   public static Pause pause(String method, UUID jobId, Class<?> caller) {
     requireCovered(method);
-    Pause pause = new Pause(method, jobId, caller);
+    Pause pause = new Pause(method, jobId, caller, null);
     PAUSES.add(pause);
     return pause;
   }
@@ -74,6 +74,17 @@ public final class StoreCallGate {
    */
   public static Pause pauseNext(String method, Class<?> caller) {
     return pause(method, null, caller);
+  }
+
+  /**
+   * Pauses the first later call from the chosen caller method. The same restrictions as {@link
+   * #pauseNext(String, Class)} apply.
+   */
+  public static Pause pauseNext(String method, Class<?> caller, String callerMethod) {
+    requireCovered(method);
+    Pause pause = new Pause(method, null, caller, callerMethod);
+    PAUSES.add(pause);
+    return pause;
   }
 
   /**
@@ -171,7 +182,11 @@ public final class StoreCallGate {
           StackWalker.getInstance()
               .walk(
                   frames ->
-                      frames.anyMatch(frame -> frame.getClassName().equals(pause.callerClassName)));
+                      frames.anyMatch(
+                          frame ->
+                              frame.getClassName().equals(pause.callerClassName)
+                                  && (pause.callerMethod == null
+                                      || frame.getMethodName().equals(pause.callerMethod))));
       if (fromCaller && pause.state.compareAndSet(Pause.State.ARMED, Pause.State.FIRED)) {
         pause.jobId = jobId;
         pause.thread = Thread.currentThread();
@@ -233,6 +248,7 @@ public final class StoreCallGate {
     private volatile Thread thread;
     private final String callerClassName;
     private final String callerSimpleName;
+    private final String callerMethod;
     private final Thread armingThread;
 
     private enum State {
@@ -247,11 +263,12 @@ public final class StoreCallGate {
     private final CountDownLatch released = new CountDownLatch(1);
     private final CountDownLatch returned = new CountDownLatch(1);
 
-    private Pause(String method, UUID jobId, Class<?> caller) {
+    private Pause(String method, UUID jobId, Class<?> caller, String callerMethod) {
       this.method = method;
       this.targetJobId = jobId;
       this.callerClassName = caller.getName();
       this.callerSimpleName = caller.getSimpleName();
+      this.callerMethod = callerMethod;
       armingThread = Thread.currentThread();
     }
 
@@ -276,6 +293,7 @@ public final class StoreCallGate {
                   + jobId
                   + " from "
                   + callerSimpleName
+                  + (callerMethod == null ? "" : "." + callerMethod)
                   + " reached the gate within "
                   + timeout);
         }
@@ -292,6 +310,10 @@ public final class StoreCallGate {
 
     /** Waits for the paused store call to return or throw. */
     public void awaitReturned(Duration timeout) {
+      if (state.get() != State.FIRED) {
+        throw new AssertionError(
+            "Pause for " + method + " call for job " + jobId + " has not fired");
+      }
       if (!waitForReturn(timeout)) {
         throw new AssertionError(
             "Paused " + method + " call for job " + jobId + " did not return within " + timeout);
