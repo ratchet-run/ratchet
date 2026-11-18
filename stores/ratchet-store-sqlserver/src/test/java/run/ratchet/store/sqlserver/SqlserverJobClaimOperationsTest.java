@@ -16,14 +16,67 @@
 package run.ratchet.store.sqlserver;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 
 class SqlserverJobClaimOperationsTest {
 
   @Test
   void claimSelectProjectsDependsOnFromColdMetadata() {
     assertEquals(expectedClaimSelectClause(), SqlserverJobClaimOperations.claimSelectClause());
+  }
+
+  @Test
+  void markingLockedRowsRunningRejectsAnUpdateCountMismatch() {
+    EntityManager em = mock(EntityManager.class);
+    Query select = mock(Query.class);
+    Query update = mock(Query.class);
+    when(em.createNativeQuery(anyString())).thenReturn(select, update);
+    Object[] row = {
+      UuidByteArrayConverter.toBytes(UUID.randomUUID()),
+      "PENDING",
+      "SINGLE",
+      2,
+      Timestamp.from(Instant.now().minusSeconds(60)),
+      0,
+      60,
+      null,
+      null,
+      null,
+      0,
+      3,
+      null,
+      null,
+      0L
+    };
+    when(select.getResultList()).thenReturn(Collections.singletonList(row));
+    when(update.executeUpdate()).thenReturn(0);
+    var operations = new SqlserverJobClaimOperations(new SqlserverStoreContext(em, 0), null);
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                operations.claimNextBatchOptimized(
+                    JobExecutionType.SINGLE,
+                    1,
+                    "node",
+                    NodeTagFilter.NONE,
+                    ExecutionTargetFilter.any()));
+    assertEquals("Expected to mark 1 locked claims RUNNING, updated 0", failure.getMessage());
   }
 
   private static String expectedClaimSelectClause() {
