@@ -688,13 +688,14 @@ while (cursor != null) {
 Return only after the work's transaction commits. Rollback, including rollback-only,
 drops its checkpoint and the next execution repeats the work. Use idempotent page processing.
 The next execution becomes eligible after the delay and is picked up at the next poll.
-A normal return that lands its transition before the watchdog counts as continuation;
-if the watchdog wins, normal timeout handling uses a retry attempt.
+The continuation transition gives the claim back only if no timeout charge has been committed
+under the same claim. If the watchdog commits its charge first, the continuation transition
+misses, the run's result is discarded, and normal timeout handling uses a retry attempt.
 
 Continued runs ignore return values and skip `onSuccess`, result persistence and success
 finalization. Attempts and the circuit breaker are untouched. Execution history records
 `SUCCEEDED` only after the continuation transition succeeds; runs may share an attempt number.
-The store transition uses the `schedule_retry` metric. Previous progress remains visible until the next report.
+The store transition uses the `release_claim` metric. Previous progress remains visible until the next report.
 
 Continuation requires `JobStateStore`, like checkpoints. Outside a persisted attempt it
 throws `IllegalStateException`; without job state it throws `UnsupportedOperationException`.

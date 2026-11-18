@@ -104,7 +104,7 @@ final class MssqlContainers {
     applySchema(c.getJdbcUrl() + ";databaseName=" + DB_NAME, c.getUsername(), c.getPassword());
   }
 
-  private static void applySchema(String url, String user, String password) {
+  static void applySchema(String url, String user, String password) {
     // Strip -- line comments from the whole file BEFORE splitting on ';': some comment lines
     // contain a semicolon, which would otherwise split a comment and leave a fragment as SQL.
     String schema = stripComments(readSchema());
