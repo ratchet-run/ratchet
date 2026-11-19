@@ -1042,6 +1042,195 @@ class JobTaskTest {
   }
 
   @Test
+  void continuationReleaseQuickRetryDoesNotChargeAttempt() throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenThrow(new RatchetTransientStoreException("unavailable"))
+        .thenReturn(true);
+    jobTask.call();
+    Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    verify(scenario.store()).initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L);
+    verify(jobStore, times(2)).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationReleaseRejectedAfterTransientFailureIsDiscarded() throws Exception {
+    // The first try committed and the PENDING job was then canceled. That cancel records no
+    // claim, so the worker discards the execution.
+    var scenario = rejectedAfterTransientFailure(false);
+    assertContinuationDiscarded(scenario);
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+  }
+
+  @Test
+  void continuationReleaseRejectedByThisClaimsCancelRecordsItOnce() throws Exception {
+    // The first try rolled back and a cancel then ended this claim, so the attempt ends CANCELED.
+    var scenario = rejectedAfterTransientFailure(true);
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    assertContinuationUncharged(scenario);
+  }
+
+  private ContinuationScenario rejectedAfterTransientFailure(boolean canceledUnderClaim)
+      throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenAnswer(
+            inv -> {
+              when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(canceledUnderClaim);
+              throw new RatchetTransientStoreException("unavailable");
+            })
+        .thenReturn(false);
+
+    jobTask.call();
+
+    verify(jobStore, times(2)).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    verify(claimReschedules, never())
+        .handOff(any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any());
+    return scenario;
+  }
+
+  private ContinuationScenario preparedContinuation() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
+        .thenReturn(StateWriteResult.UPDATED);
+    return scenario;
+  }
+
+  private ContinuationScenario handedOffContinuation() throws Exception {
+    var scenario = preparedContinuation();
+    scenario.job().setBusinessKey("continuation-key");
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenThrow(new RatchetTransientStoreException("unavailable"));
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
+        .thenReturn(true);
+    jobTask.call();
+    Assertions.assertEquals(ExecutionStatus.RUNNING, scenario.execution().getStatus());
+    verify(observabilityFacade, never()).saveExecution(scenario.execution());
+    assertContinuationUncharged(scenario);
+    return scenario;
+  }
+
+  private Runnable continuationCallback(int index) {
+    ArgumentCaptor<Runnable> accepted = ArgumentCaptor.forClass(Runnable.class);
+    ArgumentCaptor<Runnable> rejected = ArgumentCaptor.forClass(Runnable.class);
+    ArgumentCaptor<Runnable> dropped = ArgumentCaptor.forClass(Runnable.class);
+    verify(claimReschedules)
+        .handOff(
+            eq(JOB_UUID),
+            eq(7L),
+            isNull(),
+            eq(FIXED_NOW),
+            eq(0),
+            any(),
+            accepted.capture(),
+            rejected.capture(),
+            dropped.capture());
+    return switch (index) {
+      case 0 -> accepted.getValue();
+      case 1 -> rejected.getValue();
+      default -> dropped.getValue();
+    };
+  }
+
+  private void assertContinuationUncharged(ContinuationScenario scenario) {
+    Assertions.assertEquals(0, scenario.job().getAttempts());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+  }
+
+  private void assertContinuationDiscarded(ContinuationScenario scenario) {
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationHandedOffThenAccepted() throws Exception {
+    var scenario = handedOffContinuation();
+    continuationCallback(0).run();
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationHandedOffThenRejectedReleasesHold() throws Exception {
+    var scenario = handedOffContinuation();
+    continuationCallback(1).run();
+    assertContinuationDiscarded(scenario);
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+  }
+
+  @Test
+  void continuationHandedOffThenRejectedCanceledRowIsDiscarded() throws Exception {
+    var scenario = handedOffContinuation();
+    // A thrown try committed and the PENDING job was then canceled. That cancel records no claim.
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
+    continuationCallback(1).run();
+    assertContinuationDiscarded(scenario);
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+  }
+
+  @Test
+  void continuationHandedOffThenRejectedByThisClaimsCancelRecordsItOnce() throws Exception {
+    var scenario = handedOffContinuation();
+    // The thrown tries rolled back and a cancel then ended this claim.
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
+    continuationCallback(1).run();
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationInlineRejectionRecordsCancellationOnce() throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenAnswer(
+            inv -> {
+              when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
+              return false;
+            });
+    jobTask.call();
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationHandedOffThenDroppedIsDiscarded() throws Exception {
+    var scenario = handedOffContinuation();
+    continuationCallback(2).run();
+    assertContinuationDiscarded(scenario);
+  }
+
+  @Test
+  void continuationRevokedDuringQuickRetriesIsDiscarded() throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              throw new RatchetTransientStoreException("unavailable");
+            });
+    jobTask.call();
+    verifyNoInteractions(claimReschedules);
+    assertContinuationDiscarded(scenario);
+  }
+
+  @Test
   void continuationPreservesAttemptsClearsErrorAndSkipsSuccessProcessing() throws Exception {
     var scenario =
         continuationScenario(
@@ -4834,7 +5023,8 @@ class JobTaskTest {
     when(jobStore.releaseClaim(
             eq(JOB_UUID), eq("sanitized skew"), any(), eq(claim.attempts()), eq(0L)))
         .thenThrow(new RatchetTransientStoreException("unavailable"));
-    when(claimReschedules.handOff(any(), anyLong(), anyString(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), anyString(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
 
     jobTask.call();
@@ -4851,6 +5041,8 @@ class JobTaskTest {
             eq(scheduled.getValue()),
             eq(claim.attempts()),
             any(),
+            any(),
+            any(),
             any());
     Assertions.assertTrue(scheduled.getAllValues().stream().allMatch(scheduled.getValue()::equals));
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong(), any());
@@ -4862,7 +5054,8 @@ class JobTaskTest {
   void call_batchGuardRescheduleExhaustedHandsOff() throws Exception {
     when(jobStore.releaseClaim(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L)))
         .thenThrow(new RatchetTransientStoreException("unavailable"));
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
     assertBatchChildNeverStarts(
         parentId ->
@@ -4879,6 +5072,8 @@ class JobTaskTest {
             eq(reason.getValue()),
             eq(FIXED_NOW.plusSeconds(30)),
             eq(2),
+            any(),
+            any(),
             any(),
             any());
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong(), any());
@@ -4898,14 +5093,24 @@ class JobTaskTest {
               Thread.currentThread().interrupt();
               throw new RatchetTransientStoreException("interrupted write");
             });
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
     try {
       jobTask.call();
       Assertions.assertTrue(Thread.currentThread().isInterrupted());
       verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
       verify(claimReschedules)
-          .handOff(eq(JOB_UUID), eq(0L), eq("sanitized skew"), any(), anyInt(), any(), any());
+          .handOff(
+              eq(JOB_UUID),
+              eq(0L),
+              eq("sanitized skew"),
+              any(),
+              anyInt(),
+              any(),
+              any(),
+              any(),
+              any());
     } finally {
       Thread.interrupted();
     }
@@ -4920,7 +5125,8 @@ class JobTaskTest {
               Thread.currentThread().interrupt();
               throw new RatchetTransientStoreException("interrupted write");
             });
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
     try {
       assertBatchChildNeverStarts(
@@ -4932,7 +5138,16 @@ class JobTaskTest {
       verify(jobStore)
           .releaseClaim(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), eq(7L));
       verify(claimReschedules)
-          .handOff(eq(JOB_UUID), eq(7L), any(), eq(FIXED_NOW.plusSeconds(30)), eq(2), any(), any());
+          .handOff(
+              eq(JOB_UUID),
+              eq(7L),
+              any(),
+              eq(FIXED_NOW.plusSeconds(30)),
+              eq(2),
+              any(),
+              any(),
+              any(),
+              any());
     } finally {
       Thread.interrupted();
     }
@@ -4953,7 +5168,8 @@ class JobTaskTest {
               Thread.currentThread().interrupt();
               throw new RatchetTransientStoreException("interrupted write");
             });
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
     try {
       jobTask.call();
@@ -4961,7 +5177,16 @@ class JobTaskTest {
       verify(job).getSignalPayload();
       verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), anyInt(), eq(0L));
       verify(claimReschedules)
-          .handOff(eq(JOB_UUID), eq(0L), eq("sanitized skew"), any(), anyInt(), any(), any());
+          .handOff(
+              eq(JOB_UUID),
+              eq(0L),
+              eq("sanitized skew"),
+              any(),
+              anyInt(),
+              any(),
+              any(),
+              any(),
+              any());
     } finally {
       Thread.interrupted();
     }
@@ -4970,13 +5195,22 @@ class JobTaskTest {
   @Test
   void reschedule_handoffSupplierTracksAttemptRevocation() throws Exception {
     JobAttemptControl attempt = prepareClaimReschedule();
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
     invokeClaimReschedule();
     ArgumentCaptor<BooleanSupplier> revoked = ArgumentCaptor.forClass(BooleanSupplier.class);
     verify(claimReschedules)
         .handOff(
-            eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), revoked.capture(), any());
+            eq(JOB_UUID),
+            eq(7L),
+            eq("release"),
+            eq(FIXED_NOW),
+            eq(2),
+            revoked.capture(),
+            any(),
+            any(),
+            any());
     Assertions.assertFalse(revoked.getValue().getAsBoolean());
     attempt.revoke();
     Assertions.assertTrue(revoked.getValue().getAsBoolean());
@@ -5007,24 +5241,28 @@ class JobTaskTest {
     invokeClaimReschedule();
     verify(jobStore, times(4)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
     verify(claimReschedules)
-        .handOff(eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any());
+        .handOff(
+            eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any(), any(), any());
   }
 
   @Test
   void reschedule_refusedHandoffRetriesOfferingAfterNextTransientRound() throws Exception {
     prepareClaimReschedule();
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(false, true);
     invokeClaimReschedule();
     verify(jobStore, times(4)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
     verify(claimReschedules, times(2))
-        .handOff(eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any());
+        .handOff(
+            eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any(), any(), any());
   }
 
   @Test
   void reschedule_refusedHandoffStopsWhenInterruptedWithoutInterruptedStoreCall() throws Exception {
     prepareClaimReschedule();
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenAnswer(
             inv -> {
               Thread.currentThread().interrupt();
@@ -5050,13 +5288,23 @@ class JobTaskTest {
             })
         .when(jobStore)
         .releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
     try {
       invokeClaimReschedule();
       verify(jobStore).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
       verify(claimReschedules)
-          .handOff(eq(JOB_UUID), eq(7L), eq("release"), eq(FIXED_NOW), eq(2), any(), any());
+          .handOff(
+              eq(JOB_UUID),
+              eq(7L),
+              eq("release"),
+              eq(FIXED_NOW),
+              eq(2),
+              any(),
+              any(),
+              any(),
+              any());
       Assertions.assertFalse(Thread.currentThread().isInterrupted());
     } finally {
       Thread.interrupted();
@@ -5092,6 +5340,8 @@ class JobTaskTest {
             Instant.class,
             int.class,
             long.class,
+            Runnable.class,
+            Runnable.class,
             Runnable.class);
     method.setAccessible(true);
     method.invoke(
@@ -5101,7 +5351,9 @@ class JobTaskTest {
         FIXED_NOW,
         2,
         7L,
-        (Runnable) () -> Assertions.fail("unexpected rejection"));
+        (Runnable) () -> Assertions.fail("unexpected rejection"),
+        (Runnable) () -> {},
+        (Runnable) () -> {});
   }
 
   @Test
@@ -5134,7 +5386,8 @@ class JobTaskTest {
     when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofSeconds(1));
     when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
         .thenThrow(new RatchetTransientStoreException("unavailable"));
-    when(claimReschedules.handOff(any(), anyLong(), any(), any(), anyInt(), any(), any()))
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
         .thenReturn(true);
     jobTask.call();
     ArgumentCaptor<JobExecutionEntity> saved = ArgumentCaptor.forClass(JobExecutionEntity.class);
@@ -5161,7 +5414,16 @@ class JobTaskTest {
   private Runnable rejectedClaimCallback() {
     ArgumentCaptor<Runnable> callback = ArgumentCaptor.forClass(Runnable.class);
     verify(claimReschedules)
-        .handOff(eq(JOB_UUID), eq(7L), anyString(), any(), eq(2), any(), callback.capture());
+        .handOff(
+            eq(JOB_UUID),
+            eq(7L),
+            anyString(),
+            any(),
+            eq(2),
+            any(),
+            any(),
+            callback.capture(),
+            any());
     return callback.getValue();
   }
 
@@ -5201,7 +5463,8 @@ class JobTaskTest {
     }
 
     if (exhausted)
-      when(claimReschedules.handOff(any(), anyLong(), anyString(), any(), anyInt(), any(), any()))
+      when(claimReschedules.handOff(
+              any(), anyLong(), anyString(), any(), anyInt(), any(), any(), any(), any()))
           .thenReturn(true);
     jobTask.call();
 
@@ -5219,6 +5482,8 @@ class JobTaskTest {
               eq(reason),
               eq(FIXED_NOW.plusMillis(circuitOpen ? 1000 : 250)),
               eq(2),
+              any(),
+              any(),
               any(),
               any());
     verify(jobStore, times(exhausted ? JobTask.TRANSIENT_STORE_TRIES : 2))

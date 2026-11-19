@@ -387,12 +387,15 @@ public class JobTask implements Callable<Void> {
           jobEntity.getDependsOn());
       try {
         if (rescheduleWithoutChargingAttempt(
-            jobId,
-            sanitizeError(e),
-            effective().instant().plus(BATCH_CHECK_RETRY_BACKOFF),
-            claimAttempts,
-            expectedClaimSeq(),
-            this::warnRejectedOwnerWrite)) {
+                jobId,
+                sanitizeError(e),
+                effective().instant().plus(BATCH_CHECK_RETRY_BACKOFF),
+                claimAttempts,
+                expectedClaimSeq(),
+                this::warnRejectedOwnerWrite,
+                () -> {},
+                () -> {})
+            == ReleaseOutcome.ACCEPTED) {
           outcomeWritten = true;
         }
       } catch (RuntimeException releaseFailure) {
@@ -860,12 +863,15 @@ public class JobTask implements Callable<Void> {
     int attempts = claimAttempts;
     try {
       if (rescheduleWithoutChargingAttempt(
-          jobId,
-          sanitizeError(ex),
-          newScheduledTime,
-          attempts,
-          expectedClaimSeq(),
-          this::warnRejectedOwnerWrite)) {
+              jobId,
+              sanitizeError(ex),
+              newScheduledTime,
+              attempts,
+              expectedClaimSeq(),
+              this::warnRejectedOwnerWrite,
+              () -> {},
+              () -> {})
+          == ReleaseOutcome.ACCEPTED) {
         outcomeWritten = true;
       }
     } catch (Throwable t) {
@@ -1128,25 +1134,26 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private boolean rescheduleWithoutChargingAttempt(
-      UUID jobId,
-      String reason,
-      Instant scheduledTime,
-      int attempts,
-      long claimSeq,
-      Runnable onRejected) {
-    return rescheduleWithoutChargingAttempt(
-        jobId, reason, scheduledTime, attempts, claimSeq, onRejected, false);
+  private enum ReleaseOutcome {
+    /** The write landed on the worker. */
+    ACCEPTED,
+    /** The fenced write was rejected and the worker ran onRejected. */
+    REJECTED,
+    /** The drainer owns the write and will run exactly one completion callback. */
+    HANDED_OFF,
+    /** No write remains after revocation or interruption of the fallback loop. */
+    NOT_WRITTEN
   }
 
-  private boolean rescheduleWithoutChargingAttempt(
+  private ReleaseOutcome rescheduleWithoutChargingAttempt(
       UUID jobId,
       String reason,
       Instant scheduledTime,
       int attempts,
       long claimSeq,
       Runnable onRejected,
-      boolean reconcileCancellation) {
+      Runnable afterAccepted,
+      Runnable afterDropped) {
     Supplier<Boolean> write =
         () -> jobStore.releaseClaim(jobId, reason, scheduledTime, attempts, claimSeq);
     boolean accepted;
@@ -1161,22 +1168,14 @@ public class JobTask implements Callable<Void> {
             // Runs on the drainer thread after the hand-off. The worker ends the attempt right
             // after it and no longer changes the fields read here.
             try {
-              // The claim has moved on, as in warnRejectedOwnerWrite.
-              markAttemptSuperseded();
-              if (reconcileCancellation && jobWasCanceled()) {
-                handleCanceledDuringExecution(cancelStart());
-              } else {
-                log.warnf(
-                    "Rejected owner write for job %s, stale claimSeq %s, node %s",
-                    jobId, claimSeq, nodeIdProvider.getNodeId());
-              }
+              onRejected.run();
             } finally {
               if (businessKey != null) {
                 holdReleases.release(jobId, claimSeq);
               }
             }
           };
-      if (claimRescheduleRevoked(jobId)) return false;
+      if (claimRescheduleRevoked(jobId)) return ReleaseOutcome.NOT_WRITTEN;
       if (claimReschedules != null
           && claimReschedules.handOff(
               jobId,
@@ -1185,16 +1184,18 @@ public class JobTask implements Callable<Void> {
               scheduledTime,
               attempts,
               () -> attempt != null && attempt.isRevoked(),
-              afterRejected)) return false;
+              afterAccepted,
+              afterRejected,
+              afterDropped)) return ReleaseOutcome.HANDED_OFF;
       while (true) {
         recordInterrupt(Thread.interrupted());
         if (workerInterrupted) {
           log.errorf(
               "Job %s stays RUNNING for shutdown reset or orphan recovery after interruption",
               jobId);
-          return false;
+          return ReleaseOutcome.NOT_WRITTEN;
         }
-        if (claimRescheduleRevoked(jobId)) return false;
+        if (claimRescheduleRevoked(jobId)) return ReleaseOutcome.NOT_WRITTEN;
         try {
           Thread.sleep(5000);
         } catch (InterruptedException interrupted) {
@@ -1203,11 +1204,11 @@ public class JobTask implements Callable<Void> {
         }
         recordInterrupt(Thread.interrupted());
         if (workerInterrupted) continue;
-        if (claimRescheduleRevoked(jobId)) return false;
+        if (claimRescheduleRevoked(jobId)) return ReleaseOutcome.NOT_WRITTEN;
         try {
           accepted = write.get();
         } catch (RatchetTransientStoreException retryFailure) {
-          if (claimRescheduleRevoked(jobId)) return false;
+          if (claimRescheduleRevoked(jobId)) return ReleaseOutcome.NOT_WRITTEN;
           if (claimReschedules != null
               && claimReschedules.handOff(
                   jobId,
@@ -1216,15 +1217,17 @@ public class JobTask implements Callable<Void> {
                   scheduledTime,
                   attempts,
                   () -> attempt != null && attempt.isRevoked(),
-                  afterRejected)) return false;
+                  afterAccepted,
+                  afterRejected,
+                  afterDropped)) return ReleaseOutcome.HANDED_OFF;
           continue;
         }
         if (!accepted) onRejected.run();
-        return accepted;
+        return accepted ? ReleaseOutcome.ACCEPTED : ReleaseOutcome.REJECTED;
       }
     }
     if (!accepted) onRejected.run();
-    return accepted;
+    return accepted ? ReleaseOutcome.ACCEPTED : ReleaseOutcome.REJECTED;
   }
 
   private boolean claimRescheduleRevoked(UUID jobId) {
@@ -1259,12 +1262,15 @@ public class JobTask implements Callable<Void> {
         }
         int retryDelay = permitRetryDelay(resourceName);
         if (rescheduleWithoutChargingAttempt(
-            job.getId(),
-            "Permit check failed transiently for resource: " + resourceName,
-            effective().instant().plusMillis(retryDelay),
-            claimAttempts,
-            claimSeq,
-            this::warnRejectedOwnerWrite)) {
+                job.getId(),
+                "Permit check failed transiently for resource: " + resourceName,
+                effective().instant().plusMillis(retryDelay),
+                claimAttempts,
+                claimSeq,
+                this::warnRejectedOwnerWrite,
+                () -> {},
+                () -> {})
+            == ReleaseOutcome.ACCEPTED) {
           outcomeWritten = true;
         }
         log.warnf(
@@ -1290,13 +1296,16 @@ public class JobTask implements Callable<Void> {
       // The reschedule is claim-fenced. After a real supersede the store rejects it. If the store
       // misjudged a live claim, it succeeds and the job is not left RUNNING with no worker.
       int retryDelay = permitRetryDelay(resourceName);
-      if (!rescheduleWithoutChargingAttempt(
-          job.getId(),
-          "Waiting for resource: " + resourceName,
-          effective().instant().plusMillis(retryDelay),
-          claimAttempts,
-          claimSeq,
-          this::warnRejectedOwnerWrite)) {
+      if (rescheduleWithoutChargingAttempt(
+              job.getId(),
+              "Waiting for resource: " + resourceName,
+              effective().instant().plusMillis(retryDelay),
+              claimAttempts,
+              claimSeq,
+              this::warnRejectedOwnerWrite,
+              () -> {},
+              () -> {})
+          != ReleaseOutcome.ACCEPTED) {
         return false;
       }
       outcomeWritten = true;
@@ -1358,20 +1367,22 @@ public class JobTask implements Callable<Void> {
     }
 
     if (rescheduleWithoutChargingAttempt(
-        jobEntity.getId(),
-        "Circuit breaker OPEN for service: " + serviceName,
-        newScheduledTime,
-        claimAttempts,
-        expectedClaimSeq(),
-        () -> {
-          if (jobWasCanceled()) {
-            markAttemptSuperseded();
-            handleCanceledDuringExecution(cancelStart());
-          } else {
-            warnRejectedOwnerWrite();
-          }
-        },
-        true)) {
+            jobEntity.getId(),
+            "Circuit breaker OPEN for service: " + serviceName,
+            newScheduledTime,
+            claimAttempts,
+            expectedClaimSeq(),
+            () -> {
+              if (jobWasCanceled()) {
+                markAttemptSuperseded();
+                handleCanceledDuringExecution(cancelStart());
+              } else {
+                warnRejectedOwnerWrite();
+              }
+            },
+            () -> {},
+            () -> {})
+        == ReleaseOutcome.ACCEPTED) {
       outcomeWritten = true;
     }
   }
@@ -1857,31 +1868,59 @@ public class JobTask implements Callable<Void> {
         throw new IllegalStateException("Continuation counter write conflicted on all 3 attempts");
       }
     }
+    final long next = count + 1;
     Instant scheduled = effective().instant().plus(delay);
-    if (jobStore.releaseClaim(job.getId(), null, scheduled, claimAttempts, expectedClaimSeq())) {
-      outcomeWritten = true;
-      job.setStatus(JobStatus.PENDING);
-      job.setScheduledTime(scheduled);
-      job.setLastError(null);
-      if (currentExecution != null) {
-        currentExecution.markSucceeded();
-        observabilityFacade.saveExecution(currentExecution);
-      }
-      log.infof(
-          "Job %s continuing (%d/%d) in %d ms",
-          job.getId(), count + 1, maxContinuations, delay.toMillis());
-    } else if (jobWasCanceled()) {
-      // A cancel committed after the post-body check, so the continuation write missed.
-      markAttemptSuperseded();
-      handleCanceledDuringExecution(start);
+    ReleaseOutcome outcome =
+        rescheduleWithoutChargingAttempt(
+            job.getId(),
+            null,
+            scheduled,
+            claimAttempts,
+            expectedClaimSeq(),
+            () -> continuationRejected(start),
+            () -> continuationLanded(next, scheduled, delay),
+            this::continuationDropped);
+    if (outcome == ReleaseOutcome.ACCEPTED) {
+      continuationLanded(next, scheduled, delay);
+    } else if (outcome == ReleaseOutcome.REJECTED) {
       return;
-    } else {
-      warnRejectedOwnerWrite();
+    } else if (outcome == ReleaseOutcome.NOT_WRITTEN) {
       saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
       return;
     }
     if (jobResult != null) log.debugf("Job %s continuation return value ignored", job.getId());
     currentScope.success(Duration.between(start, effective().instant()).toMillis());
+  }
+
+  private void continuationLanded(long next, Instant scheduled, Duration delay) {
+    outcomeWritten = true;
+    job.setStatus(JobStatus.PENDING);
+    job.setScheduledTime(scheduled);
+    job.setLastError(null);
+    if (currentExecution != null) {
+      currentExecution.markSucceeded();
+      observabilityFacade.saveExecution(currentExecution);
+    }
+    log.infof(
+        "Job %s continuing (%d/%d) in %d ms",
+        job.getId(), next, maxContinuations, delay.toMillis());
+  }
+
+  private void continuationRejected(Instant start) {
+    if (jobWasCanceled()) {
+      markAttemptSuperseded();
+      handleCanceledDuringExecution(start);
+    } else {
+      warnRejectedOwnerWrite();
+      saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+    }
+  }
+
+  private void continuationDropped() {
+    saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+    log.warnf(
+        "Job %s continuation claim left to the watchdog, shutdown reset or orphan recovery",
+        job.getId());
   }
 
   private String continuationJson(long count) {
