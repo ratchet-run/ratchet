@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -1214,6 +1215,109 @@ class JobTaskTest {
     var scenario = handedOffContinuation();
     continuationCallback(2).run();
     assertContinuationDiscarded(scenario);
+  }
+
+  @Test
+  void continuationDroppedAfterWatchdogCancelKeepsTheCancel() throws Exception {
+    var scenario = handedOffContinuation();
+    scenario.attempt().revoke();
+    scenario.attempt().finishCancelFoundByTimeout();
+    continuationCallback(2).run();
+
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationWatchdogCancelAfterDropUpgradesTheDiscard() throws Exception {
+    var scenario = handedOffContinuation();
+    List<ExecutionStatus> statuses = new ArrayList<>();
+    doAnswer(
+            inv -> {
+              JobExecutionEntity execution = inv.getArgument(0);
+              statuses.add(execution.getStatus());
+              return null;
+            })
+        .when(observabilityFacade)
+        .saveExecution(scenario.execution());
+
+    continuationCallback(2).run();
+    scenario.attempt().revoke();
+    scenario.attempt().finishCancelFoundByTimeout();
+
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), statuses);
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationWatchdogAfterLandingRecordsNoCancel() throws Exception {
+    var scenario = handedOffContinuation();
+    continuationCallback(0).run();
+    scenario.attempt().revoke();
+    scenario.attempt().finishCancelFoundByTimeout();
+
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationDropAndWatchdogCancelDoNotInterleave() throws Exception {
+    var scenario = handedOffContinuation();
+    Runnable drop = continuationCallback(2);
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch watchdogStarted = new CountDownLatch(1);
+    List<ExecutionStatus> statuses = Collections.synchronizedList(new ArrayList<>());
+    AtomicInteger saves = new AtomicInteger();
+    doAnswer(
+            inv -> {
+              JobExecutionEntity execution = inv.getArgument(0);
+              statuses.add(execution.getStatus());
+              if (saves.incrementAndGet() == 1) {
+                entered.countDown();
+                Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+              }
+              return null;
+            })
+        .when(observabilityFacade)
+        .saveExecution(scenario.execution());
+
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> dropped = executor.submit(drop);
+      Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+      Future<?> canceled =
+          executor.submit(
+              () -> {
+                scenario.attempt().revoke();
+                watchdogStarted.countDown();
+                scenario.attempt().finishCancelFoundByTimeout();
+              });
+      Assertions.assertTrue(watchdogStarted.await(5, TimeUnit.SECONDS));
+      verify(observabilityFacade, after(200).times(1)).saveExecution(any());
+      Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+      release.countDown();
+      dropped.get(5, TimeUnit.SECONDS);
+      canceled.get(5, TimeUnit.SECONDS);
+
+      Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), statuses);
+      Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+      verify(observabilityFacade).recordJobCancellation(scenario.job());
+      verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+      assertContinuationUncharged(scenario);
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+      Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   @Test

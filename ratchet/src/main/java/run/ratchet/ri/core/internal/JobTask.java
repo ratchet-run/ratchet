@@ -33,6 +33,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
@@ -167,6 +168,10 @@ public class JobTask implements Callable<Void> {
   private volatile int claimAttempts;
   private Integer expectedAttempts;
   private Long loadedClaimSeq;
+  // After a hand-off, the drainer and the hard-timeout watchdog can both finish the execution, so
+  // its terminal change and save run under this lock. A cancel the watchdog finds may upgrade a
+  // discarded execution to CANCELED.
+  private final ReentrantLock executionFinishLock = new ReentrantLock();
   private JobExecutionEntity currentExecution;
   private TracingCollector.ExecutionScope currentScope =
       TracingCollector.NoOpExecutionScope.INSTANCE;
@@ -1436,13 +1441,18 @@ public class JobTask implements Callable<Void> {
     Instant endTime = effective().instant();
     long executionMs = Duration.between(start, endTime).toMillis();
 
-    job.setExecutionStartTime(start);
-    job.setExecutionEndTime(endTime);
-    job.setExecutionDurationMs(executionMs);
+    executionFinishLock.lock();
+    try {
+      job.setExecutionStartTime(start);
+      job.setExecutionEndTime(endTime);
+      job.setExecutionDurationMs(executionMs);
 
-    if (currentExecution != null) {
-      currentExecution.markCanceled();
-      saveCanceledExecution();
+      if (currentExecution != null) {
+        currentExecution.markCanceled();
+        saveCanceledExecution();
+      }
+    } finally {
+      executionFinishLock.unlock();
     }
 
     observabilityFacade.recordJobCancellation(job);
@@ -1762,14 +1772,19 @@ public class JobTask implements Callable<Void> {
   }
 
   private void saveDeferredExecutionFailure(String errorClass, String errorMessage) {
-    if (currentExecution == null || currentExecution.getStatus() != ExecutionStatus.RUNNING) {
-      return;
-    }
-    currentExecution.markFailed(errorClass, errorMessage);
+    executionFinishLock.lock();
     try {
-      observabilityFacade.saveExecution(currentExecution);
-    } catch (RuntimeException failure) {
-      log.warnf(failure, "Job %s could not save deferred execution failure", job.getId());
+      if (currentExecution == null || currentExecution.getStatus() != ExecutionStatus.RUNNING) {
+        return;
+      }
+      currentExecution.markFailed(errorClass, errorMessage);
+      try {
+        observabilityFacade.saveExecution(currentExecution);
+      } catch (RuntimeException failure) {
+        log.warnf(failure, "Job %s could not save deferred execution failure", job.getId());
+      }
+    } finally {
+      executionFinishLock.unlock();
     }
   }
 
@@ -1897,9 +1912,14 @@ public class JobTask implements Callable<Void> {
     job.setStatus(JobStatus.PENDING);
     job.setScheduledTime(scheduled);
     job.setLastError(null);
-    if (currentExecution != null) {
-      currentExecution.markSucceeded();
-      observabilityFacade.saveExecution(currentExecution);
+    executionFinishLock.lock();
+    try {
+      if (currentExecution != null) {
+        currentExecution.markSucceeded();
+        observabilityFacade.saveExecution(currentExecution);
+      }
+    } finally {
+      executionFinishLock.unlock();
     }
     log.infof(
         "Job %s continuing (%d/%d) in %d ms",
