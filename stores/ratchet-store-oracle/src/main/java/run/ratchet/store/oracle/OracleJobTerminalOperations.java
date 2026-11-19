@@ -457,14 +457,18 @@ final class OracleJobTerminalOperations {
   private boolean doCancelJob(UUID id, @Nullable Instant keyHeldUntil, Object[] claim) {
     // language=Oracle
     String cancelNonRecurringSql =
-        "UPDATE scheduler_job c SET c.row_version = c.row_version + 1, c.terminal_status ="
-            + " 'CANCELED', c.terminated_at = "
-            + NOW_UTC
-            + ", "
-            + runningTimingTuple()
-            + " WHERE c.job_id = ? AND c.job_type <> 'RECURRING' AND c.terminal_status IS NULL"
-            + " AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = c.job_id"
-            + " AND q.status IN ('PENDING','RUNNING','PAUSED','WAITING'))";
+        """
+        UPDATE scheduler_job c
+        SET c.row_version = c.row_version + 1, c.terminal_status = 'CANCELED',
+            c.canceled_claim_seq = (
+                SELECT CASE WHEN q.status = 'RUNNING' THEN q.claim_seq ELSE NULL END
+                FROM scheduler_job_queue q WHERE q.job_id = c.job_id),
+            c.terminated_at = %s, %s
+        WHERE c.job_id = ? AND c.job_type <> 'RECURRING' AND c.terminal_status IS NULL
+          AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = c.job_id
+                      AND q.status IN ('PENDING','RUNNING','PAUSED','WAITING'))
+        """
+            .formatted(NOW_UTC, runningTimingTuple());
     int nonRecurringUpdated =
         ctx.em()
             .createNativeQuery(cancelNonRecurringSql)
@@ -564,7 +568,7 @@ final class OracleJobTerminalOperations {
     String clearTerminalSql =
         """
         UPDATE scheduler_job
-        SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
+        SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
             job_result = NULL, result_type = NULL,
             execution_start_time = NULL, execution_end_time = NULL,
             execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -625,7 +629,7 @@ final class OracleJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,

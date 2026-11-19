@@ -269,6 +269,13 @@ Two features open a transaction around job code on purpose. [`@TransactionalJob`
 
 ## Timeout Handling
 
+A cancel is recorded for an attempt only when it ended that attempt's claim.
+A cancel after orphan recovery, or of a newer claim, is not recorded for the old attempt.
+A deleted job is not a cancel.
+When the row is gone before the body starts, the worker does not run the body and records nothing.
+The same holds when a cancel ended another claim before the body starts.
+Otherwise the worker finishes through its normal fenced paths.
+
 Each execution attempt has a deadline: the time the attempt started plus the job's timeout. A job without its own timeout uses `ratchet.timeout.default-sla-seconds` (30 minutes by default). A watchdog on the executing node does up to three things for each attempt. When the grace is longer than the soft-warning margin, step 2 happens before step 1.
 
 1. At `ratchet.timeout.soft-timeout-percent` of the timeout (80% by default), it logs a warning.

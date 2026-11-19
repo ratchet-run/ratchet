@@ -16,3 +16,4 @@ V015__resource_waiter.sql
 V016__job_row_version.sql
 V017__business_key_hold.sql
 V018__nvarchar_keys.sql
+V019__canceled_claim_seq.sql

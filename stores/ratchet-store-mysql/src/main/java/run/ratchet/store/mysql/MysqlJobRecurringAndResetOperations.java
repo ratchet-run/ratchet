@@ -141,7 +141,7 @@ final class MysqlJobRecurringAndResetOperations {
       String coldSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = 'CANCELED', terminated_at = NOW(3)
+          SET row_version = row_version + 1, terminal_status = 'CANCELED', canceled_claim_seq = NULL, terminated_at = NOW(3)
           WHERE job_id IN (%s) AND terminal_status IS NULL
           """
               .formatted(placeholders);

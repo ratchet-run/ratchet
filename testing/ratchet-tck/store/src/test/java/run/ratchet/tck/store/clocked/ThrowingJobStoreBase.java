@@ -128,6 +128,11 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    return fail("wasCanceledUnderClaim");
+  }
+
+  @Override
   public JobStatus getJobStatus(UUID id) {
     return fail("getJobStatus");
   }

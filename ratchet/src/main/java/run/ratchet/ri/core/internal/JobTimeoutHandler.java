@@ -532,7 +532,7 @@ public class JobTimeoutHandler {
 
   /** Why a hard-timeout transition left the attempt's outcome alone. */
   private enum TimeoutMiss {
-    /** The read found the job CANCELED. */
+    /** The read found a cancel that ended this claim. */
     CANCELED,
     /** A fenced write missed, so a cancel may have committed after the read. */
     WRITE_MISSED
@@ -561,7 +561,10 @@ public class JobTimeoutHandler {
       if (attempt != null) {
         attempt.markSuperseded();
       }
-      if (job.getStatus() == JobStatus.CANCELED) miss.set(TimeoutMiss.CANCELED);
+      if (job.getStatus() == JobStatus.CANCELED
+          && jobCrudStore.wasCanceledUnderClaim(jobId, expectedClaimSeq)) {
+        miss.set(TimeoutMiss.CANCELED);
+      }
       return Optional.empty();
     }
     job.setClaimSeq(expectedClaimSeq);
@@ -595,19 +598,9 @@ public class JobTimeoutHandler {
     }
     if (retryAllowed && newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
-      // The reschedule can leave the job live, so a later CANCELED row may be a cancel of
-      // the job it produced. On SQL stores the charge and reschedule share the REQUIRES_NEW
-      // transaction: a throw before commit rolls both back, so the flag is conservative.
-      // A miss clears only a mark this try set. An earlier try's reschedule may have committed
-      // before it threw, and this try's write then misses on the claim that followed it.
-      boolean earlierOutcomeUnknown = attempt != null && attempt.timeoutOutcomeUnknown();
-      if (attempt != null) attempt.markTimeoutOutcomeUnknown();
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(
               jobId, sanitizedError, retryTime, newAttempts, expectedClaimSeq);
-      if (!rescheduled && attempt != null && !earlierOutcomeUnknown) {
-        attempt.clearTimeoutOutcomeUnknown();
-      }
       if (rescheduled) {
         publishHardTimeoutRetryEvents(
             job, sanitizedError, newAttempts, retryTime, timeoutSec, observedElapsedTime);
@@ -658,8 +651,9 @@ public class JobTimeoutHandler {
     if (attempt == null || miss == null) return;
     boolean interrupted = Thread.interrupted();
     try {
+      // A CANCELED miss was already attributed to this claim by the transition's own read.
       if (miss == TimeoutMiss.CANCELED
-          || jobCrudStore.getJobStatus(attempt.jobId()) == JobStatus.CANCELED) {
+          || jobCrudStore.wasCanceledUnderClaim(attempt.jobId(), attempt.claimSeq())) {
         attempt.finishCancelFoundByTimeout();
       }
     } catch (RuntimeException failure) {

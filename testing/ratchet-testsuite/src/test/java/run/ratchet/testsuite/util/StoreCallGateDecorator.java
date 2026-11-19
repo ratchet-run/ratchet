@@ -79,6 +79,21 @@ public abstract class StoreCallGateDecorator implements JobStore {
   }
 
   @Override
+  public boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    StoreCallGate.Pause fired = StoreCallGate.enter("wasCanceledUnderClaim", id);
+    boolean completed = false;
+    Object returned = null;
+    try {
+      boolean result = delegate.wasCanceledUnderClaim(id, claimSeq);
+      returned = result;
+      completed = true;
+      return result;
+    } finally {
+      StoreCallGate.exit("wasCanceledUnderClaim", id, fired, completed, returned);
+    }
+  }
+
+  @Override
   public int incrementRetryAttempt(
       UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
     StoreCallGate.Pause fired = StoreCallGate.enter("incrementRetryAttempt", id);

@@ -31,8 +31,11 @@ public interface TransactionalCompletionStore {
   /**
    * Resolves an uncertain commit in a new transaction, locking the queue row before the cold row. A
    * running queue row with the requested claim means rolled back; any other queue row means
-   * superseded. Without a queue row, success with that claim means committed, cancellation means
-   * canceled, and every other state (including a missing job) means superseded.
+   * superseded. Without a queue row, success with that claim means committed. A cancellation that
+   * ended that claim means canceled. Every other state, including a missing job, means superseded.
+   *
+   * <p>CANCELED means the cancel ended this claim while RUNNING. A cancel of another claim or a
+   * non-RUNNING job returns SUPERSEDED.
    */
   TerminalOutcome terminalOutcome(UUID jobId, long claimSeq);
 

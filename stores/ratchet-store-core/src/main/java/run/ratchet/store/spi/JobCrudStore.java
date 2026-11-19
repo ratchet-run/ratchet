@@ -91,6 +91,10 @@ public interface JobCrudStore {
    * {@code save()}.
    *
    * <p>Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>A CANCELED transition records the live claim only when the stored status was RUNNING. Other
+   * cancels record no claim. Moving out of CANCELED clears that value. Whole-row saves preserve an
+   * existing cancel attribution. CANCELED completion plans and dependencies follow the same rule.
    */
   JobEntity save(JobEntity job);
 
@@ -137,6 +141,16 @@ public interface JobCrudStore {
    *     returning {@code null} (which a caller could not distinguish from "no such job").
    */
   @Nullable JobStatus getJobStatus(UUID id);
+
+  /**
+   * Returns true only when a cancel ended this claim while the job was RUNNING.
+   *
+   * <p>Returns false for another status, a missing job, a cancel of a non-RUNNING job, another
+   * claim's cancel, a null recorded claim, or {@code claimSeq <= 0}.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
+  boolean wasCanceledUnderClaim(UUID id, long claimSeq);
 
   /**
    * Batch-loads jobs by primary key for hot-path recovery and draining flows.

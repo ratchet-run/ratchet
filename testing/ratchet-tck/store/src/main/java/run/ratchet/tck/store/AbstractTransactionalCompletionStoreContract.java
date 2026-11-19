@@ -139,7 +139,7 @@ public abstract class AbstractTransactionalCompletionStoreContract
   }
 
   @Test
-  void canceledJobIsCanceledRegardlessOfClaim() {
+  void canceledJobIsCanceledOnlyForTheClaimItEnded() {
     var capability = transactionalCompletionStore();
     JobEntity job = runningJob();
     assertTrue(store().cancelJob(job.getId()));
@@ -147,7 +147,7 @@ public abstract class AbstractTransactionalCompletionStoreContract
     assertEquals(
         TerminalOutcome.CANCELED, capability.terminalOutcome(job.getId(), job.getClaimSeq()));
     assertEquals(
-        TerminalOutcome.CANCELED, capability.terminalOutcome(job.getId(), job.getClaimSeq() + 1));
+        TerminalOutcome.SUPERSEDED, capability.terminalOutcome(job.getId(), job.getClaimSeq() + 1));
   }
 
   @Test

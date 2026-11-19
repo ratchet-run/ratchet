@@ -65,6 +65,13 @@ class SqlserverSchemaParityIT {
             if (!sql.isBlank()) statement.execute(sql);
           }
         }
+        String cancelClaimColumn =
+            """
+            SELECT TYPE_NAME(system_type_id), CAST(is_nullable AS INT) FROM sys.columns
+            WHERE object_id = OBJECT_ID('scheduler_job') AND name = 'canceled_claim_seq'
+            """;
+        assertEquals(List.of(List.of("bigint", "1")), metadata(migrated, cancelClaimColumn));
+        assertEquals(List.of(List.of("bigint", "1")), metadata(consolidated, cancelClaimColumn));
         for (String query : List.of(COLUMNS, INDEXES, CONSTRAINTS)) {
           assertEquals(metadata(migrated, query), metadata(consolidated, query), query);
         }

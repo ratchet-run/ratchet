@@ -47,7 +47,9 @@ class SqlTransactionalCompletionTest {
                 TerminalOutcome.SUPERSEDED),
             new OutcomeCase(null, new Object[] {"SUCCEEDED", 7L}, TerminalOutcome.COMMITTED),
             new OutcomeCase(null, new Object[] {"SUCCEEDED", 8L}, TerminalOutcome.SUPERSEDED),
-            new OutcomeCase(null, new Object[] {"CANCELED", 0L}, TerminalOutcome.CANCELED),
+            new OutcomeCase(null, new Object[] {"CANCELED", 0L, 7L}, TerminalOutcome.CANCELED),
+            new OutcomeCase(null, new Object[] {"CANCELED", 7L, 8L}, TerminalOutcome.SUPERSEDED),
+            new OutcomeCase(null, new Object[] {"CANCELED", 7L, null}, TerminalOutcome.SUPERSEDED),
             new OutcomeCase(null, new Object[] {"FAILED", 7L}, TerminalOutcome.SUPERSEDED),
             new OutcomeCase(null, new Object[] {null, 7L}, TerminalOutcome.SUPERSEDED),
             new OutcomeCase(null, null, TerminalOutcome.SUPERSEDED));
@@ -64,7 +66,7 @@ class SqlTransactionalCompletionTest {
                 + " WHERE job_id = ?"
                 + suffix;
         String coldSql =
-            "SELECT terminal_status, claim_seq FROM scheduler_job"
+            "SELECT terminal_status, claim_seq, canceled_claim_seq FROM scheduler_job"
                 + hint
                 + " WHERE job_id = ?"
                 + suffix;

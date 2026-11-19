@@ -31,6 +31,18 @@ import run.ratchet.store.schema.Table;
 class RatchetSchemaCatalogTest {
 
   @Test
+  void schedulerJobDeclaresNullableCancelClaim() {
+    Column canceledClaim =
+        table("scheduler_job").columns().stream()
+            .filter(column -> column.name().equals("canceled_claim_seq"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(LogicalType.INT64, canceledClaim.type());
+    assertTrue(canceledClaim.nullable());
+    assertEquals(23, RatchetSchemaCatalog.CURRENT_VERSION);
+  }
+
+  @Test
   void businessKeyReservationDeclaresHoldColumnsAndIndex() {
     Table reservation = table("scheduler_business_key_reservation");
     assertTrue(
@@ -168,7 +180,7 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        22,
+        23,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "catalog version should track the combined workflow, recurring, DLQ, and node schema"
             + " revision");

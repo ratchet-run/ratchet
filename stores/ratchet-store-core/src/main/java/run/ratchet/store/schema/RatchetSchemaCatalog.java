@@ -54,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 22;
+  public static final int CURRENT_VERSION = 23;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -144,6 +144,7 @@ public final class RatchetSchemaCatalog {
         .column(nullable("trace_context", JSON))
         // V005 cold survivors / additions.
         .column(required("claim_seq", INT64))
+        .column(nullable("canceled_claim_seq", INT64))
         .column(nullable("terminal_status", TEXT))
         .column(nullable("terminal_error", TEXT))
         .column(nullable("total_attempts", INT32))

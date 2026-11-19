@@ -205,6 +205,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    return crud.wasCanceledUnderClaim(id, claimSeq);
+  }
+
+  @Override
   public List<JobEntity> findByIds(List<UUID> ids) {
     return crud.findByIds(ids);
   }

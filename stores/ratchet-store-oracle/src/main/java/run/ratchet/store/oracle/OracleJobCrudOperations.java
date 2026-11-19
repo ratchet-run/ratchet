@@ -101,6 +101,11 @@ final class OracleJobCrudOperations implements JobCrudStore, JobBulkStore, JobAn
   }
 
   @Override
+  public boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    return reads.wasCanceledUnderClaim(id, claimSeq);
+  }
+
+  @Override
   public List<JobEntity> findByIds(List<UUID> ids) {
     return reads.findByIds(ids);
   }

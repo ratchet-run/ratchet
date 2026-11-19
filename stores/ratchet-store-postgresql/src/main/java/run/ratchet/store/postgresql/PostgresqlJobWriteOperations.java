@@ -273,7 +273,7 @@ final class PostgresqlJobWriteOperations {
         """
         UPDATE scheduler_job
         SET row_version = row_version + 1,
-            terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
+            canceled_claim_seq = NULL, terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
         WHERE job_id = ?
         """;
     ctx.em()
@@ -674,7 +674,7 @@ final class PostgresqlJobWriteOperations {
         ctx.em()
             .createNativeQuery(
                 """
-                SELECT claim_seq FROM scheduler_job_queue
+                SELECT claim_seq, status FROM scheduler_job_queue
                 WHERE job_id = ? AND version = ?
                 FOR UPDATE
                 """)
@@ -684,7 +684,10 @@ final class PostgresqlJobWriteOperations {
     if (sequences.isEmpty()) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
-    long claimSeq = ((Number) sequences.get(0)).longValue();
+    Object[] hot = (Object[]) sequences.get(0);
+    long claimSeq = ((Number) hot[0]).longValue();
+    Long canceledClaimSeq =
+        incoming.getStatus() == JobStatus.CANCELED && "RUNNING".equals(hot[1]) ? claimSeq : null;
     int deleted =
         ctx.em()
             .createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
@@ -700,6 +703,7 @@ final class PostgresqlJobWriteOperations {
         UPDATE scheduler_job
         SET terminal_status = ?,
             claim_seq = ?,
+            canceled_claim_seq = ?,
             terminal_error = ?,
             terminated_at = statement_timestamp()
         WHERE job_id = ? AND terminal_status IS NULL
@@ -708,8 +712,9 @@ final class PostgresqlJobWriteOperations {
         .createNativeQuery(updateSql)
         .setParameter(1, incoming.getStatus().name())
         .setParameter(2, claimSeq)
-        .setParameter(3, incoming.getLastError())
-        .setParameter(4, id)
+        .setParameter(3, canceledClaimSeq)
+        .setParameter(4, incoming.getLastError())
+        .setParameter(5, id)
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     incoming.setVersion(expectedVersion + 1);

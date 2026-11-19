@@ -260,7 +260,11 @@ public final class SqlJobCompletion {
             .getResultList();
     List<?> cold =
         em.createNativeQuery(
-                lockSql("scheduler_job", "job_id", "terminal_status, claim_seq", sqlServer))
+                lockSql(
+                    "scheduler_job",
+                    "job_id",
+                    "terminal_status, claim_seq, canceled_claim_seq",
+                    sqlServer))
             .setParameter(1, uuid.apply(jobId))
             .getResultList();
     if (!hot.isEmpty()) {
@@ -274,7 +278,10 @@ public final class SqlJobCompletion {
       if ("SUCCEEDED".equals(row[0]) && ((Number) row[1]).longValue() == claimSeq) {
         return TerminalOutcome.COMMITTED;
       }
-      if ("CANCELED".equals(row[0])) return TerminalOutcome.CANCELED;
+      if ("CANCELED".equals(row[0])
+          && claimSeq > 0
+          && row[2] instanceof Number canceledClaim
+          && canceledClaim.longValue() == claimSeq) return TerminalOutcome.CANCELED;
     }
     return TerminalOutcome.SUPERSEDED;
   }

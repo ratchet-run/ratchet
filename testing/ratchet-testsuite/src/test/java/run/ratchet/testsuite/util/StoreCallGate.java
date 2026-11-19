@@ -45,6 +45,7 @@ public final class StoreCallGate {
       Set.of(
           "findById",
           "getJobStatus",
+          "wasCanceledUnderClaim",
           "incrementRetryAttempt",
           "scheduleJobRetry",
           "releaseBusinessKeyHold");

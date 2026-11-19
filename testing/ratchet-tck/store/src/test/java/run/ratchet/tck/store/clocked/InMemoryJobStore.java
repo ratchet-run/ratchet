@@ -84,6 +84,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   private record BusinessKeyHold(Long claimSeq, String nodeId, Instant expiresAt) {}
 
   private final Map<UUID, BusinessKeyHold> holds = new HashMap<>();
+  private final Map<UUID, Long> canceledClaims = new HashMap<>();
+  private final Map<UUID, JobStatus> storedStatuses = new HashMap<>();
   private final Map<UUID, JobEntity> jobs = new HashMap<>();
   private final Map<String, UUID> idempotencyKeys = new HashMap<>();
   private final Map<UUID, List<JobExecutionEntity>> executions = new HashMap<>();
@@ -103,6 +105,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   /** Resets all stored state. Called from clocked TCK runtimes. */
   public synchronized void reset() {
     jobs.clear();
+    canceledClaims.clear();
+    storedStatuses.clear();
     holds.clear();
     idempotencyKeys.clear();
     executions.clear();
@@ -125,6 +129,13 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       if (previous != null && !previous.equals(job.getId()))
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), null);
     }
+    JobStatus previous = storedStatuses.get(job.getId());
+    if (job.getStatus() != JobStatus.CANCELED) canceledClaims.remove(job.getId());
+    else if (previous != JobStatus.CANCELED) {
+      if (previous == JobStatus.RUNNING) canceledClaims.put(job.getId(), job.getClaimSeq());
+      else canceledClaims.remove(job.getId());
+    }
+    storedStatuses.put(job.getId(), job.getStatus());
     jobs.put(job.getId(), job);
     return job;
   }
@@ -142,6 +153,13 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       if (previous != null && !previous.equals(job.getId()))
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), null);
     }
+    JobStatus previous = storedStatuses.get(job.getId());
+    if (job.getStatus() != JobStatus.CANCELED) canceledClaims.remove(job.getId());
+    else if (previous != JobStatus.CANCELED) {
+      if (previous == JobStatus.RUNNING) canceledClaims.put(job.getId(), job.getClaimSeq());
+      else canceledClaims.remove(job.getId());
+    }
+    storedStatuses.put(job.getId(), job.getStatus());
     jobs.put(job.getId(), job);
     return job;
   }
@@ -195,6 +213,22 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
+  public synchronized boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    return claimSeq > 0
+        && getJobStatus(id) == JobStatus.CANCELED
+        && Objects.equals(canceledClaims.get(id), claimSeq);
+  }
+
+  private void recordCancelClaim(JobEntity job, JobStatus target) {
+    if (target == JobStatus.CANCELED && job.getStatus() == JobStatus.RUNNING) {
+      canceledClaims.put(job.getId(), job.getClaimSeq());
+    } else {
+      canceledClaims.remove(job.getId());
+    }
+    storedStatuses.put(job.getId(), target);
+  }
+
+  @Override
   public synchronized JobStatus getJobStatus(UUID id) {
     JobEntity job = jobs.get(id);
     return job == null ? null : job.getStatus();
@@ -210,6 +244,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     if (status != JobStatus.PENDING && status != JobStatus.RUNNING && status != JobStatus.WAITING) {
       return false;
     }
+    recordCancelClaim(job, JobStatus.CANCELED);
     job.setStatus(JobStatus.CANCELED);
     job.setVersion(job.getVersion() == null ? 1 : job.getVersion() + 1);
     return true;
@@ -222,6 +257,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     if (job == null || job.getStatus() != expected) {
       return false;
     }
+    recordCancelClaim(job, newStatus);
     job.setStatus(newStatus);
     if (error != null) {
       job.setLastError(error);
@@ -280,6 +316,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
         continue;
       }
       job.setClaimSeq((job.getClaimSeq() == null ? 0L : job.getClaimSeq()) + 1);
+      recordCancelClaim(job, JobStatus.RUNNING);
       job.setStatus(JobStatus.RUNNING);
       job.setPickedBy(nodeId);
       job.setPickedAt(now);
@@ -360,6 +397,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       }
     }
     // Validate every guard before mutating any entity; the monitor is this fixture's transaction.
+    recordCancelClaim(job, plan.terminalStatus());
     job.setStatus(plan.terminalStatus());
     job.setAttempts(plan.attempts());
     job.setLastError(plan.errorMessage());
@@ -372,6 +410,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     job.setVersion(job.getVersion() == null ? 1 : job.getVersion() + 1);
     for (var change : plan.dependencies()) {
       JobEntity dependent = jobs.get(change.jobId());
+      recordCancelClaim(dependent, change.status());
       dependent.setStatus(change.status());
       if (change.status() != JobStatus.CANCELED) {
         dependent.setScheduledTime(change.scheduledTime());
@@ -389,6 +428,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     if (job == null) {
       return false;
     }
+    recordCancelClaim(job, JobStatus.SUCCEEDED);
     job.setStatus(JobStatus.SUCCEEDED);
     job.setExecutionStartTime(start);
     job.setExecutionEndTime(end);
@@ -514,7 +554,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
         .toList();
   }
 
-  private static void applySignalDelivery(
+  private void applySignalDelivery(
       JobEntity job,
       String payload,
       String payloadType,
@@ -523,6 +563,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       String deliveredBy,
       Instant deliveredAt,
       String deliveryId) {
+    recordCancelClaim(job, JobStatus.PENDING);
     job.setStatus(JobStatus.PENDING);
     job.setSignalPayload(payload);
     job.setSignalPayloadType(payloadType);
@@ -699,6 +740,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     if (keyHeldUntil != null && job.getBusinessKey() != null) {
       holds.put(id, new BusinessKeyHold(job.getClaimSeq(), job.getPickedBy(), keyHeldUntil));
     }
+    recordCancelClaim(job, JobStatus.CANCELED);
     job.setStatus(JobStatus.CANCELED);
     return true;
   }
@@ -814,6 +856,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   private void resetOrphan(JobEntity job) {
     crashCounts.put(job.getId(), crashCount(job) + 1);
+    recordCancelClaim(job, JobStatus.PENDING);
     job.setStatus(JobStatus.PENDING);
     job.setPickedBy(null);
     job.setPickedAt(null);

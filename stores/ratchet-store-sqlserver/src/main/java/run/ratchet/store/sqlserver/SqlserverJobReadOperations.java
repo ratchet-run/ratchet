@@ -110,6 +110,24 @@ final class SqlserverJobReadOperations {
     }
   }
 
+  boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    if (claimSeq <= 0) return false;
+    try {
+      return !ctx.em()
+          .createNativeQuery(
+              """
+              SELECT canceled_claim_seq FROM scheduler_job
+              WHERE job_id = ? AND terminal_status = 'CANCELED' AND canceled_claim_seq = ?
+              """)
+          .setParameter(1, UuidByteArrayConverter.toBytes(id))
+          .setParameter(2, claimSeq)
+          .getResultList()
+          .isEmpty();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("read cancel claim", e);
+    }
+  }
+
   @SuppressWarnings("unchecked")
   JobStatus getJobStatus(UUID id) {
     try {

@@ -59,6 +59,16 @@ final class MongoCompletionOperations {
     if (plan.expectedAttempts() != null)
       filter = and(filter, eq(ATTEMPTS, plan.expectedAttempts()));
     Instant now = Instant.now();
+    Document current =
+        plan.terminalStatus() == JobStatus.CANCELED && plan.expectedStatus() == JobStatus.RUNNING
+            ? ctx.jobs().find(session, filter).first()
+            : null;
+    Long cancelClaim =
+        plan.terminalStatus() == JobStatus.CANCELED
+                && plan.expectedStatus() == JobStatus.RUNNING
+                && current != null
+            ? ((Number) current.getOrDefault(CLAIM_SEQ, 0L)).longValue()
+            : null;
     long changed =
         ctx.jobs()
             .updateOne(
@@ -66,6 +76,7 @@ final class MongoCompletionOperations {
                 filter,
                 combine(
                     set(STATUS, plan.terminalStatus().name()),
+                    set(CANCELED_CLAIM_SEQ, cancelClaim),
                     set(JOB_RESULT, plan.resultJson()),
                     set(RESULT_TYPE, plan.resultType()),
                     set(LAST_ERROR, plan.errorMessage()),
@@ -114,8 +125,19 @@ final class MongoCompletionOperations {
     }
 
     for (var dep : plan.dependencies()) {
+      Document dependent =
+          dep.status() == JobStatus.CANCELED && dep.expectedStatus() == JobStatus.RUNNING
+              ? ctx.jobs().find(session, eq(ID, dep.jobId())).first()
+              : null;
+      Long dependencyCancelClaim =
+          dep.status() == JobStatus.CANCELED
+                  && dep.expectedStatus() == JobStatus.RUNNING
+                  && dependent != null
+              ? ((Number) dependent.getOrDefault(CLAIM_SEQ, 0L)).longValue()
+              : null;
       List<Bson> changes = new ArrayList<>();
       changes.add(set(STATUS, dep.status().name()));
+      changes.add(set(CANCELED_CLAIM_SEQ, dependencyCancelClaim));
       changes.add(set(SCHEDULED_TIME, DocumentMapper.toDate(dep.scheduledTime())));
       changes.add(set(JOB_TYPE, dep.jobType().name()));
       changes.add(set(UPDATED_AT, DocumentMapper.toDate(now)));

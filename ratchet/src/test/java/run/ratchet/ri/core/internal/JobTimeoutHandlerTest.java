@@ -70,6 +70,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -1375,7 +1376,7 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
-  void unknownWatchdogRescheduleSkipsCancelRecordButReleasesHold() {
+  void unknownWatchdogRescheduleSkipsForeignCancelAndHoldRelease() {
     assertCancelAfterFailedTimeoutWrite(true);
   }
 
@@ -1397,6 +1398,7 @@ class JobTimeoutHandlerTest {
       when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L, 0))
           .thenThrow(new IllegalStateException("increment failed"));
     }
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(!rescheduleReached);
     ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
     List<Runnable> pending = new ArrayList<>();
@@ -1409,13 +1411,7 @@ class JobTimeoutHandlerTest {
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
     Runnable record = mock(Runnable.class);
     Runnable release = mock(Runnable.class);
-    // Match JobTask's cancelRecord hook: the attempt can finish and release the hold while
-    // the live uncertainty gate suppresses attributing a later cancel to this attempt.
-    attempt.attachCancelFinish(
-        () -> {
-          if (!attempt.timeoutOutcomeUnknown()) record.run();
-        },
-        release);
+    attempt.attachCancelFinish(record, release);
     attempt.workerStarted();
     assertFalse(attempt.workerEnded());
     handler.scheduleTimeoutMonitoring(
@@ -1427,29 +1423,17 @@ class JobTimeoutHandlerTest {
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
-    assertEquals(rescheduleReached, attempt.timeoutOutcomeUnknown());
     assertEquals(1, pending.size());
 
     pending.remove(0).run();
 
     assertTrue(pending.isEmpty());
     verify(record, times(rescheduleReached ? 0 : 1)).run();
-    verify(release).run();
-    attempt.finishCancelFoundByTimeout();
-    verify(release).run();
+    verify(release, times(rescheduleReached ? 0 : 1)).run();
   }
 
   @Test
-  void refusedWatchdogRescheduleClearsUnknownFlag() throws Exception {
-    missTimeoutWrite("reschedule");
-    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.CANCELED);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
-    invokeHardTimeout(attempt, mock(Future.class));
-    assertFalse(attempt.timeoutOutcomeUnknown());
-  }
-
-  @Test
-  void laterMissedRescheduleKeepsEarlierUnknownFlag() {
+  void laterMissedRescheduleDoesNotAttributeAnotherClaimsCancel() {
     JobEntity first = jobWithMaxRetries(3);
     // The first try's reschedule committed before it threw, and a newer claim now runs the job.
     JobEntity reclaimed = jobWithMaxRetries(3);
@@ -1459,8 +1443,8 @@ class JobTimeoutHandlerTest {
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(7L)))
         .thenThrow(new IllegalStateException("committed then threw"))
         .thenReturn(false);
-    // The newer claim is canceled before the retry's missed write is checked.
-    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.CANCELED);
+    // A cancel of the newer claim does not belong to claim 7.
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(false);
     ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
     List<Runnable> pending = new ArrayList<>();
@@ -1473,11 +1457,7 @@ class JobTimeoutHandlerTest {
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
     Runnable record = mock(Runnable.class);
     Runnable release = mock(Runnable.class);
-    attempt.attachCancelFinish(
-        () -> {
-          if (!attempt.timeoutOutcomeUnknown()) record.run();
-        },
-        release);
+    attempt.attachCancelFinish(record, release);
     attempt.workerStarted();
     assertFalse(attempt.workerEnded());
     handler.scheduleTimeoutMonitoring(
@@ -1489,15 +1469,13 @@ class JobTimeoutHandlerTest {
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
-    assertTrue(attempt.timeoutOutcomeUnknown());
     assertEquals(1, pending.size());
 
     pending.remove(0).run();
 
     assertTrue(pending.isEmpty());
-    assertTrue(attempt.timeoutOutcomeUnknown(), "the earlier try's mark must survive the miss");
     verify(record, never()).run();
-    verify(release).run();
+    verify(release, never()).run();
   }
 
   private void assertRetriedHardTimeout(boolean claimEnded) {
@@ -2396,10 +2374,48 @@ class JobTimeoutHandlerTest {
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"newer claim canceled", "orphan reset then pending cancel"})
+  void handedBackTimeoutDoesNotReleaseAnotherCancelsHold(String scenario) throws Exception {
+    JobEntity canceled = jobWithMaxRetries(3);
+    canceled.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(canceled));
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(false);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+    attempt.workerEnded();
+    invokeHardTimeout(attempt, mock(Future.class));
+    assertTrue(attempt.isSuperseded(), scenario);
+    Mockito.verifyNoInteractions(record, release);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void handedBackTimeoutAttributesOnlyItsClaim(boolean exact) throws Exception {
+    JobEntity canceled = jobWithMaxRetries(3);
+    canceled.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(canceled));
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(exact);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    Runnable record = mock(Runnable.class);
+    Runnable release = mock(Runnable.class);
+    attempt.attachCancelFinish(record, release);
+    attempt.workerStarted();
+    attempt.workerEnded();
+    invokeHardTimeout(attempt, mock(Future.class));
+    assertTrue(attempt.isSuperseded());
+    verify(record, times(exact ? 1 : 0)).run();
+    verify(release, times(exact ? 1 : 0)).run();
+  }
+
   @Test
   void hardTimeoutThatFindsTheJobCanceledAfterTheWorkerEnded_finishesTheCancel() throws Exception {
     JobEntity job = jobWithMaxRetries(3);
     job.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(true);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     Runnable record = mock(Runnable.class);
@@ -2421,6 +2437,7 @@ class JobTimeoutHandlerTest {
       throws Exception {
     JobEntity job = jobWithMaxRetries(3);
     job.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(true);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     Runnable record = mock(Runnable.class);
@@ -2438,6 +2455,7 @@ class JobTimeoutHandlerTest {
   void hardTimeoutBeforeTheWorkerStarted_releasesTheHoldOfACanceledJob() throws Exception {
     JobEntity job = jobWithMaxRetries(3);
     job.setStatus(JobStatus.CANCELED);
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(true);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     Runnable record = mock(Runnable.class);
@@ -2480,7 +2498,7 @@ class JobTimeoutHandlerTest {
     // The read saw RUNNING, then a fenced write missed. The handler reads the status again
     // after its transaction, and finishes the cancel only if one beat the write.
     missTimeoutWrite(write);
-    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(reRead);
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(finished);
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     Runnable record = mock(Runnable.class);
     Runnable release = mock(Runnable.class);
@@ -2498,7 +2516,7 @@ class JobTimeoutHandlerTest {
   void hardTimeoutWriteThatMissesWhileTheWorkerRuns_leavesTheCancelToTheWorker() throws Exception {
     // The re-read finds the cancel, but the worker still runs, so it finishes the cancel itself.
     missTimeoutWrite("increment");
-    when(jobCrudStore.getJobStatus(JOB_ID)).thenReturn(JobStatus.CANCELED);
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(true);
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     Runnable record = mock(Runnable.class);
     Runnable release = mock(Runnable.class);
@@ -2535,11 +2553,11 @@ class JobTimeoutHandlerTest {
       throws Exception {
     missTimeoutWrite("increment");
     List<Boolean> interruptedDuring = new ArrayList<>();
-    when(jobCrudStore.getJobStatus(JOB_ID))
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L))
         .thenAnswer(
             invocation -> {
               interruptedDuring.add(Thread.currentThread().isInterrupted());
-              return JobStatus.CANCELED;
+              return true;
             });
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     attempt.attachCancelFinish(
@@ -2561,7 +2579,8 @@ class JobTimeoutHandlerTest {
   @Test
   void failedReReadAfterAMissedWrite_isLoggedAndLeavesTheHoldToItsExpiry() throws Exception {
     missTimeoutWrite("increment");
-    when(jobCrudStore.getJobStatus(JOB_ID)).thenThrow(new IllegalStateException("store down"));
+    when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L))
+        .thenThrow(new IllegalStateException("store down"));
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     Runnable release = mock(Runnable.class);
     attempt.attachCancelFinish(() -> {}, release);

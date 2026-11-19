@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -672,7 +673,7 @@ class JobTaskTest {
     Runnable release = mock(Runnable.class);
     scenario.attempt().attachCancelFinish(record, release);
     doReturn(Optional.of(scenario.job())).when(jobStore).findByIdLatest(JOB_UUID);
-    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
 
     runOutcomeRetry();
 
@@ -745,6 +746,9 @@ class JobTaskTest {
     var scenario = hydratedClaimScenario(() -> status.set(JobStatus.CANCELED));
     scenario.job().setResourceName("gpu");
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
         .thenThrow(new RatchetTransientStoreException("acquire deadlock"))
         .thenReturn(AcquireResult.ACQUIRED);
@@ -758,7 +762,7 @@ class JobTaskTest {
   }
 
   @Test
-  void transientPermitAcquireThatParkedKeepsFlag() throws Exception {
+  void transientPermitAcquireThatParkedDoesNotAttributeLaterPendingCancel() throws Exception {
     AtomicBoolean bodyRan = new AtomicBoolean();
     var scenario = hydratedClaimScenario(() -> bodyRan.set(true));
     scenario.job().setResourceName("gpu");
@@ -777,7 +781,7 @@ class JobTaskTest {
 
     Assertions.assertEquals(JobStatus.PENDING, race.status().get());
     race.cancel();
-    scenario.attempt().finishCancelFoundByTimeout();
+    runWatchdog(realTimeoutHandler(), scenario.attempt(), new FutureTask<>(() -> null));
     Assertions.assertFalse(bodyRan.get());
     verify(resourcePermitService, times(2)).tryAcquire("gpu", JOB_UUID, 7L, "node-1");
     verify(jobStore).releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L));
@@ -1054,13 +1058,30 @@ class JobTaskTest {
 
   @Test
   void continuationReleaseRejectedAfterTransientFailureIsDiscarded() throws Exception {
+    // The first try committed and the PENDING job was then canceled. That cancel records no
+    // claim, so the worker discards the execution.
+    var scenario = rejectedAfterTransientFailure(false);
+    assertContinuationDiscarded(scenario);
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+  }
+
+  @Test
+  void continuationReleaseRejectedByThisClaimsCancelRecordsItOnce() throws Exception {
+    // The first try rolled back and a cancel then ended this claim, so the attempt ends CANCELED.
+    var scenario = rejectedAfterTransientFailure(true);
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    assertContinuationUncharged(scenario);
+  }
+
+  private ContinuationScenario rejectedAfterTransientFailure(boolean canceledUnderClaim)
+      throws Exception {
     var scenario = preparedContinuation();
-    // This pins the ambiguous commit case: the worker cannot tell whether the first try committed.
-    // The row reads CANCELED only after that try, and the worker must not trust the read.
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
         .thenAnswer(
             inv -> {
-              lenient().when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+              when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(canceledUnderClaim);
               throw new RatchetTransientStoreException("unavailable");
             })
         .thenReturn(false);
@@ -1070,8 +1091,7 @@ class JobTaskTest {
     verify(jobStore, times(2)).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
     verify(claimReschedules, never())
         .handOff(any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any());
-    assertContinuationDiscarded(scenario);
-    verify(observabilityFacade, never()).recordJobCancellation(any());
+    return scenario;
   }
 
   private ContinuationScenario preparedContinuation() throws Exception {
@@ -1155,11 +1175,24 @@ class JobTaskTest {
   @Test
   void continuationHandedOffThenRejectedCanceledRowIsDiscarded() throws Exception {
     var scenario = handedOffContinuation();
-    // A try threw, so the outcome is unknown and the worker must not trust this CANCELED read.
-    lenient().when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    // A thrown try committed and the PENDING job was then canceled. That cancel records no claim.
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
     continuationCallback(1).run();
     assertContinuationDiscarded(scenario);
     verify(observabilityFacade, never()).recordJobCancellation(any());
+  }
+
+  @Test
+  void continuationHandedOffThenRejectedByThisClaimsCancelRecordsItOnce() throws Exception {
+    var scenario = handedOffContinuation();
+    // The thrown tries rolled back and a cancel then ended this claim.
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
+    continuationCallback(1).run();
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    assertContinuationUncharged(scenario);
   }
 
   @Test
@@ -1168,7 +1201,7 @@ class JobTaskTest {
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
         .thenAnswer(
             inv -> {
-              when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+              when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
               return false;
             });
     jobTask.call();
@@ -1182,6 +1215,109 @@ class JobTaskTest {
     var scenario = handedOffContinuation();
     continuationCallback(2).run();
     assertContinuationDiscarded(scenario);
+  }
+
+  @Test
+  void continuationDroppedAfterWatchdogCancelKeepsTheCancel() throws Exception {
+    var scenario = handedOffContinuation();
+    scenario.attempt().revoke();
+    scenario.attempt().finishCancelFoundByTimeout();
+    continuationCallback(2).run();
+
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationWatchdogCancelAfterDropUpgradesTheDiscard() throws Exception {
+    var scenario = handedOffContinuation();
+    List<ExecutionStatus> statuses = new ArrayList<>();
+    doAnswer(
+            inv -> {
+              JobExecutionEntity execution = inv.getArgument(0);
+              statuses.add(execution.getStatus());
+              return null;
+            })
+        .when(observabilityFacade)
+        .saveExecution(scenario.execution());
+
+    continuationCallback(2).run();
+    scenario.attempt().revoke();
+    scenario.attempt().finishCancelFoundByTimeout();
+
+    Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), statuses);
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationWatchdogAfterLandingRecordsNoCancel() throws Exception {
+    var scenario = handedOffContinuation();
+    continuationCallback(0).run();
+    scenario.attempt().revoke();
+    scenario.attempt().finishCancelFoundByTimeout();
+
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    verify(observabilityFacade).saveExecution(scenario.execution());
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    assertContinuationUncharged(scenario);
+  }
+
+  @Test
+  void continuationDropAndWatchdogCancelDoNotInterleave() throws Exception {
+    var scenario = handedOffContinuation();
+    Runnable drop = continuationCallback(2);
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch watchdogStarted = new CountDownLatch(1);
+    List<ExecutionStatus> statuses = Collections.synchronizedList(new ArrayList<>());
+    AtomicInteger saves = new AtomicInteger();
+    doAnswer(
+            inv -> {
+              JobExecutionEntity execution = inv.getArgument(0);
+              statuses.add(execution.getStatus());
+              if (saves.incrementAndGet() == 1) {
+                entered.countDown();
+                Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+              }
+              return null;
+            })
+        .when(observabilityFacade)
+        .saveExecution(scenario.execution());
+
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> dropped = executor.submit(drop);
+      Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+      Future<?> canceled =
+          executor.submit(
+              () -> {
+                scenario.attempt().revoke();
+                watchdogStarted.countDown();
+                scenario.attempt().finishCancelFoundByTimeout();
+              });
+      Assertions.assertTrue(watchdogStarted.await(5, TimeUnit.SECONDS));
+      verify(observabilityFacade, after(200).times(1)).saveExecution(any());
+      Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+      release.countDown();
+      dropped.get(5, TimeUnit.SECONDS);
+      canceled.get(5, TimeUnit.SECONDS);
+
+      Assertions.assertEquals(List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), statuses);
+      Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+      verify(observabilityFacade).recordJobCancellation(scenario.job());
+      verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+      assertContinuationUncharged(scenario);
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+      Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   @Test
@@ -1380,6 +1516,7 @@ class JobTaskTest {
   void cancellationWinsOverContinuation() throws Exception {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    lenient().when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
     jobTask.call();
     verify(scenario.store(), never()).getState(JOB_UUID, CONTINUATION_NS);
     Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
@@ -1393,6 +1530,9 @@ class JobTaskTest {
         .thenReturn(StateWriteResult.UPDATED);
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(jobStore.releaseClaim(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
         .thenAnswer(
             invocation -> {
@@ -1410,6 +1550,9 @@ class JobTaskTest {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
         .thenAnswer(
             invocation -> {
@@ -1694,6 +1837,9 @@ class JobTaskTest {
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 5)));
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(lifecycleFacade.completeFailure(
             eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
@@ -1825,6 +1971,7 @@ class JobTaskTest {
 
   private void assertUnitTask(boolean superseded) throws Exception {
     JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
     initJobTaskWithDefaultStubs(job);
     JobAttemptControl attempt =
         new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
@@ -1857,7 +2004,9 @@ class JobTaskTest {
             JOB_UUID, JobCheckpointWriter.NAMESPACE, "{\"value\":\"page-1\"}", 7L, null))
         .thenAnswer(
             call -> {
-              if (superseded) when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+              if (superseded) {
+                when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
+              }
               return superseded ? StateWriteResult.SUPERSEDED : StateWriteResult.UPDATED;
             });
     AtomicBoolean ran = new AtomicBoolean();
@@ -4159,8 +4308,10 @@ class JobTaskTest {
     JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
     JobTask task = callbackTask(invoker);
     JobEntity job = jobWithFailureCallback();
+    job.setClaimSeq(7L);
     initJobTaskWithDefaultStubs(task, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
@@ -4268,9 +4419,11 @@ class JobTaskTest {
   void handleCanceledDuringExecution_batchChild_leavesCountingToCancelTransition()
       throws Exception {
     JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
     job.setJobType(JobExecutionType.BATCH_CHILD);
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
@@ -4287,8 +4440,10 @@ class JobTaskTest {
       throws Exception {
     // A cancellation discards the result while leaving chain cascading to the cancel boundary.
     JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
@@ -4756,9 +4911,11 @@ class JobTaskTest {
   void call_canceledBeforeStart_takesNoPermitAndRecordsNoAttempt() throws Exception {
     // A pre-start cancellation takes no permit or attempt and never cascades the chain here.
     JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
     job.setResourceName("gpu");
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
 
     jobTask.call();
 
@@ -4766,6 +4923,51 @@ class JobTaskTest {
     verify(resilienceStrategy, never()).isServiceAvailable(anyString());
     verify(resourcePermitService, never())
         .tryAcquire(anyString(), any(UUID.class), anyLong(), anyString());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_missingJobBeforeStart_skipsTheBodyAndRecordsNoCancel() throws Exception {
+    // A job whose row is gone has nothing to run. That is not a cancel, so nothing is recorded.
+    JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(null);
+
+    jobTask.call();
+
+    Assertions.assertTrue(attempt.isSuperseded());
+    verify(resilienceStrategy, never()).isServiceAvailable(anyString());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(jobStore, never()).wasCanceledUnderClaim(any(), anyLong());
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_canceledUnderAnotherClaimBeforeStart_skipsTheBodyAndRecordsNoCancel() throws Exception {
+    // Orphan recovery released this claim and a cancel then ended the PENDING job. The body must
+    // not run, and the cancel is not this attempt's.
+    JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
+
+    jobTask.call();
+
+    Assertions.assertTrue(attempt.isSuperseded());
+    verify(resilienceStrategy, never()).isServiceAvailable(anyString());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(observabilityFacade, never()).recordJobCancellation(any());
     verifyNoAttemptRecorded();
   }
 
@@ -5269,7 +5471,7 @@ class JobTaskTest {
   }
 
   @Test
-  void openCircuitBackgroundRejectionSkipsUncertainCancellationAndReleasesHold() throws Exception {
+  void openCircuitBackgroundRejectionRecordsExactCancellationAndReleasesHold() throws Exception {
     assertOpenCircuitBackgroundRejection(true);
   }
 
@@ -5300,13 +5502,17 @@ class JobTaskTest {
     lenient()
         .when(jobStore.getJobStatus(JOB_UUID))
         .thenReturn(canceled ? JobStatus.CANCELED : JobStatus.RUNNING);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(canceled);
     clearInvocations(observabilityFacade);
     rejectedClaimCallback().run();
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     Assertions.assertTrue(attempt.isSuperseded());
-    Assertions.assertEquals(ExecutionStatus.FAILED, execution.getStatus());
-    verify(observabilityFacade, never()).saveExecution(any());
-    verify(observabilityFacade, never()).recordJobCancellation(any());
+    // The release write threw, so it may not have committed. A cancel that ended this claim
+    // proves it did not, and the attempt ends CANCELED.
+    Assertions.assertEquals(
+        canceled ? ExecutionStatus.CANCELED : ExecutionStatus.FAILED, execution.getStatus());
+    verify(observabilityFacade, times(canceled ? 1 : 0)).saveExecution(any());
+    verify(observabilityFacade, times(canceled ? 1 : 0)).recordJobCancellation(any());
   }
 
   private Runnable rejectedClaimCallback() {
@@ -6690,11 +6896,43 @@ class JobTaskTest {
   }
 
   @Test
-  void userCancelledBodyStop_withUnknownStatus_isNotHandledAsCancel() throws Exception {
-    // An absent fresh status is insufficient to classify a cooperative failure as user cancel.
+  void missingJobAfterBodyIsNotACancel() throws Exception {
+    AtomicBoolean bodyRan = new AtomicBoolean();
+    hydratedClaimScenario(() -> bodyRan.set(true));
+    // The row exists when the body starts and is gone when the worker checks after it.
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, (JobStatus) null);
+    jobTask.call();
+    Assertions.assertTrue(bodyRan.get());
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    verify(observabilityFacade, never())
+        .saveExecution(argThat(execution -> execution.getStatus() == ExecutionStatus.CANCELED));
+  }
+
+  @Test
+  void supersededAttemptDoesNotRecordAnotherClaimsCancel() throws Exception {
+    cancelScenario(true);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
+    JobAttemptControl attempt = cancelAttempt();
+    jobTask.attach(attempt);
+    failBody(
+        () -> {
+          attempt.markSuperseded();
+          return new IllegalStateException("newer claim canceled");
+        });
+    jobTask.call();
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    verify(observabilityFacade, never())
+        .saveExecution(argThat(execution -> execution.getStatus() == ExecutionStatus.CANCELED));
+  }
+
+  @Test
+  void userCancelledBodyStop_withoutCancelOfThisClaim_isNotHandledAsCancel() throws Exception {
+    // A cancel request alone does not end the attempt CANCELED. The store must show that a cancel
+    // ended this claim.
     jobTask = newJobTaskWithTimeoutHandler(mock(JobTimeoutHandler.class));
     JobEntity job = cancelScenario(false);
-    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, (JobStatus) null);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
     JobAttemptControl attempt = cancelAttempt();
     jobTask.attach(attempt);
     attempt.requestUserCancel();
@@ -6740,6 +6978,7 @@ class JobTaskTest {
     jobTask.attach(cancelAttempt());
     when(jobStore.getJobStatus(JOB_UUID))
         .thenReturn(JobStatus.RUNNING, JobStatus.RUNNING, JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
     succeedBody();
     jobTask.call();
     verify(lifecycleFacade)
@@ -6939,6 +7178,7 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(job);
     jobTask.attach(cancelAttempt());
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    lenient().when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
     jobTask.call();
     verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
     verifyNoAttemptRecorded();
@@ -7018,7 +7258,7 @@ class JobTaskTest {
     JobAttemptControl attempt = cancelAttempt();
     attempt.requestUserCancel();
     jobTask.attach(attempt);
-    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
 
     jobTask.call();
 
@@ -7042,6 +7282,9 @@ class JobTaskTest {
 
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
         .thenAnswer(
             invocation -> {
@@ -7080,6 +7323,9 @@ class JobTaskTest {
 
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(lifecycleFacade.completeFailure(
             eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
@@ -7118,6 +7364,9 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(jobStore.findById(JOB_UUID))
         .thenAnswer(
             invocation -> {
@@ -7167,6 +7416,9 @@ class JobTaskTest {
             });
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(jobStore.findById(JOB_UUID))
         .thenAnswer(
             invocation -> {
@@ -7228,6 +7480,9 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(storedRow(JobStatus.RUNNING)));
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0))
         .thenAnswer(
@@ -7262,6 +7517,9 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(jobStore.releaseClaim(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
         .thenAnswer(
             invocation -> {
@@ -7293,6 +7551,9 @@ class JobTaskTest {
     when(resilienceStrategy.getRetryDelay(anyString())).thenReturn(Duration.ofMillis(250));
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(jobStore.releaseClaim(eq(JOB_UUID), any(), any(), anyInt(), eq(7L)))
         .thenAnswer(
             invocation -> {
@@ -7330,6 +7591,9 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
             eq(job), any(), nullable(Integer.class)))
         .thenAnswer(
@@ -7370,6 +7634,9 @@ class JobTaskTest {
     List<ExecutionStatus> saved = savedExecutionStatuses();
     AtomicReference<JobStatus> status = new AtomicReference<>(JobStatus.RUNNING);
     when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> status.get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(invocation -> status.get() == JobStatus.CANCELED);
     when(lifecycleFacade.completeFailure(
             eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
         .thenAnswer(
@@ -7819,13 +8086,13 @@ class JobTaskTest {
     JobAttemptControl attempt = cancelAttempt();
     jobTask.attach(attempt);
     retryAfterAnOrdinaryFailure();
-    when(jobStore.getJobStatus(JOB_UUID))
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
         .thenAnswer(
             invocation -> {
               if (race.status().get() == JobStatus.CANCELED) {
                 throw new IllegalStateException("store down");
               }
-              return JobStatus.RUNNING;
+              return false;
             });
     when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
         .thenAnswer(
@@ -7840,6 +8107,7 @@ class JobTaskTest {
     jobTask.call();
     Assertions.assertTrue(attempt.isTimeoutHandedBack());
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
+    doReturn(true).when(jobStore).wasCanceledUnderClaim(JOB_UUID, 7L);
     runWatchdog(handler, attempt, new FutureTask<>(() -> null));
 
     Assertions.assertEquals(
@@ -7848,8 +8116,9 @@ class JobTaskTest {
     Assertions.assertFalse(race.held().get(), "the key must not stay held");
   }
 
-  @Test
-  void watchdogPassedBeforeMissedRetryWrite_workerRechecksCancel() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void watchdogPassedBeforeMissedRetryWrite_workerRechecksCancel(boolean exact) throws Exception {
     JobEntity job = cancelScenario(true);
     CancelRace race = cancelRace();
     JobAttemptControl attempt = cancelAttempt();
@@ -7865,12 +8134,12 @@ class JobTaskTest {
               return 1;
             });
     AtomicInteger cancelReads = new AtomicInteger();
-    when(jobStore.getJobStatus(JOB_UUID))
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
         .thenAnswer(
             invocation -> {
-              if (race.status().get() != JobStatus.CANCELED) return JobStatus.RUNNING;
+              if (race.status().get() != JobStatus.CANCELED) return false;
               if (cancelReads.getAndIncrement() == 0) throw new IllegalStateException("store down");
-              return JobStatus.CANCELED;
+              return exact;
             });
     when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
         .thenAnswer(
@@ -7885,8 +8154,11 @@ class JobTaskTest {
     Assertions.assertEquals(Boolean.FALSE, watchdogClaimed.get());
     Assertions.assertEquals(2, cancelReads.get());
     Assertions.assertEquals(
-        List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED), race.saved());
-    verify(observabilityFacade).recordJobCancellation(job);
+        exact
+            ? List.of(ExecutionStatus.FAILED, ExecutionStatus.CANCELED)
+            : List.of(ExecutionStatus.FAILED),
+        race.saved());
+    verify(observabilityFacade, times(exact ? 1 : 0)).recordJobCancellation(job);
     Assertions.assertFalse(attempt.isTimeoutHandedBack());
     verify(lifecycleFacade, never())
         .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
@@ -7911,12 +8183,12 @@ class JobTaskTest {
               return 1;
             });
     AtomicReference<Boolean> recheckInterrupted = new AtomicReference<>();
-    when(jobStore.getJobStatus(JOB_UUID))
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
         .thenAnswer(
             invocation -> {
-              if (race.status().get() != JobStatus.CANCELED) return JobStatus.RUNNING;
+              if (race.status().get() != JobStatus.CANCELED) return false;
               recheckInterrupted.set(Thread.currentThread().isInterrupted());
-              return JobStatus.CANCELED;
+              return true;
             });
     when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(7L)))
         .thenAnswer(
@@ -7956,9 +8228,7 @@ class JobTaskTest {
     JobAttemptControl attempt = cancelAttempt();
     jobTask.attach(attempt);
     recordSaves(race, status -> {});
-    // The body's own throws are failure-handled, so record the flag here and assert it after
-    // call().
-    AtomicBoolean markedBeforeCancel = new AtomicBoolean();
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
     when(jobStore.findById(JOB_UUID))
         .thenAnswer(invocation -> Optional.of(storedRow(race.status().get())));
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0)).thenReturn(1);
@@ -7972,15 +8242,12 @@ class JobTaskTest {
         .thenAnswer(
             invocation -> {
               runWatchdog(handler, attempt, mock(Future.class));
-              markedBeforeCancel.set(attempt.timeoutOutcomeUnknown());
               race.cancel();
-              attempt.finishCancelFoundByTimeout();
               throw new InterruptedException("watchdog interrupt");
             });
 
     jobTask.call();
 
-    Assertions.assertTrue(markedBeforeCancel.get(), "the watchdog marks its reschedule unknown");
     Assertions.assertTrue(attempt.isSuperseded());
     Assertions.assertFalse(race.saved().contains(ExecutionStatus.CANCELED));
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
@@ -8025,6 +8292,31 @@ class JobTaskTest {
     Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
     verify(lifecycleFacade, times(2)).completeFailure(scenario.job(), JobStatus.RUNNING, false, 3);
     verify(observabilityFacade, times(1)).recordJobCancellation(scenario.job());
+  }
+
+  @Test
+  void retryWriteThatRollsBackThenExactCancelRecordsCancellation() throws Exception {
+    RuntimeException failure = new IllegalStateException("body");
+    var scenario =
+        hydratedClaimScenario(
+            () -> {
+              throw failure;
+            });
+    CancelRace race = cancelRace();
+    recordSaves(race, status -> {});
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2)).thenReturn(3);
+    when(retryPolicy.shouldRetry(3, failure)).thenReturn(true);
+    when(retryPolicy.getDelay(3)).thenReturn(Duration.ofSeconds(1));
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L)))
+        .thenAnswer(
+            invocation -> {
+              // A rollback leaves this claim RUNNING, so the following cancel ends this attempt.
+              race.cancel();
+              throw new IllegalStateException("retry rolled back");
+            });
+    jobTask.call();
+    Assertions.assertEquals(ExecutionStatus.CANCELED, scenario.execution().getStatus());
+    verify(observabilityFacade).recordJobCancellation(scenario.job());
   }
 
   @Test
@@ -8073,10 +8365,8 @@ class JobTaskTest {
 
     Assertions.assertEquals(JobStatus.PENDING, race.status().get());
     race.cancel();
-    Assertions.assertFalse(scenario.attempt().isTimeoutHandedBack());
+    Assertions.assertTrue(scenario.attempt().isTimeoutHandedBack());
     runWatchdog(realTimeoutHandler(), scenario.attempt(), new FutureTask<>(() -> null));
-    // Exercise the cancel-finish coordination even if a watchdog had already claimed the cancel.
-    scenario.attempt().finishCancelFoundByTimeout();
     Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
     Assertions.assertFalse(race.saved().contains(ExecutionStatus.CANCELED));
     verify(observabilityFacade, never()).recordJobCancellation(any());
@@ -8098,13 +8388,13 @@ class JobTaskTest {
               throw new IllegalStateException("increment failed");
             });
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null)).thenReturn(false);
-    when(jobStore.getJobStatus(JOB_UUID))
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
         .thenAnswer(
             invocation -> {
               if (race.status().get() == JobStatus.CANCELED) {
                 throw new IllegalStateException("store down");
               }
-              return JobStatus.RUNNING;
+              return false;
             });
     recordSaves(race, status -> {});
     when(jobStore.findById(JOB_UUID))
@@ -8115,6 +8405,7 @@ class JobTaskTest {
     verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false, null);
     Assertions.assertTrue(attempt.isTimeoutHandedBack());
     Assertions.assertEquals(List.of(ExecutionStatus.FAILED), race.saved());
+    doReturn(true).when(jobStore).wasCanceledUnderClaim(JOB_UUID, 7L);
     runWatchdog(handler, attempt, new FutureTask<>(() -> null));
 
     Assertions.assertEquals(
@@ -8141,12 +8432,12 @@ class JobTaskTest {
             });
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false, null)).thenReturn(false);
     AtomicInteger cancelReads = new AtomicInteger();
-    when(jobStore.getJobStatus(JOB_UUID))
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
         .thenAnswer(
             invocation -> {
-              if (race.status().get() != JobStatus.CANCELED) return JobStatus.RUNNING;
+              if (race.status().get() != JobStatus.CANCELED) return false;
               if (cancelReads.getAndIncrement() == 0) throw new IllegalStateException("store down");
-              return JobStatus.CANCELED;
+              return true;
             });
     recordSaves(race, status -> {});
 
@@ -8176,13 +8467,13 @@ class JobTaskTest {
               race.cancel();
               return false;
             });
-    when(jobStore.getJobStatus(JOB_UUID))
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
         .thenAnswer(
             invocation -> {
               if (race.status().get() == JobStatus.CANCELED) {
                 throw new IllegalStateException("store down");
               }
-              return JobStatus.RUNNING;
+              return false;
             });
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
@@ -8218,6 +8509,9 @@ class JobTaskTest {
     jobTask.call();
     Assertions.assertFalse(attempt.isTimeoutHandedBack());
     race.status().set(JobStatus.CANCELED);
+    // Even an exact answer must stay unread: the worker kept the timeout, so the watchdog
+    // skips the store.
+    lenient().doReturn(true).when(jobStore).wasCanceledUnderClaim(JOB_UUID, 7L);
     runWatchdog(handler, attempt, new FutureTask<>(() -> null));
 
     verify(jobStore, never()).findById(JOB_UUID);
@@ -8411,18 +8705,29 @@ class JobTaskTest {
    * a release with claim sequence 7 removes, and the status of each saved execution.
    */
   private record CancelRace(
-      AtomicReference<JobStatus> status, AtomicBoolean held, List<ExecutionStatus> saved) {
+      AtomicReference<JobStatus> status,
+      AtomicBoolean held,
+      AtomicBoolean exactCancel,
+      List<ExecutionStatus> saved) {
     void cancel() {
+      exactCancel.set(status.get() == JobStatus.RUNNING);
       status.set(JobStatus.CANCELED);
-      held.set(true);
+      held.set(exactCancel.get());
     }
   }
 
   private CancelRace cancelRace() {
     CancelRace race =
         new CancelRace(
-            new AtomicReference<>(JobStatus.RUNNING), new AtomicBoolean(), new ArrayList<>());
+            new AtomicReference<>(JobStatus.RUNNING),
+            new AtomicBoolean(),
+            new AtomicBoolean(),
+            new ArrayList<>());
     lenient().when(jobStore.getJobStatus(JOB_UUID)).thenAnswer(invocation -> race.status().get());
+    lenient()
+        .when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L))
+        .thenAnswer(
+            invocation -> race.status().get() == JobStatus.CANCELED && race.exactCancel().get());
     lenient()
         .when(jobStore.releaseBusinessKeyHold(JOB_UUID, 7L))
         .thenAnswer(invocation -> race.held().getAndSet(false));
@@ -8543,6 +8848,7 @@ class JobTaskTest {
     if (keyed) job.setBusinessKey("held");
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    lenient().when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(true);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     return job;
   }

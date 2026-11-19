@@ -415,6 +415,7 @@ final class MysqlJobTerminalOperations {
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
         SET c.row_version = c.row_version + 1, c.terminal_status = 'CANCELED',
+              c.canceled_claim_seq = CASE WHEN q.status = 'RUNNING' THEN q.claim_seq ELSE NULL END,
             c.terminated_at = NOW(3),
             c.execution_start_time =
                 CASE WHEN q.status = 'RUNNING'
@@ -533,7 +534,7 @@ final class MysqlJobTerminalOperations {
     String clearTerminalSql =
         """
         UPDATE scheduler_job
-        SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
+        SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
             job_result = NULL, result_type = NULL,
             execution_start_time = NULL, execution_end_time = NULL,
             execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -594,7 +595,7 @@ final class MysqlJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,

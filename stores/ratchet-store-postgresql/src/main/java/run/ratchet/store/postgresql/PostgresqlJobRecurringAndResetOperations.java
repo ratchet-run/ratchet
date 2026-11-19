@@ -134,7 +134,7 @@ final class PostgresqlJobRecurringAndResetOperations {
     String coldSql =
         """
         UPDATE scheduler_job
-        SET row_version = row_version + 1, terminal_status = 'CANCELED',
+        SET row_version = row_version + 1, terminal_status = 'CANCELED', canceled_claim_seq = NULL,
             terminated_at = statement_timestamp()
         WHERE job_id IN (%s)
           AND terminal_status IS NULL

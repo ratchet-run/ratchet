@@ -244,6 +244,11 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
+  public boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    return jobs.wasCanceledUnderClaim(id, claimSeq);
+  }
+
+  @Override
   public List<JobEntity> findByIds(List<UUID> ids) {
     return jobs.findByIds(ids);
   }
