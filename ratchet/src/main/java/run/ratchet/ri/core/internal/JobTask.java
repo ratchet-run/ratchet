@@ -163,6 +163,7 @@ public class JobTask implements Callable<Void> {
   private volatile boolean bodyThrewInterrupt;
   private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
+  private CounterRetrySleeper counterRetrySleeper = Thread::sleep;
   private volatile long terminalRetryBaseDelayMs = 1_000;
   private volatile long terminalRetryMaxDelayMs = 30_000;
   private JobClaimDto claim;
@@ -1923,7 +1924,7 @@ public class JobTask implements Callable<Void> {
           }
           if (!terminalRetry && !retryInterrupted && ++transientFailures < TRANSIENT_STORE_TRIES) {
             try {
-              Thread.sleep(
+              counterRetrySleeper.sleep(
                   ThreadLocalRandom.current()
                       .nextInt(TRANSIENT_BACKOFF_MIN_MS, TRANSIENT_BACKOFF_MAX_MS + 1));
               if (terminalRetryRevoked()) {
@@ -2262,6 +2263,15 @@ public class JobTask implements Callable<Void> {
    */
   private void recordInterrupt(boolean interrupted) {
     if (interrupted) workerInterrupted = true;
+  }
+
+  @FunctionalInterface
+  interface CounterRetrySleeper {
+    void sleep(long ms) throws InterruptedException;
+  }
+
+  void setCounterRetrySleeper(CounterRetrySleeper sleeper) {
+    counterRetrySleeper = sleeper;
   }
 
   void setTerminalRetryDelays(long baseDelayMs, long maxDelayMs) {

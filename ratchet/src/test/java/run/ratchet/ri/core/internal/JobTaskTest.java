@@ -81,6 +81,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -1376,6 +1377,47 @@ class JobTaskTest {
     }
   }
 
+  @Test
+  void counterQuickRetryInterruptedDuringWaitIsRecorded() throws Exception {
+    var scenario = preparedContinuation();
+    jobTask.setTerminalRetryDelays(1, 2);
+    jobTask.setCounterRetrySleeper(
+        ms -> {
+          throw new InterruptedException("quick retry interrupted");
+        });
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenReturn(StateWriteResult.UPDATED);
+
+    try {
+      assertCounterRetryLands(scenario);
+      Assertions.assertTrue(Thread.interrupted());
+      verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+      verify(scenario.store(), times(2))
+          .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void counterRevokedDuringQuickRetryWaitIsDiscarded() throws Exception {
+    var scenario = preparedContinuation();
+    jobTask.setCounterRetrySleeper(ms -> scenario.attempt().revoke());
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenThrow(new RatchetTransientStoreException("busy"));
+
+    jobTask.call();
+
+    verify(scenario.store(), times(1)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store(), times(1))
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
+    assertContinuationDiscarded(scenario);
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
   private void assertCounterRetryLands(ContinuationScenario scenario) throws Exception {
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L)).thenReturn(true);
     jobTask.call();
@@ -2087,6 +2129,7 @@ class JobTaskTest {
   }
 
   @Test
+  @Timeout(5)
   void counterExceptionUsesFailureHandling() throws Exception {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
     when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
