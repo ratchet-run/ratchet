@@ -86,6 +86,7 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStore;
@@ -187,6 +188,7 @@ public class JobTask implements Callable<Void> {
   // belongs to an attempt that wrote no outcome.
   private volatile boolean outcomeWritten;
   private volatile boolean forcedWritePending;
+  private volatile boolean retryTransitionPending;
   private Instant executionStart;
 
   protected JobTask() {
@@ -1004,11 +1006,28 @@ public class JobTask implements Callable<Void> {
     copy.setOnFailurePayload(job.getOnFailurePayload());
     copy.setParams(job.getParams());
     copy.setCallerPrincipal(job.getCallerPrincipal());
-    Integer expected = expectedAttempts;
-    JobAttemptControl control = attempt;
-    PostExecutionHandler lifecycle = lifecycleFacade;
-    JobStore store = jobStore;
-    LifecycleCallbackInvoker callbacks = callbackInvoker;
+    return forcedFailureFinisher(
+        copy,
+        expectedAttempts,
+        attempt,
+        lifecycleFacade,
+        jobStore,
+        callbackInvoker,
+        safeError,
+        failure,
+        null);
+  }
+
+  private static Runnable forcedFailureFinisher(
+      JobEntity copy,
+      Integer expected,
+      JobAttemptControl control,
+      PostExecutionHandler lifecycle,
+      JobStore store,
+      LifecycleCallbackInvoker callbacks,
+      String safeError,
+      Throwable failure,
+      @Nullable Runnable afterCommitted) {
     return () -> {
       if (expected == null) {
         Optional<JobEntity> latest = store.findByIdLatest(copy.getId());
@@ -1027,6 +1046,16 @@ public class JobTask implements Callable<Void> {
       }
       copy.setLastError(safeError);
       if (lifecycle.completeFailure(copy, JobStatus.RUNNING, false, expected)) {
+        if (afterCommitted != null) {
+          try {
+            afterCommitted.run();
+          } catch (Throwable notificationFailure) {
+            log.errorf(
+                notificationFailure,
+                "Job %s forced FAILED write committed but notification failed",
+                copy.getId());
+          }
+        }
         if (callbacks != null) {
           try {
             callbacks.invokeOnFailureInJobContext(copy, failure);
@@ -1533,6 +1562,8 @@ public class JobTask implements Callable<Void> {
    * including on the exits before the body runs.
    */
   private void releaseHoldIfAttemptEnded(UUID jobId, @Nullable String businessKey) {
+    // A cancel left to this worker is finished when the worker ends, and that releases the hold.
+    if (attempt != null && attempt.isCancelLeftToWorker()) return;
     if (businessKey != null && (cancelHandled || (attempt != null && attempt.isSuperseded()))) {
       releaseHeldBusinessKey(jobId, businessKey, expectedClaimSeq());
     }
@@ -1666,6 +1697,7 @@ public class JobTask implements Callable<Void> {
    */
   private void leaveUnconfirmedCancelToWatchdog() {
     if (forcedWritePending
+        || retryTransitionPending
         || attempt == null
         || outcomeWritten
         || cancelHandled
@@ -1687,6 +1719,7 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  /** Hands transient charge, batch check and retry write failures to the outcome retry helper. */
   private void handleHeldFailure(Throwable ex, String sanitized) {
     flushStateQuietly();
 
@@ -1709,6 +1742,10 @@ public class JobTask implements Callable<Void> {
       attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq(), claimAttempts);
     } catch (Throwable incrementFailure) {
       expectedAttempts = null;
+      if (JobSuccessFinalizer.isTransientStoreFailure(incrementFailure) && outcomeRetries != null) {
+        deferRetryTransition(ex, sanitized, new FailureRetryState(null));
+        return;
+      }
       throw incrementFailure;
     }
     if (attempt != claimAttempts + 1) {
@@ -1726,10 +1763,20 @@ public class JobTask implements Callable<Void> {
     job.setAttempts(attempt);
     logIfTimeout(ex);
 
-    if (attempt <= job.getMaxRetries()
-        && retryPolicy.shouldRetry(attempt, ex)
-        && batchAllowsRetry()) {
+    boolean retry = attempt <= job.getMaxRetries() && retryPolicy.shouldRetry(attempt, ex);
+    if (retry) {
+      try {
+        retry = batchAllowsRetry();
+      } catch (RuntimeException failure) {
+        if (!JobSuccessFinalizer.isTransientStoreFailure(failure) || outcomeRetries == null)
+          throw failure;
+        deferRetryTransition(ex, sanitized, new FailureRetryState(attempt));
+        return;
+      }
+    }
+    if (retry) {
       scheduleRetry(ex, attempt, sanitized);
+      if (retryTransitionPending) return;
     } else {
       moveToDlq(ex, attempt, sanitized);
     }
@@ -1738,6 +1785,220 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.recordJobFailure(job, ex, attempt);
       currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     }
+  }
+
+  private static final class FailureRetryState {
+    private Integer chargedAttempt;
+    private Instant scheduled;
+    private Runnable forcedFailure;
+
+    private FailureRetryState(Integer chargedAttempt) {
+      this.chargedAttempt = chargedAttempt;
+    }
+  }
+
+  private void deferRetryTransition(Throwable failure, String sanitized, FailureRetryState state) {
+    deferRetryTransition(failure, sanitized, effective().instant(), state);
+  }
+
+  private void deferRetryTransition(
+      Throwable failure, String sanitized, Instant failureInstant, FailureRetryState state) {
+    retryTransitionPending = true;
+    saveDeferredExecutionFailure(failure.getClass().getName(), sanitized);
+    Runnable finisher = retryTransitionFinisher(failure, sanitized, failureInstant, state);
+    currentScope.failure(failure.getClass().getName(), sanitized, claimAttempts + 1);
+    outcomeRetries.run("failure transition for job " + job.getId(), finisher);
+  }
+
+  private Runnable retryTransitionFinisher(
+      Throwable failure, String sanitized, Instant failureInstant, FailureRetryState state) {
+    JobEntity snapshot = PostExecutionHandler.completionSnapshot(job, job.getStatus());
+    snapshot.setOnFailurePayload(job.getOnFailurePayload());
+    snapshot.setParams(job.getParams());
+    snapshot.setCallerPrincipal(job.getCallerPrincipal());
+    int baseline = claimAttempts;
+    long claimSeq = expectedClaimSeq();
+    int maxRetries = job.getMaxRetries();
+    var backoffPolicy = job.getBackoffPolicy();
+    int backoffParam = job.getBackoffParamMs();
+    JobAttemptControl control = attempt;
+    JobStore store = jobStore;
+    RetryPolicy policy = retryPolicy;
+    Clock retryClock = effective();
+    ExecutionObserver observer = observabilityFacade;
+    PostExecutionHandler lifecycle = lifecycleFacade;
+    LifecycleCallbackInvoker callbacks = callbackInvoker;
+    String node = nodeIdProvider.getNodeId();
+    Thread worker = Thread.currentThread();
+    String businessKey = claim != null ? claim.businessKey() : snapshot.getBusinessKey();
+    HeldKeyReleases releases = holdReleases;
+    Runnable rejected =
+        () -> {
+          if (control != null) control.markSuperseded();
+          if (Thread.currentThread() != worker && businessKey != null) {
+            releases.release(snapshot.getId(), claimSeq);
+          }
+          log.warnf(
+              "Rejected owner write for job %s, stale claimSeq %s, node %s",
+              snapshot.getId(), claimSeq, node);
+        };
+    Runnable cancel =
+        () -> {
+          if (control != null) {
+            control.finishCancelFoundByTimeout();
+            control.markSuperseded();
+          }
+        };
+    return () -> {
+      if (control != null && control.isRevoked()) {
+        log.infof("Job %s failure transition dropped after attempt revocation", snapshot.getId());
+        return;
+      }
+      // Once forced, later tries only repeat the terminal write and never decide again.
+      if (state.forcedFailure != null) {
+        state.forcedFailure.run();
+        return;
+      }
+      try {
+        if (state.chargedAttempt == null) {
+          int charged = store.incrementRetryAttempt(snapshot.getId(), claimSeq, baseline);
+          if (charged != baseline + 1) {
+            Optional<ClaimState> current = store.currentClaim(snapshot.getId());
+            Optional<JobEntity> latest = store.findByIdLatest(snapshot.getId());
+            if (latest.isEmpty()) {
+              if (control != null) control.markSuperseded();
+              return;
+            }
+            if (current.isPresent()
+                && current.get().status() == JobStatus.RUNNING
+                && current.get().claimSeq() == claimSeq
+                && latest.get().getAttempts() == baseline + 1) {
+              charged = baseline + 1;
+            } else if (store.wasCanceledUnderClaim(snapshot.getId(), claimSeq)) {
+              cancel.run();
+              return;
+            } else {
+              rejected.run();
+              return;
+            }
+          }
+          state.chargedAttempt = charged;
+          snapshot.setAttempts(charged);
+        }
+        int charged = state.chargedAttempt;
+        snapshot.setAttempts(charged);
+        if (state.scheduled == null) {
+          boolean retry = charged <= maxRetries && policy.shouldRetry(charged, failure);
+          if (!retry) {
+            state.forcedFailure =
+                forcedFailureFinisher(
+                    snapshot,
+                    charged,
+                    control,
+                    lifecycle,
+                    store,
+                    callbacks,
+                    sanitized,
+                    failure,
+                    () -> observer.recordJobFailure(snapshot, failure, charged));
+          } else {
+            Duration delay =
+                Objects.requireNonNull(
+                    policy.getDelay(charged),
+                    "RetryPolicy.getDelay must not return null (attempt=" + charged + ")");
+            long backoff =
+                delay.isZero()
+                    ? BackoffPolicyHandler.computeDelay(backoffPolicy, backoffParam, charged)
+                    : delay.toMillis();
+            state.scheduled = failureInstant.plusMillis(backoff);
+          }
+        }
+        if (state.forcedFailure == null) {
+          BatchRetryGuard.ParentState parent = BatchRetryGuard.check(store, snapshot);
+          if (parent.closed()) {
+            log.infof(
+                "Job %s not retried: batch %s is closed (parent %s)",
+                snapshot.getId(), snapshot.getDependsOn(), parent.description());
+            state.forcedFailure =
+                forcedFailureFinisher(
+                    snapshot,
+                    charged,
+                    control,
+                    lifecycle,
+                    store,
+                    callbacks,
+                    sanitized,
+                    failure,
+                    () -> observer.recordJobFailure(snapshot, failure, charged));
+          } else {
+            if (store.scheduleJobRetry(
+                snapshot.getId(), sanitized, state.scheduled, charged, claimSeq)) {
+              outcomeWritten = true;
+              snapshot.setStatus(JobStatus.PENDING);
+              snapshot.setScheduledTime(state.scheduled);
+              snapshot.setLastError(sanitized);
+              try {
+                observer.publishEvent(
+                    new JobRetryingEvent(
+                        snapshot.getId(),
+                        snapshot.getBusinessKey(),
+                        snapshot.getRecurringMasterId(),
+                        snapshot.getPublicJobType(),
+                        snapshot.getPriority(),
+                        snapshot.getPickedBy(),
+                        failureInstant,
+                        sanitized,
+                        charged,
+                        state.scheduled));
+                long remaining =
+                    Math.max(0, Duration.between(retryClock.instant(), state.scheduled).toMillis());
+                if (remaining > 0) observer.scheduleDelayedJobReadyCallback(remaining);
+                observer.recordJobFailure(snapshot, failure, charged);
+                log.infof(
+                    "Job %s retrying at %s (attempt %s/%s) due to: %s: %s",
+                    snapshot.getId(),
+                    state.scheduled,
+                    charged,
+                    maxRetries,
+                    failure.getClass().getName(),
+                    failure.getMessage());
+              } catch (RuntimeException notificationFailure) {
+                log.warnf(
+                    notificationFailure,
+                    "Job %s retry landed but notification failed",
+                    snapshot.getId());
+              }
+            } else {
+              if (store.wasCanceledUnderClaim(snapshot.getId(), claimSeq)) cancel.run();
+              else {
+                rejected.run();
+                observer.recordJobFailure(snapshot, failure, charged);
+              }
+            }
+            return;
+          }
+        }
+      } catch (RuntimeException transitionFailure) {
+        if (JobSuccessFinalizer.isTransientStoreFailure(transitionFailure)) throw transitionFailure;
+        log.errorf(
+            transitionFailure,
+            "Job %s retry transition failed, forcing FAILED status",
+            snapshot.getId());
+        int failedAttempt = state.chargedAttempt != null ? state.chargedAttempt : baseline + 1;
+        state.forcedFailure =
+            forcedFailureFinisher(
+                snapshot,
+                state.chargedAttempt,
+                control,
+                lifecycle,
+                store,
+                callbacks,
+                sanitized,
+                failure,
+                () -> observer.recordJobFailure(snapshot, failure, failedAttempt));
+      }
+      state.forcedFailure.run();
+    };
   }
 
   private boolean batchAllowsRetry() {
@@ -2534,11 +2795,9 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  /** Saves the failed execution best effort before attempting the fenced retry write. */
   private void scheduleRetry(Throwable ex, int attempt, String sanitized) {
-    if (currentExecution != null) {
-      currentExecution.markFailed(ex.getClass().getName(), sanitized);
-      observabilityFacade.saveExecution(currentExecution);
-    }
+    saveDeferredExecutionFailure(ex.getClass().getName(), sanitized);
 
     // Consult RetryPolicy for delay; fall back to job-level backoff configuration. The SPI
     // contract requires a non-null Duration; enforce at the boundary so a misbehaving
@@ -2555,8 +2814,20 @@ public class JobTask implements Callable<Void> {
     Instant timestamp = effective().instant();
     Instant newScheduledTime = timestamp.plusMillis(backoff);
 
-    if (jobStore.scheduleJobRetry(
-        job.getId(), sanitized, newScheduledTime, attempt, expectedClaimSeq())) {
+    boolean scheduled;
+    try {
+      scheduled =
+          jobStore.scheduleJobRetry(
+              job.getId(), sanitized, newScheduledTime, attempt, expectedClaimSeq());
+    } catch (RuntimeException failure) {
+      if (!JobSuccessFinalizer.isTransientStoreFailure(failure) || outcomeRetries == null)
+        throw failure;
+      FailureRetryState state = new FailureRetryState(attempt);
+      state.scheduled = newScheduledTime;
+      deferRetryTransition(ex, sanitized, timestamp, state);
+      return;
+    }
+    if (scheduled) {
       outcomeWritten = true;
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);
