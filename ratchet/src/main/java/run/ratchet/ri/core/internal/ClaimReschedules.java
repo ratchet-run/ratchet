@@ -39,13 +39,16 @@ import run.ratchet.store.spi.JobRetryStore;
  *
  * <p>Pending writes are keyed by job and claim sequence. Each write is fenced on the claim sequence
  * and attempt count, so a charge committed under the same claim always wins. No write charges an
- * attempt. Each accepted hand-off runs exactly one accepted, rejected or dropped callback. A
- * dropped write has no store result, including when the watchdog revokes it. There is one entry per
- * ended attempt whose write still fails, so at most the attempts this node ended during the outage.
- * Entries are dropped when revoked, after a non-transient store failure, or when both executors
- * refuse or this node stops. Shutdown reset or orphan recovery handles unwritten rows. The revoked
- * check only avoids a write the timeout watchdog has taken over. Refused release tasks are
- * resubmitted from the scheduled executor while this node runs.
+ * attempt. While this node runs, each hand-off that adds an entry ends in exactly one accepted,
+ * rejected or dropped callback. A hand-off for a job and claim that already has an entry adds
+ * nothing, and the first entry's callbacks run. A dropped write has no store result, including when
+ * the watchdog revokes it. There is one entry per ended attempt whose write still fails, so at most
+ * the attempts this node ended during the outage. Entries are dropped when revoked, after a
+ * non-transient store failure, or when both executors refuse. If this node stops with a drain still
+ * scheduled, its entries run no callback. Shutdown reset or orphan recovery handles unwritten rows,
+ * and orphan recovery closes their stale execution rows. The revoked check only avoids a write the
+ * timeout watchdog has taken over. Refused release tasks are resubmitted from the scheduled
+ * executor while this node runs.
  */
 class ClaimReschedules {
   private static final Logger log = Logger.getLogger(ClaimReschedules.class);
