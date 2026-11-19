@@ -15,8 +15,10 @@ on:
 # aborts every test in that module. Disabling it removes the flake without losing cleanup we rely on.
 env:
   TESTCONTAINERS_RYUK_DISABLED: "true"
-  # Retry transient Maven Central throttling across every Maven invocation.
-  MAVEN_ARGS: -V -Daether.connector.http.retryHandler.count=8
+  # Retry Maven Central throttling (429 and 503) up to 8 times in every Maven call, and log the
+  # Maven version. Resolver 1 (Maven 3.9) reads the connector key and Resolver 2 (Maven 3.10
+  # and later) reads the transport key; each ignores the other's.
+  MAVEN_ARGS: -V -Daether.connector.http.retryHandler.count=8 -Daether.transport.http.retryHandler.count=8
 
 # A new push to a PR cancels that PR's older run, so superseded commits don't hold runners the
 # current head is waiting for. Every other event (main pushes, merge queue, release/snapshot calls)
