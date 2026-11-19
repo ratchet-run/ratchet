@@ -15,6 +15,8 @@ on:
 # aborts every test in that module. Disabling it removes the flake without losing cleanup we rely on.
 env:
   TESTCONTAINERS_RYUK_DISABLED: "true"
+  # Retry transient Maven Central throttling across every Maven invocation.
+  MAVEN_ARGS: -V -Daether.connector.http.retryHandler.count=8
 
 # A new push to a PR cancels that PR's older run, so superseded commits don't hold runners the
 # current head is waiting for. Every other event (main pushes, merge queue, release/snapshot calls)
@@ -24,6 +26,65 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The only writer of the shared key: warm the full reactor so a narrow lane cannot
+  # freeze an immutable cache that makes every other lane download missing dependencies.
+  # The steps below mirror the Maven goals of the jobs that restore the shared key
+  # (build, unit-tests, mysql-read-committed, spotbugs, license-gate) without running tests.
+  cache-warm:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: actions/cache/restore@v6
+        id: m2
+        with:
+          path: ~/.m2/repository
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
+      - name: Compile and verify aggregate Javadoc
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: scripts/build-javadoc.sh
+      - name: Format check
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: mvn -B -ntp spotless:check
+      - name: Resolve full reactor dependencies and plugins without tests
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: mvn -B -ntp install -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=ZZZ_NoMatch -Dfailsafe.failIfNoSpecifiedTests=false -Dspotbugs.skip=true
+      - name: Resolve the surefire test provider
+        # A run that matches no tests returns before surefire resolves its JUnit Platform
+        # provider, so run one fast test that needs no containers.
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: mvn -B -ntp -pl ratchet-api test -Dtest=JobPageTest
+      - name: Resolve publishing-profile plugins
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: >-
+          mvn -B -ntp install -P github
+          -pl :ratchet-quarkus-observability-integration-tests -am
+          -DskipTests -Dspotbugs.skip=true
+      - name: Resolve SpotBugs and its detectors
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: mvn -B -ntp -DskipTests test-compile spotbugs:check
+      - name: Resolve the license plugin
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: bash infra/ci/check-dependency-licenses.sh
+      - name: Keep Ratchet artifacts out of the saved cache
+        if: steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
+
   # Validate workflow structure and parse every shell run block before any
   # release can reach its deploy step. Limit ShellCheck to errors so this gate
   # catches invalid shell without turning existing advisory findings into
@@ -117,11 +178,13 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
       - name: Remove cached Ratchet artifacts
         # Require sibling dependencies to resolve from this checkout. Installed
         # snapshots can hide broken reactor resolution in documentation builds.
@@ -148,11 +211,13 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
       - name: Unit tests
         env:
           SCOPE: ${{ needs.changes.outputs.unit_scope }}
@@ -181,10 +246,6 @@ jobs:
         with:
           name: tck-conformance-reports
           path: stores/ratchet-store-*/target/tck-conformance-report.md
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Locally installed snapshots must not reach the cache post-step.
-        if: always()
-        run: rm -rf "$HOME/.m2/repository/run/ratchet"
 
   # MySQL supports REPEATABLE READ and READ COMMITTED. The default suite runs
   # REPEATABLE READ. Locking reads, gap locks and fenced-write checks depend on the level.
@@ -199,11 +260,13 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
       - name: MySQL store tests at READ COMMITTED
         run: |
           mvn -B -ntp clean install -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true -Dmaven.javadoc.skip=true -Djacoco.skip=true -Dcyclonedx.skip=true -pl stores/ratchet-store-mysql -am
@@ -214,10 +277,6 @@ jobs:
         with:
           name: mysql-read-committed-surefire
           path: stores/ratchet-store-mysql/target/surefire-reports/
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Locally installed snapshots must not reach the cache post-step.
-        if: always()
-        run: rm -rf "$HOME/.m2/repository/run/ratchet"
 
   spotbugs:
     runs-on: ubuntu-latest
@@ -227,11 +286,13 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
       # Single-pass reactor: test-compile builds every module so spotbugs:check
       # resolves siblings from the workspace, then the concurrency/correctness
       # gate runs once across all modules.
@@ -251,7 +312,8 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ~/.m2/repository
           key: m2-ee11-${{ hashFiles('**/pom.xml') }}
@@ -275,6 +337,15 @@ jobs:
               echo "No affected modules to test."
               ;;
           esac
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Retain Jakarta EE 11 test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -284,10 +355,6 @@ jobs:
             **/target/surefire-reports/
             **/target/failsafe-reports/
             **/target/*.log
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Locally installed snapshots must not reach the cache post-step.
-        if: always()
-        run: rm -rf "$HOME/.m2/repository/run/ratchet"
 
   integration-test:
     needs: [build, changes]
@@ -313,11 +380,15 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-it-${{ matrix.server }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-it-${{ matrix.server }}-
+            m2-shared-
+            m2-
       - name: Integration tests (${{ matrix.server }} / ${{ matrix.database }})
         # spotbugs.skip: the SpotBugs gate is bound to verify but runs once in the
         # dedicated spotbugs job — skip it here so it isn't re-analyzed per matrix cell.
@@ -334,6 +405,15 @@ jobs:
         # already covers them. The pom ignores -Dsurefire.skip, hence the
         # no-match pattern; failsafe filters on -Dit.test, so the ITs still run.
         run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -pl :ratchet-testsuite,:ratchet-coverage -am
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Thread-dump surviving JVMs
         if: failure()
         run: |
@@ -375,11 +455,17 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      # Its own lane cache: the smoke test provisions WildFly from the local repository,
+      # which the shared key does not hold.
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-showcase-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-showcase-
+            m2-shared-
+            m2-
       - name: Install showcase reactor dependencies
         run: >-
           mvn -B -ntp -pl :ratchet-showcase -am
@@ -395,6 +481,15 @@ jobs:
           -Dwildfly.management.port=19993
           -Dwildfly.https.port=18446
           package exec:exec@run-showcase
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Upload showcase server log
         if: failure()
         uses: actions/upload-artifact@v7
@@ -415,11 +510,13 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
       - name: Install reactor (no tests) so every module resolves
         run: mvn -B -ntp -DskipTests -Dspotbugs.skip=true -Dmaven.javadoc.skip=true install
       - name: Check reviewed dependency licenses
@@ -461,7 +558,8 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ~/.m2/repository
           key: m2-quarkus-ext-${{ matrix.db }}-${{ hashFiles('**/pom.xml') }}
@@ -475,6 +573,15 @@ jobs:
           mvn -B -ntp -Dspotbugs.skip=true
           -pl integrations/ratchet-quarkus/integration-tests -am
           verify -P${{ matrix.profile }}
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Retain Quarkus test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -506,7 +613,8 @@ jobs:
           java-version: '21'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ~/.m2/repository
           key: m2-quarkus-ext-native-${{ matrix.cache }}-${{ hashFiles('**/pom.xml') }}
@@ -520,6 +628,15 @@ jobs:
           mvn -B -ntp -Dspotbugs.skip=true \
             -pl integrations/ratchet-quarkus/integration-tests -am \
             verify -P${{ matrix.profile }} 2>&1 | tee quarkus-native-build.log
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Capture Quarkus native provenance
         if: always()
         env:
@@ -588,7 +705,8 @@ jobs:
           distribution: 'temurin'
       # Cache third-party dependencies only. A fresh repository per cell downloads the whole
       # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ${{ runner.temp }}/ratchet-staged-repository
           key: m2-spring-boot-consumer-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
@@ -624,6 +742,15 @@ jobs:
             -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository" \
             -Dspring-boot.version=${{ matrix.boot }} -Dstore=${{ matrix.store }} \
             -pl "$consumer" -am "${profiles[@]}" verify
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ratchet-staged-repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Upload Spring Boot consumer reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -632,10 +759,6 @@ jobs:
           path: |
             integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Runs before the cache post-step saves the repository.
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
 
   chaos:
     needs: changes
@@ -653,7 +776,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ${{ runner.temp }}/ratchet-chaos-repository
           key: m2-chaos-${{ runner.os }}-${{ matrix.store }}-${{ hashFiles('**/pom.xml') }}
@@ -680,6 +804,15 @@ jobs:
           '-Dit.test=*ChaosIT' -Dfailsafe.failIfNoSpecifiedTests=false
           -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
           -pl :sql-consumer -am verify
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$RUNNER_TEMP/ratchet-chaos-repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ratchet-chaos-repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Retain chaos evidence
         if: failure()
         uses: actions/upload-artifact@v7
@@ -688,9 +821,6 @@ jobs:
           path: |
             integrations/ratchet-spring-boot/consumer-tests/**/target/runtime-*.log
             integrations/ratchet-spring-boot/consumer-tests/**/target/chaos-reports/
-      - name: Keep Ratchet artifacts out of the saved cache
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/ratchet-chaos-repository/run/ratchet"
 
   spring-boot-runtime:
     needs: changes
@@ -711,7 +841,8 @@ jobs:
           distribution: 'temurin'
       # Cache third-party dependencies only. A fresh repository per cell downloads the whole
       # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ${{ runner.temp }}/ratchet-runtime-repository
           key: m2-spring-boot-runtime-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
@@ -750,6 +881,15 @@ jobs:
           set -e
           if [ "$pipeline_status" -ne 0 ]; then exit "$pipeline_status"; fi
           exit "$guard_status"
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$RUNNER_TEMP/ratchet-runtime-repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ratchet-runtime-repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Retain runtime evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -759,10 +899,6 @@ jobs:
             spring-runtime.log
             integrations/ratchet-spring-boot/consumer-tests/**/target/runtime-*.log
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Runs before the cache post-step saves the repository.
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/ratchet-runtime-repository/run/ratchet"
 
   # Native executables are launched by a JVM Testcontainers harness. Keep every
   # selected cell required; the Java 17/21 matrix above remains the compatibility gate.
@@ -786,7 +922,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       # Cache third-party dependencies only. A fresh repository per cell downloads the whole
       # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ${{ runner.temp }}/ratchet-native-repository
           key: m2-spring-boot-native-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
@@ -826,6 +963,15 @@ jobs:
             -Dspring-boot.version=${{ matrix.boot }} -Dstore=${{ matrix.store }} \
             -pl "$consumer" -am -Pnative clean verify \
             -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tee native-build.log
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$RUNNER_TEMP/ratchet-native-repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ratchet-native-repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Retain native and AOT evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -840,10 +986,6 @@ jobs:
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/spring-aot/main/resources/
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Runs before the cache post-step saves the repository.
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/ratchet-native-repository/run/ratchet"
 
   # Runs the Micrometer scenario in one packaged SQL consumer; matrix rows are defined in infra/ci/affected_lanes.py.
   spring-boot-micrometer:
@@ -869,7 +1011,8 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ${{ runner.temp }}/ratchet-micrometer-repository
           key: m2-spring-boot-micrometer-${{ runner.os }}-${{ matrix.boot }}-${{ matrix.mode }}-${{ hashFiles('**/pom.xml') }}
@@ -897,6 +1040,15 @@ jobs:
             -pl :sql-consumer -am -P "$profiles" clean verify \
             -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false \
             -Dit.test=SqlMicrometerIT -Dfailsafe.failIfNoSpecifiedTests=false 2>&1 | tee micrometer-build.log
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$RUNNER_TEMP/ratchet-micrometer-repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ratchet-micrometer-repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Retain Micrometer evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -907,9 +1059,6 @@ jobs:
             integrations/ratchet-spring-boot/consumer-tests/**/target/*.log
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
-      - name: Keep Ratchet artifacts out of the saved cache
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/ratchet-micrometer-repository/run/ratchet"
 
   # Same independent-consumer pattern as spring-boot-consumer. Both lanes consume one set of
   # Ratchet jars compiled against Micronaut 4.10 on Java 17: mn4 runs it on Micronaut 4.10 and
@@ -933,7 +1082,8 @@ jobs:
           distribution: 'temurin'
       # Cache third-party dependencies only. A fresh repository per cell downloads the whole
       # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ${{ runner.temp }}/ratchet-staged-repository
           key: m2-micronaut-consumer-${{ runner.os }}-${{ matrix.lane }}-${{ hashFiles('**/pom.xml') }}
@@ -963,6 +1113,15 @@ jobs:
           mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml \
             -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository" \
             -P${{ matrix.lane }} "${selection[@]}" verify
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ratchet-staged-repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Upload Micronaut consumer reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -971,10 +1130,6 @@ jobs:
           path: |
             integrations/ratchet-micronaut/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-micronaut/consumer-tests/**/target/failsafe-reports/
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Runs before the cache post-step saves the repository.
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
 
   micronaut-native:
     needs: changes
@@ -996,7 +1151,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       # Cache third-party dependencies only. A fresh repository per cell downloads the whole
       # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: m2
         with:
           path: ${{ runner.temp }}/ratchet-micronaut-native-repository
           key: m2-micronaut-native-${{ runner.os }}-${{ matrix.lane }}-${{ hashFiles('**/pom.xml') }}
@@ -1026,6 +1182,15 @@ jobs:
             -P${{ matrix.lane }},native "${selection[@]}" clean verify \
             -Dgoogle-java-format.version=1.35.0 \
             -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tee micronaut-native-build.log
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Save only successful main-push dependencies, never locally installed snapshots.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        run: rm -rf "$RUNNER_TEMP/ratchet-micronaut-native-repository/run/ratchet"
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ratchet-micronaut-native-repository
+          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Upload Micronaut consumer reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -1037,10 +1202,6 @@ jobs:
             integrations/ratchet-micronaut/consumer-tests/**/target/*.log
             integrations/ratchet-micronaut/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-micronaut/consumer-tests/**/target/failsafe-reports/
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Runs before the cache post-step saves the repository.
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/ratchet-micronaut-native-repository/run/ratchet"
 
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated

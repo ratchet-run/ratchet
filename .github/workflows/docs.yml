@@ -62,11 +62,13 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
 
       - name: Generate aggregate Javadoc
         run: scripts/build-javadoc.sh

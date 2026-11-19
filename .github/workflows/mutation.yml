@@ -21,11 +21,13 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
-          key: m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-shared-
+            m2-
       # Scoped to the RI core (run.ratchet.ri.core.*) via the pit profile. -am
       # builds upstream modules so the targets resolve in a single reactor pass.
       - name: Run PIT mutation analysis (run.ratchet.ri.core.*)
