@@ -117,7 +117,16 @@ class ReleaseExecutorIsolationTest {
           .when(nodes)
           .upsertHeartbeat(anyString(), any());
       assertTrue(
-          claims.handOff(UUID.randomUUID(), 1, "release", Instant.now(), 0, () -> false, () -> {}));
+          claims.handOff(
+              UUID.randomUUID(),
+              1,
+              "release",
+              Instant.now(),
+              0,
+              () -> false,
+              () -> {},
+              () -> {},
+              () -> {}));
       assertTrue(claimEntered.await(10, TimeUnit.SECONDS));
       try {
         Thread.currentThread().interrupt();

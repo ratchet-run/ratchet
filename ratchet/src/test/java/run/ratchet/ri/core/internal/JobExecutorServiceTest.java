@@ -131,7 +131,9 @@ class JobExecutorServiceTest {
       Thread.currentThread().interrupt();
       holds.release(JOB_ID, 1);
       permitReleases.release("gpu", JOB_ID, 1);
-      assertTrue(claims.handOff(JOB_ID, 1, "release", FIXED_NOW, 0, () -> false, () -> {}));
+      assertTrue(
+          claims.handOff(
+              JOB_ID, 1, "release", FIXED_NOW, 0, () -> false, () -> {}, () -> {}, () -> {}));
     } finally {
       Thread.interrupted();
     }
@@ -169,7 +171,9 @@ class JobExecutorServiceTest {
           () -> {
             throw new AssertionError("write on caller");
           });
-      assertTrue(claims.handOff(JOB_ID, 2, "release", FIXED_NOW, 0, () -> false, () -> {}));
+      assertTrue(
+          claims.handOff(
+              JOB_ID, 2, "release", FIXED_NOW, 0, () -> false, () -> {}, () -> {}, () -> {}));
     } finally {
       Thread.interrupted();
     }
