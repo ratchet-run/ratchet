@@ -19,9 +19,14 @@ import java.util.Objects;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 
-/** A job's live status and claim sequence as read by {@link JobClaimStore#currentClaim}. */
+/**
+ * A job's live status and claim sequence as read by {@link JobClaimStore#currentClaim}.
+ *
+ * @param attempts stored attempt count from the same row, read together with the status and
+ *     sequence
+ */
 @Incubating
-public record ClaimState(JobStatus status, long claimSeq) {
+public record ClaimState(JobStatus status, long claimSeq, int attempts) {
   public ClaimState {
     Objects.requireNonNull(status);
   }

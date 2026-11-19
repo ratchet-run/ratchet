@@ -118,9 +118,9 @@ class JobAttemptControlTest {
     JobClaimStore store = mock(JobClaimStore.class);
     when(store.currentClaim(attempt.jobId()))
         .thenReturn(
-            Optional.of(new ClaimState(JobStatus.RUNNING, 7)),
-            Optional.of(new ClaimState(JobStatus.PAUSED, 7)),
-            Optional.of(new ClaimState(JobStatus.RUNNING, 7)));
+            Optional.of(new ClaimState(JobStatus.RUNNING, 7, 0)),
+            Optional.of(new ClaimState(JobStatus.PAUSED, 7, 0)),
+            Optional.of(new ClaimState(JobStatus.RUNNING, 7, 0)));
     assertTrue(attempt.isCurrent(store));
     assertFalse(attempt.isCurrent(store));
     assertFalse(attempt.isSuperseded());
@@ -131,7 +131,8 @@ class JobAttemptControlTest {
   @Test
   void missingAndDifferentClaimsAreSticky() {
     for (Optional<ClaimState> state :
-        List.of(Optional.<ClaimState>empty(), Optional.of(new ClaimState(JobStatus.RUNNING, 8)))) {
+        List.of(
+            Optional.<ClaimState>empty(), Optional.of(new ClaimState(JobStatus.RUNNING, 8, 0)))) {
       JobAttemptControl attempt = claimedAttempt();
       JobClaimStore store = mock(JobClaimStore.class);
       when(store.currentClaim(attempt.jobId())).thenReturn(state);
@@ -149,7 +150,7 @@ class JobAttemptControlTest {
     IllegalStateException failure = new IllegalStateException("store down");
     when(store.currentClaim(attempt.jobId()))
         .thenThrow(failure)
-        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7)));
+        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7, 0)));
     assertSame(failure, assertThrows(IllegalStateException.class, () -> attempt.isCurrent(store)));
     assertFalse(attempt.isSuperseded());
     assertTrue(attempt.isCurrent(store));
@@ -163,7 +164,7 @@ class JobAttemptControlTest {
         .thenAnswer(
             invocation -> {
               attempt.markSuperseded();
-              return Optional.of(new ClaimState(JobStatus.RUNNING, 7));
+              return Optional.of(new ClaimState(JobStatus.RUNNING, 7, 0));
             });
     assertFalse(attempt.isCurrent(store));
     assertTrue(attempt.isSuperseded());

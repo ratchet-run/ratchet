@@ -30,11 +30,31 @@ import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.tck.store.clocked.InMemoryJobStore;
 
 class InMemoryJobStoreTest {
 
   private static final Instant NOW = Instant.parse("2026-05-09T12:00:00Z");
+
+  @Test
+  void currentClaimTracksFencedRetryCharges() {
+    InMemoryJobStore store = new InMemoryJobStore(Clock.fixed(NOW, ZoneOffset.UTC));
+    JobEntity job = new JobEntity();
+    job.setStatus(JobStatus.RUNNING);
+    job.setClaimSeq(7L);
+    job.setAttempts(2);
+    store.save(job);
+    assertEquals(
+        new ClaimState(JobStatus.RUNNING, 7L, 2), store.currentClaim(job.getId()).orElseThrow());
+
+    assertEquals(3, store.incrementRetryAttempt(job.getId(), 7L, 2));
+    assertEquals(
+        new ClaimState(JobStatus.RUNNING, 7L, 3), store.currentClaim(job.getId()).orElseThrow());
+    assertEquals(-1, store.incrementRetryAttempt(job.getId(), 7L, 2));
+    assertEquals(
+        new ClaimState(JobStatus.RUNNING, 7L, 3), store.currentClaim(job.getId()).orElseThrow());
+  }
 
   @Test
   void completionRejectsAttemptCountChangedUnderSameClaim() {

@@ -1907,16 +1907,23 @@ public class JobTask implements Callable<Void> {
           if (charged != baseline + 1) {
             state.chargeMissed = true;
             Optional<ClaimState> current = store.currentClaim(snapshot.getId());
-            Optional<JobEntity> latest = store.findByIdLatest(snapshot.getId());
-            if (latest.isEmpty()) {
-              if (control != null) control.markSuperseded();
-              return;
-            }
             if (current.isPresent()
                 && current.get().status() == JobStatus.RUNNING
                 && current.get().claimSeq() == claimSeq
-                && latest.get().getAttempts() == baseline + 1) {
+                && current.get().attempts() == baseline + 1) {
+              if (control != null && control.isRevoked()) {
+                log.infof(
+                    "Job %s failure transition dropped after attempt revocation", snapshot.getId());
+                return;
+              }
               charged = baseline + 1;
+            } else if (current.isPresent()
+                && current.get().status() == JobStatus.RUNNING
+                && current.get().claimSeq() == claimSeq
+                && current.get().attempts() == baseline) {
+              state.chargeMissed = false;
+              throw new RatchetTransientStoreException(
+                  "Job " + snapshot.getId() + " retry charge is not visible yet");
             } else if (store.wasCanceledUnderClaim(snapshot.getId(), claimSeq)) {
               cancel.run();
               return;

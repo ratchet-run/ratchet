@@ -651,22 +651,98 @@ class JobTaskTest {
 
   @Test
   void committedChargeIsReusedAcrossRescheduleRetries() throws Exception {
-    var scenario = retryTransitionScenario();
+    retryTransitionScenario();
     recordOutcomeRetries();
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
         .thenThrow(new RatchetTransientStoreException("committed charge"))
         .thenReturn(-1);
     when(jobStore.currentClaim(JOB_UUID))
-        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7L)));
-    when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(scenario.job()));
+        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7L, 3)));
     when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L)))
         .thenThrow(new RatchetTransientStoreException("reschedule"))
         .thenReturn(true);
     jobTask.call();
     runOutcomeRetry();
     verify(jobStore, times(2)).incrementRetryAttempt(JOB_UUID, 7L, 2);
+    verify(jobStore, never()).findByIdLatest(JOB_UUID);
     assertRetryLanded();
     assertNoForcedFailure();
+  }
+
+  @Test
+  void invisibleChargeRepeatsFencedIncrementBeforeDeciding() throws Exception {
+    retryTransitionScenario();
+    recordOutcomeRetries();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new RatchetTransientStoreException("charge acknowledgement lost"))
+        .thenReturn(-1, 3);
+    when(jobStore.currentClaim(JOB_UUID))
+        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7L, 2)));
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L))).thenReturn(true);
+
+    jobTask.call();
+    verify(retryPolicy, never()).shouldRetry(anyInt(), any());
+    verify(retryPolicy, never()).getDelay(anyInt());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    Assertions.assertEquals(1, outcomePending.size());
+    runOutcomeRetryOffWorker();
+
+    verify(jobStore, times(3)).incrementRetryAttempt(JOB_UUID, 7L, 2);
+    verify(jobStore).currentClaim(JOB_UUID);
+    verify(jobStore, never()).findByIdLatest(JOB_UUID);
+    verify(retryPolicy).shouldRetry(3, RETRY_BODY_FAILURE);
+    assertRetryLanded();
+    assertNoForcedFailure();
+    Assertions.assertTrue(outcomePending.isEmpty());
+  }
+
+  @Test
+  void revokedDuringCommittedChargeReadDropsTheTransition() throws Exception {
+    var scenario = failureTransitionScenario();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new RatchetTransientStoreException("charge"))
+        .thenReturn(-1);
+    when(jobStore.currentClaim(JOB_UUID))
+        .thenAnswer(
+            invocation -> {
+              scenario.attempt().revoke();
+              return Optional.of(new ClaimState(JobStatus.RUNNING, 7L, 3));
+            });
+
+    jobTask.call();
+
+    Assertions.assertTrue(scenario.attempt().isRevoked());
+    verify(retryPolicy, never()).shouldRetry(anyInt(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(jobStore, never()).findByIdLatest(JOB_UUID);
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    assertNoForcedFailure();
+  }
+
+  @Test
+  void emptyClaimWithoutExactCancelRejectsAndReleasesLateHold() throws Exception {
+    var scenario = failureTransitionScenario();
+    recordOutcomeRetries();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new RatchetTransientStoreException("worker charge"))
+        .thenThrow(new RatchetTransientStoreException("inline charge"))
+        .thenReturn(-1);
+    when(jobStore.currentClaim(JOB_UUID)).thenReturn(Optional.empty());
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
+
+    jobTask.call();
+    verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
+    runOutcomeRetryOffWorker();
+
+    Assertions.assertTrue(scenario.attempt().isSuperseded());
+    verify(jobStore).wasCanceledUnderClaim(JOB_UUID, 7L);
+    verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
+    verify(retryPolicy, never()).shouldRetry(anyInt(), any());
+    verify(jobStore, never()).findByIdLatest(JOB_UUID);
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    assertNoForcedFailure();
+    Assertions.assertTrue(outcomePending.isEmpty());
   }
 
   @Test
@@ -679,8 +755,7 @@ class JobTaskTest {
         .thenThrow(new RatchetTransientStoreException("inline charge"))
         .thenReturn(-1);
     when(jobStore.currentClaim(JOB_UUID))
-        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 8L)));
-    when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(scenario.job()));
+        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 8L, 3)));
     jobTask.call();
     verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
     runOutcomeRetryOffWorker();
@@ -689,6 +764,7 @@ class JobTaskTest {
     Assertions.assertTrue(scenario.attempt().isSuperseded());
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
     verify(observabilityFacade, never()).publishEvent(any(JobRetryingEvent.class));
+    verify(retryPolicy, never()).shouldRetry(anyInt(), any());
     assertNoForcedFailure();
   }
 
@@ -702,7 +778,6 @@ class JobTaskTest {
         .thenThrow(new RatchetTransientStoreException("inline charge"))
         .thenReturn(-1);
     when(jobStore.currentClaim(JOB_UUID)).thenReturn(Optional.empty());
-    when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(scenario.job()));
 
     jobTask.call();
     race.cancel();
@@ -1164,8 +1239,7 @@ class JobTaskTest {
     if (transientRead) {
       when(jobStore.currentClaim(JOB_UUID))
           .thenThrow(new RatchetTransientStoreException("claim lookup"))
-          .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 8L)));
-      when(jobStore.findByIdLatest(JOB_UUID)).thenReturn(Optional.of(scenario.job()));
+          .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 8L, 3)));
     } else {
       when(jobStore.currentClaim(JOB_UUID)).thenThrow(new IllegalStateException("claim lookup"));
     }
@@ -3123,7 +3197,7 @@ class JobTaskTest {
     jobTask.attach(attempt);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(jobStore.currentClaim(JOB_UUID))
-        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7)));
+        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7, job.getAttempts())));
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(
