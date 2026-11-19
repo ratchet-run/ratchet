@@ -705,5 +705,7 @@ Null delay throws `NullPointerException`; negative delay throws `IllegalArgument
 retries. At the limit the job fails without another retry attempt, then Ratchet makes a
 best-effort reset so manual retry gets a fresh budget. The count is an upper bound:
 a crash, lost race or failed transition can spend a continuation that never runs. A crash
-before reset can leave the old count, so manual retry may fail early. Counter or transition
-store failures use normal failure handling and spend a retry attempt.
+before reset can leave the old count, so manual retry may fail early. Transient store failures
+of the counter increment and the claim release are retried without spending an attempt. The
+counter records the claim that wrote it, so retrying a write whose result was lost does not
+count twice.

@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -1802,88 +1803,162 @@ public class JobTask implements Callable<Void> {
       return;
     }
     JobStateStore store = jobStore.capability(JobStateStore.class).orElseThrow();
-    long count;
-    for (int writeAttempt = 1; ; writeAttempt++) {
-      var state = store.getState(job.getId(), CONTINUATION_NAMESPACE);
-      count = 0;
-      if (state.isPresent()) {
+    long nextCount;
+    int conflicts = 0;
+    int transientFailures = 0;
+    boolean terminalRetry = false;
+    boolean interrupted = Thread.interrupted();
+    recordInterrupt(interrupted);
+    long delayMs = terminalRetryBaseDelayMs;
+    try {
+      while (true) {
+        boolean counterStoreCall = false;
         try {
-          Map<?, ?> decoded = payloadSerializer.deserialize(state.get().json(), Map.class);
-          Object value = decoded == null ? null : decoded.get("count");
-          if (!(value instanceof Number number)) {
-            throw new IllegalArgumentException("Counter is not a number");
-          }
-          count =
-              number instanceof BigInteger integer
-                  ? integer.longValueExact()
-                  : number instanceof BigDecimal decimal
-                      ? decimal.longValueExact()
-                      : new BigDecimal(number.toString()).longValueExact();
-          if (count < 0) {
-            throw new IllegalArgumentException("Counter is negative");
-          }
-        } catch (RuntimeException malformed) {
-          log.warnf("Job %s has a malformed continuation counter; treating it as 0", job.getId());
-          count = 0;
-        }
-      }
-      if (count >= maxContinuations) {
-        IllegalStateException failure =
-            new IllegalStateException(
-                "Continuation limit "
-                    + maxContinuations
-                    + " reached (ratchet.execution.max-continuations)");
-        String sanitized = sanitizeError(failure);
-        int failedAttempt = job.getAttempts() + 1;
-        boolean failed = handleNonRetryableFailure(failure, job.getAttempts(), sanitized);
-        // A cancel that won the failure write counts as a cancellation only.
-        if (!cancelHandled) {
-          observabilityFacade.recordJobFailure(job, failure, failedAttempt);
-          currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
-        }
-        if (failed) {
-          try {
-            if (!store.updateState(
-                job.getId(),
-                CONTINUATION_NAMESPACE,
-                continuationJson(0),
-                state.orElseThrow().version())) {
-              log.warnf("Job %s continuation counter reset lost a version race", job.getId());
+          recordInterrupt(Thread.interrupted());
+          counterStoreCall = true;
+          var state = store.getState(job.getId(), CONTINUATION_NAMESPACE);
+          counterStoreCall = false;
+          long count = 0;
+          Long claimSeq = null;
+          if (state.isPresent()) {
+            try {
+              Map<?, ?> decoded = payloadSerializer.deserialize(state.get().json(), Map.class);
+              claimSeq = continuationClaimSeq(decoded);
+              Object value = decoded == null ? null : decoded.get("count");
+              if (!(value instanceof Number number)) {
+                throw new IllegalArgumentException("Counter is not a number");
+              }
+              count =
+                  number instanceof BigInteger integer
+                      ? integer.longValueExact()
+                      : number instanceof BigDecimal decimal
+                          ? decimal.longValueExact()
+                          : new BigDecimal(number.toString()).longValueExact();
+              if (count < 0) {
+                throw new IllegalArgumentException("Counter is negative");
+              }
+            } catch (RuntimeException malformed) {
+              log.warnf(
+                  "Job %s has a malformed continuation counter; treating it as 0", job.getId());
+              count = 0;
+              // A malformed count was not written by this code, so its stamp proves nothing.
+              claimSeq = null;
             }
-          } catch (RuntimeException resetFailure) {
-            log.warnf(resetFailure, "Job %s could not reset continuation counter", job.getId());
           }
+          if (claimSeq != null && claimSeq.equals(expectedClaimSeq())) {
+            nextCount = count;
+            break;
+          }
+          if (count >= maxContinuations) {
+            IllegalStateException failure =
+                new IllegalStateException(
+                    "Continuation limit "
+                        + maxContinuations
+                        + " reached (ratchet.execution.max-continuations)");
+            String sanitized = sanitizeError(failure);
+            int failedAttempt = job.getAttempts() + 1;
+            boolean failed = handleNonRetryableFailure(failure, job.getAttempts(), sanitized);
+            // A cancel that won the failure write counts as a cancellation only.
+            if (!cancelHandled) {
+              observabilityFacade.recordJobFailure(job, failure, failedAttempt);
+              currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
+            }
+            if (failed) {
+              try {
+                recordInterrupt(Thread.interrupted());
+                if (!store.updateState(
+                    job.getId(),
+                    CONTINUATION_NAMESPACE,
+                    continuationJson(0),
+                    state.orElseThrow().version())) {
+                  log.warnf("Job %s continuation counter reset lost a version race", job.getId());
+                }
+              } catch (RuntimeException resetFailure) {
+                log.warnf(resetFailure, "Job %s could not reset continuation counter", job.getId());
+              }
+            }
+            return;
+          }
+          String json = continuationJson(count + 1, expectedClaimSeq());
+          recordInterrupt(Thread.interrupted());
+          counterStoreCall = true;
+          StateWriteResult result =
+              state.isEmpty()
+                  ? store.initState(job.getId(), CONTINUATION_NAMESPACE, json, expectedClaimSeq())
+                  : store.updateState(
+                      job.getId(),
+                      CONTINUATION_NAMESPACE,
+                      json,
+                      state.get().version(),
+                      expectedClaimSeq());
+          counterStoreCall = false;
+          if (result == StateWriteResult.UPDATED) {
+            nextCount = count + 1;
+            break;
+          }
+          if (result == StateWriteResult.SUPERSEDED) {
+            markAttemptSuperseded();
+            if (jobWasCanceled()) {
+              // A cancel committed after the post-body check and superseded the counter write.
+              handleCanceledDuringExecution(start);
+            } else {
+              saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+            }
+            return;
+          }
+          if (++conflicts == 3) {
+            throw new IllegalStateException(
+                "Continuation counter write conflicted on all 3 attempts");
+          }
+        } catch (RuntimeException failure) {
+          if (!counterStoreCall || !JobSuccessFinalizer.isTransientStoreFailure(failure)) {
+            throw failure;
+          }
+          boolean retryInterrupted = Thread.interrupted();
+          interrupted |= retryInterrupted;
+          // attempt is non-null: it was dereferenced at entry, so revocation stops this loop.
+          if (terminalRetryRevoked()) {
+            saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+            return;
+          }
+          if (!terminalRetry && !retryInterrupted && ++transientFailures < TRANSIENT_STORE_TRIES) {
+            try {
+              Thread.sleep(
+                  ThreadLocalRandom.current()
+                      .nextInt(TRANSIENT_BACKOFF_MIN_MS, TRANSIENT_BACKOFF_MAX_MS + 1));
+              if (terminalRetryRevoked()) {
+                saveDeferredExecutionFailure(
+                    null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+                return;
+              }
+              continue;
+            } catch (InterruptedException sleepInterrupted) {
+              interrupted = true;
+              workerInterrupted = true;
+            }
+          }
+          if (!terminalRetry) {
+            terminalRetry = true;
+            log.warnf(
+                "Job %s continuation counter write keeps failing; continuing retries; body will not"
+                    + " rerun",
+                job.getId());
+          }
+          // Shutdown revokes without interrupting a worker past its body. Notice it after
+          // sleep ends, as in the success finalization loop.
+          TerminalRetryWait wait = waitForTerminalRetry(delayMs);
+          interrupted |= wait.interrupted();
+          if (wait.revoked() || terminalRetryRevoked()) {
+            saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+            return;
+          }
+          delayMs = nextTerminalRetryDelay(delayMs);
         }
-        return;
       }
-      String json = continuationJson(count + 1);
-      StateWriteResult result =
-          state.isEmpty()
-              ? store.initState(job.getId(), CONTINUATION_NAMESPACE, json, expectedClaimSeq())
-              : store.updateState(
-                  job.getId(),
-                  CONTINUATION_NAMESPACE,
-                  json,
-                  state.get().version(),
-                  expectedClaimSeq());
-      if (result == StateWriteResult.UPDATED) {
-        break;
-      }
-      if (result == StateWriteResult.SUPERSEDED) {
-        markAttemptSuperseded();
-        if (jobWasCanceled()) {
-          // A cancel committed after the post-body check and superseded the counter write.
-          handleCanceledDuringExecution(start);
-        } else {
-          saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
-        }
-        return;
-      }
-      if (writeAttempt == 3) {
-        throw new IllegalStateException("Continuation counter write conflicted on all 3 attempts");
-      }
+    } finally {
+      recordInterrupt(interrupted);
     }
-    final long next = count + 1;
+    final long next = nextCount;
     Instant scheduled = effective().instant().plus(delay);
     ReleaseOutcome outcome =
         rescheduleWithoutChargingAttempt(
@@ -1945,6 +2020,27 @@ public class JobTask implements Callable<Void> {
 
   private String continuationJson(long count) {
     return payloadSerializer.serialize(Map.of("count", count), ExtensionValidation.MAX_STATE_BYTES);
+  }
+
+  private Long continuationClaimSeq(Map<?, ?> decoded) {
+    try {
+      Object value = decoded == null ? null : decoded.get("claimSeq");
+      if (!(value instanceof Number number)) return null;
+      return number instanceof BigInteger integer
+          ? integer.longValueExact()
+          : number instanceof BigDecimal decimal
+              ? decimal.longValueExact()
+              : new BigDecimal(number.toString()).longValueExact();
+    } catch (RuntimeException malformed) {
+      return null;
+    }
+  }
+
+  private String continuationJson(long count, long claimSeq) {
+    Map<String, Long> counter = new LinkedHashMap<>();
+    counter.put("count", count);
+    counter.put("claimSeq", claimSeq);
+    return payloadSerializer.serialize(counter, ExtensionValidation.MAX_STATE_BYTES);
   }
 
   private static final JobCheckpoints TRANSACTIONAL_CHECKPOINTS =
