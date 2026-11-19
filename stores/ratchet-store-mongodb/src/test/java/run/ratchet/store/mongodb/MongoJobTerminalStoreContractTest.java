@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -34,7 +36,12 @@ class MongoJobTerminalStoreContractTest extends AbstractJobTerminalStoreContract
   @Test
   void completionCancelOfRunningDependencyRecordsItsClaim() {
     JobEntity parent = runningClaim();
-    JobEntity dependent = runningClaim();
+    JobEntity first = runningClaim();
+    // A second claim gives the dependent a claim sequence the parent does not share.
+    assertTrue(store().resetRunningJob(first.getId(), "mongo-attribution", first.getClaimSeq()));
+    assertTrue(store().tryPickUpJob(first.getId(), "mongo-attribution"));
+    JobEntity dependent = store().findById(first.getId()).orElseThrow();
+    assertNotEquals(parent.getClaimSeq(), dependent.getClaimSeq());
     var change =
         new DependencyTransition(
             dependent.getId(),
@@ -56,6 +63,7 @@ class MongoJobTerminalStoreContractTest extends AbstractJobTerminalStoreContract
                     List.of()))
             .committed());
     assertTrue(store().wasCanceledUnderClaim(dependent.getId(), dependent.getClaimSeq()));
+    assertFalse(store().wasCanceledUnderClaim(dependent.getId(), parent.getClaimSeq()));
   }
 
   private JobEntity runningClaim() {

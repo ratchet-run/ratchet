@@ -4656,6 +4656,29 @@ class JobTaskTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  void call_canceledUnderAnotherClaimBeforeStart_skipsTheBodyAndRecordsNoCancel() throws Exception {
+    // Orphan recovery released this claim and a cancel then ended the PENDING job. The body must
+    // not run, and the cancel is not this attempt's.
+    JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
+    initJobTaskWithDefaultStubs(job);
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.CANCELED);
+    when(jobStore.wasCanceledUnderClaim(JOB_UUID, 7L)).thenReturn(false);
+
+    jobTask.call();
+
+    Assertions.assertTrue(attempt.isSuperseded());
+    verify(resilienceStrategy, never()).isServiceAvailable(anyString());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(observabilityFacade, never()).recordJobCancellation(any());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
   void call_supersededPermit_rejectedRescheduleDoesNotExecuteOrRelease() throws Exception {
     assertSupersededPermit(false);
   }

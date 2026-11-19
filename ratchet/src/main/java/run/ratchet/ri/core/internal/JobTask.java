@@ -514,15 +514,17 @@ public class JobTask implements Callable<Void> {
       try {
         // Gates that defer or stop the job record no execution row, start event, metric or span.
         JobStatus startStatus = jobStore.getJobStatus(jobId);
-        if (startStatus == null) {
-          // A job whose row is gone has nothing left to run. That is not a cancel, so the attempt
-          // records nothing.
-          log.infof("Job %s no longer exists before execution; not running it", jobId);
-          markAttemptSuperseded();
-          return null;
-        }
         if (canceledUnderThisClaim(startStatus)) {
           handleCanceledDuringExecution(effective().instant());
+          return null;
+        }
+        if (startStatus == null || startStatus == JobStatus.CANCELED) {
+          // A job whose row is gone, or whose cancel ended another claim, has nothing left to run.
+          // That is not this attempt's cancel, so the attempt records nothing.
+          log.infof(
+              "Job %s %s before execution; not running it",
+              jobId, startStatus == null ? "no longer exists" : "was canceled under another claim");
+          markAttemptSuperseded();
           return null;
         }
 
