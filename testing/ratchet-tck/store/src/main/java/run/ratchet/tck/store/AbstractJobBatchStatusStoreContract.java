@@ -43,6 +43,13 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   }
 
   @Test
+  void tagCancelHasNoClaimAttribution() {
+    JobEntity job = persist(newPendingJob("cancel-attribution"));
+    assertEquals(1, store().cancelJobsByTag("cancel-attribution"));
+    assertFalse(store().wasCanceledUnderClaim(job.getId(), 1));
+  }
+
+  @Test
   void compareAndSwapStatus_updatesExpectedState() {
     var saved = persist(newPendingJob());
 

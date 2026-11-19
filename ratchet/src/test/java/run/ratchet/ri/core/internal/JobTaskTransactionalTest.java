@@ -67,6 +67,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
@@ -923,20 +924,19 @@ class JobTaskTransactionalTest {
   }
 
   @ParameterizedTest
-  @EnumSource(
-      value = JobStatus.class,
-      names = {"CANCELED", "RUNNING"})
-  void fenceRejectionDistinguishesCancellationAndSupersession(JobStatus status) {
+  @CsvSource({"CANCELED, true", "CANCELED, false", "RUNNING, false"})
+  void fenceRejectionDistinguishesCancellationAndSupersession(JobStatus status, boolean exact) {
     BODY.set(
         () -> {
-          when(store.getJobStatus(job.getId())).thenReturn(status);
+          lenient().when(store.getJobStatus(job.getId())).thenReturn(status);
+          when(store.wasCanceledUnderClaim(job.getId(), 7L)).thenReturn(exact);
           return 42;
         });
     when(lifecycle.completeSuccessInCurrentTransaction(
             eq(job), any(), any(), any(), any(), anyLong(), anyLong(), nullable(Integer.class)))
         .thenThrow(new CompletionRejectedException());
     task.call();
-    if (status == JobStatus.CANCELED) {
+    if (exact) {
       assertEquals(ExecutionStatus.CANCELED, execution.getStatus());
       verify(observer).recordJobCancellation(job);
     } else {
@@ -955,7 +955,8 @@ class JobTaskTransactionalTest {
     BODY.set(
         () -> {
           attempt.requestUserCancel();
-          when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          lenient().when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          when(store.wasCanceledUnderClaim(job.getId(), 7L)).thenReturn(true);
           throw new IllegalStateException("stopped after the cancel request");
         });
     task.call();
@@ -978,7 +979,8 @@ class JobTaskTransactionalTest {
     BODY.set(
         () -> {
           attempt.requestUserCancel();
-          when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          lenient().when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          when(store.wasCanceledUnderClaim(job.getId(), 7L)).thenReturn(true);
           return 42;
         });
     when(lifecycle.completeSuccessInCurrentTransaction(
@@ -1013,7 +1015,9 @@ class JobTaskTransactionalTest {
     BODY.set(
         () -> {
           attempt.markSuperseded();
-          when(store.getJobStatus(job.getId())).thenReturn(status);
+          lenient().when(store.getJobStatus(job.getId())).thenReturn(status);
+          when(store.wasCanceledUnderClaim(job.getId(), 7L))
+              .thenReturn(status == JobStatus.CANCELED);
           return 42;
         });
     // setUp leaves completion accepting this still-intact claim.
@@ -1615,7 +1619,8 @@ class JobTaskTransactionalTest {
     BODY.set(
         () -> {
           attempt.requestUserCancel();
-          when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          lenient().when(store.getJobStatus(job.getId())).thenReturn(JobStatus.CANCELED);
+          when(store.wasCanceledUnderClaim(job.getId(), 7L)).thenReturn(true);
           carrier.markRollbackOnly();
           return 42;
         });
@@ -1670,7 +1675,9 @@ class JobTaskTransactionalTest {
         () -> {
           attempt.markSuperseded();
           carrier.markRollbackOnly();
-          when(store.getJobStatus(job.getId())).thenReturn(status);
+          lenient().when(store.getJobStatus(job.getId())).thenReturn(status);
+          when(store.wasCanceledUnderClaim(job.getId(), 7L))
+              .thenReturn(status == JobStatus.CANCELED);
           return 42;
         });
     // setUp leaves completion accepting this still-intact claim.

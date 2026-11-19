@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     created_at            TIMESTAMP(6) NOT NULL,
     caller_principal      VARCHAR2(255),
     claim_seq NUMBER(19) DEFAULT 0 NOT NULL,
+    canceled_claim_seq NUMBER(19) NULL,
     terminal_status       VARCHAR2(16),
     terminal_error        CLOB,
     total_attempts        NUMBER(10),

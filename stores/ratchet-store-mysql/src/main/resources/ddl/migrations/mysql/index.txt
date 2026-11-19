@@ -17,3 +17,4 @@ V016__partition_sets.sql
 V017__resource_waiter.sql
 V018__job_row_version.sql
 V019__business_key_hold.sql
+V020__canceled_claim_seq.sql

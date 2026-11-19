@@ -89,6 +89,158 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
         events);
   }
 
+  private JobEntity attributionClaim() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "cancel-attribution"));
+    return store().findById(job.getId()).orElseThrow();
+  }
+
+  private void assertExactCancel(JobEntity claim) {
+    assertTrue(store().wasCanceledUnderClaim(claim.getId(), claim.getClaimSeq()));
+    assertFalse(store().wasCanceledUnderClaim(claim.getId(), claim.getClaimSeq() - 1));
+    assertFalse(store().wasCanceledUnderClaim(claim.getId(), claim.getClaimSeq() + 1));
+    assertFalse(store().wasCanceledUnderClaim(claim.getId(), 0));
+    assertFalse(store().wasCanceledUnderClaim(claim.getId(), -1));
+  }
+
+  @Test
+  void runningCancelRecordsOnlyTheClaimItEnded() {
+    JobEntity claim = attributionClaim();
+    assertTrue(store().cancelRunningJob(claim.getId(), null));
+    assertExactCancel(claim);
+  }
+
+  @Test
+  void ordinaryRunningCancelAndSavePreserveAttribution() {
+    JobEntity claim = attributionClaim();
+    assertTrue(store().cancelJob(claim.getId()));
+    assertExactCancel(claim);
+    JobEntity canceled = store().findById(claim.getId()).orElseThrow();
+    canceled.setJobResult("\"saved\"");
+    store().save(canceled);
+    assertExactCancel(claim);
+  }
+
+  @Test
+  void terminalSaveRecordsTheRunningClaim() {
+    JobEntity claim = attributionClaim();
+    claim.setStatus(JobStatus.CANCELED);
+    store().save(claim);
+    assertExactCancel(claim);
+  }
+
+  @Test
+  void casCancelRecordsOnlyRunningClaims() {
+    JobEntity claim = attributionClaim();
+    assertTrue(
+        store().compareAndSwapStatus(claim.getId(), JobStatus.RUNNING, JobStatus.CANCELED, null));
+    assertExactCancel(claim);
+    for (JobStatus status : List.of(JobStatus.PENDING, JobStatus.PAUSED, JobStatus.WAITING)) {
+      JobEntity pending = newPendingJob();
+      pending.setStatus(status);
+      pending = persist(pending);
+      assertTrue(store().compareAndSwapStatus(pending.getId(), status, JobStatus.CANCELED, null));
+      assertFalse(store().wasCanceledUnderClaim(pending.getId(), 1));
+    }
+  }
+
+  @Test
+  void pendingCancelDoesNotAttributeTheOrphanedClaim() {
+    JobEntity claim = attributionClaim();
+    assertTrue(store().resetRunningJob(claim.getId(), "cancel-attribution", claim.getClaimSeq()));
+    assertTrue(store().cancelJob(claim.getId()));
+    assertFalse(store().wasCanceledUnderClaim(claim.getId(), claim.getClaimSeq()));
+  }
+
+  @Test
+  void reclaimedCancelBelongsOnlyToTheNewClaim() {
+    JobEntity first = attributionClaim();
+    long oldClaim = first.getClaimSeq();
+    assertTrue(store().resetRunningJob(first.getId(), "cancel-attribution", oldClaim));
+    assertTrue(store().tryPickUpJob(first.getId(), "cancel-attribution"));
+    JobEntity next = store().findById(first.getId()).orElseThrow();
+    assertTrue(next.getClaimSeq() > oldClaim);
+    assertTrue(store().cancelJob(next.getId()));
+    assertFalse(store().wasCanceledUnderClaim(next.getId(), oldClaim));
+    assertExactCancel(next);
+  }
+
+  @Test
+  void completionCancelRecordsTheClaim() {
+    JobEntity claim = attributionClaim();
+    Instant now = Instant.now();
+    JobCompletionPlan plan =
+        new JobCompletionPlan(
+            claim.getId(),
+            JobStatus.RUNNING,
+            JobStatus.CANCELED,
+            null,
+            null,
+            null,
+            claim.getAttempts(),
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            List.of(),
+            claim.getClaimSeq(),
+            claim.getAttempts(),
+            List.of());
+    assertTrue(store().commitCompletion(plan).committed());
+    assertExactCancel(claim);
+  }
+
+  @Test
+  void completionCancelOfOrphanedDependencyRecordsNoClaim() {
+    JobEntity parent = attributionClaim();
+    JobEntity orphan = attributionClaim();
+    assertTrue(store().resetRunningJob(orphan.getId(), "cancel-attribution", orphan.getClaimSeq()));
+    JobEntity pending = store().findById(orphan.getId()).orElseThrow();
+    var change =
+        new DependencyTransition(
+            pending.getId(),
+            JobStatus.PENDING,
+            pending.getVersion(),
+            pending.getScheduledTime(),
+            JobStatus.CANCELED,
+            pending.getScheduledTime(),
+            pending.getJobType());
+    assertTrue(
+        store()
+            .commitCompletion(
+                completionPlan(
+                    parent,
+                    JobStatus.RUNNING,
+                    JobStatus.SUCCEEDED,
+                    null,
+                    List.of(change),
+                    List.of()))
+            .committed());
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(pending.getId()));
+    assertFalse(store().wasCanceledUnderClaim(pending.getId(), orphan.getClaimSeq()));
+  }
+
+  @Test
+  void missingAndNonCanceledJobsHaveNoCancelAttribution() {
+    assertFalse(store().wasCanceledUnderClaim(UUID.randomUUID(), 1));
+    JobEntity pending = persist(newPendingJob());
+    assertTrue(store().cancelJob(pending.getId()));
+    assertFalse(store().wasCanceledUnderClaim(pending.getId(), 1));
+    for (JobStatus status : List.of(JobStatus.RUNNING, JobStatus.SUCCEEDED, JobStatus.FAILED)) {
+      JobEntity claim = attributionClaim();
+      if (status != JobStatus.RUNNING) {
+        assertTrue(
+            store()
+                .commitCompletion(
+                    completionPlan(claim, JobStatus.RUNNING, status, null, List.of(), List.of()))
+                .committed());
+      }
+      assertFalse(store().wasCanceledUnderClaim(claim.getId(), claim.getClaimSeq()));
+    }
+  }
+
   @Test
   void matchingAttemptCountCommitsCompletion() {
     var job = persist(newPendingJob());

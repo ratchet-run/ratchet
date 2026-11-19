@@ -160,6 +160,7 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     assertEquals(3, batchStore().cancelBatchChildren(parent.getId()));
     for (JobEntity child : List.of(pending, paused, waiting)) {
       assertEquals(JobStatus.CANCELED, store().getJobStatus(child.getId()));
+      assertFalse(store().wasCanceledUnderClaim(child.getId(), 1));
       assertFalse(store().tryPickUpJob(child.getId(), "cascade-worker"));
       assertTrue(store().findBusinessKeyHolder(child.getBusinessKey()).isEmpty());
       var replacement = newPendingJob();

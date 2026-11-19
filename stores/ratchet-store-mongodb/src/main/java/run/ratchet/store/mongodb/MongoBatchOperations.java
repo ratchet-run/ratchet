@@ -26,6 +26,7 @@ import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.mongodb.MongoFieldNames.CANCELED_CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CHILD_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CHILD_EXECUTION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETED_AT;
@@ -194,6 +195,7 @@ final class MongoBatchOperations implements BatchStore {
                                 filter,
                                 combine(
                                     set(STATUS, "CANCELED"),
+                                    set(CANCELED_CLAIM_SEQ, null),
                                     set(PICKED_BY, null),
                                     set(PICKED_AT, null),
                                     set(UPDATED_AT, now),

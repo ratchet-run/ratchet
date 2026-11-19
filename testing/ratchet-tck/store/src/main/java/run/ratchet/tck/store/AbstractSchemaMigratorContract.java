@@ -55,6 +55,33 @@ public abstract class AbstractSchemaMigratorContract {
   protected abstract Connection newJdbcConnection() throws SQLException;
 
   @Test
+  void cancelClaimMigrationIsListedAndIdempotent() throws Exception {
+    resetDatabase();
+    var migrator = newMigrator();
+    var migration =
+        migrator.discoverMigrations().stream()
+            .filter(script -> script.description().equals("canceled claim seq"))
+            .findFirst()
+            .orElseThrow();
+    migrator.migrate();
+    try (Connection connection = newJdbcConnection();
+        var statement = connection.createStatement()) {
+      try (var rows =
+          statement.executeQuery("SELECT canceled_claim_seq FROM scheduler_job WHERE 1 = 0")) {
+        assertEquals(1, rows.getMetaData().getColumnCount());
+      }
+      statement.executeUpdate(
+          "DELETE FROM ratchet_schema_version WHERE version = '" + migration.version() + "'");
+    }
+    assertEquals(
+        List.of(migration.version()),
+        migrator.migrate().applied().stream()
+            .map(SchemaMigrator.MigrationScript::version)
+            .toList());
+    assertEquals(0, migrator.migrate().appliedCount());
+  }
+
+  @Test
   void migratesVirginSchemaThenIsIdempotentOnRerun() throws Exception {
     resetDatabase();
 

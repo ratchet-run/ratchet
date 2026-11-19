@@ -1318,3 +1318,19 @@ idempotency key, cold row, hot row. Bulk child inserts retain their ordinary ins
 `AbstractIdempotencyKeyReservationContract` verifies held-key cleanup, a subsequent committed
 write in the caller's transaction, and concurrent winner commit and rollback outcomes. SQL
 subclasses must delegate the owner-transaction and lock-wait hooks as for the business-key contract.
+
+## Cancel attribution
+
+Each store records which claim a cancel ended. SQL stores use the nullable
+`canceled_claim_seq` column. MongoDB uses a field with the same name.
+A cancel of a RUNNING job records its live claim sequence in the same transaction.
+A cancel of any other status records null. A transition out of CANCELED clears the value.
+Whole-document saves preserve an existing attribution.
+
+`JobCrudStore.wasCanceledUnderClaim(id, claimSeq)` returns true only for a CANCELED job
+whose recorded cancel claim matches the positive sequence supplied. Missing jobs and
+null recorded claims return false. Jobs canceled before this field was added have no
+attribution. Their attempts retain their execution records and any hold expires normally.
+
+`TransactionalCompletionStore.terminalOutcome` returns CANCELED only when the cancel
+ended the supplied claim. Other cancels return SUPERSEDED.

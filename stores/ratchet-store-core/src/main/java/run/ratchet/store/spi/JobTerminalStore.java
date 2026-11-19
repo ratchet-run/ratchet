@@ -53,6 +53,10 @@ public interface JobTerminalStore {
    * same transaction only when the primary transition commits. A notCommitted result or a stale
    * guard rollback leaves no outbox row. The engine sends a non-empty list only to stores that
    * implement that capability.
+   *
+   * <p>A CANCELED transition records the live claim only when the stored status was RUNNING. Other
+   * cancels record no claim. Moving out of CANCELED clears that value. Whole-row saves preserve an
+   * existing cancel attribution. CANCELED completion plans and dependencies follow the same rule.
    */
   JobCompletionResult commitCompletion(JobCompletionPlan plan);
 
@@ -161,6 +165,9 @@ public interface JobTerminalStore {
    * Returns true iff the job transitioned to CANCELED. A batch child advances its parent’s failed
    * counter in the same transaction; a repeated cancellation does not count it again.
    *
+   * <p>The cancel records the RUNNING row's live claim in canceled_claim_seq. A cancel of any other
+   * status records null. Reads and later saves preserve this store-owned value.
+   *
    * @param id job id to cancel
    * @return {@code true} when the job transitioned to CANCELED, {@code false} when the job did not
    *     exist or was already terminal
@@ -182,6 +189,9 @@ public interface JobTerminalStore {
    * JobBulkStore#deleteExpiredBusinessKeyHolds} removes it. No other write removes a hold: {@link
    * JobCrudStore#delete} refuses a held job, {@link JobBulkStore#deleteJobsByIds} skips it,
    * archival leaves it alone, and {@link JobBatchStatusStore#cancelJobsByTag} keeps it.
+   *
+   * <p>The cancel records the RUNNING row's live claim in canceled_claim_seq. A cancel of any other
+   * status records null. Reads and later saves preserve this store-owned value.
    *
    * @param id job to cancel
    * @param keyHeldUntil when the hold expires, or null for no hold

@@ -199,7 +199,6 @@ public final class JobAttemptControl {
   private final @Nullable String nodeId;
   private final AtomicBoolean superseded = new AtomicBoolean();
   private volatile boolean userCancelRequested;
-  private volatile boolean timeoutOutcomeUnknown;
   private final AtomicBoolean revoked = new AtomicBoolean();
   private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
@@ -254,21 +253,6 @@ public final class JobAttemptControl {
 
   public boolean isSuperseded() {
     return superseded.get();
-  }
-
-  /** Records that the watchdog's reschedule may have ended this attempt. */
-  public void markTimeoutOutcomeUnknown() {
-    timeoutOutcomeUnknown = true;
-  }
-
-  /** Clears uncertainty when the watchdog's reschedule was explicitly rejected. */
-  public void clearTimeoutOutcomeUnknown() {
-    timeoutOutcomeUnknown = false;
-  }
-
-  /** Whether a later canceled row may belong to the job the watchdog rescheduled. */
-  public boolean timeoutOutcomeUnknown() {
-    return timeoutOutcomeUnknown;
   }
 
   /**

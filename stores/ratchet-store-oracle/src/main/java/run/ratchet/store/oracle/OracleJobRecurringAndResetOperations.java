@@ -142,7 +142,7 @@ final class OracleJobRecurringAndResetOperations {
       String coldSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = 'CANCELED',
+          SET row_version = row_version + 1, terminal_status = 'CANCELED', canceled_claim_seq = NULL,
               terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
           WHERE job_id IN (%s) AND terminal_status IS NULL
           """

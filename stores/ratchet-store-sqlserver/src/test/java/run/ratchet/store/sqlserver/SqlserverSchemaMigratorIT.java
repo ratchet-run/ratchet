@@ -175,7 +175,7 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
     }
     var migrator = new SchemaMigrator(dataSource(), dialect());
     assertEquals(
-        List.of("018"),
+        List.of("018", "019"),
         migrator.migrate().applied().stream()
             .map(SchemaMigrator.MigrationScript::version)
             .toList());
@@ -534,7 +534,11 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
       }
     }
     var migrator = new SchemaMigrator(dataSource(), dialect());
-    assertEquals(1, migrator.migrate().appliedCount());
+    assertEquals(
+        List.of("018", "019"),
+        migrator.migrate().applied().stream()
+            .map(SchemaMigrator.MigrationScript::version)
+            .toList());
     for (int pass = 0; pass < 2; pass++) {
       try (var c = newJdbcConnection();
           var statement = c.createStatement()) {

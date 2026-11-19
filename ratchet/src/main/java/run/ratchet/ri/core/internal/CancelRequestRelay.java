@@ -31,7 +31,12 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.store.spi.JobCrudStore;
 
-/** Relays committed cancellations to attempts running on this node. */
+/**
+ * Relays committed cancellations to attempts running on this node.
+ *
+ * <p>This relay only requests an interrupt. The worker later attributes the cancel with a
+ * claim-fenced read.
+ */
 @ApplicationScoped
 public class CancelRequestRelay {
   static final Duration TICK_INTERVAL = Duration.ofSeconds(5);

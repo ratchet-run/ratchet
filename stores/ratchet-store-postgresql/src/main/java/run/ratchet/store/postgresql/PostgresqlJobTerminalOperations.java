@@ -389,6 +389,7 @@ final class PostgresqlJobTerminalOperations {
           """
           UPDATE scheduler_job c
           SET row_version = row_version + 1, terminal_status = 'CANCELED',
+              canceled_claim_seq = CASE WHEN q.status = 'RUNNING' THEN q.claim_seq ELSE NULL END,
               terminated_at = statement_timestamp(),
               execution_start_time =
                   CASE WHEN q.status = 'RUNNING'
@@ -491,7 +492,7 @@ final class PostgresqlJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -553,7 +554,7 @@ final class PostgresqlJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,

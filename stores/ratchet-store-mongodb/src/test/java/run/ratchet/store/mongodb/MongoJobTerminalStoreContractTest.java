@@ -15,7 +15,13 @@
  */
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractJobTerminalStoreContract;
@@ -24,6 +30,39 @@ import run.ratchet.tck.store.AbstractJobTerminalStoreContract;
 class MongoJobTerminalStoreContractTest extends AbstractJobTerminalStoreContract {
 
   private static final MongoTestFixture fixture = new MongoTestFixture();
+
+  @Test
+  void completionCancelOfRunningDependencyRecordsItsClaim() {
+    JobEntity parent = runningClaim();
+    JobEntity dependent = runningClaim();
+    var change =
+        new DependencyTransition(
+            dependent.getId(),
+            JobStatus.RUNNING,
+            dependent.getVersion(),
+            dependent.getScheduledTime(),
+            JobStatus.CANCELED,
+            dependent.getScheduledTime(),
+            dependent.getJobType());
+    assertTrue(
+        store()
+            .commitCompletion(
+                completionPlan(
+                    parent,
+                    JobStatus.RUNNING,
+                    JobStatus.SUCCEEDED,
+                    null,
+                    List.of(change),
+                    List.of()))
+            .committed());
+    assertTrue(store().wasCanceledUnderClaim(dependent.getId(), dependent.getClaimSeq()));
+  }
+
+  private JobEntity runningClaim() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "mongo-attribution"));
+    return store().findById(job.getId()).orElseThrow();
+  }
 
   @AfterAll
   static void closeFixture() {

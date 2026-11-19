@@ -37,6 +37,9 @@ public interface JobBatchStatusStore {
    * <p>A live status increments the job version ({@link JobEntity#getVersion()}), so a save of an
    * entity read before the update fails its version check.
    *
+   * <p>A CANCELED target records the live claim when the stored status is RUNNING, otherwise null.
+   * Moving out of CANCELED clears that attribution.
+   *
    * @param id job id to update; never {@code null}
    * @param status new status to persist; never {@code null}
    * @param errorMessage error message to record on the row, or {@code null} to leave the column
@@ -49,6 +52,9 @@ public interface JobBatchStatusStore {
    *
    * <p>A swap to a live status increments the job version ({@link JobEntity#getVersion()}), so a
    * save of an entity read before the swap fails its version check.
+   *
+   * <p>A CANCELED target records the live claim when the stored status is RUNNING, otherwise null.
+   * Moving out of CANCELED clears that attribution.
    *
    * @param id job id to transition; never {@code null}
    * @param expected status the row must currently hold for the swap to succeed; never {@code null}

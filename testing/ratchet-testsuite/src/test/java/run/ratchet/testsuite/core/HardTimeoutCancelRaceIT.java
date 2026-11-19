@@ -120,7 +120,7 @@ class HardTimeoutCancelRaceIT extends BaseRatchetIT {
     StoreCallGate.Pause watchdog = StoreCallGate.pauseNext("findById", JobTimeoutHandler.class);
     // The post-body read runs inside handleFailure; the read before the body does not.
     StoreCallGate.Pause worker =
-        StoreCallGate.pauseNext("getJobStatus", JobTask.class, "handleFailure");
+        StoreCallGate.pauseNext("wasCanceledUnderClaim", JobTask.class, "handleFailure");
     JobHandle job = submitTimingOut(key);
 
     awaitWorkerAndWatchdogParked(worker, watchdog, job);

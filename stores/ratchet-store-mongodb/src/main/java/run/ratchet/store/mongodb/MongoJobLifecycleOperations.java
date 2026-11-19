@@ -26,6 +26,7 @@ import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.unset;
 import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
+import static run.ratchet.store.mongodb.MongoFieldNames.CANCELED_CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
@@ -159,6 +160,7 @@ final class MongoJobLifecycleOperations
                           eq(ID, id),
                           combine(
                               set(STATUS, status.name()),
+                              unset(CANCELED_CLAIM_SEQ),
                               set(LAST_ERROR, errorMessage),
                               set(UPDATED_AT, DocumentMapper.toDate(now)),
                               set(TERMINATED_AT, terminalDate(status, now)),
@@ -181,6 +183,16 @@ final class MongoJobLifecycleOperations
               id,
               newStatus,
               session -> {
+                Document current =
+                    newStatus == JobStatus.CANCELED && expected == JobStatus.RUNNING
+                        ? ctx.jobs()
+                            .find(session, and(eq(ID, id), eq(STATUS, expected.name())))
+                            .first()
+                        : null;
+                Long cancelClaim =
+                    current != null && current.get(CLAIM_SEQ) instanceof Number claim
+                        ? claim.longValue()
+                        : null;
                 if ((newStatus == JobStatus.FAILED || newStatus == JobStatus.CANCELED)
                     && expected == JobStatus.RUNNING) {
                   return ctx.jobs()
@@ -189,6 +201,7 @@ final class MongoJobLifecycleOperations
                           and(eq(ID, id), eq(STATUS, expected.name())),
                           combine(
                               set(STATUS, newStatus.name()),
+                              set(CANCELED_CLAIM_SEQ, cancelClaim),
                               set(LAST_ERROR, error),
                               set(EXECUTION_START_TIME, DocumentMapper.toDate(now)),
                               set(EXECUTION_END_TIME, DocumentMapper.toDate(now)),
@@ -205,6 +218,7 @@ final class MongoJobLifecycleOperations
                         and(eq(ID, id), eq(STATUS, expected.name())),
                         combine(
                             set(STATUS, newStatus.name()),
+                            set(CANCELED_CLAIM_SEQ, cancelClaim),
                             set(LAST_ERROR, error),
                             set(UPDATED_AT, DocumentMapper.toDate(now)),
                             set(TERMINATED_AT, terminalDate(newStatus, now)),
@@ -528,13 +542,19 @@ final class MongoJobLifecycleOperations
               JobStatus.CANCELED,
               keyHeldUntil,
               session -> {
+                Document running =
+                    ctx.jobs().find(session, and(eq(ID, id), eq(STATUS, "RUNNING"))).first();
+                // eq on the stored value also matches a document with no claim_seq field.
+                Object storedClaim = running == null ? null : running.get(CLAIM_SEQ);
+                Long runningClaim = storedClaim instanceof Number claim ? claim.longValue() : null;
                 UpdateResult runningResult =
                     ctx.jobs()
                         .updateOne(
                             session,
-                            and(eq(ID, id), eq(STATUS, "RUNNING")),
+                            and(eq(ID, id), eq(STATUS, "RUNNING"), eq(CLAIM_SEQ, storedClaim)),
                             combine(
                                 set(STATUS, "CANCELED"),
+                                set(CANCELED_CLAIM_SEQ, runningClaim),
                                 set(EXECUTION_START_TIME, DocumentMapper.toDate(now)),
                                 set(EXECUTION_END_TIME, DocumentMapper.toDate(now)),
                                 set(EXECUTION_DURATION_MS, 0L),
@@ -555,6 +575,7 @@ final class MongoJobLifecycleOperations
                         and(eq(ID, id), in(STATUS, List.of("PENDING", "PAUSED", "WAITING"))),
                         combine(
                             set(STATUS, "CANCELED"),
+                            set(CANCELED_CLAIM_SEQ, null),
                             set(PICKED_BY, null),
                             set(PICKED_AT, null),
                             set(UPDATED_AT, DocumentMapper.toDate(now)),
@@ -663,6 +684,7 @@ final class MongoJobLifecycleOperations
                               filter,
                               combine(
                                   set(STATUS, "CANCELED"),
+                                  set(CANCELED_CLAIM_SEQ, null),
                                   set(PICKED_BY, null),
                                   set(PICKED_AT, null),
                                   set(UPDATED_AT, DocumentMapper.toDate(now)),

@@ -33,6 +33,7 @@ import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_
 import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.CANCELED_CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
@@ -217,6 +218,8 @@ final class MongoJobCrudOperations {
                       .projection(
                           new Document(CRASH_COUNT, 1)
                               .append(CLAIM_SEQ, 1)
+                              .append(STATUS, 1)
+                              .append(CANCELED_CLAIM_SEQ, 1)
                               .append(SCHEDULED_TIME, 1)
                               .append(RESOURCE_NAME, 1))
                       .first();
@@ -227,6 +230,19 @@ final class MongoJobCrudOperations {
                   current == null
                       ? 0L
                       : ((Number) current.getOrDefault(CLAIM_SEQ, 0L)).longValue());
+              if (job.getStatus() == JobStatus.CANCELED) {
+                if (current != null && "RUNNING".equals(current.getString(STATUS))) {
+                  doc.put(CANCELED_CLAIM_SEQ, current.get(CLAIM_SEQ));
+                } else {
+                  doc.put(
+                      CANCELED_CLAIM_SEQ,
+                      current != null && "CANCELED".equals(current.getString(STATUS))
+                          ? current.get(CANCELED_CLAIM_SEQ)
+                          : null);
+                }
+              } else {
+                doc.remove(CANCELED_CLAIM_SEQ);
+              }
               UpdateResult result =
                   ctx.jobs()
                       .replaceOne(
@@ -320,6 +336,17 @@ final class MongoJobCrudOperations {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("read current claim", e);
     }
+  }
+
+  boolean wasCanceledUnderClaim(UUID id, long claimSeq) {
+    if (claimSeq <= 0) return false;
+    return ctx.jobs()
+            .withReadPreference(ReadPreference.primary())
+            .withReadConcern(ReadConcern.MAJORITY)
+            .find(and(eq(ID, id), eq(STATUS, "CANCELED"), eq(CANCELED_CLAIM_SEQ, claimSeq)))
+            .projection(new Document(ID, 1))
+            .first()
+        != null;
   }
 
   JobStatus getJobStatus(UUID id) {

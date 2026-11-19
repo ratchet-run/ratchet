@@ -248,7 +248,7 @@ final class OracleJobWriteOperations {
         """
         UPDATE scheduler_job
         SET row_version = row_version + 1,
-            terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
+            canceled_claim_seq = NULL, terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
         WHERE job_id = ?
         """;
     ctx.em()
@@ -595,7 +595,7 @@ final class OracleJobWriteOperations {
         ctx.em()
             .createNativeQuery(
                 """
-                SELECT claim_seq FROM scheduler_job_queue
+                SELECT claim_seq, status FROM scheduler_job_queue
                 WHERE job_id = ? AND version = ?
                 FOR UPDATE
                 """)
@@ -605,7 +605,10 @@ final class OracleJobWriteOperations {
     if (sequences.isEmpty()) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
-    long claimSeq = ((Number) sequences.get(0)).longValue();
+    Object[] hot = (Object[]) sequences.get(0);
+    long claimSeq = ((Number) hot[0]).longValue();
+    Long canceledClaimSeq =
+        incoming.getStatus() == JobStatus.CANCELED && "RUNNING".equals(hot[1]) ? claimSeq : null;
     int deleted =
         ctx.em()
             .createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
@@ -622,6 +625,7 @@ final class OracleJobWriteOperations {
         UPDATE scheduler_job
         SET terminal_status = ?,
             claim_seq = ?,
+            canceled_claim_seq = ?,
             terminal_error = ?,
             terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
         WHERE job_id = ? AND terminal_status IS NULL
@@ -630,8 +634,9 @@ final class OracleJobWriteOperations {
         .createNativeQuery(updateSql)
         .setParameter(1, incoming.getStatus().name())
         .setParameter(2, claimSeq)
-        .setParameter(3, incoming.getLastError())
-        .setParameter(4, UuidRawConverter.toBytes(id))
+        .setParameter(3, canceledClaimSeq)
+        .setParameter(4, incoming.getLastError())
+        .setParameter(5, UuidRawConverter.toBytes(id))
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     // Mirrors the committed value for normal callers. If the surrounding JTA transaction rolls

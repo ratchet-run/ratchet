@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- Terminal fields — NULL while live; set exactly once at terminal transition; only
     -- cleared by resetFailedToPending. Archival / deleteDlqOlderThan use terminated_at.
     claim_seq BIGINT NOT NULL DEFAULT 0,
+    canceled_claim_seq BIGINT NULL,
     terminal_status       ENUM ('SUCCEEDED','FAILED','CANCELED')                                                                              NULL,
     terminal_error        MEDIUMTEXT                                                                                                          NULL,
     total_attempts        INT                                                                                                                 NULL,

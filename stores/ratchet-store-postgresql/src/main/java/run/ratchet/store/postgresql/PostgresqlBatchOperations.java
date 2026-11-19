@@ -179,7 +179,7 @@ final class PostgresqlBatchOperations implements BatchStore {
       if (operation.equals("cancel")) {
         sql =
             """
-            UPDATE scheduler_job SET row_version = row_version + 1, terminal_status = 'CANCELED', terminated_at = statement_timestamp()
+            UPDATE scheduler_job SET row_version = row_version + 1, terminal_status = 'CANCELED', canceled_claim_seq = NULL, terminated_at = statement_timestamp()
             WHERE terminal_status IS NULL AND job_id IN (%s)
             """
                 .formatted(placeholders);
