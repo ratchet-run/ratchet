@@ -1028,7 +1028,26 @@ public class JobTask implements Callable<Void> {
       String safeError,
       Throwable failure,
       @Nullable Runnable afterCommitted) {
+    ForcedFailureState state = new ForcedFailureState();
+    Runnable finishMiss =
+        () -> {
+          try {
+            if (control != null && store.wasCanceledUnderClaim(copy.getId(), control.claimSeq())) {
+              control.finishCancelFoundByTimeout();
+            }
+          } catch (RuntimeException cancelError) {
+            if (JobSuccessFinalizer.isTransientStoreFailure(cancelError)) throw cancelError;
+            log.errorf(
+                cancelError,
+                "Job %s could not finish cancellation after a missed forced write",
+                copy.getId());
+          }
+        };
     return () -> {
+      if (state.missed) {
+        finishMiss.run();
+        return;
+      }
       if (expected == null) {
         Optional<JobEntity> latest = store.findByIdLatest(copy.getId());
         if (latest.isEmpty()) {
@@ -1067,23 +1086,19 @@ public class JobTask implements Callable<Void> {
           }
         }
       } else {
+        state.missed = true;
         try {
           if (control != null) control.markSuperseded();
         } catch (Throwable supersedeError) {
           log.errorf(supersedeError, "Job %s could not mark its attempt superseded", copy.getId());
         }
-        try {
-          if (control != null && store.wasCanceledUnderClaim(copy.getId(), control.claimSeq())) {
-            control.finishCancelFoundByTimeout();
-          }
-        } catch (Throwable cancelError) {
-          log.errorf(
-              cancelError,
-              "Job %s could not finish cancellation after a missed forced write",
-              copy.getId());
-        }
+        finishMiss.run();
       }
     };
+  }
+
+  private static final class ForcedFailureState {
+    private boolean missed;
   }
 
   private boolean forceFailure(String safeError) {
@@ -1770,7 +1785,9 @@ public class JobTask implements Callable<Void> {
       } catch (RuntimeException failure) {
         if (!JobSuccessFinalizer.isTransientStoreFailure(failure) || outcomeRetries == null)
           throw failure;
-        deferRetryTransition(ex, sanitized, new FailureRetryState(attempt));
+        FailureRetryState state = new FailureRetryState(attempt);
+        state.accepted = true;
+        deferRetryTransition(ex, sanitized, state);
         return;
       }
     }
@@ -1791,6 +1808,10 @@ public class JobTask implements Callable<Void> {
     private Integer chargedAttempt;
     private Instant scheduled;
     private Runnable forcedFailure;
+    private boolean accepted;
+    private boolean chargeMissed;
+    private boolean rescheduleMissed;
+    private volatile boolean confirmedFailure;
 
     private FailureRetryState(Integer chargedAttempt) {
       this.chargedAttempt = chargedAttempt;
@@ -1806,8 +1827,13 @@ public class JobTask implements Callable<Void> {
     retryTransitionPending = true;
     saveDeferredExecutionFailure(failure.getClass().getName(), sanitized);
     Runnable finisher = retryTransitionFinisher(failure, sanitized, failureInstant, state);
-    currentScope.failure(failure.getClass().getName(), sanitized, claimAttempts + 1);
     outcomeRetries.run("failure transition for job " + job.getId(), finisher);
+    // A pending transition leaves the span without an outcome because a later try may end in a
+    // cancel.
+    if (state.confirmedFailure) {
+      int failedAttempt = state.chargedAttempt != null ? state.chargedAttempt : claimAttempts + 1;
+      currentScope.failure(failure.getClass().getName(), sanitized, failedAttempt);
+    }
   }
 
   private Runnable retryTransitionFinisher(
@@ -1849,6 +1875,15 @@ public class JobTask implements Callable<Void> {
             control.markSuperseded();
           }
         };
+    Runnable finishRescheduleMiss =
+        () -> {
+          if (store.wasCanceledUnderClaim(snapshot.getId(), claimSeq)) cancel.run();
+          else {
+            rejected.run();
+            state.confirmedFailure = true;
+            observer.recordJobFailure(snapshot, failure, state.chargedAttempt);
+          }
+        };
     return () -> {
       if (control != null && control.isRevoked()) {
         log.infof("Job %s failure transition dropped after attempt revocation", snapshot.getId());
@@ -1860,9 +1895,17 @@ public class JobTask implements Callable<Void> {
         return;
       }
       try {
+        if (state.rescheduleMissed) {
+          finishRescheduleMiss.run();
+          return;
+        }
         if (state.chargedAttempt == null) {
-          int charged = store.incrementRetryAttempt(snapshot.getId(), claimSeq, baseline);
+          int charged =
+              state.chargeMissed
+                  ? -1
+                  : store.incrementRetryAttempt(snapshot.getId(), claimSeq, baseline);
           if (charged != baseline + 1) {
+            state.chargeMissed = true;
             Optional<ClaimState> current = store.currentClaim(snapshot.getId());
             Optional<JobEntity> latest = store.findByIdLatest(snapshot.getId());
             if (latest.isEmpty()) {
@@ -1883,12 +1926,14 @@ public class JobTask implements Callable<Void> {
             }
           }
           state.chargedAttempt = charged;
+          state.chargeMissed = false;
           snapshot.setAttempts(charged);
         }
         int charged = state.chargedAttempt;
         snapshot.setAttempts(charged);
         if (state.scheduled == null) {
-          boolean retry = charged <= maxRetries && policy.shouldRetry(charged, failure);
+          boolean retry =
+              state.accepted || (charged <= maxRetries && policy.shouldRetry(charged, failure));
           if (!retry) {
             state.forcedFailure =
                 forcedFailureFinisher(
@@ -1900,7 +1945,10 @@ public class JobTask implements Callable<Void> {
                     callbacks,
                     sanitized,
                     failure,
-                    () -> observer.recordJobFailure(snapshot, failure, charged));
+                    () -> {
+                      state.confirmedFailure = true;
+                      observer.recordJobFailure(snapshot, failure, charged);
+                    });
           } else {
             Duration delay =
                 Objects.requireNonNull(
@@ -1929,11 +1977,15 @@ public class JobTask implements Callable<Void> {
                     callbacks,
                     sanitized,
                     failure,
-                    () -> observer.recordJobFailure(snapshot, failure, charged));
+                    () -> {
+                      state.confirmedFailure = true;
+                      observer.recordJobFailure(snapshot, failure, charged);
+                    });
           } else {
             if (store.scheduleJobRetry(
                 snapshot.getId(), sanitized, state.scheduled, charged, claimSeq)) {
               outcomeWritten = true;
+              state.confirmedFailure = true;
               snapshot.setStatus(JobStatus.PENDING);
               snapshot.setScheduledTime(state.scheduled);
               snapshot.setLastError(sanitized);
@@ -1950,10 +2002,31 @@ public class JobTask implements Callable<Void> {
                         sanitized,
                         charged,
                         state.scheduled));
+              } catch (RuntimeException notificationFailure) {
+                log.warnf(
+                    notificationFailure,
+                    "Job %s retry landed but event publication failed",
+                    snapshot.getId());
+              }
+              try {
                 long remaining =
                     Math.max(0, Duration.between(retryClock.instant(), state.scheduled).toMillis());
                 if (remaining > 0) observer.scheduleDelayedJobReadyCallback(remaining);
+              } catch (RuntimeException notificationFailure) {
+                log.warnf(
+                    notificationFailure,
+                    "Job %s retry landed but wake-up scheduling failed",
+                    snapshot.getId());
+              }
+              try {
                 observer.recordJobFailure(snapshot, failure, charged);
+              } catch (RuntimeException notificationFailure) {
+                log.warnf(
+                    notificationFailure,
+                    "Job %s retry landed but failure metric failed",
+                    snapshot.getId());
+              }
+              try {
                 log.infof(
                     "Job %s retrying at %s (attempt %s/%s) due to: %s: %s",
                     snapshot.getId(),
@@ -1965,21 +2038,26 @@ public class JobTask implements Callable<Void> {
               } catch (RuntimeException notificationFailure) {
                 log.warnf(
                     notificationFailure,
-                    "Job %s retry landed but notification failed",
+                    "Job %s retry landed but retry logging failed",
                     snapshot.getId());
               }
             } else {
-              if (store.wasCanceledUnderClaim(snapshot.getId(), claimSeq)) cancel.run();
-              else {
-                rejected.run();
-                observer.recordJobFailure(snapshot, failure, charged);
-              }
+              state.rescheduleMissed = true;
+              finishRescheduleMiss.run();
             }
             return;
           }
         }
       } catch (RuntimeException transitionFailure) {
         if (JobSuccessFinalizer.isTransientStoreFailure(transitionFailure)) throw transitionFailure;
+        if (state.chargeMissed || state.rescheduleMissed) {
+          if (control != null) control.markSuperseded();
+          log.errorf(
+              transitionFailure,
+              "Job %s could not classify a missed failure transition",
+              snapshot.getId());
+          return;
+        }
         log.errorf(
             transitionFailure,
             "Job %s retry transition failed, forcing FAILED status",
@@ -1995,7 +2073,10 @@ public class JobTask implements Callable<Void> {
                 callbacks,
                 sanitized,
                 failure,
-                () -> observer.recordJobFailure(snapshot, failure, failedAttempt));
+                () -> {
+                  state.confirmedFailure = true;
+                  observer.recordJobFailure(snapshot, failure, failedAttempt);
+                });
       }
       state.forcedFailure.run();
     };
