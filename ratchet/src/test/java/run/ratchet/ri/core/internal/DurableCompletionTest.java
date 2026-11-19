@@ -27,9 +27,11 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
@@ -38,6 +40,7 @@ import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -94,7 +97,7 @@ class DurableCompletionTest {
   DurableCompletionTest() {
     publisher.addListener(published::add);
     when(workflow.planCompletion(any(), anyBoolean())).thenReturn(WorkflowCompletionPlan.empty());
-    when(store.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
+    when(store.commitCompletion(any())).thenReturn(JobCompletionResult.joined(null));
     when(registrar.registerAfterCommit(any()))
         .thenReturn(AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION);
     durable.start(executor);
@@ -217,9 +220,43 @@ class DurableCompletionTest {
     verifyNoInteractions(executor);
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void durableTerminalPublicationSurvivesLateCompletionTransactionFailure(boolean success) {
+    when(store.commitCompletion(any())).thenReturn(JobCompletionResult.durable(null));
+    BatchCompletionTransaction boundary = mock(BatchCompletionTransaction.class);
+    when(boundary.complete(any()))
+        .thenAnswer(
+            invocation -> {
+              Supplier<?> work = invocation.getArgument(0);
+              assertEquals(true, work.get());
+              assertTrue(published.isEmpty());
+              throw new IllegalStateException(
+                  "completion transaction failed after the store committed");
+            });
+    PostExecutionHandler independent =
+        new PostExecutionHandler(
+            mock(BatchService.class),
+            workflow,
+            dlq,
+            mock(PollerScheduler.class),
+            store,
+            registrar,
+            boundary,
+            durable);
+
+    if (success) assertTrue(independent.completeSuccess(job(), null, null, now, now, 1, 0, null));
+    else assertTrue(independent.completeFailure(job(), JobStatus.RUNNING, false, null));
+
+    assertEquals(success ? 1 : 2, published.size());
+    assertEquals(success ? 1 : 2, plan().outboxEvents().size());
+    verify(boundary).complete(any());
+    verify(workflow).publishCompletion(any());
+  }
+
   @Test
   void losingCompletionNeverPublishesOrEnqueues() {
-    when(store.commitCompletion(any())).thenReturn(new JobCompletionResult(false, null));
+    when(store.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
     assertFalse(handler.completeSuccess(job(), null, null, now, now, 1, 0, null));
     assertTrue(published.isEmpty());
     verifyNoInteractions(executor, registrar);

@@ -34,6 +34,20 @@ class MongoJobTerminalStoreContractTest extends AbstractJobTerminalStoreContract
   private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Test
+  void completionIsDurableOnlyWhenItsFencedWriteCommits() {
+    JobEntity job = runningClaim();
+    var plan =
+        completionPlan(job, JobStatus.RUNNING, JobStatus.SUCCEEDED, null, List.of(), List.of());
+    var committed = store().commitCompletion(plan);
+    assertTrue(committed.committed());
+    assertTrue(committed.durable());
+
+    var missed = store().commitCompletion(plan);
+    assertFalse(missed.committed());
+    assertFalse(missed.durable());
+  }
+
+  @Test
   void completionCancelOfRunningDependencyRecordsItsClaim() {
     JobEntity parent = runningClaim();
     JobEntity first = runningClaim();

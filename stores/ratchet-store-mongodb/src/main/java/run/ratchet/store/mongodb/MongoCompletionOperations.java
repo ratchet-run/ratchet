@@ -43,8 +43,12 @@ final class MongoCompletionOperations {
   static JobCompletionResult commit(
       MongoStoreContext ctx, MongoBusinessKeyReservations reservations, JobCompletionPlan plan) {
     try (ClientSession session = ctx.startSession()) {
-      return session.withTransaction(
-          () -> apply(ctx, reservations, session, plan), TRANSACTION_OPTIONS);
+      JobCompletionResult result =
+          session.withTransaction(
+              () -> apply(ctx, reservations, session, plan), TRANSACTION_OPTIONS);
+      return result.committed()
+          ? JobCompletionResult.durable(result.batchProgress())
+          : JobCompletionResult.notCommitted();
     }
   }
 
@@ -183,7 +187,7 @@ final class MongoCompletionOperations {
       }
     }
     for (var event : plan.outboxEvents()) MongoEventOutboxOperations.insert(ctx, session, event);
-    return new JobCompletionResult(true, progress);
+    return JobCompletionResult.joined(progress);
   }
 
   private static void requireCurrent(long changed, String mutation) {

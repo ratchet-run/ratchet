@@ -418,7 +418,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       }
       dependent.setVersion(dependent.getVersion() == null ? 1 : dependent.getVersion() + 1);
     }
-    return new JobCompletionResult(true, null);
+    return JobCompletionResult.joined(null);
   }
 
   @Override

@@ -6496,7 +6496,7 @@ class JobTaskTest {
     assertBatchChildNeverStarts(
         parentId -> {
           when(jobStore.getJobStatus(parentId)).thenReturn(parentStatus);
-          when(jobStore.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
+          when(jobStore.commitCompletion(any())).thenReturn(JobCompletionResult.joined(null));
         },
         true);
   }

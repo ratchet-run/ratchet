@@ -215,7 +215,7 @@ class BatchServiceTest {
         .thenReturn(WorkflowCompletionPlan.empty());
     lenient()
         .when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     batchService =
         new BatchService(
             batchStore,
@@ -622,7 +622,7 @@ class BatchServiceTest {
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -693,7 +693,7 @@ class BatchServiceTest {
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -762,7 +762,7 @@ class BatchServiceTest {
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -795,7 +795,7 @@ class BatchServiceTest {
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildFailed(child);
@@ -833,7 +833,7 @@ class BatchServiceTest {
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildFailed(child);
@@ -864,7 +864,7 @@ class BatchServiceTest {
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -943,7 +943,7 @@ class BatchServiceTest {
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new JobCompletionResult(false, null));
+        .thenReturn(JobCompletionResult.notCommitted());
 
     batchService.markChildSucceeded(child);
 
@@ -975,14 +975,14 @@ class BatchServiceTest {
                     plan != null
                         && firstId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
     when(jobTerminalStore.commitCompletion(
             ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && secondId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
 
     assertEquals(2, batchService.recoverStuckBatches());
 
@@ -1019,7 +1019,7 @@ class BatchServiceTest {
                     plan != null
                         && succeedingId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new JobCompletionResult(true, null));
+        .thenReturn(JobCompletionResult.joined(null));
 
     assertEquals(1, batchService.recoverStuckBatches());
 
