@@ -2922,17 +2922,29 @@ public class JobTask implements Callable<Void> {
     // Consult RetryPolicy for delay; fall back to job-level backoff configuration. The SPI
     // contract requires a non-null Duration; enforce at the boundary so a misbehaving
     // implementation produces a meaningful error instead of an uninformative NPE deeper in.
-    Duration policyDelay =
-        Objects.requireNonNull(
-            retryPolicy.getDelay(attempt),
-            "RetryPolicy.getDelay must not return null (attempt=" + attempt + ")");
-    long backoff =
-        policyDelay.isZero()
-            ? BackoffPolicyHandler.computeDelay(
-                job.getBackoffPolicy(), job.getBackoffParamMs(), attempt)
-            : policyDelay.toMillis();
-    Instant timestamp = effective().instant();
-    Instant newScheduledTime = timestamp.plusMillis(backoff);
+    long backoff;
+    Instant timestamp;
+    Instant newScheduledTime;
+    try {
+      Duration policyDelay =
+          Objects.requireNonNull(
+              retryPolicy.getDelay(attempt),
+              "RetryPolicy.getDelay must not return null (attempt=" + attempt + ")");
+      backoff =
+          policyDelay.isZero()
+              ? BackoffPolicyHandler.computeDelay(
+                  job.getBackoffPolicy(), job.getBackoffParamMs(), attempt)
+              : policyDelay.toMillis();
+      timestamp = effective().instant();
+      newScheduledTime = timestamp.plusMillis(backoff);
+    } catch (RuntimeException failure) {
+      if (!JobSuccessFinalizer.isTransientStoreFailure(failure) || outcomeRetries == null)
+        throw failure;
+      FailureRetryState state = new FailureRetryState(attempt);
+      state.accepted = true;
+      deferRetryTransition(ex, sanitized, state);
+      return;
+    }
 
     boolean scheduled;
     try {

@@ -796,6 +796,47 @@ class JobTaskTest {
   }
 
   @Test
+  void workerDelayFailureDefersAcceptedRetryWithoutAnotherCharge() throws Exception {
+    retryTransitionScenario();
+    when(retryPolicy.getDelay(3))
+        .thenThrow(new RatchetTransientStoreException("worker delay"))
+        .thenReturn(Duration.ofSeconds(10));
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L))).thenReturn(true);
+
+    jobTask.call();
+
+    verify(retryPolicy).shouldRetry(3, RETRY_BODY_FAILURE);
+    verify(retryPolicy, times(2)).getDelay(3);
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L, 2);
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L));
+    assertRetryLanded();
+    verifyNoInteractions(outcomeScheduler);
+    assertNoForcedFailure();
+  }
+
+  @Test
+  void nonTransientWorkerDelayFailureStillForcesFailed() throws Exception {
+    retryTransitionScenario();
+    when(retryPolicy.getDelay(3)).thenThrow(new IllegalStateException("worker delay"));
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(3)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade)
+        .completeFailure(
+            argThat(job -> job.getClaimSeq() == 7L && job.getAttempts() == 3),
+            eq(JobStatus.RUNNING),
+            eq(false),
+            eq(3));
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L, 2);
+    verify(retryPolicy).shouldRetry(3, RETRY_BODY_FAILURE);
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    Assertions.assertSame(RETRY_BODY_FAILURE, CallbackRecorder.failure);
+    verifyNoInteractions(outcomeScheduler);
+  }
+
+  @Test
   void deferredChargeKeepsAcceptedRetryAfterTransientDelayFailure() throws Exception {
     failureTransitionScenario();
     recordOutcomeRetries();
