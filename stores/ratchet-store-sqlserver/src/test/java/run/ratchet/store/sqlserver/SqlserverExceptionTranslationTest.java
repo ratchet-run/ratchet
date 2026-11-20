@@ -16,6 +16,7 @@
 package run.ratchet.store.sqlserver;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,6 +25,7 @@ import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.sql.SQLException;
+import java.sql.SQLTransientConnectionException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -38,10 +40,88 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 
 class SqlserverExceptionTranslationTest {
 
   private static final UUID JOB_ID = UUID.fromString("019ae3d1-3f82-7e18-9f09-a9f000000031");
+
+  @Test
+  void stateOperationsTranslateTransientFailures() {
+    RuntimeException failure = new RuntimeException(new SQLTransientConnectionException("lost"));
+    var states = stateOperations(failure, false);
+    assertThrows(
+        RatchetTransientStoreException.class, () -> states.getState(UUID.randomUUID(), "test"));
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> states.updateState(UUID.randomUUID(), "test", "{}", 0, 7L));
+  }
+
+  @Test
+  void stateOperationsPreservePermanentFailure() {
+    RuntimeException failure = new RuntimeException(new SQLException("syntax error", "42000"));
+    var states = stateOperations(failure, false);
+    assertSame(
+        failure,
+        assertThrows(RuntimeException.class, () -> states.getState(UUID.randomUUID(), "test")));
+    assertSame(
+        failure,
+        assertThrows(
+            RuntimeException.class,
+            () -> states.updateState(UUID.randomUUID(), "test", "{}", 0, 7L)));
+  }
+
+  @Test
+  void plainStateInitPreservesDuplicateMessageAndCause() {
+    RuntimeException duplicate = new RuntimeException(new SQLException("duplicate", "23000", 2627));
+    var thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () -> stateOperations(duplicate, true).initState(UUID.randomUUID(), "test", "{}"));
+    assertTrue(thrown.getMessage().startsWith("extension state already initialized"));
+    assertSame(duplicate, thrown.getCause());
+  }
+
+  @Test
+  void fencedStateInitPreservesDuplicateDetection() {
+    RuntimeException duplicate = new RuntimeException(new SQLException("duplicate", "23000", 2627));
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateOperations(duplicate, true).initState(UUID.randomUUID(), "test", "{}", 7L));
+  }
+
+  private SqlserverExtensionOperations stateOperations(
+      RuntimeException failure, boolean duplicate) {
+    EntityManager em =
+        (EntityManager)
+            Proxy.newProxyInstance(
+                EntityManager.class.getClassLoader(),
+                new Class<?>[] {EntityManager.class},
+                (proxy, method, args) -> {
+                  if (!"createNativeQuery".equals(method.getName()))
+                    throw new AssertionError(method.getName());
+                  String sql = (String) args[0];
+                  return Proxy.newProxyInstance(
+                      Query.class.getClassLoader(),
+                      new Class<?>[] {Query.class},
+                      (query, operation, parameters) -> {
+                        switch (operation.getName()) {
+                          case "setParameter":
+                            return query;
+                          case "getResultList":
+                            if (!duplicate && sql.contains("SELECT state, version")) throw failure;
+                            if (sql.contains("SELECT claim_seq, status"))
+                              return List.<Object[]>of(new Object[] {7L, "RUNNING"});
+                            return List.of(0);
+                          case "executeUpdate":
+                            throw failure;
+                          default:
+                            throw new AssertionError(operation.getName());
+                        }
+                      });
+                });
+    return new SqlserverExtensionOperations(new SqlserverStoreContext(em));
+  }
 
   @Test
   void scheduledTimeSaveRejectsConcurrentModificationBeforeColdUpdate() {

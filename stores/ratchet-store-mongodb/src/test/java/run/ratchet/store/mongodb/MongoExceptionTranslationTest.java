@@ -89,8 +89,134 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 
 class MongoExceptionTranslationTest {
+
+  @Test
+  void getStateReadsPrimaryAndTranslatesTransientFailure() {
+    MongoSocketException failure = transientFailure();
+    AtomicReference<Object> preference = new AtomicReference<>();
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                preference.set(args[0]);
+                return proxy;
+              }
+              if ("withReadConcern".equals(method.getName()))
+                throw new AssertionError("Keep default read concern");
+              if ("find".equals(method.getName())) throw failure;
+              return defaultValue(method);
+            });
+    var states = new MongoExtensionOperations(contextWithJobs(collection));
+    assertSame(
+        failure,
+        assertThrows(
+                RatchetTransientStoreException.class,
+                () -> states.getState(UUID.randomUUID(), "test"))
+            .getCause());
+    assertEquals(ReadPreference.primary(), preference.get());
+  }
+
+  @Test
+  void fencedUpdateStateTranslatesTransientFailureOutsideTransaction() {
+    MongoSocketException failure = transientFailure();
+    var states = stateOperationsFailingTransaction(failure);
+    assertSame(
+        failure,
+        assertThrows(
+                RatchetTransientStoreException.class,
+                () -> states.updateState(UUID.randomUUID(), "test", "{}", 0, 7L))
+            .getCause());
+  }
+
+  @Test
+  void plainStateInitPreservesDuplicateMessageAndCause() {
+    MongoException duplicate = duplicateKey();
+    var states = stateOperationsFailingInsert(duplicate);
+    var thrown =
+        assertThrows(
+            IllegalStateException.class, () -> states.initState(UUID.randomUUID(), "test", "{}"));
+    assertTrue(thrown.getMessage().startsWith("extension state already initialized"));
+    assertSame(duplicate, thrown.getCause());
+  }
+
+  @Test
+  void plainStateInitWrapsPermanentMongoFailureOnce() {
+    MongoException failure = new MongoException(13, "unauthorized");
+    var states = stateOperationsFailingInsert(failure);
+    var thrown =
+        assertThrows(
+            IllegalStateException.class, () -> states.initState(UUID.randomUUID(), "test", "{}"));
+    assertEquals("MongoDB store failure during init job state", thrown.getMessage());
+    assertSame(failure, thrown.getCause());
+  }
+
+  private static MongoWriteException duplicateKey() {
+    return new MongoWriteException(
+        new WriteError(11000, "E11000 duplicate key error", new BsonDocument()),
+        new ServerAddress());
+  }
+
+  private static MongoExtensionOperations stateOperationsFailingInsert(MongoException failure) {
+    FindIterable<Document> jobs =
+        proxy(
+            FindIterable.class,
+            (proxy, method, args) -> {
+              if ("projection".equals(method.getName())) return proxy;
+              if ("first".equals(method.getName())) return new Document("encrypted_payload", false);
+              return defaultValue(method);
+            });
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) return jobs;
+              if ("insertOne".equals(method.getName())) throw failure;
+              return defaultValue(method);
+            });
+    return new MongoExtensionOperations(contextWithJobs(collection));
+  }
+
+  @Test
+  void fencedInitStatePreservesDuplicateDetection() {
+    var states = stateOperationsFailingTransaction(duplicateKey());
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT, states.initState(UUID.randomUUID(), "test", "{}", 7L));
+  }
+
+  @Test
+  void stateOperationsTranslatePermanentMongoFailure() {
+    MongoException failure = new MongoException(13, "unauthorized");
+    var states = stateOperationsFailingTransaction(failure);
+    var thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () -> states.updateState(UUID.randomUUID(), "test", "{}", 0, 7L));
+    assertTrue(thrown.getMessage().contains("MongoDB store failure during update job state"));
+    MongoCollection<Document> collection =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) return proxy;
+              if ("find".equals(method.getName())) throw failure;
+              return defaultValue(method);
+            });
+    var reads = new MongoExtensionOperations(contextWithJobs(collection));
+    assertThrows(IllegalStateException.class, () -> reads.getState(UUID.randomUUID(), "test"));
+  }
+
+  private static MongoExtensionOperations stateOperationsFailingTransaction(
+      RuntimeException failure) {
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) throw failure;
+              return defaultValue(method);
+            });
+    MongoCollection<Document> collection =
+        mongoCollection((proxy, method, args) -> defaultValue(method));
+    return new MongoExtensionOperations(contextWithJobsAndSession(collection, session));
+  }
 
   @Test
   void createReservesBusinessKeyBeforeIdempotencyAndJobWrites() {
