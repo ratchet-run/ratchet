@@ -382,15 +382,61 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+      # Only the server zip differs from the shared dependency cache. Version keys
+      # avoid re-uploading it for unrelated pom edits; srv-dist- stays outside m2-
+      # so other jobs cannot restore a distribution as their dependency cache.
       - uses: actions/cache/restore@v6
-        id: m2
         with:
           path: ~/.m2/repository
-          key: m2-it-${{ matrix.server }}-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            m2-it-${{ matrix.server }}-
-            m2-shared-
-            m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-shared-
+      - name: Select the server distribution cache
+        id: dist
+        env:
+          SERVER: ${{ matrix.server }}
+        run: |
+          case "$SERVER" in
+            wildfly-managed)
+              dir=org/wildfly/wildfly-dist
+              version=$(sed -n 's:.*<wildfly.version>\(.*\)</wildfly.version>.*:\1:p' pom.xml)
+              ;;
+            wildfly-ee11-managed)
+              dir=org/wildfly/wildfly-dist
+              version=$(sed -n 's:.*<wildfly.version>\(.*\)</wildfly.version>.*:\1:p' testing/ratchet-testsuite/pom.xml)
+              ;;
+            payara-managed)
+              dir=fish/payara/distributions/payara
+              version=$(sed -n 's:.*<payara.version>\(.*\)</payara.version>.*:\1:p' pom.xml)
+              ;;
+            payara-ee11-managed)
+              dir=fish/payara/distributions/payara
+              version=$(sed -n 's:.*<payara7.version>\(.*\)</payara7.version>.*:\1:p' pom.xml)
+              ;;
+            glassfish-managed)
+              dir=org/glassfish/main/distributions/glassfish
+              version=$(sed -n 's:.*<glassfish.version>\(.*\)</glassfish.version>.*:\1:p' pom.xml)
+              ;;
+            # OpenLiberty and its EE 11 variant share one distribution cache.
+            openliberty-managed|openliberty-ee11-managed)
+              dir=io/openliberty/openliberty-runtime
+              version=$(sed -n 's:.*<openliberty.version>\(.*\)</openliberty.version>.*:\1:p' pom.xml)
+              ;;
+            *)
+              echo "::error::Unknown server: $SERVER"
+              exit 1
+              ;;
+          esac
+          if [ -z "$version" ] || [[ $version == *$'\n'* ]]; then
+            echo "::error::Expected one distribution version for $SERVER, got: '$version'"
+            exit 1
+          fi
+          echo "path=~/.m2/repository/$dir/$version" >> "$GITHUB_OUTPUT"
+          echo "key=srv-dist-${dir##*/}-$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6
+        id: dist-cache
+        with:
+          path: ${{ steps.dist.outputs.path }}
+          key: ${{ steps.dist.outputs.key }}
       - name: Integration tests (${{ matrix.server }} / ${{ matrix.database }})
         # spotbugs.skip: the SpotBugs gate is bound to verify but runs once in the
         # dedicated spotbugs job — skip it here so it isn't re-analyzed per matrix cell.
@@ -407,15 +453,11 @@ jobs:
         # already covers them. The pom ignores -Dsurefire.skip, hence the
         # no-match pattern; failsafe filters on -Dit.test, so the ITs still run.
         run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -pl :ratchet-testsuite,:ratchet-coverage -am
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Save only successful main-push dependencies, never locally installed snapshots.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
-        run: rm -rf "$HOME/.m2/repository/run/ratchet"
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.database == 'postgresql' && steps.dist-cache.outputs.cache-hit != 'true'
         with:
-          path: ~/.m2/repository
-          key: ${{ steps.m2.outputs.cache-primary-key }}
+          path: ${{ steps.dist.outputs.path }}
+          key: ${{ steps.dist.outputs.key }}
       - name: Thread-dump surviving JVMs
         if: failure()
         run: |
@@ -457,17 +499,28 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      # Its own lane cache: the smoke test provisions WildFly from the local repository,
-      # which the shared key does not hold.
+      # Restore shared dependencies and reuse the version-keyed WildFly zip from
+      # integration-test; the showcase does not save either cache.
       - uses: actions/cache/restore@v6
-        id: m2
         with:
           path: ~/.m2/repository
-          key: m2-showcase-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            m2-showcase-
-            m2-shared-
-            m2-
+          key: m2-shared-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-shared-
+      - name: Select the server distribution cache
+        id: dist
+        run: |
+          dir=org/wildfly/wildfly-dist
+          version=$(sed -n 's:.*<wildfly.version>\(.*\)</wildfly.version>.*:\1:p' pom.xml)
+          if [ -z "$version" ] || [[ $version == *$'\n'* ]]; then
+            echo "::error::Expected one WildFly distribution version, got: '$version'"
+            exit 1
+          fi
+          echo "path=~/.m2/repository/$dir/$version" >> "$GITHUB_OUTPUT"
+          echo "key=srv-dist-${dir##*/}-$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.dist.outputs.path }}
+          key: ${{ steps.dist.outputs.key }}
       - name: Install showcase reactor dependencies
         run: >-
           mvn -B -ntp -pl :ratchet-showcase -am
@@ -483,15 +536,6 @@ jobs:
           -Dwildfly.management.port=19993
           -Dwildfly.https.port=18446
           package exec:exec@run-showcase
-      - name: Keep Ratchet artifacts out of the saved cache
-        # Save only successful main-push dependencies, never locally installed snapshots.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
-        run: rm -rf "$HOME/.m2/repository/run/ratchet"
-      - uses: actions/cache/save@v6
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
-        with:
-          path: ~/.m2/repository
-          key: ${{ steps.m2.outputs.cache-primary-key }}
       - name: Upload showcase server log
         if: failure()
         uses: actions/upload-artifact@v7
