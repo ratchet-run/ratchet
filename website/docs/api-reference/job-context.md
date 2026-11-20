@@ -706,6 +706,7 @@ retries. At the limit the job fails without another retry attempt, then Ratchet 
 best-effort reset so manual retry gets a fresh budget. The count is an upper bound:
 a crash, lost race or failed transition can spend a continuation that never runs. A crash
 before reset can leave the old count, so manual retry may fail early. Transient store failures
-of the counter increment and the claim release are retried without spending an attempt. The
-counter records the claim that wrote it, so retrying a write whose result was lost does not
-count twice.
+of the counter increment and the claim release are retried without spending an attempt. Both
+use the same test: a failure is transient when the store reports it as transient, or when its
+cause is a SQL connection failure or a rolled-back transaction such as a deadlock. The counter
+records the claim that wrote it, so retrying a write whose result was lost does not count twice.
