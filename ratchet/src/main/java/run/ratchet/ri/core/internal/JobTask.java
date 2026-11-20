@@ -1959,6 +1959,7 @@ public class JobTask implements Callable<Void> {
                       observer.recordJobFailure(snapshot, failure, charged);
                     });
           } else {
+            state.accepted = true;
             Duration delay =
                 Objects.requireNonNull(
                     policy.getDelay(charged),
@@ -2020,7 +2021,7 @@ public class JobTask implements Callable<Void> {
               try {
                 long remaining =
                     Math.max(0, Duration.between(retryClock.instant(), state.scheduled).toMillis());
-                if (remaining > 0) observer.scheduleDelayedJobReadyCallback(remaining);
+                observer.scheduleDelayedJobReadyCallback(remaining);
               } catch (Throwable notificationFailure) {
                 log.warnf(
                     notificationFailure,
@@ -2057,14 +2058,18 @@ public class JobTask implements Callable<Void> {
             return;
           }
         }
-      } catch (RuntimeException transitionFailure) {
-        if (JobSuccessFinalizer.isTransientStoreFailure(transitionFailure)) throw transitionFailure;
+      } catch (Throwable transitionFailure) {
+        if (transitionFailure instanceof RuntimeException runtimeFailure
+            && JobSuccessFinalizer.isTransientStoreFailure(runtimeFailure)) throw runtimeFailure;
         if (state.chargeMissed || state.rescheduleMissed) {
           log.errorf(
               transitionFailure,
               "Job %s could not classify a missed failure transition; retrying",
               snapshot.getId());
-          throw transitionFailure;
+          if (transitionFailure instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+          throw new IllegalStateException(
+              "Job " + snapshot.getId() + " could not classify a missed failure transition",
+              transitionFailure);
         }
         log.errorf(
             transitionFailure,
@@ -2141,8 +2146,18 @@ public class JobTask implements Callable<Void> {
               () -> {
                 finishLock.lock();
                 try {
-                  if (execution.getStatus() != ExecutionStatus.RUNNING)
-                    observer.saveExecution(execution);
+                  if (execution.getStatus() != ExecutionStatus.RUNNING) {
+                    try {
+                      observer.saveExecution(execution);
+                    } catch (RuntimeException saveFailure) {
+                      if (JobSuccessFinalizer.isTransientStoreFailure(saveFailure))
+                        throw saveFailure;
+                      log.warnf(
+                          saveFailure,
+                          "Job %s could not save deferred execution failure; stopping retry",
+                          execution.getJobId());
+                    }
+                  }
                 } finally {
                   finishLock.unlock();
                 }

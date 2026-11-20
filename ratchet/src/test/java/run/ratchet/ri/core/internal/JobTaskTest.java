@@ -796,6 +796,67 @@ class JobTaskTest {
   }
 
   @Test
+  void deferredChargeKeepsAcceptedRetryAfterTransientDelayFailure() throws Exception {
+    failureTransitionScenario();
+    recordOutcomeRetries();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new RatchetTransientStoreException("worker charge"))
+        .thenThrow(new RatchetTransientStoreException("inline charge"))
+        .thenReturn(3);
+    when(retryPolicy.shouldRetry(3, RETRY_BODY_FAILURE)).thenReturn(true);
+    when(retryPolicy.getDelay(3))
+        .thenThrow(new RatchetTransientStoreException("delay lookup"))
+        .thenReturn(Duration.ofSeconds(10));
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L))).thenReturn(true);
+
+    jobTask.call();
+    runOutcomeRetryOffWorker();
+    Assertions.assertEquals(1, outcomePending.size());
+    runOutcomeRetryOffWorker();
+
+    verify(retryPolicy).shouldRetry(3, RETRY_BODY_FAILURE);
+    verify(retryPolicy, times(2)).getDelay(3);
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L));
+    assertRetryLanded();
+    Assertions.assertTrue(outcomePending.isEmpty());
+    assertNoForcedFailure();
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void deferredPolicyErrorForcesFailureWithChargedClaim(boolean delayError) throws Exception {
+    failureTransitionScenario();
+    recordOutcomeRetries();
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 2))
+        .thenThrow(new RatchetTransientStoreException("worker charge"))
+        .thenThrow(new RatchetTransientStoreException("inline charge"))
+        .thenReturn(3);
+    if (delayError) {
+      when(retryPolicy.shouldRetry(3, RETRY_BODY_FAILURE)).thenReturn(true);
+      when(retryPolicy.getDelay(3)).thenThrow(new NoClassDefFoundError("delay policy"));
+    } else {
+      when(retryPolicy.shouldRetry(3, RETRY_BODY_FAILURE))
+          .thenThrow(new NoClassDefFoundError("retry policy"));
+    }
+    when(lifecycleFacade.completeFailure(any(), eq(JobStatus.RUNNING), eq(false), eq(3)))
+        .thenReturn(true);
+
+    jobTask.call();
+    runOutcomeRetryOffWorker();
+
+    verify(lifecycleFacade)
+        .completeFailure(
+            argThat(job -> job.getClaimSeq() == 7L && job.getAttempts() == 3),
+            eq(JobStatus.RUNNING),
+            eq(false),
+            eq(3));
+    verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(observabilityFacade).recordJobFailure(any(), eq(RETRY_BODY_FAILURE), eq(3));
+    Assertions.assertSame(RETRY_BODY_FAILURE, CallbackRecorder.failure);
+    Assertions.assertTrue(outcomePending.isEmpty());
+  }
+
+  @Test
   void deferredChargeBeyondRetryLimitRecordsFailureAfterDlqCommits() throws Exception {
     var scenario = failureTransitionScenario();
     scenario.job().setMaxRetries(2);
@@ -968,6 +1029,26 @@ class JobTaskTest {
   }
 
   @Test
+  void executionHistoryRetryStopsAfterPermanentSaveFailure() throws Exception {
+    var scenario = retryTransitionScenario();
+    recordOutcomeRetries();
+    when(observabilityFacade.saveExecution(scenario.execution()))
+        .thenThrow(new RatchetTransientStoreException("execution save"))
+        .thenThrow(new RatchetTransientStoreException("inline save"))
+        .thenThrow(new IllegalStateException("permanent save"));
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L))).thenReturn(true);
+
+    jobTask.call();
+    Assertions.assertEquals(1, outcomePending.size());
+    runOutcomeRetryOffWorker();
+
+    verify(observabilityFacade, times(3)).saveExecution(scenario.execution());
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(3), eq(7L));
+    Assertions.assertTrue(outcomePending.isEmpty());
+    assertNoForcedFailure();
+  }
+
+  @Test
   void executionHistoryRetrySavesCanceledStateAfterCancelSavesFail() throws Exception {
     var scenario = retryTransitionScenario();
     CancelRace race = cancelRace();
@@ -1066,7 +1147,7 @@ class JobTaskTest {
     now.set(FIXED_NOW.plusSeconds(elapsedSeconds));
     runOutcomeRetry();
     if (elapsedSeconds < 10) verify(observabilityFacade).scheduleDelayedJobReadyCallback(1_000L);
-    else verify(observabilityFacade, never()).scheduleDelayedJobReadyCallback(anyLong());
+    else verify(observabilityFacade).scheduleDelayedJobReadyCallback(0L);
     verify(jobStore, times(3))
         .scheduleJobRetry(eq(JOB_UUID), any(), eq(FIXED_NOW.plusSeconds(10)), eq(3), eq(7L));
     assertNoForcedFailure();
