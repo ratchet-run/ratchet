@@ -2072,6 +2072,25 @@ class JobTaskTest {
   }
 
   @Test
+  void continuationReleaseWrappedTransientIsHandedOffWithoutCharge() throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenThrow(new RuntimeException(new SQLTransientConnectionException("connection lost")));
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
+        .thenReturn(true);
+    jobTask.call();
+    verify(jobStore, times(JobTask.TRANSIENT_STORE_TRIES))
+        .releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    verify(claimReschedules)
+        .handOff(eq(JOB_UUID), eq(7L), any(), eq(FIXED_NOW), eq(0), any(), any(), any(), any());
+    verify(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
+    assertContinuationUncharged(scenario);
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
   void continuationReleaseQuickRetryDoesNotChargeAttempt() throws Exception {
     var scenario = preparedContinuation();
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
@@ -2304,25 +2323,12 @@ class JobTaskTest {
               writes.incrementAndGet();
               throw new RatchetTransientStoreException("busy");
             });
-    Logger logger = Logger.getLogger(JobTask.class.getName());
-    Level originalLevel = logger.getLevel();
-    Handler handler =
-        new Handler() {
-          @Override
-          public void publish(LogRecord record) {
-            if (record.getMessage().contains("continuation counter write keeps failing")) {
-              terminalWait.countDown();
-            }
-          }
-
-          @Override
-          public void flush() {}
-
-          @Override
-          public void close() {}
-        };
-    logger.setLevel(Level.ALL);
-    logger.addHandler(handler);
+    CountDownLatch revoked = new CountDownLatch(1);
+    jobTask.setTerminalRetrySleeper(
+        ms -> {
+          terminalWait.countDown();
+          Assertions.assertTrue(revoked.await(5, TimeUnit.SECONDS));
+        });
     AtomicReference<Throwable> workerFailure = new AtomicReference<>();
     Thread worker =
         new Thread(
@@ -2340,25 +2346,65 @@ class JobTaskTest {
     worker.start();
     try {
       Assertions.assertTrue(terminalWait.await(5, TimeUnit.SECONDS));
-      // Wait until the worker is sleeping after the terminal warning, then revoke without
-      // interrupt.
-      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-      while (worker.getState() != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
-        Thread.yield();
-      }
-      Assertions.assertEquals(Thread.State.TIMED_WAITING, worker.getState());
+      Assertions.assertEquals(JobTask.TRANSIENT_STORE_TRIES, writes.get());
       scenario.attempt().revoke();
+      revoked.countDown();
       worker.join(5000);
     } finally {
       scenario.attempt().revoke();
+      revoked.countDown();
       worker.join(5000);
-      logger.removeHandler(handler);
-      logger.setLevel(originalLevel);
     }
     Assertions.assertFalse(worker.isAlive());
     Assertions.assertNull(workerFailure.get());
     Assertions.assertEquals(JobTask.TRANSIENT_STORE_TRIES, writes.get());
     assertContinuationDiscarded(scenario);
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
+  void counterRevokedDuringRetriedReadIsDiscarded() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              return Optional.of(new JobStateStore.VersionedState("{\"count\":0}", 0));
+            });
+    jobTask.call();
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    verify(scenario.store(), never())
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+    assertRevokedCounter(scenario);
+  }
+
+  @Test
+  void counterRevokedDuringRetriedCasIsDiscarded() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":0}", 0)));
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 0, 7L))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              return StateWriteResult.UPDATED;
+            });
+    jobTask.call();
+    verify(scenario.store(), times(2))
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 0, 7L);
+    assertRevokedCounter(scenario);
+  }
+
+  private void assertRevokedCounter(ContinuationScenario scenario) {
+    assertContinuationDiscarded(scenario);
+    assertContinuationUncharged(scenario);
     verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
     verify(lifecycleFacade, never())
         .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));

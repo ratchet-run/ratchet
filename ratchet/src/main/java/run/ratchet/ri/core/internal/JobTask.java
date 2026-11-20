@@ -164,7 +164,8 @@ public class JobTask implements Callable<Void> {
   private volatile boolean bodyThrewInterrupt;
   private @Nullable JobProgressWriter progressWriter;
   private JobEntity job;
-  private CounterRetrySleeper counterRetrySleeper = Thread::sleep;
+  private RetrySleeper counterRetrySleeper = Thread::sleep;
+  private RetrySleeper terminalRetrySleeper = Thread::sleep;
   private volatile long terminalRetryBaseDelayMs = 1_000;
   private volatile long terminalRetryMaxDelayMs = 30_000;
   private JobClaimDto claim;
@@ -1170,7 +1171,8 @@ public class JobTask implements Callable<Void> {
     for (int attempt = 1; ; attempt++) {
       try {
         return operation.get();
-      } catch (RatchetTransientStoreException failure) {
+      } catch (RuntimeException failure) {
+        if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) throw failure;
         if (attempt == TRANSIENT_STORE_TRIES) {
           throw failure;
         }
@@ -1213,7 +1215,8 @@ public class JobTask implements Callable<Void> {
     try {
       recordInterrupt(Thread.interrupted());
       accepted = retryTransientStoreOperation(write);
-    } catch (RatchetTransientStoreException failure) {
+    } catch (RuntimeException failure) {
+      if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) throw failure;
       String businessKey =
           job != null ? job.getBusinessKey() : claim != null ? claim.businessKey() : null;
       Runnable afterRejected =
@@ -1260,7 +1263,8 @@ public class JobTask implements Callable<Void> {
         if (claimRescheduleRevoked(jobId)) return ReleaseOutcome.NOT_WRITTEN;
         try {
           accepted = write.get();
-        } catch (RatchetTransientStoreException retryFailure) {
+        } catch (RuntimeException retryFailure) {
+          if (!JobSuccessFinalizer.isTransientStoreFailure(retryFailure)) throw retryFailure;
           if (claimRescheduleRevoked(jobId)) return ReleaseOutcome.NOT_WRITTEN;
           if (claimReschedules != null
               && claimReschedules.handOff(
@@ -2200,6 +2204,10 @@ public class JobTask implements Callable<Void> {
           counterStoreCall = true;
           var state = store.getState(job.getId(), CONTINUATION_NAMESPACE);
           counterStoreCall = false;
+          if ((transientFailures > 0 || terminalRetry) && terminalRetryRevoked()) {
+            saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+            return;
+          }
           long count = 0;
           Long claimSeq = null;
           if (state.isPresent()) {
@@ -2336,6 +2344,10 @@ public class JobTask implements Callable<Void> {
           }
           delayMs = nextTerminalRetryDelay(delayMs);
         }
+      }
+      if ((transientFailures > 0 || terminalRetry) && terminalRetryRevoked()) {
+        saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+        return;
       }
     } finally {
       recordInterrupt(interrupted);
@@ -2647,12 +2659,16 @@ public class JobTask implements Callable<Void> {
   }
 
   @FunctionalInterface
-  interface CounterRetrySleeper {
+  interface RetrySleeper {
     void sleep(long ms) throws InterruptedException;
   }
 
-  void setCounterRetrySleeper(CounterRetrySleeper sleeper) {
+  void setCounterRetrySleeper(RetrySleeper sleeper) {
     counterRetrySleeper = sleeper;
+  }
+
+  void setTerminalRetrySleeper(RetrySleeper sleeper) {
+    terminalRetrySleeper = sleeper;
   }
 
   void setTerminalRetryDelays(long baseDelayMs, long maxDelayMs) {
@@ -2748,7 +2764,7 @@ public class JobTask implements Callable<Void> {
     recordInterrupt(interrupted);
     if (terminalRetryRevoked()) return new TerminalRetryWait(interrupted, true);
     try {
-      Thread.sleep(delayMs);
+      terminalRetrySleeper.sleep(delayMs);
     } catch (InterruptedException sleepInterrupted) {
       interrupted = true;
       workerInterrupted = true;
