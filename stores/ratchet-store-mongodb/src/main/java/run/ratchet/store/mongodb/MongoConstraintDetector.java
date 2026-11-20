@@ -20,6 +20,7 @@ import com.mongodb.MongoException;
 import com.mongodb.MongoNodeIsRecoveringException;
 import com.mongodb.MongoNotPrimaryException;
 import com.mongodb.MongoSocketException;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.MongoWriteException;
 import run.ratchet.store.ConstraintDetector;
 
@@ -116,6 +117,7 @@ class MongoConstraintDetector implements ConstraintDetector {
     Throwable current = e;
     while (current != null) {
       if (current instanceof MongoSocketException
+          || current instanceof MongoTimeoutException
           || current instanceof MongoNotPrimaryException
           || current instanceof MongoNodeIsRecoveringException) {
         return true;

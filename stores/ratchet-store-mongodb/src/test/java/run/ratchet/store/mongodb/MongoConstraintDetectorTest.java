@@ -26,6 +26,7 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoNodeIsRecoveringException;
 import com.mongodb.MongoSocketOpenException;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteError;
@@ -123,6 +124,14 @@ class MongoConstraintDetectorTest {
         new RuntimeException("wrapper", new MongoSocketOpenException("socket", SERVER_ADDRESS));
 
     assertTrue(detector.isTransientConnectionFailure(wrapped));
+  }
+
+  @Test
+  void detectsTimeoutFailuresDirectlyAndThroughCause() {
+    MongoTimeoutException failure = new MongoTimeoutException("server selection timed out");
+
+    assertTrue(detector.isTransientConnectionFailure(failure));
+    assertTrue(detector.isTransientConnectionFailure(new RuntimeException("wrapper", failure)));
   }
 
   @Test
