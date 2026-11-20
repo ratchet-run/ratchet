@@ -1214,7 +1214,24 @@ public class JobTask implements Callable<Void> {
     boolean accepted;
     try {
       recordInterrupt(Thread.interrupted());
-      accepted = retryTransientStoreOperation(write);
+      for (int retry = 1; ; retry++) {
+        if (retry > 1 && claimRescheduleRevoked(jobId)) return ReleaseOutcome.NOT_WRITTEN;
+        try {
+          accepted = write.get();
+          break;
+        } catch (RuntimeException failure) {
+          if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) throw failure;
+          if (retry == TRANSIENT_STORE_TRIES) throw failure;
+          try {
+            Thread.sleep(
+                ThreadLocalRandom.current()
+                    .nextInt(TRANSIENT_BACKOFF_MIN_MS, TRANSIENT_BACKOFF_MAX_MS + 1));
+          } catch (InterruptedException interrupted) {
+            workerInterrupted = true;
+            throw failure;
+          }
+        }
+      }
     } catch (RuntimeException failure) {
       if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) throw failure;
       String businessKey =
@@ -1306,7 +1323,8 @@ public class JobTask implements Callable<Void> {
       AcquireResult result;
       try {
         result = acquireResourcePermit(resourceName, claimSeq);
-      } catch (RatchetTransientStoreException e) {
+      } catch (RuntimeException e) {
+        if (!JobSuccessFinalizer.isTransientStoreFailure(e)) throw e;
         // The store calls below run with the interrupt flag clear; call() restores it at the end.
         recordInterrupt(Thread.interrupted());
         // The failure can come after the permit insert committed. permitAcquired stays false, so
@@ -1381,7 +1399,8 @@ public class JobTask implements Callable<Void> {
   private int permitRetryDelay(String resourceName) {
     try {
       return resourcePermitService.getRetryDelay(resourceName);
-    } catch (RatchetTransientStoreException e) {
+    } catch (RuntimeException e) {
+      if (!JobSuccessFinalizer.isTransientStoreFailure(e)) throw e;
       log.warnf(
           e, "Permit retry delay lookup failed for resource '%s'; using default", resourceName);
       return ResourcePermitService.DEFAULT_RETRY_DELAY_MS;
@@ -2301,7 +2320,12 @@ public class JobTask implements Callable<Void> {
                 "Continuation counter write conflicted on all 3 attempts");
           }
         } catch (RuntimeException failure) {
-          if (!counterStoreCall || !JobSuccessFinalizer.isTransientStoreFailure(failure)) {
+          if (!counterStoreCall) throw failure;
+          if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) {
+            if (terminalRetryRevoked()) {
+              saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
+              return;
+            }
             throw failure;
           }
           boolean retryInterrupted = Thread.interrupted();

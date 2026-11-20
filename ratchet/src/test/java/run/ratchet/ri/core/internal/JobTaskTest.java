@@ -2091,6 +2091,26 @@ class JobTaskTest {
   }
 
   @Test
+  void continuationReleaseRevokedAfterFirstFailureIsDiscarded() throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              throw new RatchetTransientStoreException("busy");
+            });
+
+    jobTask.call();
+
+    verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    verifyNoInteractions(claimReschedules);
+    assertContinuationDiscarded(scenario);
+    Assertions.assertEquals(JobStatus.RUNNING, scenario.job().getStatus());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
   void continuationReleaseQuickRetryDoesNotChargeAttempt() throws Exception {
     var scenario = preparedContinuation();
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
@@ -2375,6 +2395,26 @@ class JobTaskTest {
               return Optional.of(new JobStateStore.VersionedState("{\"count\":0}", 0));
             });
     jobTask.call();
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    verify(scenario.store(), never())
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+    assertRevokedCounter(scenario);
+  }
+
+  @Test
+  void counterPermanentFailureAfterRevokedRetriedReadIsDiscarded() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              throw new IllegalStateException("permanent read failure");
+            });
+
+    jobTask.call();
+
     verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
     verify(scenario.store(), never()).initState(any(), anyString(), anyString(), anyLong());
     verify(scenario.store(), never())
@@ -6294,6 +6334,30 @@ class JobTaskTest {
   }
 
   @Test
+  void call_permanentPermitFailureUsesNormalFailureHandling() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("missing");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException failure = new IllegalStateException("permanent permit failure");
+    when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1")).thenThrow(failure);
+    when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
+    verify(resourcePermitService).tryAcquire("missing", JOB_UUID, 0L, "node-1");
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
   void call_resourceWithNoLimit_deadLettersWithoutRecordingStart() throws Exception {
     JobEntity job = createTestJob();
     job.setResourceName("missing");
@@ -6478,12 +6542,24 @@ class JobTaskTest {
   }
 
   @Test
+  void call_wrappedTransientPermitFailureReschedulesWithoutConsumingAttempt() throws Exception {
+    assertTransientPermitFailureRescheduled(
+        true, new RuntimeException(new SQLTransientConnectionException("connection lost")));
+  }
+
+  @Test
   void call_transientPermitFailureRejectedRescheduleDoesNotFailAttempt() throws Exception {
     assertTransientPermitFailureRescheduled(false);
   }
 
-  @SuppressWarnings("unchecked")
   private void assertTransientPermitFailureRescheduled(boolean rescheduled) throws Exception {
+    assertTransientPermitFailureRescheduled(
+        rescheduled, new RatchetTransientStoreException("deadlock"));
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertTransientPermitFailureRescheduled(
+      boolean rescheduled, RuntimeException failure) throws Exception {
     jobTask = newJobTaskWithTimeoutHandler(null);
     JobEntity job = createTestJob();
     job.setResourceName("gpu");
@@ -6492,8 +6568,7 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
-        .thenThrow(new RatchetTransientStoreException("deadlock"));
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1")).thenThrow(failure);
     when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
     when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
         .thenReturn(rescheduled);
@@ -6761,7 +6836,8 @@ class JobTaskTest {
     attempt.revoke();
     invokeClaimReschedule();
     verifyNoInteractions(claimReschedules);
-    verify(jobStore, times(3)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+    // A revoked attempt makes its first try but no quick retries.
+    verify(jobStore, times(1)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
   }
 
   @Test
@@ -7051,6 +7127,12 @@ class JobTaskTest {
   }
 
   @Test
+  void call_wrappedTransientPermitRetryDelayFailureUsesDefault() throws Exception {
+    assertPermitRetryFallback(
+        false, false, new RuntimeException(new SQLTransientConnectionException("connection lost")));
+  }
+
+  @Test
   void call_supersededPermitRetryDelayFailureUsesDefault() throws Exception {
     assertPermitRetryFallback(true, false);
   }
@@ -7060,9 +7142,15 @@ class JobTaskTest {
     assertPermitRetryFallback(false, true);
   }
 
-  @SuppressWarnings("unchecked")
   private void assertPermitRetryFallback(boolean superseded, boolean releaseFails)
       throws Exception {
+    assertPermitRetryFallback(
+        superseded, releaseFails, new RatchetTransientStoreException("lookup deadlock"));
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertPermitRetryFallback(
+      boolean superseded, boolean releaseFails, RuntimeException delayFailure) throws Exception {
     jobTask = newJobTaskWithTimeoutHandler(null);
     JobEntity job = createTestJob();
     job.setResourceName("gpu");
@@ -7078,8 +7166,7 @@ class JobTaskTest {
       when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
           .thenThrow(new RatchetTransientStoreException("deadlock"));
     }
-    when(resourcePermitService.getRetryDelay("gpu"))
-        .thenThrow(new RatchetTransientStoreException("lookup deadlock"));
+    when(resourcePermitService.getRetryDelay("gpu")).thenThrow(delayFailure);
     if (releaseFails) {
       doThrow(new RatchetTransientStoreException("release deadlock"))
           .when(resourcePermitService)
