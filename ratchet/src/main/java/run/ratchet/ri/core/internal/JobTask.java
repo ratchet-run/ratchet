@@ -1036,11 +1036,13 @@ public class JobTask implements Callable<Void> {
               control.finishCancelFoundByTimeout();
             }
           } catch (RuntimeException cancelError) {
-            if (JobSuccessFinalizer.isTransientStoreFailure(cancelError)) throw cancelError;
-            log.errorf(
-                cancelError,
-                "Job %s could not finish cancellation after a missed forced write",
-                copy.getId());
+            if (!JobSuccessFinalizer.isTransientStoreFailure(cancelError)) {
+              log.errorf(
+                  cancelError,
+                  "Job %s could not classify a missed failure transition; retrying",
+                  copy.getId());
+            }
+            throw cancelError;
           }
         };
     return () -> {
@@ -2009,7 +2011,7 @@ public class JobTask implements Callable<Void> {
                         sanitized,
                         charged,
                         state.scheduled));
-              } catch (RuntimeException notificationFailure) {
+              } catch (Throwable notificationFailure) {
                 log.warnf(
                     notificationFailure,
                     "Job %s retry landed but event publication failed",
@@ -2019,7 +2021,7 @@ public class JobTask implements Callable<Void> {
                 long remaining =
                     Math.max(0, Duration.between(retryClock.instant(), state.scheduled).toMillis());
                 if (remaining > 0) observer.scheduleDelayedJobReadyCallback(remaining);
-              } catch (RuntimeException notificationFailure) {
+              } catch (Throwable notificationFailure) {
                 log.warnf(
                     notificationFailure,
                     "Job %s retry landed but wake-up scheduling failed",
@@ -2027,7 +2029,7 @@ public class JobTask implements Callable<Void> {
               }
               try {
                 observer.recordJobFailure(snapshot, failure, charged);
-              } catch (RuntimeException notificationFailure) {
+              } catch (Throwable notificationFailure) {
                 log.warnf(
                     notificationFailure,
                     "Job %s retry landed but failure metric failed",
@@ -2042,7 +2044,7 @@ public class JobTask implements Callable<Void> {
                     maxRetries,
                     failure.getClass().getName(),
                     failure.getMessage());
-              } catch (RuntimeException notificationFailure) {
+              } catch (Throwable notificationFailure) {
                 log.warnf(
                     notificationFailure,
                     "Job %s retry landed but retry logging failed",
@@ -2058,12 +2060,11 @@ public class JobTask implements Callable<Void> {
       } catch (RuntimeException transitionFailure) {
         if (JobSuccessFinalizer.isTransientStoreFailure(transitionFailure)) throw transitionFailure;
         if (state.chargeMissed || state.rescheduleMissed) {
-          if (control != null) control.markSuperseded();
           log.errorf(
               transitionFailure,
-              "Job %s could not classify a missed failure transition",
+              "Job %s could not classify a missed failure transition; retrying",
               snapshot.getId());
-          return;
+          throw transitionFailure;
         }
         log.errorf(
             transitionFailure,
@@ -2131,6 +2132,22 @@ public class JobTask implements Callable<Void> {
         observabilityFacade.saveExecution(currentExecution);
       } catch (RuntimeException failure) {
         log.warnf(failure, "Job %s could not save deferred execution failure", job.getId());
+        if (JobSuccessFinalizer.isTransientStoreFailure(failure) && outcomeRetries != null) {
+          JobExecutionEntity execution = currentExecution;
+          ExecutionObserver observer = observabilityFacade;
+          ReentrantLock finishLock = executionFinishLock;
+          outcomeRetries.run(
+              "execution history save for job " + job.getId(),
+              () -> {
+                finishLock.lock();
+                try {
+                  if (execution.getStatus() != ExecutionStatus.RUNNING)
+                    observer.saveExecution(execution);
+                } finally {
+                  finishLock.unlock();
+                }
+              });
+        }
       }
     } finally {
       executionFinishLock.unlock();
