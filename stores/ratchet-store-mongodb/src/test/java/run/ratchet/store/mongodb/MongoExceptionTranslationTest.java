@@ -34,6 +34,7 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.MongoWriteConcernException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ReadConcern;
@@ -145,6 +146,26 @@ class MongoExceptionTranslationTest {
   void transactionOptionsRequirePrimaryReads() {
     assertEquals(
         ReadPreference.primary(), MongoStoreContext.TRANSACTION_OPTIONS.getReadPreference());
+  }
+
+  @Test
+  void currentClaimTranslatesTimeoutToTransientStoreFailure() {
+    MongoTimeoutException failure = new MongoTimeoutException("server selection timed out");
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())
+                  || "withReadConcern".equals(method.getName())) return proxy;
+              if ("find".equals(method.getName())) throw failure;
+              return defaultValue(method);
+            });
+    var crud = new MongoJobCrudOperations(contextWithJobs(jobs));
+
+    var thrown =
+        assertThrows(
+            RatchetTransientStoreException.class, () -> crud.currentClaim(UUID.randomUUID()));
+
+    assertSame(failure, thrown.getCause());
   }
 
   @Test

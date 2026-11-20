@@ -100,7 +100,7 @@ final class MysqlJobReadOperations {
       // language=MySQL
       String sql =
           """
-          SELECT status, claim_seq FROM scheduler_job_queue WHERE job_id = ?
+          SELECT status, claim_seq, attempts FROM scheduler_job_queue WHERE job_id = ?
           """;
       List<Object[]> rows =
           ctx.em()
@@ -112,7 +112,10 @@ final class MysqlJobReadOperations {
       }
       Object[] row = rows.get(0);
       return Optional.of(
-          new ClaimState(JobStatus.valueOf((String) row[0]), ((Number) row[1]).longValue()));
+          new ClaimState(
+              JobStatus.valueOf((String) row[0]),
+              ((Number) row[1]).longValue(),
+              ((Number) row[2]).intValue()));
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("read current claim", e);
     }

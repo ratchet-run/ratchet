@@ -26,6 +26,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /**
  * Test hook that pauses, faults or watches chosen calls on the deployed store bean. {@link
@@ -92,7 +93,8 @@ public final class StoreCallGate {
 
   /**
    * Fails the first later matching call from inside {@code caller}, except on the arming thread or
-   * for a null job id. Later matching calls pass through.
+   * for a null job id. Throws a transient store failure before reaching the delegate. Later
+   * matching calls pass through.
    */
   public static Fault failNext(String method, Class<?> caller) {
     requireCovered(method);
@@ -232,7 +234,7 @@ public final class StoreCallGate {
         fault.thread = Thread.currentThread();
         fault.fired.countDown();
         exit(method, jobId, null, false, null);
-        throw new IllegalStateException("StoreCallGate fault in " + method);
+        throw new RatchetTransientStoreException("StoreCallGate fault in " + method);
       }
     }
     for (Pause pause : PAUSES) {

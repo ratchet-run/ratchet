@@ -227,7 +227,7 @@ public final class SqlJobCompletion {
       batches.finalizeBatchMetrics(plan.jobId());
     }
     for (var event : plan.outboxEvents()) SqlEventOutbox.insert(em, event, sqlServer, uuid);
-    return new JobCompletionResult(true, progress);
+    return JobCompletionResult.joined(progress);
   }
 
   /**

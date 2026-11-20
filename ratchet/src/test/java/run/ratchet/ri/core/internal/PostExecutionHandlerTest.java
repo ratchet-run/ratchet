@@ -22,23 +22,32 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Transactional;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -50,6 +59,7 @@ import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -99,8 +109,7 @@ class PostExecutionHandlerTest {
 
   private BatchProgress stubBatchCompletion() {
     BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
-    when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(new JobCompletionResult(true, progress));
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.joined(progress));
     return progress;
   }
 
@@ -133,6 +142,220 @@ class PostExecutionHandlerTest {
     verify(batchService, never()).afterChildCompletion(progress);
     followup.getValue().run();
     verify(batchService).afterChildCompletion(progress);
+  }
+
+  private InternalEventPublisher useRealDeadLetterService() {
+    InternalEventPublisher publisher = mock(InternalEventPublisher.class);
+    DeadLetterService dlq =
+        new DeadLetterService(
+            null,
+            null,
+            jobTerminalStore,
+            null,
+            publisher,
+            mock(ErrorSanitizer.class),
+            Clock.systemUTC(),
+            afterCommitRegistrar);
+    handler =
+        new PostExecutionHandler(
+            batchService,
+            workflowScheduler,
+            dlq,
+            pollerScheduler,
+            jobTerminalStore,
+            afterCommitRegistrar,
+            completionTransaction);
+    return publisher;
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"events", "workflow", "wakeup"})
+  void durablePostCommitFailuresDoNotSkipRemainingSteps(String failedStep) {
+    InternalEventPublisher publisher = useRealDeadLetterService();
+    JobEntity source = job(JobExecutionType.SINGLE);
+    source.setLastError("failed");
+    source.setAttempts(1);
+    BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 0, 1, null);
+    WorkflowCompletionPlan workflow = new WorkflowCompletionPlan(List.of(), List.of(), true);
+    when(workflowScheduler.planCompletion(any(), eq(false))).thenReturn(workflow);
+    when(jobTerminalStore.commitCompletion(any()))
+        .thenReturn(JobCompletionResult.durable(progress));
+    when(afterCommitRegistrar.registerAfterCommit(any()))
+        .thenReturn(AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION);
+    AtomicBoolean returned = new AtomicBoolean();
+    stubSuccessfulCommit(returned);
+    if (failedStep.equals("wakeup"))
+      doThrow(new RejectedExecutionException("stopped")).when(pollerScheduler).wakeup();
+    if (failedStep.equals("workflow"))
+      doThrow(new IllegalStateException("publication failed"))
+          .when(workflowScheduler)
+          .publishCompletion(workflow);
+    doAnswer(
+            invocation -> {
+              assertTrue(returned.get());
+              if (failedStep.equals("events"))
+                throw new IllegalStateException("event publication failed");
+              return null;
+            })
+        .when(publisher)
+        .publish(any());
+
+    assertTrue(handler.completeFailure(source, JobStatus.RUNNING, false, null));
+
+    verify(publisher, times(failedStep.equals("events") ? 1 : 2)).publish(any());
+    verify(workflowScheduler).publishCompletion(workflow);
+    verify(pollerScheduler).wakeup();
+    verify(batchService).afterChildCompletion(progress);
+    verify(jobTerminalStore).commitCompletion(any());
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "failure,true",
+    "failure,false",
+    "dlq,true",
+    "dlq,false",
+    "timeout,true",
+    "timeout,false",
+    "success,true",
+    "success,false",
+    "minimal,true",
+    "minimal,false"
+  })
+  void completionTransactionFailureHonorsStoreDurability(String entryPoint, boolean durable) {
+    InternalEventPublisher publisher = useRealDeadLetterService();
+    JobEntity source = job(JobExecutionType.BATCH_CHILD);
+    source.setLastError("failed");
+    source.setAttempts(1);
+    BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 0, 1, null);
+    when(jobTerminalStore.commitCompletion(any()))
+        .thenReturn(
+            durable ? JobCompletionResult.durable(progress) : JobCompletionResult.joined(progress));
+    boolean success = entryPoint.equals("success") || entryPoint.equals("minimal");
+    if (durable && !success) {
+      when(afterCommitRegistrar.registerAfterCommit(any()))
+          .thenReturn(AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION);
+    }
+    RuntimeException lateFailure = new IllegalStateException("completion transaction failed");
+    when(completionTransaction.complete(any()))
+        .thenAnswer(
+            invocation -> {
+              Supplier<?> work = invocation.getArgument(0);
+              assertEquals(true, work.get());
+              verify(publisher, never()).publish(any());
+              verify(workflowScheduler, never()).publishTerminalEvent(any());
+              verify(workflowScheduler, never()).publishCompletion(any());
+              verifyNoInteractions(batchService);
+              if (entryPoint.equals("dlq")) assertEquals(JobStatus.FAILED, source.getStatus());
+              throw lateFailure;
+            });
+    Supplier<Boolean> complete =
+        () ->
+            switch (entryPoint) {
+              case "failure" -> handler.completeFailure(source, JobStatus.RUNNING, false, null);
+              case "dlq" -> handler.moveToDlqAndHandlePermanentFailure(source, lateFailure, null);
+              case "timeout" ->
+                  handler.handleTimeoutTransition(
+                      lateFailure,
+                      false,
+                      () -> {
+                        assertTrue(
+                            handler.completeTimeoutFailure(
+                                source, JobStatus.RUNNING, false, lateFailure, List.of()));
+                        return Optional.of(new TerminalTimeoutTransition(source, List.of()));
+                      });
+              case "success" ->
+                  handler.completeSuccess(
+                      source, null, null, Instant.EPOCH, Instant.EPOCH, 0, 0, null);
+              case "minimal" ->
+                  handler.completeSuccessMinimal(source, Instant.EPOCH, Instant.EPOCH, 0, 0, null);
+              default -> throw new AssertionError(entryPoint);
+            };
+
+    if (durable) {
+      assertTrue(complete.get());
+      verify(workflowScheduler).publishCompletion(any());
+      verify(batchService).afterChildCompletion(progress);
+      if (success) verify(workflowScheduler).publishTerminalEvent(any(JobCompletedEvent.class));
+      else verify(publisher, times(entryPoint.equals("timeout") ? 1 : 2)).publish(any());
+    } else {
+      assertSame(lateFailure, assertThrows(IllegalStateException.class, complete::get));
+      verifyNoInteractions(batchService, publisher);
+      verify(workflowScheduler, never()).publishTerminalEvent(any());
+      verify(workflowScheduler, never()).publishCompletion(any());
+      verifyNoInteractions(afterCommitRegistrar);
+    }
+    verify(jobTerminalStore).commitCompletion(any());
+    AtomicBoolean contextCleared = new AtomicBoolean();
+    PostExecutionHandler.deferPostCommit(() -> contextCleared.set(true));
+    assertTrue(contextCleared.get());
+  }
+
+  @Test
+  void allDeferredStepsRunAfterCompletionTransactionReturns() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = stubBatchCompletion();
+    AtomicBoolean returned = new AtomicBoolean();
+    when(completionTransaction.complete(any()))
+        .thenAnswer(
+            invocation -> {
+              Supplier<?> work = invocation.getArgument(0);
+              Object result = work.get();
+              verify(workflowScheduler, never()).publishTerminalEvent(any());
+              verify(workflowScheduler, never()).publishCompletion(any());
+              verifyNoInteractions(batchService);
+              returned.set(true);
+              return result;
+            });
+    doAnswer(
+            invocation -> {
+              assertTrue(returned.get());
+              return null;
+            })
+        .when(workflowScheduler)
+        .publishTerminalEvent(any());
+    doAnswer(
+            invocation -> {
+              assertTrue(returned.get());
+              return null;
+            })
+        .when(workflowScheduler)
+        .publishCompletion(any());
+    assertFollowupAfterCommit(progress, returned);
+
+    assertTrue(
+        handler.completeSuccess(child, null, null, Instant.EPOCH, Instant.EPOCH, 0, 0, null));
+
+    verify(workflowScheduler).publishTerminalEvent(any(JobCompletedEvent.class));
+    verify(workflowScheduler).publishCompletion(any());
+    verify(batchService).afterChildCompletion(progress);
+  }
+
+  @Test
+  void errorPropagatesEvenAfterDurableCommitWithoutRunningDeferredSteps() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
+    when(jobTerminalStore.commitCompletion(any()))
+        .thenReturn(JobCompletionResult.durable(progress));
+    AssertionError failure = new AssertionError("completion error");
+    when(completionTransaction.complete(any()))
+        .thenAnswer(
+            invocation -> {
+              Supplier<?> work = invocation.getArgument(0);
+              work.get();
+              throw failure;
+            });
+
+    assertSame(
+        failure,
+        assertThrows(
+            AssertionError.class,
+            () -> handler.completeFailure(child, JobStatus.RUNNING, false, null)));
+
+    verify(workflowScheduler, never()).publishCompletion(any());
+    verifyNoInteractions(batchService);
   }
 
   @Test
@@ -293,8 +516,8 @@ class PostExecutionHandlerTest {
     BatchProgress directProgress = new BatchProgress(UUID.randomUUID(), 1, 0, 1, null);
     when(jobTerminalStore.commitCompletion(any()))
         .thenReturn(
-            new JobCompletionResult(true, completedProgress),
-            new JobCompletionResult(true, directProgress));
+            JobCompletionResult.joined(completedProgress),
+            JobCompletionResult.joined(directProgress));
     AtomicBoolean committed = new AtomicBoolean();
     stubSuccessfulCommit(committed);
     Instant now = Instant.now();
@@ -350,8 +573,7 @@ class PostExecutionHandlerTest {
     UUID batchId = UUID.randomUUID();
     child.setDependsOn(batchId);
     BatchProgress progress = new BatchProgress(batchId, 2, 1, 0, null);
-    when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(new JobCompletionResult(true, progress));
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.joined(progress));
     Instant now = Instant.parse("2026-09-15T00:00:00Z");
     assertTrue(handler.completeSuccess(child, "42", "java.lang.Integer", now, now, 5L, 2L, null));
     ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
@@ -395,8 +617,7 @@ class PostExecutionHandlerTest {
   void parentFollowupFailureDoesNotReverseSuccessfulChildCompletion() {
     JobEntity child = job(JobExecutionType.BATCH_CHILD);
     BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
-    when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(new JobCompletionResult(true, progress));
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.joined(progress));
     when(batchService.afterChildCompletion(progress))
         .thenThrow(new IllegalStateException("parent temporarily unavailable"));
     Instant now = Instant.now();
@@ -492,8 +713,7 @@ class PostExecutionHandlerTest {
     job.setDependsOn(batchId);
     RuntimeException failure = new RuntimeException("boom");
     BatchProgress progress = new BatchProgress(batchId, 1, 0, 1, null);
-    when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(new JobCompletionResult(true, progress));
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.joined(progress));
     assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, failure, null));
     InOrder order = inOrder(jobTerminalStore, batchService);
     order.verify(jobTerminalStore).commitCompletion(any());
@@ -528,7 +748,7 @@ class PostExecutionHandlerTest {
     JobEntity job = job(JobExecutionType.WORKFLOW_BRANCH);
     WorkflowCompletionPlan plan = new WorkflowCompletionPlan(List.of(), List.of(), true);
     when(workflowScheduler.planCompletion(any(), eq(false))).thenReturn(plan);
-    when(jobTerminalStore.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.joined(null));
     assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("boom"), null));
     verify(workflowScheduler).publishCompletion(plan);
     verify(pollerScheduler).wakeup();
@@ -669,7 +889,7 @@ class PostExecutionHandlerTest {
     job.setLastError("timed out");
     WorkflowCompletionPlan workflow = WorkflowCompletionPlan.empty();
     when(workflowScheduler.planCompletion(any(), eq(false))).thenReturn(workflow);
-    when(jobTerminalStore.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.joined(null));
     RuntimeException timeout = new RuntimeException("timed out");
     assertTrue(handler.completeTimeoutFailure(job, JobStatus.RUNNING, false, timeout, List.of()));
     InOrder order = inOrder(jobTerminalStore, deadLetterService, workflowScheduler);

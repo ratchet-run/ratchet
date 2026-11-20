@@ -320,7 +320,7 @@ final class MongoJobCrudOperations {
               .withReadPreference(ReadPreference.primary())
               .withReadConcern(ReadConcern.MAJORITY)
               .find(eq(ID, jobId))
-              .projection(new Document(STATUS, 1).append(CLAIM_SEQ, 1))
+              .projection(new Document(STATUS, 1).append(CLAIM_SEQ, 1).append(ATTEMPTS, 1))
               .first();
       if (doc == null) {
         return Optional.empty();
@@ -332,7 +332,10 @@ final class MongoJobCrudOperations {
         return Optional.empty();
       }
       return Optional.of(
-          new ClaimState(status, ((Number) doc.getOrDefault(CLAIM_SEQ, 0L)).longValue()));
+          new ClaimState(
+              status,
+              ((Number) doc.getOrDefault(CLAIM_SEQ, 0L)).longValue(),
+              ((Number) doc.getOrDefault(ATTEMPTS, 0)).intValue()));
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("read current claim", e);
     }

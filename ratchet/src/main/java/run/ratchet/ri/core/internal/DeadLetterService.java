@@ -91,7 +91,8 @@ public class DeadLetterService {
     JobDlqEvent dlq = prepared.dlq();
     List<AbstractJobSchedulerEvent> events = prepared.events();
     job.setLastError(dlq.getErrorMessage());
-    if (durableEvents != null && durableEvents.enabled()) durableEvents.publishAfterCommit(events);
+    if (durableEvents != null && durableEvents.enabled())
+      PostExecutionHandler.deferPostCommit(() -> durableEvents.publishAfterCommit(events));
     else if (eventPublisher != null)
       publishAfterCommit(() -> events.forEach(eventPublisher::publish));
     log.warnf("Job %s moved to DLQ", job.getId());
@@ -265,7 +266,8 @@ public class DeadLetterService {
   }
 
   private void publishAfterCommit(Runnable action) {
-    AfterCommitActions.runOrWarn(afterCommitRegistrar, "dead-letter events", action);
+    PostExecutionHandler.deferPostCommit(
+        () -> AfterCommitActions.runOrWarn(afterCommitRegistrar, "dead-letter events", action));
   }
 
   /**

@@ -89,6 +89,11 @@ public final class JobAttemptControl {
     return cancelFinish.getAndSet(CancelFinish.FINISHED) != CancelFinish.FINISHED;
   }
 
+  /** Returns true while a cancel the watchdog found waits for the running worker to finish it. */
+  public boolean isCancelLeftToWorker() {
+    return cancelFinish.get() == CancelFinish.LEFT_TO_WORKER;
+  }
+
   /**
    * Records that the worker has ended. Returns true when the watchdog found the job canceled while
    * the worker ran, so the worker must now finish the cancel.

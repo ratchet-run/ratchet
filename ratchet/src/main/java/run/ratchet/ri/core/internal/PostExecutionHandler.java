@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
@@ -57,11 +58,13 @@ import run.ratchet.store.spi.TransactionalCompletionStore;
  * <p>The completion entry points {@code completeSuccess}, {@code completeSuccessMinimal}, {@code
  * completeFailure}, {@code moveToDlqAndHandlePermanentFailure}, and {@code handleTimeoutTransition}
  * run outside a transaction. They open one independent {@link TxType#REQUIRES_NEW} transaction
- * through {@link BatchCompletionTransaction}, then run batch-parent follow-up on the calling thread
- * after that transaction commits and returns. {@code completeTimeoutFailure} uses {@link
- * TxType#REQUIRED} to join the timeout wrapper's transaction. Other public methods retain the
- * class-level {@code REQUIRES_NEW} boundary. Composite handlers call local helpers directly so
- * their bookkeeping shares one transaction.
+ * through {@link BatchCompletionTransaction}, then run post-commit steps and batch follow-ups on
+ * the calling thread after that transaction returns. A durable store commit is reported as
+ * committed even if the completion transaction fails afterwards. {@code
+ * completeSuccessInCurrentTransaction} is SQL-only and retains its caller's transaction boundary.
+ * {@code completeTimeoutFailure} uses {@link TxType#REQUIRED} to join the timeout wrapper's
+ * transaction. Other public methods retain the class-level {@code REQUIRES_NEW} boundary. Composite
+ * handlers call local helpers directly so their bookkeeping shares one transaction.
  *
  * <p>{@code rollbackOn = Exception.class} covers the {@code ExecutionException} wrapping that
  * {@code ManagedExecutorService} applies to failures from submitted {@code Callable}s. The default
@@ -69,9 +72,8 @@ import run.ratchet.store.spi.TransactionalCompletionStore;
  * exception from a job body to commit the post-execution transaction — the opposite of what we
  * want.
  *
- * <p><b>Failure-recovery note:</b> if the {@code REQUIRES_NEW} commit itself fails (DB blip during
- * the completion ack), the job is left in {@code RUNNING}. Orphan reset on startup / periodic
- * stale-RUNNING detection is the recovery path.
+ * <p>If a joined SQL completion transaction fails, its write rolls back and the exception
+ * propagates. A store that committed independently cannot be rolled back by that transaction.
  *
  * @see JobTask
  * @see ExecutionObserver
@@ -95,8 +97,27 @@ public class PostExecutionHandler {
     }
   }
 
-  private static final ThreadLocal<List<BatchProgress>> PENDING_BATCH_FOLLOWUPS =
-      new ThreadLocal<>();
+  private static final ThreadLocal<CompletionContext> COMPLETION_CONTEXT = new ThreadLocal<>();
+
+  private static final class CompletionContext {
+    private final boolean deferSteps;
+    private final List<Runnable> steps = new ArrayList<>();
+    private final List<BatchProgress> batchFollowups = new ArrayList<>();
+    private UUID jobId;
+    private boolean durable;
+    private boolean result;
+
+    private CompletionContext(boolean deferSteps) {
+      this.deferSteps = deferSteps;
+    }
+  }
+
+  /** Keeps publication inside caller-owned transactions and defers independent completion steps. */
+  static void deferPostCommit(Runnable step) {
+    CompletionContext context = COMPLETION_CONTEXT.get();
+    if (context != null && context.deferSteps) context.steps.add(step);
+    else step.run();
+  }
 
   private final BatchService batchService;
   private final JobTerminalStore jobTerminalStore;
@@ -225,9 +246,9 @@ public class PostExecutionHandler {
       throw new IllegalStateException("Job store does not support transactional completion");
     }
     store.requireJoinedTransaction();
-    List<BatchProgress> previous = PENDING_BATCH_FOLLOWUPS.get();
-    List<BatchProgress> pending = new ArrayList<>();
-    PENDING_BATCH_FOLLOWUPS.set(pending);
+    CompletionContext previous = COMPLETION_CONTEXT.get();
+    CompletionContext context = new CompletionContext(false);
+    COMPLETION_CONTEXT.set(context);
     try {
       JobEntity completed =
           successSnapshot(source, resultJson, resultType, start, end, durationMs, queueWaitMs);
@@ -241,10 +262,10 @@ public class PostExecutionHandler {
           expectedAttempts)) {
         throw new CompletionRejectedException();
       }
-      return new TransactionalCompletion(pending);
+      return new TransactionalCompletion(context.batchFollowups);
     } finally {
-      if (previous == null) PENDING_BATCH_FOLLOWUPS.remove();
-      else PENDING_BATCH_FOLLOWUPS.set(previous);
+      if (previous == null) COMPLETION_CONTEXT.remove();
+      else COMPLETION_CONTEXT.set(previous);
     }
   }
 
@@ -397,27 +418,36 @@ public class PostExecutionHandler {
                 completed.getId(), completed.getClaimSeq(), completed.getPickedBy());
       return false;
     }
+    CompletionContext context = COMPLETION_CONTEXT.get();
+    if (context != null) {
+      context.jobId = completed.getId();
+      context.durable |= result.durable();
+      context.result = true;
+    }
     if (durableEnabled) {
-      if (completed.getStatus() == JobStatus.SUCCEEDED) durable.publishAfterCommit(events);
+      List<AbstractJobSchedulerEvent> committedEvents = events;
+      if (completed.getStatus() == JobStatus.SUCCEEDED)
+        deferPostCommit(() -> durable.publishAfterCommit(committedEvents));
       else deadLetterService.recordDlqTransitionInCurrentTransaction(completed, preparedDlq);
     } else {
       if (completed.getStatus() == JobStatus.SUCCEEDED) {
-        workflowScheduler.publishTerminalEvent(
-            new JobCompletedEvent(
-                completed.getId(),
-                completed.getBusinessKey(),
-                completed.getRecurringMasterId(),
-                completed.getPublicJobType(),
-                completed.getPriority(),
-                completed.getPickedBy(),
-                completed.getExecutionEndTime(),
-                completed.getExecutionDurationMs()));
+        deferPostCommit(
+            () ->
+                workflowScheduler.publishTerminalEvent(
+                    new JobCompletedEvent(
+                        completed.getId(),
+                        completed.getBusinessKey(),
+                        completed.getRecurringMasterId(),
+                        completed.getPublicJobType(),
+                        completed.getPriority(),
+                        completed.getPickedBy(),
+                        completed.getExecutionEndTime(),
+                        completed.getExecutionDurationMs())));
       } else {
         deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
       }
     }
-    workflowScheduler.publishCompletion(workflow);
-    wakeupIfNewWorkAvailable(workflow.newWorkAvailable());
+    deferPostCommit(() -> workflowScheduler.publishCompletion(workflow));
     if (result.batchProgress() != null) {
       // Child terminal state and counters are already one durable unit. Parent completion is
       // independently recoverable if this following step fails (notably on Mongo).
@@ -425,9 +455,8 @@ public class PostExecutionHandler {
       // and Spring. REQUIRES_NEW there needs a second connection, so a burst can exhaust the pool.
       // Collect follow-ups until the completion transaction has returned and released its
       // connection.
-      List<BatchProgress> pending = PENDING_BATCH_FOLLOWUPS.get();
-      if (pending != null) {
-        pending.add(result.batchProgress());
+      if (context != null) {
+        context.batchFollowups.add(result.batchProgress());
       } else {
         Runnable followup =
             ExecutorClassLoader.preserveContext(() -> runBatchFollowup(result.batchProgress()));
@@ -437,35 +466,71 @@ public class PostExecutionHandler {
         }
       }
     }
+    deferPostCommit(() -> wakeupIfNewWorkAvailable(workflow.newWorkAvailable()));
     return true;
   }
 
-  private <T> T inCompletionTransaction(Supplier<T> work) {
-    List<BatchProgress> previous = PENDING_BATCH_FOLLOWUPS.get();
-    List<BatchProgress> pending = new ArrayList<>();
-    PENDING_BATCH_FOLLOWUPS.set(pending);
-    T result;
+  /**
+   * Runs post-commit steps after the completion transaction returns, then batch follow-ups. A
+   * durable store commit stays committed if the completion transaction fails afterwards.
+   * Caller-owned SQL completion does not use this boundary.
+   */
+  private boolean inCompletionTransaction(Supplier<Boolean> work) {
+    CompletionContext previous = COMPLETION_CONTEXT.get();
+    CompletionContext context = new CompletionContext(true);
+    COMPLETION_CONTEXT.set(context);
+    Supplier<Boolean> recordedWork =
+        () -> {
+          context.result = work.get();
+          return context.result;
+        };
     try {
-      result = completionTransaction != null ? completionTransaction.complete(work) : work.get();
+      context.result =
+          completionTransaction != null
+              ? completionTransaction.complete(recordedWork)
+              : recordedWork.get();
+    } catch (RuntimeException failure) {
+      if (!context.durable) throw failure;
+      Logger.getLogger(PostExecutionHandler.class)
+          .warnf(
+              failure,
+              "Job %s: the store committed; the completion transaction failed afterwards",
+              context.jobId);
     } finally {
-      if (previous == null) {
-        PENDING_BATCH_FOLLOWUPS.remove();
-      } else {
-        PENDING_BATCH_FOLLOWUPS.set(previous);
+      if (previous == null) COMPLETION_CONTEXT.remove();
+      else COMPLETION_CONTEXT.set(previous);
+    }
+    for (Runnable step : context.steps) {
+      try {
+        step.run();
+      } catch (RuntimeException failure) {
+        Logger.getLogger(PostExecutionHandler.class)
+            .warnf(
+                failure,
+                "Job %s completion committed but a post-commit step failed",
+                context.jobId);
       }
     }
-    for (BatchProgress progress : pending) {
-      runBatchFollowup(progress);
+    for (BatchProgress progress : context.batchFollowups) {
+      runBatchFollowup(progress, context.jobId);
     }
-    return result;
+    return context.result;
   }
 
   private void runBatchFollowup(BatchProgress progress) {
+    runBatchFollowup(progress, progress.batchId());
+  }
+
+  private void runBatchFollowup(BatchProgress progress, UUID completedJobId) {
     Logger log = Logger.getLogger(PostExecutionHandler.class);
     try {
       wakeupIfNewWorkAvailable(batchService.afterChildCompletion(progress));
     } catch (RuntimeException failure) {
-      log.warnf(failure, "Batch %s completion deferred to recovery", progress.batchId());
+      log.warnf(
+          failure,
+          "Job %s batch %s completion deferred to recovery",
+          completedJobId,
+          progress.batchId());
     }
   }
 
