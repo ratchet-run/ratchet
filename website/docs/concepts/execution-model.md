@@ -122,6 +122,14 @@ When an attempt ends, Ratchet releases what it held: its business-key hold, its 
 
 A finished run that asks to continue gives its claim back through the same retries. A transient store failure during that release does not charge an attempt or rerun the body.
 
+A store call that fails transiently while the worker charges an attempt, checks its batch or reschedules a retry does not fail the job.
+The worker retries the rest of its failure handling until it lands.
+It reuses a committed charge and keeps its retry decision and retry time.
+It checks the batch again before each reschedule, and a batch that has closed ends the job FAILED.
+The retrying event is published at most once and may be missing when a failed try had in fact committed.
+The failure metric is recorded when the reschedule lands, when it misses without a cancel, or when the job ends FAILED.
+It may be missing if the node stops before then.
+
 The release pool also retries an attempt's outcome write that a hard timeout or a failed failure write left RUNNING. This includes the watchdog's timeout transition and the forced FAILED write. It retries until the write lands or the node stops. A retry the release executor refuses while the node runs is resubmitted from the scheduled executor. This applies to outcome writes, permit releases and claim reschedules.
 
 In Jakarta EE, Ratchet builds the release pool from the managed thread factory named by `ratchet.worker.thread-factory-jndi` (default `java:comp/DefaultManagedThreadFactory`). The container's default managed scheduled executor can be shared with other applications on the server. Ratchet keeps its own release retries off it, but other applications' work can still delay the timers that run there.

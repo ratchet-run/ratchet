@@ -115,7 +115,7 @@ class BatchFoldTest {
     when(workflow.planCompletion(any(), eq(false), any()))
         .thenReturn(WorkflowCompletionPlan.empty());
     when(workflow.planCompletion(any(), eq(false))).thenReturn(WorkflowCompletionPlan.empty());
-    when(terminal.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
+    when(terminal.commitCompletion(any())).thenReturn(JobCompletionResult.joined(null));
     when(executor.getJobExecutor()).thenReturn(pool);
     service =
         new BatchService(

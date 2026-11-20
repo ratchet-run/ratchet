@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 class StoreCallGateTest {
   private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -99,7 +100,7 @@ class StoreCallGateTest {
     fault.awaitFired(Duration.ofSeconds(5));
     ExecutionException failure =
         assertThrows(ExecutionException.class, () -> first.get(5, TimeUnit.SECONDS));
-    assertInstanceOf(IllegalStateException.class, failure.getCause());
+    assertInstanceOf(RatchetTransientStoreException.class, failure.getCause());
     assertEquals("StoreCallGate fault in getJobStatus", failure.getCause().getMessage());
     assertEquals(jobId, fault.jobId());
     assertSame(executorThread, fault.thread());

@@ -16,6 +16,7 @@
 package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
@@ -67,10 +68,10 @@ class SqlJobCompletionTest {
             2,
             List.of());
 
-    assertEquals(
-        false,
-        SqlJobCompletion.commit(em, store, mock(BatchStore.class), plan, false, uuid -> uuid)
-            .committed());
+    var result =
+        SqlJobCompletion.commit(em, store, mock(BatchStore.class), plan, false, uuid -> uuid);
+    assertFalse(result.committed());
+    assertFalse(result.durable());
     verify(em, never()).createNativeQuery(startsWith("UPDATE "));
     verifyNoInteractions(store);
   }
@@ -255,9 +256,10 @@ class SqlJobCompletionTest {
             null,
             List.of());
 
-    assertTrue(
-        SqlJobCompletion.commit(em, store, mock(BatchStore.class), plan, false, uuid -> uuid)
-            .committed());
+    var result =
+        SqlJobCompletion.commit(em, store, mock(BatchStore.class), plan, false, uuid -> uuid);
+    assertTrue(result.committed());
+    assertFalse(result.durable());
 
     if (stored == planned) {
       verify(update, never()).executeUpdate();

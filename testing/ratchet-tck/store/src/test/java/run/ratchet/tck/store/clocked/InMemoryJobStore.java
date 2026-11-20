@@ -278,7 +278,24 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       return Optional.empty();
     }
     return Optional.of(
-        new ClaimState(job.getStatus(), job.getClaimSeq() == null ? 0L : job.getClaimSeq()));
+        new ClaimState(
+            job.getStatus(),
+            job.getClaimSeq() == null ? 0L : job.getClaimSeq(),
+            job.getAttempts()));
+  }
+
+  @Override
+  public synchronized int incrementRetryAttempt(
+      UUID id, @Nullable Long expectedClaimSeq, @Nullable Integer expectedAttempts) {
+    JobEntity job = jobs.get(id);
+    if (job == null
+        || (job.getStatus() != JobStatus.RUNNING && job.getStatus() != JobStatus.WAITING)
+        || (expectedClaimSeq != null
+            && !expectedClaimSeq.equals(job.getClaimSeq() == null ? 0L : job.getClaimSeq()))
+        || (expectedAttempts != null && job.getAttempts() != expectedAttempts)) return -1;
+    job.setAttempts(job.getAttempts() + 1);
+    job.setVersion(job.getVersion() == null ? 1 : job.getVersion() + 1);
+    return job.getAttempts();
   }
 
   @Override
@@ -418,7 +435,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       }
       dependent.setVersion(dependent.getVersion() == null ? 1 : dependent.getVersion() + 1);
     }
-    return new JobCompletionResult(true, null);
+    return JobCompletionResult.durable(null);
   }
 
   @Override

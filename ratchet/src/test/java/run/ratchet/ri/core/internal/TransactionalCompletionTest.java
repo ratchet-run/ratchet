@@ -95,7 +95,7 @@ class TransactionalCompletionTest {
     when(reads.findConditionsForCompletion(job.getId())).thenReturn(List.of());
     when(reads.findDependantsForCompletion(eq(job.getId()), anyInt(), anyInt()))
         .thenReturn(List.of());
-    when(jobs.commitCompletion(any())).thenReturn(new JobCompletionResult(true, null));
+    when(jobs.commitCompletion(any())).thenReturn(JobCompletionResult.joined(null));
     carrier.run(() -> complete(job));
     var ordered = inOrder(reads, jobs);
     ordered.verify(reads).requireJoinedTransaction();
@@ -111,7 +111,7 @@ class TransactionalCompletionTest {
     JobEntity job = source(JobExecutionType.BATCH_CHILD);
     BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
     when(jobs.capability(TransactionalCompletionStore.class)).thenReturn(Optional.of(reads));
-    when(jobs.commitCompletion(any())).thenReturn(new JobCompletionResult(true, progress));
+    when(jobs.commitCompletion(any())).thenReturn(JobCompletionResult.joined(progress));
     TransactionalCompletion completion = carrier.run(() -> complete(job));
     assertEquals(List.of(progress), completion.followups());
     verifyNoInteractions(batches, boundary, registrar);
@@ -121,14 +121,52 @@ class TransactionalCompletionTest {
   }
 
   @Test
+  void callerOwnedCompletionPublishesInlineAndReturnsItsBatchFollowup() throws Exception {
+    JobEntity job = source(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
+    WorkflowScheduler notifications = mock(WorkflowScheduler.class);
+    PostExecutionHandler callerOwned =
+        new PostExecutionHandler(
+            batches, notifications, deadLetters, null, jobs, registrar, boundary);
+    when(jobs.capability(TransactionalCompletionStore.class)).thenReturn(Optional.of(reads));
+    when(jobs.commitCompletion(any())).thenReturn(JobCompletionResult.joined(progress));
+    doAnswer(
+            invocation -> {
+              assertTrue(JobTransaction.active());
+              return null;
+            })
+        .when(notifications)
+        .publishTerminalEvent(any());
+    doAnswer(
+            invocation -> {
+              assertTrue(JobTransaction.active());
+              return null;
+            })
+        .when(notifications)
+        .publishCompletion(any());
+
+    TransactionalCompletion completion =
+        carrier.run(
+            () ->
+                callerOwned.completeSuccessInCurrentTransaction(
+                    job, null, null, Instant.EPOCH, Instant.EPOCH, 0, 0, null));
+
+    assertEquals(List.of(progress), completion.followups());
+    verify(notifications).publishTerminalEvent(any());
+    verify(notifications).publishCompletion(any());
+    verify(reads).requireJoinedTransaction();
+    verifyNoInteractions(batches, boundary, registrar);
+  }
+
+  @Test
   void rejectedFenceThrowsAndRestoresCollector() {
     JobEntity job = source(JobExecutionType.BATCH_CHILD);
     when(jobs.capability(TransactionalCompletionStore.class)).thenReturn(Optional.of(reads));
-    when(jobs.commitCompletion(any())).thenReturn(new JobCompletionResult(false, null));
+    when(jobs.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
     assertThrows(CompletionRejectedException.class, () -> carrier.run(() -> complete(job)));
     assertFalse(JobTransaction.active());
     BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
-    when(jobs.commitCompletion(any())).thenReturn(new JobCompletionResult(true, progress));
+    when(jobs.commitCompletion(any())).thenReturn(JobCompletionResult.joined(progress));
     when(registrar.registerAfterCommit(any())).thenReturn(AfterCommitRegistrar.Result.REGISTERED);
     assertTrue(handler.completeTimeoutFailure(job, JobStatus.RUNNING, false, null, List.of()));
     verify(registrar).registerAfterCommit(any());

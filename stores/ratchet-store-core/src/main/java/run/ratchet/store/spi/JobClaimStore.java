@@ -29,9 +29,9 @@ import run.ratchet.store.entity.JobExecutionType;
 public interface JobClaimStore {
 
   /**
-   * Returns the status and claim sequence of the job's live row. Empty when the job does not exist
-   * or has finished (SUCCEEDED, FAILED, CANCELED). Terminal jobs are empty because the stored
-   * sequence of a SUCCEEDED or CANCELED job is not kept current.
+   * Returns the status, claim sequence and attempt count of the job's live row from one read. Empty
+   * when the job does not exist or has finished (SUCCEEDED, FAILED, CANCELED). Terminal jobs are
+   * empty because the stored sequence of a SUCCEEDED or CANCELED job is not kept current.
    *
    * <p>Reads the latest committed state outside the caller's transaction. Takes no locks and does
    * not load, decrypt or deserialize payload, params or callbacks. Transaction attribute: {@code

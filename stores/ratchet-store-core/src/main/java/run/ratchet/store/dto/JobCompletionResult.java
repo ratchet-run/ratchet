@@ -15,9 +15,23 @@
  */
 package run.ratchet.store.dto;
 
-/** Result of an atomic completion; progress is the exact post-increment batch-child snapshot. */
-public record JobCompletionResult(boolean committed, BatchProgress batchProgress) {
+/**
+ * Result of an atomic completion; progress is the exact batch child snapshot after the increment.
+ *
+ * @param durable true only when the store committed its own transaction before returning, so the
+ *     caller's transaction cannot roll the write back; false when the write joined the caller's
+ *     transaction
+ */
+public record JobCompletionResult(boolean committed, boolean durable, BatchProgress batchProgress) {
   public static JobCompletionResult notCommitted() {
-    return new JobCompletionResult(false, null);
+    return new JobCompletionResult(false, false, null);
+  }
+
+  public static JobCompletionResult joined(BatchProgress batchProgress) {
+    return new JobCompletionResult(true, false, batchProgress);
+  }
+
+  public static JobCompletionResult durable(BatchProgress batchProgress) {
+    return new JobCompletionResult(true, true, batchProgress);
   }
 }

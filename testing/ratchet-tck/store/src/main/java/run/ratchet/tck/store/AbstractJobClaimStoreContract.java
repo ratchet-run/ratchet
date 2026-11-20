@@ -66,7 +66,8 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   void currentClaimReadsPendingAndMissingJobs() {
     var job = persist(newPendingJob());
     assertEquals(
-        new ClaimState(JobStatus.PENDING, 0), store().currentClaim(job.getId()).orElseThrow());
+        new ClaimState(JobStatus.PENDING, 0, job.getAttempts()),
+        store().currentClaim(job.getId()).orElseThrow());
     assertTrue(store().currentClaim(UUID.randomUUID()).isEmpty());
   }
 
@@ -76,9 +77,13 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     var claim = store().claimNextBatch(1, "node-1").get(0);
     long seq = claim.getClaimSeq();
     assertTrue(seq >= 1);
-    assertEquals(new ClaimState(JobStatus.RUNNING, seq), store().currentClaim(id).orElseThrow());
+    assertEquals(
+        new ClaimState(JobStatus.RUNNING, seq, claim.getAttempts()),
+        store().currentClaim(id).orElseThrow());
     assertTrue(store().resetRunningJob(id, "node-1", seq));
-    assertEquals(new ClaimState(JobStatus.PENDING, seq), store().currentClaim(id).orElseThrow());
+    assertEquals(
+        new ClaimState(JobStatus.PENDING, seq, claim.getAttempts()),
+        store().currentClaim(id).orElseThrow());
     store().claimNextBatch(1, "node-1");
     assertTrue(store().currentClaim(id).orElseThrow().claimSeq() > seq);
   }
@@ -91,7 +96,74 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     waiting.setSignalTimeout(Instant.now().plusSeconds(600));
     var saved = persist(waiting);
     assertEquals(
-        new ClaimState(JobStatus.WAITING, 0), store().currentClaim(saved.getId()).orElseThrow());
+        new ClaimState(JobStatus.WAITING, 0, saved.getAttempts()),
+        store().currentClaim(saved.getId()).orElseThrow());
+  }
+
+  private JobClaimDto claimWithStoredAttempts() {
+    JobEntity pending = newPendingJob();
+    pending.setAttempts(2);
+    pending.setMaxRetries(5);
+    UUID id = persist(pending).getId();
+    JobClaimDto claim =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertEquals(id, claim.id());
+    return claim;
+  }
+
+  @Test
+  void currentClaimReportsStoredAttemptsAfterClaim() {
+    JobClaimDto claim = claimWithStoredAttempts();
+    assertEquals(2, claim.attempts());
+    assertEquals(
+        new ClaimState(JobStatus.RUNNING, claim.claimSeq(), claim.attempts()),
+        store().currentClaim(claim.id()).orElseThrow());
+    assertEquals(
+        store().findById(claim.id()).orElseThrow().getAttempts(),
+        store().currentClaim(claim.id()).orElseThrow().attempts());
+  }
+
+  @Test
+  void currentClaimReportsChargedAttemptsUnderTheSameClaim() {
+    JobClaimDto claim = claimWithStoredAttempts();
+    int charged = store().incrementRetryAttempt(claim.id(), claim.claimSeq(), claim.attempts());
+    assertEquals(claim.attempts() + 1, charged);
+    assertEquals(
+        new ClaimState(JobStatus.RUNNING, claim.claimSeq(), charged),
+        store().currentClaim(claim.id()).orElseThrow());
+  }
+
+  @Test
+  void currentClaimReportsChargedAttemptsAfterReschedule() {
+    JobClaimDto claim = claimWithStoredAttempts();
+    int charged = store().incrementRetryAttempt(claim.id(), claim.claimSeq(), claim.attempts());
+    assertEquals(claim.attempts() + 1, charged);
+    assertTrue(
+        store()
+            .scheduleJobRetry(
+                claim.id(), "retry", Instant.now().minusSeconds(1), charged, claim.claimSeq()));
+    assertEquals(
+        new ClaimState(JobStatus.PENDING, claim.claimSeq(), charged),
+        store().currentClaim(claim.id()).orElseThrow());
+  }
+
+  @Test
+  void currentClaimKeepsChargedAttemptsWhenReclaimed() {
+    JobClaimDto claim = claimWithStoredAttempts();
+    int charged = store().incrementRetryAttempt(claim.id(), claim.claimSeq(), claim.attempts());
+    assertEquals(claim.attempts() + 1, charged);
+    assertTrue(
+        store()
+            .scheduleJobRetry(
+                claim.id(), "retry", Instant.now().minusSeconds(1), charged, claim.claimSeq()));
+    JobClaimDto reclaimed =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-2").get(0);
+    assertEquals(claim.id(), reclaimed.id());
+    assertEquals(claim.claimSeq() + 1, reclaimed.claimSeq());
+    assertEquals(charged, reclaimed.attempts());
+    assertEquals(
+        new ClaimState(JobStatus.RUNNING, claim.claimSeq() + 1, charged),
+        store().currentClaim(claim.id()).orElseThrow());
   }
 
   @Test
@@ -137,6 +209,7 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     store().claimNextBatch(1, "node-1");
     ClaimState before = store().currentClaim(saved.getId()).orElseThrow();
     var current = store().findById(saved.getId()).orElseThrow();
+    assertEquals(current.getAttempts(), before.attempts());
     stale.setVersion(current.getVersion());
     stale.setStatus(JobStatus.RUNNING);
     stale.setPickedBy(current.getPickedBy());
