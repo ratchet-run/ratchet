@@ -55,15 +55,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -86,6 +93,7 @@ import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
+import run.ratchet.api.internal.ExecutorProviderClosedException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
 import run.ratchet.ri.payload.JobPayloadFactory;
@@ -677,6 +685,11 @@ class JobTimeoutHandlerTest {
   }
 
   private void invokeHardTimeout(JobAttemptControl attempt, Future<?> future) throws Exception {
+    invokeHardTimeout(attempt, future, null);
+  }
+
+  private void invokeHardTimeout(
+      JobAttemptControl attempt, Future<?> future, OutcomeWriteRetries retries) throws Exception {
     Method method =
         JobTimeoutHandler.class.getDeclaredMethod(
             "handleHardTimeoutById",
@@ -684,7 +697,176 @@ class JobTimeoutHandlerTest {
             Future.class,
             OutcomeWriteRetries.class);
     method.setAccessible(true);
-    method.invoke(handler, attempt, future, null);
+    method.invoke(handler, attempt, future, retries);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void hardTimeoutFirstTryRunsOnReleaseThreadAndKeepsMarkerUntilFinished(boolean handedBack)
+      throws Exception {
+    ScheduledThreadPoolExecutor releases = new ScheduledThreadPoolExecutor(1);
+    ScheduledThreadPoolExecutor timers = new ScheduledThreadPoolExecutor(1);
+    AtomicReference<Thread> flushThread = new AtomicReference<>();
+    AtomicReference<Thread> transitionThread = new AtomicReference<>();
+    CountDownLatch occupied = new CountDownLatch(1);
+    CountDownLatch free = new CountDownLatch(1);
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch complete = new CountDownLatch(1);
+    Thread caller = Thread.currentThread();
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
+    assertTrue(attempt.markBodyStarted());
+    if (handedBack) {
+      assertTrue(attempt.claimTimeoutForWorker());
+      assertTrue(attempt.handBackTimeoutToWatchdog());
+    }
+    Future<?> future = mock(Future.class);
+    if (handedBack) when(future.isDone()).thenReturn(true);
+    doAnswer(
+            call -> {
+              assertTrue(handler.isWatchdogCancelled(JOB_ID));
+              return true;
+            })
+        .when(future)
+        .cancel(true);
+    attempt.attachStateFlush(
+        () -> {
+          flushThread.set(Thread.currentThread());
+          assertTrue(handler.isWatchdogCancelled(JOB_ID));
+        });
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(jobWithMaxRetries(3)));
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(7L)))
+        .thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L, 0))
+        .thenAnswer(
+            call -> {
+              transitionThread.set(Thread.currentThread());
+              assertTrue(handler.isWatchdogCancelled(JOB_ID));
+              entered.countDown();
+              assertTrue(complete.await(5, TimeUnit.SECONDS));
+              return 1;
+            });
+    try {
+      releases.execute(
+          () -> {
+            occupied.countDown();
+            awaitTimeoutLatch(free);
+          });
+      assertTrue(occupied.await(5, TimeUnit.SECONDS));
+      timers
+          .submit(
+              () -> {
+                invokeHardTimeout(attempt, future, new OutcomeWriteRetries(() -> releases, null));
+                return null;
+              })
+          .get(1, TimeUnit.SECONDS);
+      assertTrue(attempt.isSuperseded());
+      verify(future).cancel(true);
+      assertTrue(handler.isWatchdogCancelled(JOB_ID));
+      verify(jobCrudStore, never()).findById(any());
+      assertEquals(1, releases.getQueue().size());
+      free.countDown();
+      assertTrue(entered.await(5, TimeUnit.SECONDS));
+      assertNotNull(flushThread.get());
+      assertSame(flushThread.get(), transitionThread.get());
+      assertFalse(flushThread.get() == caller);
+      assertFalse(
+          flushThread.get() == timers.submit(Thread::currentThread).get(1, TimeUnit.SECONDS));
+      assertTrue(handler.isWatchdogCancelled(JOB_ID));
+      complete.countDown();
+      releases.submit(() -> {}).get(5, TimeUnit.SECONDS);
+      assertFalse(handler.isWatchdogCancelled(JOB_ID));
+      verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 7L, 0);
+      verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(7L));
+    } finally {
+      free.countDown();
+      complete.countDown();
+      releases.shutdownNow();
+      timers.shutdownNow();
+      assertTrue(releases.awaitTermination(5, TimeUnit.SECONDS));
+      assertTrue(timers.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  private static void awaitTimeoutLatch(CountDownLatch latch) {
+    try {
+      assertTrue(latch.await(5, TimeUnit.SECONDS));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(e);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void stoppingReleaseExecutorSkipsHardTimeoutStoreWrites(boolean closedSupplier) throws Exception {
+    ScheduledThreadPoolExecutor releases = new ScheduledThreadPoolExecutor(1);
+    releases.shutdown();
+    Supplier<ScheduledExecutorService> supplier =
+        () -> {
+          if (closedSupplier) throw new ExecutorProviderClosedException("closed");
+          return releases;
+        };
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
+    Runnable flush = mock(Runnable.class);
+    attempt.attachStateFlush(flush);
+    Logger logger = Logger.getLogger(JobTimeoutHandler.class.getName());
+    List<LogRecord> records = new ArrayList<>();
+    Handler capture =
+        new Handler() {
+          @Override
+          public void publish(LogRecord record) {
+            if (record.getMessage().startsWith("This node is stopping;")) records.add(record);
+          }
+
+          @Override
+          public void flush() {}
+
+          @Override
+          public void close() {}
+        };
+    Level previous = logger.getLevel();
+    logger.setLevel(Level.ALL);
+    logger.addHandler(capture);
+    try {
+      invokeHardTimeout(attempt, mock(Future.class), new OutcomeWriteRetries(supplier, null));
+      assertEquals(1, records.size());
+      assertEquals(Level.INFO, records.get(0).getLevel());
+      assertEquals(
+          "This node is stopping; hard-timeout transition for job "
+              + JOB_ID
+              + " left to shutdown reset or orphan recovery",
+          records.get(0).getMessage());
+    } finally {
+      logger.removeHandler(capture);
+      logger.setLevel(previous);
+    }
+    verify(flush, never()).run();
+    verify(jobCrudStore, never()).findById(any());
+    assertFalse(handler.isWatchdogCancelled(JOB_ID));
+  }
+
+  @Test
+  void unavailableReleaseExecutorRunsHardTimeoutInline() throws Exception {
+    Thread caller = Thread.currentThread();
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
+    attempt.attachStateFlush(() -> assertSame(caller, Thread.currentThread()));
+    when(jobCrudStore.findById(JOB_ID))
+        .thenAnswer(
+            call -> {
+              assertSame(caller, Thread.currentThread());
+              assertTrue(handler.isWatchdogCancelled(JOB_ID));
+              return Optional.empty();
+            });
+    invokeHardTimeout(
+        attempt,
+        mock(Future.class),
+        new OutcomeWriteRetries(
+            () -> {
+              throw new IllegalStateException("unavailable");
+            },
+            null));
+    verify(jobCrudStore).findById(JOB_ID);
+    assertFalse(handler.isWatchdogCancelled(JOB_ID));
   }
 
   @Test
@@ -1402,6 +1584,14 @@ class JobTimeoutHandlerTest {
     ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
     List<Runnable> pending = new ArrayList<>();
+    List<Runnable> firstTries = new ArrayList<>();
+    doAnswer(
+            call -> {
+              firstTries.add(call.getArgument(0));
+              return null;
+            })
+        .when(releases)
+        .execute(any(Runnable.class));
     when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
         .thenAnswer(
             invocation -> {
@@ -1423,6 +1613,8 @@ class JobTimeoutHandlerTest {
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
+    assertTrue(handler.isWatchdogCancelled(JOB_ID));
+    firstTries.remove(0).run();
     assertEquals(1, pending.size());
 
     pending.remove(0).run();
@@ -1448,6 +1640,14 @@ class JobTimeoutHandlerTest {
     ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
     List<Runnable> pending = new ArrayList<>();
+    List<Runnable> firstTries = new ArrayList<>();
+    doAnswer(
+            call -> {
+              firstTries.add(call.getArgument(0));
+              return null;
+            })
+        .when(releases)
+        .execute(any(Runnable.class));
     when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
         .thenAnswer(
             invocation -> {
@@ -1469,6 +1669,8 @@ class JobTimeoutHandlerTest {
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
+    assertTrue(handler.isWatchdogCancelled(JOB_ID));
+    firstTries.remove(0).run();
     assertEquals(1, pending.size());
 
     pending.remove(0).run();
@@ -1491,6 +1693,14 @@ class JobTimeoutHandlerTest {
     ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
     List<Runnable> pending = new ArrayList<>();
+    List<Runnable> firstTries = new ArrayList<>();
+    doAnswer(
+            call -> {
+              firstTries.add(call.getArgument(0));
+              return null;
+            })
+        .when(releases)
+        .execute(any(Runnable.class));
     List<Long> delays = new ArrayList<>();
     AtomicLong clock = new AtomicLong();
     when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
@@ -1511,6 +1721,8 @@ class JobTimeoutHandlerTest {
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
 
     assertDoesNotThrow(() -> tasks.getAllValues().get(1).run());
+    assertTrue(handler.isWatchdogCancelled(JOB_ID));
+    firstTries.remove(0).run();
 
     assertFalse(handler.isWatchdogCancelled(JOB_ID));
     assertEquals(List.of(5_000L), delays);

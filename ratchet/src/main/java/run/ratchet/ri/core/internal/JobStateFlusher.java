@@ -20,10 +20,12 @@ import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 
@@ -41,8 +43,10 @@ public class JobStateFlusher {
   private ScheduledFuture<?> handle;
   private long scheduledDue;
   private long generation;
-  private boolean draining;
-  // Set when the executor rejected a schedule, so the next markDirty retries even for a queued
+  private long drainingTicket;
+  private Supplier<? extends Executor> writes;
+  private boolean writeSubmissionFailed;
+  // Set when timing or write submission failed, so the next markDirty retries even for a queued
   // writer.
   private volatile boolean scheduleFailed;
 
@@ -69,7 +73,7 @@ public class JobStateFlusher {
     return progressIntervalMs;
   }
 
-  /** True after the executor rejected a schedule, until a later schedule succeeds. */
+  /** True after timing or write submission failed, until a later schedule succeeds. */
   boolean scheduleFailed() {
     return scheduleFailed;
   }
@@ -100,13 +104,19 @@ public class JobStateFlusher {
     }
   }
 
-  public synchronized void start(ScheduledExecutorService executor) {
-    this.executor = executor;
+  /** Starts timing on the timer and submits periodic state drains to the write executor. */
+  public synchronized void start(
+      ScheduledExecutorService timer, Supplier<? extends Executor> writes) {
+    this.executor = timer;
+    this.writes = writes;
+    drainingTicket = 0;
     scheduleIfNeeded();
   }
 
   public synchronized void stop() {
     executor = null;
+    drainingTicket = 0;
+    writeSubmissionFailed = false;
     scheduleFailed = false;
     generation++;
     if (handle != null) handle.cancel(false);
@@ -114,7 +124,7 @@ public class JobStateFlusher {
   }
 
   private synchronized void scheduleIfNeeded() {
-    if (executor == null || draining) return;
+    if (executor == null || drainingTicket != 0) return;
     if (dirty.isEmpty()) {
       scheduleFailed = false;
       return;
@@ -141,18 +151,37 @@ public class JobStateFlusher {
   }
 
   private void runScheduled(long ticket) {
+    Supplier<? extends Executor> writeExecutor;
     synchronized (this) {
       if (ticket != generation || executor == null) return;
       handle = null;
-      draining = true;
+      drainingTicket = ticket;
+      writeExecutor = writes;
     }
+    try {
+      writeExecutor.get().execute(() -> runDrain(ticket));
+      synchronized (this) {
+        if (generation == ticket) writeSubmissionFailed = false;
+      }
+    } catch (RuntimeException failure) {
+      synchronized (this) {
+        if (drainingTicket != ticket) return;
+        drainingTicket = 0;
+        if (!writeSubmissionFailed) log.warn("Could not submit job state flush", failure);
+        writeSubmissionFailed = true;
+        scheduleFailed = true;
+      }
+    }
+  }
+
+  private void runDrain(long ticket) {
     try {
       flushDirty();
     } catch (Throwable failure) {
       log.warn("Job state flush failed", failure);
     } finally {
       synchronized (this) {
-        draining = false;
+        if (drainingTicket == ticket) drainingTicket = 0;
       }
       scheduleIfNeeded();
     }
