@@ -548,7 +548,7 @@ Returns the executor for scheduling polling and delayed tasks.
 ScheduledExecutorService getReleaseExecutor()
 ```
 
-Returns the provider-owned executor for release retries, hard-timeout writes and state flushes. It must be a stable instance distinct from the scheduler.
+Returns the provider-owned executor for release retries, hard-timeout writes and state flushes. It must be a stable instance whose threads are separate from the scheduler's.
 
 
 ### Example

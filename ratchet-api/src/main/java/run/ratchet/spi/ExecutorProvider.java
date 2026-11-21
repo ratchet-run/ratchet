@@ -90,10 +90,11 @@ public interface ExecutorProvider {
    * timeout's state flush and first outcome write run on the scheduled executor instead, so the job
    * is not left RUNNING; while such a write blocks, it delays the scheduled executor's timers.
    *
-   * <p>This must be a different instance from {@link #getScheduledExecutor()}, so a store write
-   * that blocks on this executor cannot delay the heartbeat or the watchdog timers. The runtime
-   * refuses to start when both accessors return the same instance. The provider owns this executor
-   * and is responsible for disposing it during application shutdown; callers must not shut it down.
+   * <p>This must run on threads separate from those of {@link #getScheduledExecutor()}, so a store
+   * write that blocks on this executor cannot delay the heartbeat or the watchdog timers. The
+   * runtime refuses to start when both accessors return the same instance, but it cannot tell when
+   * two different executors share the same threads. The provider owns this executor and is
+   * responsible for disposing it during application shutdown; callers must not shut it down.
    *
    * @return release executor; never {@code null}
    */

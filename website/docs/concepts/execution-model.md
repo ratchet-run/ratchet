@@ -138,7 +138,7 @@ The release pool also retries an attempt's outcome write that a hard timeout or 
 
 In Jakarta EE, Ratchet builds the release pool from the managed thread factory named by `ratchet.worker.thread-factory-jndi` (default `java:comp/DefaultManagedThreadFactory`). The container's default managed scheduled executor can be shared with other applications on the server. Ratchet keeps its own release retries off it, but other applications' work can still delay the timers that run there.
 
-A custom `ExecutorProvider` must return a release executor that is not its scheduled executor. The runtime refuses to start if both are the same instance. Size the release executor for this store work.
+A custom `ExecutorProvider` must return a release executor that runs on threads separate from its scheduled executor's. The runtime refuses to start if both are the same instance, but it cannot tell when two different executors share the same threads. Size the release executor for this store work.
 
 The coordinator tracks pool utilization metrics, which feed back into the `PollingStrategy` to adjust polling aggressiveness.
 
