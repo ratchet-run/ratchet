@@ -30,10 +30,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.StandaloneExecutorProvider;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.store.spi.JobStore;
@@ -43,21 +46,31 @@ import run.ratchet.store.spi.OrphanRecovery;
 class ReleaseExecutorIsolationTest {
   @Test
   void blockedReleasesLeaveHeartbeatAndWatchdogRunning() throws Exception {
-    exercise(false);
+    exercise(false, false);
   }
 
   @Test
   void sharedSchedulerControlStarvesHeartbeatAndWatchdog() throws Exception {
-    exercise(true);
+    exercise(true, false);
   }
 
-  private void exercise(boolean sharedScheduler) throws Exception {
+  @Test
+  void blockedTimeoutAndFlusherWritesLeaveHeartbeatAndWatchdogRunning() throws Exception {
+    exercise(false, true);
+  }
+
+  @Test
+  void sharedSchedulerControlStarvesOnTimeoutAndFlusherWrites() throws Exception {
+    exercise(true, true);
+  }
+
+  private void exercise(boolean sharedScheduler, boolean timeoutWrites) throws Exception {
     StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
     CountDownLatch unblock = new CountDownLatch(1);
     CountDownLatch claimEntered = new CountDownLatch(1);
     CountDownLatch holdEntered = new CountDownLatch(1);
     CountDownLatch heartbeats = new CountDownLatch(3);
-    CountDownLatch watchdog = new CountDownLatch(1);
+    CountDownLatch watchdog = new CountDownLatch(2);
     JobStore store = mock(JobStore.class);
     NodeStore nodes = mock(NodeStore.class);
     ResourcePermitService permits = mock(ResourcePermitService.class);
@@ -104,6 +117,8 @@ class ReleaseExecutorIsolationTest {
         sharedScheduler
             ? () -> provider.getScheduledExecutor()
             : () -> provider.getReleaseExecutor();
+    AtomicLong now = new AtomicLong();
+    JobStateFlusher flusher = new JobStateFlusher(RatchetOptions.defaults(), now::get);
     HeldKeyReleases holds = new HeldKeyReleases(store, releases);
     PermitReleases permitReleases = new PermitReleases(permits, releases, null);
     ClaimReschedules claims = new ClaimReschedules(store, releases, null);
@@ -116,29 +131,100 @@ class ReleaseExecutorIsolationTest {
               })
           .when(nodes)
           .upsertHeartbeat(anyString(), any());
-      assertTrue(
-          claims.handOff(
-              UUID.randomUUID(),
-              1,
-              "release",
+      if (timeoutWrites) {
+        CountDownLatch flushEntered = new CountDownLatch(1);
+        CountDownLatch timeoutEntered = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(3);
+        FlushableState writer = mock(FlushableState.class);
+        when(writer.flushIntervalMs()).thenReturn(1L);
+        doAnswer(
+                call -> {
+                  flushEntered.countDown();
+                  awaitRelease(unblock);
+                  return null;
+                })
+            .when(writer)
+            .flush();
+        flusher.markDirty(writer);
+        now.set(TimeUnit.MILLISECONDS.toNanos(1));
+        flusher.start(provider.getScheduledExecutor(), releases);
+        assertTrue(flushEntered.await(10, TimeUnit.SECONDS));
+        JobTimeoutHandler timeouts =
+            new JobTimeoutHandler(
+                store,
+                store,
+                null,
+                mock(PostExecutionHandler.class),
+                80,
+                60,
+                Clock.systemUTC(),
+                null,
+                null,
+                null,
+                500);
+        for (int i = 0; i < 3; i++) {
+          JobAttemptControl attempt =
+              timeouts.newAttempt(UUID.randomUUID(), 1, Instant.now(), 0, 1L, "isolation");
+          // A running body makes the watchdog interrupt the worker.
+          assertTrue(attempt.markBodyStarted());
+          attempt.attachStateFlush(
+              () -> {
+                timeoutEntered.countDown();
+                awaitRelease(unblock);
+              });
+          Future<?> future = mock(Future.class);
+          doAnswer(
+                  call -> {
+                    interrupted.countDown();
+                    return true;
+                  })
+              .when(future)
+              .cancel(true);
+          timeouts.scheduleTimeoutMonitoring(
+              attempt,
+              future,
+              provider.getScheduledExecutor(),
               Instant.now(),
-              0,
-              () -> false,
-              () -> {},
-              () -> {},
-              () -> {}));
-      assertTrue(claimEntered.await(10, TimeUnit.SECONDS));
-      try {
-        Thread.currentThread().interrupt();
-        holds.release(UUID.randomUUID(), 2);
-        permitReleases.release("gpu", UUID.randomUUID(), 3);
-        permitReleases.release("gpu", UUID.randomUUID(), 4);
-      } finally {
-        Thread.interrupted();
+              new OutcomeWriteRetries(releases, null));
+        }
+        assertTrue(timeoutEntered.await(10, TimeUnit.SECONDS));
+        if (!sharedScheduler) assertTrue(interrupted.await(10, TimeUnit.SECONDS));
+      } else {
+        assertTrue(
+            claims.handOff(
+                UUID.randomUUID(),
+                1,
+                "release",
+                Instant.now(),
+                0,
+                () -> false,
+                () -> {},
+                () -> {},
+                () -> {}));
+        assertTrue(claimEntered.await(10, TimeUnit.SECONDS));
+        try {
+          Thread.currentThread().interrupt();
+          holds.release(UUID.randomUUID(), 2);
+          permitReleases.release("gpu", UUID.randomUUID(), 3);
+          permitReleases.release("gpu", UUID.randomUUID(), 4);
+        } finally {
+          Thread.interrupted();
+        }
+        assertTrue(holdEntered.await(10, TimeUnit.SECONDS));
       }
-      assertTrue(holdEntered.await(10, TimeUnit.SECONDS));
       liveness.startHeartbeat(provider.getScheduledExecutor());
-      provider.getScheduledExecutor().schedule(watchdog::countDown, 0, TimeUnit.MILLISECONDS);
+      // Two tasks that wait for each other finish only while both scheduler threads are free.
+      for (int i = 0; i < 2; i++) {
+        provider
+            .getScheduledExecutor()
+            .schedule(
+                () -> {
+                  watchdog.countDown();
+                  return watchdog.await(10, TimeUnit.SECONDS);
+                },
+                0,
+                TimeUnit.MILLISECONDS);
+      }
       if (sharedScheduler) {
         assertFalse(heartbeats.await(4, TimeUnit.SECONDS));
         assertFalse(watchdog.await(300, TimeUnit.MILLISECONDS));
@@ -150,6 +236,7 @@ class ReleaseExecutorIsolationTest {
     } finally {
       Thread.interrupted();
       unblock.countDown();
+      flusher.stop();
       liveness.shutdown();
       provider.shutdown();
     }

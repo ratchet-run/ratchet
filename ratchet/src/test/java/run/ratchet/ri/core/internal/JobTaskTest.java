@@ -4878,7 +4878,7 @@ class JobTaskTest {
   }
 
   @Test
-  void supersededWatchdogInterruptStillClosesExecutionWithHardTimeout() throws Exception {
+  void supersededWatchdogInterruptAfterMarkerRemovalStillDefersOutcome() throws Exception {
     assertWatchdogInterruptExecution(false, true);
   }
 
@@ -4905,7 +4905,7 @@ class JobTaskTest {
               if (superseded) Assertions.assertTrue(attempt.claimTimeoutForWatchdog());
               throw new InterruptedException("watchdog interrupt");
             });
-    when(timeoutHandler.isWatchdogCancelled(JOB_UUID)).thenReturn(true);
+    when(timeoutHandler.isWatchdogCancelled(JOB_UUID)).thenReturn(!superseded);
     when(errorSanitizer.sanitize(any(Throwable.class)))
         .thenAnswer(invocation -> invocation.<Throwable>getArgument(0).getMessage());
     if (saveFails) {
@@ -4920,8 +4920,12 @@ class JobTaskTest {
         ArgumentCaptor.forClass(JobExecutionEntity.class);
     verify(observabilityFacade).saveExecution(execution.capture());
     Assertions.assertEquals(ExecutionStatus.FAILED, execution.getValue().getStatus());
-    Assertions.assertEquals(TimeoutException.class.getName(), execution.getValue().getErrorClass());
-    Assertions.assertEquals("Hard timeout exceeded (30s)", execution.getValue().getErrorMessage());
+    Assertions.assertEquals(
+        (superseded ? InterruptedException.class : TimeoutException.class).getName(),
+        execution.getValue().getErrorClass());
+    Assertions.assertEquals(
+        superseded ? "watchdog interrupt" : "Hard timeout exceeded (30s)",
+        execution.getValue().getErrorMessage());
     verify(jobStore, never()).incrementRetryAttempt(any(), anyLong(), any());
     verify(timeoutHandler, never()).processCooperativeTimeout(any());
     verify(lifecycleFacade, never())

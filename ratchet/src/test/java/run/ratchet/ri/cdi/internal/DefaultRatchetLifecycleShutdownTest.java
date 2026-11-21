@@ -69,7 +69,7 @@ class DefaultRatchetLifecycleShutdownTest {
     fixture.lifecycle.onStartup(new Object());
 
     verify(fixture.jobExecutionCoordinator).initRetryBufferDrainer();
-    verify(fixture.jobStateFlusher).start(any(ScheduledExecutorService.class));
+    verify(fixture.jobStateFlusher).start(any(ScheduledExecutorService.class), any());
     verifyNoInteractions(
         fixture.deadLetterService, fixture.jobArchivingService, fixture.logPurgeTimer);
   }

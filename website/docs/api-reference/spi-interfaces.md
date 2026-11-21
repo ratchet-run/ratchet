@@ -497,7 +497,7 @@ public interface SchedulerLifecycleHook {
 
 Provides thread pools for job execution and scheduling. Override to use virtual threads, custom thread factories, or managed executors.
 
-A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
+A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries, hard-timeout writes and state flushes. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
 
 :::info
 This interface is marked `@Incubating` and may change.
@@ -548,7 +548,7 @@ Returns the executor for scheduling polling and delayed tasks.
 ScheduledExecutorService getReleaseExecutor()
 ```
 
-Returns the provider-owned executor for release retries. It must be a stable instance distinct from the scheduler.
+Returns the provider-owned executor for release retries, hard-timeout writes and state flushes. It must be a stable instance whose threads are separate from the scheduler's.
 
 
 ### Example
