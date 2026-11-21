@@ -363,7 +363,7 @@ public class SpringBeanResolver implements BeanResolver {
 
 Provides thread pools for job execution and scheduling.
 
-A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
+A provider must also return a release executor: a pool it owns, separate from its scheduled executor, for release retries, hard-timeout writes and state flushes. The runtime refuses to start if both are the same instance. See [Release retries](../concepts/execution-model.md#release-retries).
 
 ```java
 @Incubating

@@ -130,6 +130,10 @@ The retrying event is published at most once and may be missing when a failed tr
 The failure metric is recorded when the reschedule lands, when it misses without a cancel, or when the job ends FAILED.
 It may be missing if the node stops before then.
 
+The release pool also runs the store writes of a hard timeout. The watchdog claims the timeout and interrupts the worker on the scheduled executor. It then saves the job's state and writes the retry or final state on the release pool, so a timeout write that blocks in the store cannot delay the heartbeat or other jobs' timeouts. The job's `onFailure` callback after a hard timeout runs on that release thread. While the node stops, a timeout write that the release pool refuses is left to shutdown reset or orphan recovery. If the release pool is unavailable for another reason, the watchdog writes on the scheduled executor instead.
+
+Periodic checkpoint and progress flushes run on the release pool too, and only their timer stays on the scheduled executor. If the release pool refuses a flush, the state stays queued and Ratchet tries again later. It never flushes on the scheduled executor.
+
 The release pool also retries an attempt's outcome write that a hard timeout or a failed failure write left RUNNING. This includes the watchdog's timeout transition and the forced FAILED write. It retries until the write lands or the node stops. A retry the release executor refuses while the node runs is resubmitted from the scheduled executor. This applies to outcome writes, permit releases and claim reschedules.
 
 In Jakarta EE, Ratchet builds the release pool from the managed thread factory named by `ratchet.worker.thread-factory-jndi` (default `java:comp/DefaultManagedThreadFactory`). The container's default managed scheduled executor can be shared with other applications on the server. Ratchet keeps its own release retries off it, but other applications' work can still delay the timers that run there.
