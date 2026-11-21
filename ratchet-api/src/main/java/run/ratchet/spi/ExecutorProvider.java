@@ -83,14 +83,17 @@ public interface ExecutorProvider {
    * Returns the executor for retried store writes that free what an ended attempt held:
    * business-key holds, resource permits, and claims. Also retries outcome writes of an attempt
    * that a hard timeout or a failed failure write left RUNNING. It also runs the hard-timeout
-   * watchdog state flush and outcome write, including the first try, and periodic job state
-   * flushes. A task this executor refuses while the node runs is resubmitted from the scheduled
-   * executor.
+   * watchdog's state flush and first outcome write, and the periodic job state flushes.
+   *
+   * <p>When this executor refuses work while the node runs, a retry is resubmitted from the
+   * scheduled executor and a periodic flush waits for the next report or retry tick. A hard
+   * timeout's state flush and first outcome write run on the scheduled executor instead, so the job
+   * is not left RUNNING; while such a write blocks, it delays the scheduled executor's timers.
    *
    * <p>This must be a different instance from {@link #getScheduledExecutor()}, so a store write
-   * that blocks cannot delay the heartbeat or the watchdog timers. The runtime refuses to start
-   * when both accessors return the same instance. The provider owns this executor and is
-   * responsible for disposing it during application shutdown; callers must not shut it down.
+   * that blocks on this executor cannot delay the heartbeat or the watchdog timers. The runtime
+   * refuses to start when both accessors return the same instance. The provider owns this executor
+   * and is responsible for disposing it during application shutdown; callers must not shut it down.
    *
    * @return release executor; never {@code null}
    */
