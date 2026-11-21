@@ -192,7 +192,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
         orphanRecoveryTimer.start(scheduledExecutor, options.node().orphanScanIntervalSeconds());
         batchRecoveryTimer.start(scheduledExecutor);
         if (cancelRequestRelay != null) cancelRequestRelay.start(scheduledExecutor);
-        jobStateFlusher.start(scheduledExecutor);
+        jobStateFlusher.start(scheduledExecutor, executorProvider::getReleaseExecutor);
 
         if (options.maintenance().dlqPurgeEnabled()) {
           Cron dlqCron = RecurringScheduler.PARSER.parse(options.maintenance().dlqPurgeCron());
@@ -238,8 +238,10 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       releaseExecutor = executorProvider.getReleaseExecutor();
     } catch (RuntimeException e) {
       log.error(
-          "Release retries are unavailable during Ratchet startup; failed releases are left to"
-              + " hold expiry, start-up and stale-node clean-up, shutdown reset, and orphan recovery.",
+          "Release retries are unavailable during Ratchet startup; failed releases are left to hold"
+              + " expiry, start-up and stale-node clean-up, shutdown reset, and orphan recovery,"
+              + " the hard-timeout watchdog writes outcomes on the scheduler instead, and periodic"
+              + " state flushes wait until the release executor can be built.",
           e);
       return;
     }

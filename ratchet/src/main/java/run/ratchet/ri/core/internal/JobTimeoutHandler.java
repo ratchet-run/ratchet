@@ -1015,11 +1015,11 @@ public class JobTimeoutHandler {
 
     // Claim ownership of the retry/finalize for this timeout BEFORE interrupting the worker, so the
     // interrupt that lands in JobTask.handleFailure already sees the marker and defers to us. The
-    // marker covers the first try only; retries run after this method's finally clears it.
+    // marker stays set until the first try finishes on the release executor; retries run after
+    // that try's finally clears it.
     watchdogCancelledJobIds.add(jobId);
 
     attempt.cancelExecution(future);
-    attempt.flushStateQuietly();
 
     // Each try re-reads the original claim, reuses a committed charge, and stops on a fenced miss.
     Runnable transition =
@@ -1033,16 +1033,30 @@ public class JobTimeoutHandler {
                 attempt.claimSeq(),
                 attempt.nodeId(),
                 attempt);
-    try {
-      if (retries != null) {
-        retries.run("hard-timeout transition for job " + jobId, transition);
-      } else {
-        transition.run();
-      }
-    } catch (Exception e) {
-      log.errorf(e, "Timeout post-processing error for job %s", jobId);
-    } finally {
+    String what = "hard-timeout transition for job " + jobId;
+    Runnable finish =
+        () -> {
+          attempt.flushStateQuietly();
+          try {
+            if (retries != null) {
+              retries.run(what, transition);
+            } else {
+              transition.run();
+            }
+          } catch (Exception e) {
+            log.errorf(e, "Timeout post-processing error for job %s", jobId);
+          } finally {
+            watchdogCancelledJobIds.remove(jobId);
+          }
+        };
+    if (retries == null) {
+      finish.run();
+    } else if (!retries.execute(what, finish)) {
       watchdogCancelledJobIds.remove(jobId);
+      log.infof(
+          "This node is stopping; hard-timeout transition for job %s left to shutdown reset or"
+              + " orphan recovery",
+          jobId);
     }
   }
 

@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -49,6 +50,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -80,7 +82,7 @@ class JobStateFlusherTest {
 
   @Test
   void idleNodeNeverSchedulesAndBurstSchedulesExactlyOneOneShot() {
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     verifyNoInteractions(executor);
     WriterFixture fixture = writer();
     flusher.markDirty(fixture.writer());
@@ -98,7 +100,7 @@ class JobStateFlusherTest {
   void beforeStartAndAfterStopOnlyRecordAndShutdownCanStillDrain() {
     WriterFixture fixture = writer();
     verifyNoInteractions(executor);
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     flusher.stop();
     verify(handle).cancel(false);
     WriterFixture late = writer();
@@ -117,7 +119,7 @@ class JobStateFlusherTest {
               flusher.markDirty(fixture.writer());
               return StateWriteResult.UPDATED;
             });
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     assertEquals(2, scheduled.size());
@@ -134,7 +136,7 @@ class JobStateFlusherTest {
     WriterFixture good = writer();
     when(bad.store().initState(eq(bad.writer().jobId()), anyString(), anyString(), eq(7L)))
         .thenThrow(new IllegalStateException("store down"));
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     verifyWritten(good);
@@ -151,7 +153,7 @@ class JobStateFlusherTest {
   void batchIsBoundedAndFlushAllDrainsRemainder() {
     List<WriterFixture> writers = new ArrayList<>();
     for (int i = 0; i < 105; i++) writers.add(writer());
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     long count = writers.stream().filter(w -> !w.writer().hasUnflushed()).count();
@@ -185,7 +187,7 @@ class JobStateFlusherTest {
                 return StateWriteResult.UPDATED;
               });
     }
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     assertEquals(100, attempts.size());
@@ -235,7 +237,7 @@ class JobStateFlusherTest {
                 return StateWriteResult.UPDATED;
               });
     }
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     assertEquals(2, attempts.size());
@@ -260,7 +262,7 @@ class JobStateFlusherTest {
   void removeDeregistersWriter() {
     WriterFixture fixture = writer();
     flusher.remove(fixture.writer());
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     flusher.flushAll();
     verify(fixture.store(), never()).getState(any(), anyString());
     verify(fixture.store(), never()).initState(any(), anyString(), anyString(), anyLong());
@@ -281,7 +283,7 @@ class JobStateFlusherTest {
             .store()
             .updateState(eq(fixture.writer().jobId()), anyString(), anyString(), eq(0), eq(7L)))
         .thenReturn(StateWriteResult.UPDATED);
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     assertEquals(2, scheduled.size());
@@ -314,7 +316,7 @@ class JobStateFlusherTest {
               assertTrue(release.await(5, TimeUnit.SECONDS));
               return StateWriteResult.UPDATED;
             });
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     var threads = Executors.newFixedThreadPool(2);
     try {
       now.set(1_000_000_000L);
@@ -349,7 +351,7 @@ class JobStateFlusherTest {
     when(progress.flushIntervalMs()).thenReturn(10000L);
     when(checkpoint.flushIntervalMs()).thenReturn(1000L);
     when(checkpoint.flushOnShutdown()).thenReturn(true);
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     flusher.markDirty(progress);
     flusher.markDirty(checkpoint);
     verify(handle).cancel(false);
@@ -368,7 +370,7 @@ class JobStateFlusherTest {
     when(progress.flushIntervalMs()).thenReturn(10000L);
     flusher.markDirty(checkpoint);
     flusher.markDirty(progress);
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     verify(checkpoint).flush();
@@ -394,7 +396,7 @@ class JobStateFlusherTest {
         .when(writer)
         .flush();
     flusher.markDirty(writer);
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     verify(executor, times(2))
@@ -421,7 +423,7 @@ class JobStateFlusherTest {
             })
         .when(executor)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     flusher.markDirty(writer);
     assertTrue(scheduled.isEmpty());
     flusher.markDirty(writer);
@@ -454,7 +456,7 @@ class JobStateFlusherTest {
             })
         .when(executor)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     progress.report(1, 10);
     assertTrue(scheduled.isEmpty());
     assertTrue(flusher.scheduleFailed());
@@ -489,7 +491,7 @@ class JobStateFlusherTest {
             })
         .when(executor)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     progress.report(1, 10);
     assertTrue(flusher.scheduleFailed());
     assertTrue(scheduled.isEmpty());
@@ -507,7 +509,7 @@ class JobStateFlusherTest {
 
   @Test
   void retryRejectedScheduleDoesNothingOnAnIdleHealthyFlusher() {
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
 
     flusher.retryRejectedSchedule();
 
@@ -522,7 +524,7 @@ class JobStateFlusherTest {
     doThrow(new RejectedExecutionException("busy"))
         .when(executor)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     flusher.markDirty(writer);
     assertTrue(flusher.scheduleFailed());
 
@@ -540,7 +542,7 @@ class JobStateFlusherTest {
     doThrow(new RejectedExecutionException("busy"))
         .when(executor)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     flusher.markDirty(writer);
     assertTrue(flusher.scheduleFailed());
 
@@ -556,7 +558,7 @@ class JobStateFlusherTest {
       when(writer.flushIntervalMs()).thenReturn(1000L);
       flusher.markDirty(writer);
     }
-    flusher.start(executor);
+    flusher.start(executor, () -> Runnable::run);
     now.set(1_000_000_000L);
     scheduled.get(0).run();
     assertEquals(2, scheduled.size());
@@ -565,6 +567,134 @@ class JobStateFlusherTest {
     scheduled.get(2).run();
     assertEquals(3, scheduled.size());
     verify(executor, times(2)).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
+  }
+
+  @Test
+  void timerSubmitsDrainAndDoesNotStartAnotherWhileOwned() throws Exception {
+    List<Runnable> writes = new ArrayList<>();
+    WriterFixture fixture = writer();
+    flusher.start(executor, () -> writes::add);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    verify(fixture.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    flusher.markDirty(fixture.writer());
+    flusher.retryRejectedSchedule();
+    assertEquals(1, scheduled.size());
+    assertEquals(1, writes.size());
+    Thread timer = Thread.currentThread();
+    when(fixture.store().initState(eq(fixture.writer().jobId()), anyString(), anyString(), eq(7L)))
+        .thenAnswer(
+            call -> {
+              assertFalse(Thread.currentThread() == timer);
+              flusher.markDirty(fixture.writer());
+              assertEquals(1, scheduled.size());
+              return StateWriteResult.UPDATED;
+            });
+    var worker = Executors.newSingleThreadExecutor();
+    try {
+      worker.submit(writes.remove(0)).get(5, TimeUnit.SECONDS);
+      verifyWritten(fixture);
+      assertEquals(2, scheduled.size());
+    } finally {
+      worker.shutdownNow();
+      assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void refusedWriteStaysDirtyWithoutSpinningAndRetryTickDrainsIt() {
+    WriterFixture fixture = writer();
+    Executor refusing =
+        task -> {
+          throw new RejectedExecutionException("busy");
+        };
+    List<Runnable> writes = new ArrayList<>();
+    var destination = new AtomicReference<Executor>(refusing);
+    flusher.start(executor, destination::get);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    assertTrue(flusher.scheduleFailed());
+    assertTrue(fixture.writer().hasUnflushed());
+    assertEquals(1, scheduled.size());
+    verify(fixture.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    destination.set(writes::add);
+    flusher.retryRejectedSchedule();
+    assertEquals(2, scheduled.size());
+    scheduled.get(1).run();
+    assertEquals(1, writes.size());
+    writes.remove(0).run();
+    verifyWritten(fixture);
+    assertFalse(flusher.scheduleFailed());
+    assertFalse(fixture.writer().hasUnflushed());
+  }
+
+  @Test
+  void failingWriteSupplierCanBeRetriedByMarkDirty() {
+    WriterFixture fixture = writer();
+    AtomicLong calls = new AtomicLong();
+    flusher.start(
+        executor,
+        () -> {
+          if (calls.getAndIncrement() == 0) throw new IllegalStateException("unavailable");
+          return Runnable::run;
+        });
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    assertTrue(flusher.scheduleFailed());
+    assertEquals(1, scheduled.size());
+    flusher.markDirty(fixture.writer());
+    scheduled.get(1).run();
+    verifyWritten(fixture);
+    assertFalse(flusher.scheduleFailed());
+  }
+
+  @Test
+  void droppedDrainDoesNotStrandSchedulingAfterRestart() {
+    WriterFixture fixture = writer();
+    List<Runnable> writes = new ArrayList<>();
+    flusher.start(executor, () -> writes::add);
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    assertEquals(1, writes.size());
+    writes.clear();
+    flusher.stop();
+    flusher.start(executor, () -> writes::add);
+    assertEquals(2, scheduled.size());
+    scheduled.get(1).run();
+    writes.remove(0).run();
+    verifyWritten(fixture);
+    assertFalse(fixture.writer().hasUnflushed());
+  }
+
+  @Test
+  void oldDrainCompletingAfterRestartDoesNotClearNewDrainOwnership() {
+    FlushableState first = mock(FlushableState.class);
+    FlushableState next = mock(FlushableState.class);
+    when(first.flushIntervalMs()).thenReturn(1000L);
+    when(next.flushIntervalMs()).thenReturn(1000L);
+    List<Runnable> writes = new ArrayList<>();
+    flusher.markDirty(first);
+    flusher.start(executor, () -> writes::add);
+    doAnswer(
+            call -> {
+              flusher.stop();
+              flusher.markDirty(next);
+              flusher.start(executor, () -> writes::add);
+              now.set(2_000_000_000L);
+              scheduled.get(1).run();
+              return null;
+            })
+        .when(first)
+        .flush();
+    now.set(1_000_000_000L);
+    scheduled.get(0).run();
+    writes.remove(0).run();
+    assertEquals(1, writes.size());
+    flusher.markDirty(next);
+    assertEquals(2, scheduled.size());
+    writes.remove(0).run();
+    verify(next).flush();
+    assertEquals(2, scheduled.size());
   }
 
   private void verifyProgressWritten(JobStateStore store, UUID id, long done, long total) {

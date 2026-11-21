@@ -24,11 +24,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.internal.*;
@@ -105,6 +107,8 @@ class RatchetRuntimeTest {
       assertEquals(1, records.size());
       assertEquals(Level.SEVERE, records.get(0).getLevel());
       assertSame(failure, records.get(0).getThrown());
+      assertTrue(records.get(0).getMessage().contains("watchdog writes outcomes on the scheduler"));
+      assertTrue(records.get(0).getMessage().contains("periodic state flushes wait"));
     } finally {
       runtime.onShutdown();
       logger.removeHandler(handler);
@@ -449,6 +453,9 @@ class RatchetRuntimeTest {
     ScheduledExecutorService scheduled = mock(ScheduledExecutorService.class);
     when(executors.getScheduledExecutor()).thenReturn(scheduled);
     CancelRequestRelay relay = mock(CancelRequestRelay.class);
+    JobStateFlusher flusher = mock(JobStateFlusher.class);
+    ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    when(executors.getReleaseExecutor()).thenReturn(releases);
     RatchetRuntime runtime =
         new RatchetRuntime(
             mock(Poller.class),
@@ -456,7 +463,7 @@ class RatchetRuntimeTest {
             mock(OrphanRecoveryTimer.class),
             mock(BatchRecoveryTimer.class),
             relay,
-            mock(JobStateFlusher.class),
+            flusher,
             mock(DeadLetterService.class),
             null,
             mock(JobArchivingService.class),
@@ -475,6 +482,10 @@ class RatchetRuntimeTest {
     try {
       runtime.start();
       verify(relay).start(scheduled);
+      ArgumentCaptor<Supplier<ScheduledExecutorService>> writes =
+          ArgumentCaptor.forClass(Supplier.class);
+      verify(flusher).start(eq(scheduled), writes.capture());
+      assertSame(releases, writes.getValue().get());
     } finally {
       runtime.onShutdown();
     }
