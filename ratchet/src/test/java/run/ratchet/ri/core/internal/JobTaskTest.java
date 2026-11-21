@@ -83,6 +83,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -2071,6 +2072,45 @@ class JobTaskTest {
   }
 
   @Test
+  void continuationReleaseWrappedTransientIsHandedOffWithoutCharge() throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenThrow(new RuntimeException(new SQLTransientConnectionException("connection lost")));
+    when(claimReschedules.handOff(
+            any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any()))
+        .thenReturn(true);
+    jobTask.call();
+    verify(jobStore, times(JobTask.TRANSIENT_STORE_TRIES))
+        .releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    verify(claimReschedules)
+        .handOff(eq(JOB_UUID), eq(7L), any(), eq(FIXED_NOW), eq(0), any(), any(), any(), any());
+    verify(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
+    assertContinuationUncharged(scenario);
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
+  void continuationReleaseRevokedAfterFirstFailureIsDiscarded() throws Exception {
+    var scenario = preparedContinuation();
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              throw new RatchetTransientStoreException("busy");
+            });
+
+    jobTask.call();
+
+    verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    verifyNoInteractions(claimReschedules);
+    assertContinuationDiscarded(scenario);
+    Assertions.assertEquals(JobStatus.RUNNING, scenario.job().getStatus());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
   void continuationReleaseQuickRetryDoesNotChargeAttempt() throws Exception {
     var scenario = preparedContinuation();
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L))
@@ -2079,7 +2119,8 @@ class JobTaskTest {
     jobTask.call();
     Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
     Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
-    verify(scenario.store()).initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L);
+    verify(scenario.store())
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
     verify(jobStore, times(2)).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
     assertContinuationUncharged(scenario);
   }
@@ -2120,6 +2161,387 @@ class JobTaskTest {
     verify(claimReschedules, never())
         .handOff(any(), anyLong(), any(), any(), anyInt(), any(), any(), any(), any());
     return scenario;
+  }
+
+  @Test
+  void transientCounterUpdateWithCommittedStampDoesNotWriteTwice() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(
+            Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)),
+            Optional.of(new JobStateStore.VersionedState("{\"count\":5,\"claimSeq\":7}", 10)));
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L))
+        .thenThrow(new RatchetTransientStoreException("commit result lost"));
+    assertCounterRetryLands(scenario);
+    verify(scenario.store(), times(1))
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+  }
+
+  @Test
+  void transientCounterUpdateWithoutCommitRetriesSameIncrement() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)));
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L))
+        .thenThrow(new RatchetTransientStoreException("rolled back"))
+        .thenReturn(StateWriteResult.UPDATED);
+    assertCounterRetryLands(scenario);
+    verify(scenario.store(), times(2))
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L);
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+  }
+
+  @Test
+  void transientCounterFailureDoesNotSpendVersionConflictBudget() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)));
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L))
+        .thenReturn(StateWriteResult.VERSION_CONFLICT)
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenReturn(StateWriteResult.VERSION_CONFLICT, StateWriteResult.UPDATED);
+    assertCounterRetryLands(scenario);
+    verify(scenario.store(), times(4)).getState(JOB_UUID, CONTINUATION_NS);
+  }
+
+  @Test
+  void transientCounterInitWithCommittedStampDoesNotInitTwice() throws Exception {
+    var scenario = preparedContinuation();
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(
+            Optional.empty(),
+            Optional.of(new JobStateStore.VersionedState("{\"count\":1,\"claimSeq\":7}", 0)));
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenThrow(new RatchetTransientStoreException("commit result lost"));
+    assertCounterRetryLands(scenario);
+    verify(scenario.store(), times(1)).initState(any(), anyString(), anyString(), anyLong());
+    verify(scenario.store(), never())
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+  }
+
+  @Test
+  void transientCounterReadRetriesWithoutCharging() throws Exception {
+    var scenario = preparedContinuation();
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenReturn(Optional.empty());
+    assertCounterRetryLands(scenario);
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+  }
+
+  @Test
+  void wrappedTransientCounterFailureRetriesWithoutCharging() throws Exception {
+    var scenario = preparedContinuation();
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenThrow(
+            new RuntimeException(
+                "transaction failed", new SQLException("connection lost", "08006")))
+        .thenReturn(StateWriteResult.UPDATED);
+    assertCounterRetryLands(scenario);
+    verify(scenario.store(), times(2))
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
+  }
+
+  @Test
+  void anotherClaimsCounterIsIncrementedAndRestamped() throws Exception {
+    assertStoredContinuationCounter("{\"count\":4,\"claimSeq\":6}", 5);
+  }
+
+  @Test
+  void thisClaimsCounterAtLimitIsAlreadyWritten() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(
+            Optional.of(new JobStateStore.VersionedState("{\"count\":1000,\"claimSeq\":7}", 9)));
+    assertCounterRetryLands(scenario);
+    verify(scenario.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    verify(scenario.store(), never())
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+  }
+
+  @Test
+  void thisClaimsStampAboveLongCacheIsAlreadyWritten() throws Exception {
+    // Long values above 127 are separate objects, so the stamp must be compared by value.
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    scenario.job().setClaimSeq(1000L);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(
+            Optional.of(new JobStateStore.VersionedState("{\"count\":5,\"claimSeq\":1000}", 9)));
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 1000L)).thenReturn(true);
+
+    jobTask.call();
+
+    verify(scenario.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    verify(scenario.store(), never())
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+    verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 1000L);
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    assertContinuationUncharged(scenario);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"\"7\"", "null", "true", "{}", "7.5", "9223372036854775808"})
+  void malformedContinuationStampIsReplaced(String stamp) throws Exception {
+    assertStoredContinuationCounter("{\"count\":4,\"claimSeq\":" + stamp + "}", 5);
+  }
+
+  @Test
+  void transientCounterTerminalRetriesLandAndWarnOnce() throws Exception {
+    var scenario = preparedContinuation();
+    jobTask.setTerminalRetryDelays(1, 2);
+    AtomicInteger writes = new AtomicInteger();
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenAnswer(
+            inv -> {
+              if (writes.incrementAndGet() <= JobTask.TRANSIENT_STORE_TRIES + 1) {
+                throw new RatchetTransientStoreException("busy");
+              }
+              return StateWriteResult.UPDATED;
+            });
+    Logger logger = Logger.getLogger(JobTask.class.getName());
+    Level originalLevel = logger.getLevel();
+    Handler handler = mock(Handler.class);
+    logger.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    try {
+      assertCounterRetryLands(scenario);
+      ArgumentCaptor<LogRecord> records = ArgumentCaptor.forClass(LogRecord.class);
+      verify(handler, atLeastOnce()).publish(records.capture());
+      Assertions.assertEquals(
+          1L,
+          records.getAllValues().stream()
+              .filter(
+                  record ->
+                      record.getLevel().intValue() >= Level.WARNING.intValue()
+                          && record
+                              .getMessage()
+                              .contains("continuation counter write keeps failing")
+                          && record.getMessage().contains(JOB_UUID.toString()))
+              .count());
+      Assertions.assertEquals(JobTask.TRANSIENT_STORE_TRIES + 2, writes.get());
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+    }
+  }
+
+  @Test
+  void continuationCounterRevokedDuringTerminalWaitIsDiscarded() throws Exception {
+    var scenario = preparedContinuation();
+    jobTask.setTerminalRetryDelays(200, 200);
+    CountDownLatch terminalWait = new CountDownLatch(1);
+    AtomicInteger writes = new AtomicInteger();
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenAnswer(
+            inv -> {
+              writes.incrementAndGet();
+              throw new RatchetTransientStoreException("busy");
+            });
+    CountDownLatch revoked = new CountDownLatch(1);
+    jobTask.setTerminalRetrySleeper(
+        ms -> {
+          terminalWait.countDown();
+          Assertions.assertTrue(revoked.await(5, TimeUnit.SECONDS));
+        });
+    AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              CONTINUATION_PAYLOAD.set(() -> JobContext.current().requestContinuation());
+              try {
+                jobTask.call();
+              } catch (Throwable failure) {
+                workerFailure.set(failure);
+              } finally {
+                CONTINUATION_PAYLOAD.remove();
+                JobContext.clear();
+              }
+            });
+    worker.start();
+    try {
+      Assertions.assertTrue(terminalWait.await(5, TimeUnit.SECONDS));
+      Assertions.assertEquals(JobTask.TRANSIENT_STORE_TRIES, writes.get());
+      scenario.attempt().revoke();
+      revoked.countDown();
+      worker.join(5000);
+    } finally {
+      scenario.attempt().revoke();
+      revoked.countDown();
+      worker.join(5000);
+    }
+    Assertions.assertFalse(worker.isAlive());
+    Assertions.assertNull(workerFailure.get());
+    Assertions.assertEquals(JobTask.TRANSIENT_STORE_TRIES, writes.get());
+    assertContinuationDiscarded(scenario);
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
+  void counterRevokedDuringRetriedReadIsDiscarded() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              return Optional.of(new JobStateStore.VersionedState("{\"count\":0}", 0));
+            });
+    jobTask.call();
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    verify(scenario.store(), never())
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+    assertRevokedCounter(scenario);
+  }
+
+  @Test
+  void counterPermanentFailureAfterRevokedRetriedReadIsDiscarded() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              throw new IllegalStateException("permanent read failure");
+            });
+
+    jobTask.call();
+
+    verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store(), never()).initState(any(), anyString(), anyString(), anyLong());
+    verify(scenario.store(), never())
+        .updateState(any(), anyString(), anyString(), anyInt(), anyLong());
+    assertRevokedCounter(scenario);
+  }
+
+  @Test
+  void counterRevokedDuringRetriedCasIsDiscarded() throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":0}", 0)));
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 0, 7L))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              return StateWriteResult.UPDATED;
+            });
+    jobTask.call();
+    verify(scenario.store(), times(2))
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 0, 7L);
+    assertRevokedCounter(scenario);
+  }
+
+  private void assertRevokedCounter(ContinuationScenario scenario) {
+    assertContinuationDiscarded(scenario);
+    assertContinuationUncharged(scenario);
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
+  void counterRevokedOnFirstTransientFailureIsDiscarded() throws Exception {
+    var scenario = preparedContinuation();
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenAnswer(
+            inv -> {
+              scenario.attempt().revoke();
+              throw new RatchetTransientStoreException("busy");
+            });
+
+    jobTask.call();
+
+    verify(scenario.store(), times(1))
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
+    assertContinuationDiscarded(scenario);
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  @Test
+  void interruptedQuickCounterRetryContinuesInTerminalPhase() throws Exception {
+    var scenario = preparedContinuation();
+    jobTask.setTerminalRetryDelays(1, 2);
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenAnswer(
+            inv -> {
+              Thread.currentThread().interrupt();
+              throw new RatchetTransientStoreException("busy");
+            })
+        .thenThrow(new RatchetTransientStoreException("still busy"))
+        .thenReturn(StateWriteResult.UPDATED);
+    try {
+      assertCounterRetryLands(scenario);
+      Assertions.assertTrue(Thread.currentThread().isInterrupted());
+      verify(scenario.store(), times(3)).getState(JOB_UUID, CONTINUATION_NS);
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void counterQuickRetryInterruptedDuringWaitIsRecorded() throws Exception {
+    var scenario = preparedContinuation();
+    jobTask.setTerminalRetryDelays(1, 2);
+    jobTask.setCounterRetrySleeper(
+        ms -> {
+          throw new InterruptedException("quick retry interrupted");
+        });
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenThrow(new RatchetTransientStoreException("busy"))
+        .thenReturn(StateWriteResult.UPDATED);
+
+    try {
+      assertCounterRetryLands(scenario);
+      Assertions.assertTrue(Thread.interrupted());
+      verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
+      verify(scenario.store(), times(2))
+          .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  void counterRevokedDuringQuickRetryWaitIsDiscarded() throws Exception {
+    var scenario = preparedContinuation();
+    jobTask.setCounterRetrySleeper(ms -> scenario.attempt().revoke());
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
+        .thenThrow(new RatchetTransientStoreException("busy"));
+
+    jobTask.call();
+
+    verify(scenario.store(), times(1)).getState(JOB_UUID, CONTINUATION_NS);
+    verify(scenario.store(), times(1))
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
+    assertContinuationDiscarded(scenario);
+    verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+  }
+
+  private void assertCounterRetryLands(ContinuationScenario scenario) throws Exception {
+    when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L)).thenReturn(true);
+    jobTask.call();
+    Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
+    assertContinuationUncharged(scenario);
+    verify(lifecycleFacade, never())
+        .completeFailure(any(), any(), anyBoolean(), nullable(Integer.class));
+    verify(resilienceStrategy, times(1)).execute(anyString(), any(), any(Callable.class));
   }
 
   private ContinuationScenario preparedContinuation() throws Exception {
@@ -2380,7 +2802,9 @@ class JobTaskTest {
     Assertions.assertNull(scenario.job().getJobResult());
     InOrder order = inOrder(scenario.store(), observabilityFacade, jobStore);
     order.verify(scenario.store()).getState(JOB_UUID, CONTINUATION_NS);
-    order.verify(scenario.store()).initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L);
+    order
+        .verify(scenario.store())
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
     order.verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW.plusSeconds(2), 0, 7L);
     order.verify(observabilityFacade).saveExecution(scenario.execution());
     Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
@@ -2403,13 +2827,16 @@ class JobTaskTest {
     jobTask.init(scenario.job());
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)));
-    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L))
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L))
         .thenReturn(StateWriteResult.UPDATED);
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 2, 7L)).thenReturn(true);
     TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
     when(observabilityFacade.startExecutionScope(scenario.job())).thenReturn(scope);
     jobTask.call();
-    verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L);
+    verify(scenario.store())
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L);
     verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW, 2, 7L);
     Assertions.assertEquals(2, scenario.job().getAttempts());
     verify(scope).success(0L);
@@ -2627,17 +3054,25 @@ class JobTaskTest {
         .thenReturn(
             Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)),
             Optional.of(new JobStateStore.VersionedState("{\"count\":0}", 10)));
-    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L))
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L))
         .thenReturn(StateWriteResult.VERSION_CONFLICT);
-    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 10, 7L))
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 10, 7L))
         .thenReturn(StateWriteResult.UPDATED);
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L)).thenReturn(true);
     jobTask.call();
     InOrder order = inOrder(scenario.store(), jobStore);
     order.verify(scenario.store()).getState(JOB_UUID, CONTINUATION_NS);
-    order.verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L);
+    order
+        .verify(scenario.store())
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L);
     order.verify(scenario.store()).getState(JOB_UUID, CONTINUATION_NS);
-    order.verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 10, 7L);
+    order
+        .verify(scenario.store())
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 10, 7L);
     order.verify(jobStore).releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L);
     Assertions.assertFalse(scenario.attempt().isSuperseded());
     Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
@@ -2651,14 +3086,17 @@ class JobTaskTest {
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(
             Optional.empty(), Optional.of(new JobStateStore.VersionedState("{\"count\":1}", 0)));
-    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L))
+    when(scenario.store().initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L))
         .thenReturn(StateWriteResult.VERSION_CONFLICT);
-    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2}", 0, 7L))
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2,\"claimSeq\":7}", 0, 7L))
         .thenReturn(StateWriteResult.UPDATED);
     when(jobStore.releaseClaim(JOB_UUID, null, FIXED_NOW, 0, 7L)).thenReturn(true);
     jobTask.call();
     verify(scenario.store(), times(2)).getState(JOB_UUID, CONTINUATION_NS);
-    verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2}", 0, 7L);
+    verify(scenario.store())
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2,\"claimSeq\":7}", 0, 7L);
     Assertions.assertFalse(scenario.attempt().isSuperseded());
     Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
     verify(jobStore, never()).incrementRetryAttempt(any(), any(), any());
@@ -2671,7 +3109,9 @@ class JobTaskTest {
         .thenReturn(
             Optional.of(new JobStateStore.VersionedState("{\"count\":1}", 9)),
             Optional.of(new JobStateStore.VersionedState("{\"count\":2}", 10)));
-    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2}", 9, 7L))
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":2,\"claimSeq\":7}", 9, 7L))
         .thenReturn(StateWriteResult.VERSION_CONFLICT);
     when(lifecycleFacade.completeFailure(
             eq(scenario.job()), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
@@ -2692,7 +3132,9 @@ class JobTaskTest {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(Optional.of(new JobStateStore.VersionedState("{\"count\":4}", 9)));
-    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L))
+    when(scenario
+            .store()
+            .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L))
         .thenReturn(StateWriteResult.VERSION_CONFLICT);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0)).thenReturn(1);
     when(lifecycleFacade.completeFailure(
@@ -2701,7 +3143,7 @@ class JobTaskTest {
     jobTask.call();
     verify(scenario.store(), times(3)).getState(JOB_UUID, CONTINUATION_NS);
     verify(scenario.store(), times(3))
-        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5}", 9, 7L);
+        .updateState(JOB_UUID, CONTINUATION_NS, "{\"count\":5,\"claimSeq\":7}", 9, 7L);
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L, 0);
     Assertions.assertFalse(scenario.attempt().isSuperseded());
     Assertions.assertEquals(1, scenario.job().getAttempts());
@@ -2747,7 +3189,8 @@ class JobTaskTest {
         .when(observabilityFacade)
         .saveExecution(scenario.execution());
     Assertions.assertDoesNotThrow(() -> jobTask.call());
-    verify(scenario.store()).initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L);
+    verify(scenario.store())
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
     Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
     Assertions.assertEquals(
         JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
@@ -2768,7 +3211,9 @@ class JobTaskTest {
         "{\"count\":\"x\"}",
         "{}",
         "not json",
-        "{\"count\":9223372036854775808}"
+        "[]",
+        "{\"count\":9223372036854775808}",
+        "{\"count\":\"x\",\"claimSeq\":7}"
       })
   void malformedContinuationCounterIsRepaired(String json) throws Exception {
     assertStoredContinuationCounter(json, 1);
@@ -2781,7 +3226,7 @@ class JobTaskTest {
 
   private void assertStoredContinuationCounter(String json, long nextCount) throws Exception {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
-    String repaired = "{\"count\":" + nextCount + "}";
+    String repaired = "{\"count\":" + nextCount + ",\"claimSeq\":7}";
     when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
         .thenReturn(Optional.of(new JobStateStore.VersionedState(json, 9)));
     when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, repaired, 9, 7L))
@@ -2798,6 +3243,7 @@ class JobTaskTest {
   }
 
   @Test
+  @Timeout(5)
   void counterExceptionUsesFailureHandling() throws Exception {
     var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
     when(scenario.store().initState(eq(JOB_UUID), eq(CONTINUATION_NS), anyString(), eq(7L)))
@@ -2816,7 +3262,8 @@ class JobTaskTest {
         .thenThrow(new IllegalStateException("transition unavailable"));
     when(jobStore.incrementRetryAttempt(JOB_UUID, 7L, 0)).thenReturn(1);
     jobTask.call();
-    verify(scenario.store()).initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L);
+    verify(scenario.store())
+        .initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1,\"claimSeq\":7}", 7L);
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 7L, 0);
   }
 
@@ -5887,6 +6334,30 @@ class JobTaskTest {
   }
 
   @Test
+  void call_permanentPermitFailureUsesNormalFailureHandling() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("missing");
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException failure = new IllegalStateException("permanent permit failure");
+    when(resourcePermitService.tryAcquire("missing", JOB_UUID, 0L, "node-1")).thenThrow(failure);
+    when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(
+            eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade)
+        .completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false), nullable(Integer.class));
+    verify(resourcePermitService).tryAcquire("missing", JOB_UUID, 0L, "node-1");
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
+    verifyNoAttemptRecorded();
+  }
+
+  @Test
   void call_resourceWithNoLimit_deadLettersWithoutRecordingStart() throws Exception {
     JobEntity job = createTestJob();
     job.setResourceName("missing");
@@ -6071,12 +6542,24 @@ class JobTaskTest {
   }
 
   @Test
+  void call_wrappedTransientPermitFailureReschedulesWithoutConsumingAttempt() throws Exception {
+    assertTransientPermitFailureRescheduled(
+        true, new RuntimeException(new SQLTransientConnectionException("connection lost")));
+  }
+
+  @Test
   void call_transientPermitFailureRejectedRescheduleDoesNotFailAttempt() throws Exception {
     assertTransientPermitFailureRescheduled(false);
   }
 
-  @SuppressWarnings("unchecked")
   private void assertTransientPermitFailureRescheduled(boolean rescheduled) throws Exception {
+    assertTransientPermitFailureRescheduled(
+        rescheduled, new RatchetTransientStoreException("deadlock"));
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertTransientPermitFailureRescheduled(
+      boolean rescheduled, RuntimeException failure) throws Exception {
     jobTask = newJobTaskWithTimeoutHandler(null);
     JobEntity job = createTestJob();
     job.setResourceName("gpu");
@@ -6085,8 +6568,7 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
-        .thenThrow(new RatchetTransientStoreException("deadlock"));
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1")).thenThrow(failure);
     when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
     when(jobStore.releaseClaim(eq(JOB_UUID), anyString(), any(), eq(2), eq(7L)))
         .thenReturn(rescheduled);
@@ -6354,7 +6836,8 @@ class JobTaskTest {
     attempt.revoke();
     invokeClaimReschedule();
     verifyNoInteractions(claimReschedules);
-    verify(jobStore, times(3)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
+    // A revoked attempt makes its first try but no quick retries.
+    verify(jobStore, times(1)).releaseClaim(JOB_UUID, "release", FIXED_NOW, 2, 7L);
   }
 
   @Test
@@ -6644,6 +7127,12 @@ class JobTaskTest {
   }
 
   @Test
+  void call_wrappedTransientPermitRetryDelayFailureUsesDefault() throws Exception {
+    assertPermitRetryFallback(
+        false, false, new RuntimeException(new SQLTransientConnectionException("connection lost")));
+  }
+
+  @Test
   void call_supersededPermitRetryDelayFailureUsesDefault() throws Exception {
     assertPermitRetryFallback(true, false);
   }
@@ -6653,9 +7142,15 @@ class JobTaskTest {
     assertPermitRetryFallback(false, true);
   }
 
-  @SuppressWarnings("unchecked")
   private void assertPermitRetryFallback(boolean superseded, boolean releaseFails)
       throws Exception {
+    assertPermitRetryFallback(
+        superseded, releaseFails, new RatchetTransientStoreException("lookup deadlock"));
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertPermitRetryFallback(
+      boolean superseded, boolean releaseFails, RuntimeException delayFailure) throws Exception {
     jobTask = newJobTaskWithTimeoutHandler(null);
     JobEntity job = createTestJob();
     job.setResourceName("gpu");
@@ -6671,8 +7166,7 @@ class JobTaskTest {
       when(resourcePermitService.tryAcquire("gpu", JOB_UUID, 7L, "node-1"))
           .thenThrow(new RatchetTransientStoreException("deadlock"));
     }
-    when(resourcePermitService.getRetryDelay("gpu"))
-        .thenThrow(new RatchetTransientStoreException("lookup deadlock"));
+    when(resourcePermitService.getRetryDelay("gpu")).thenThrow(delayFailure);
     if (releaseFails) {
       doThrow(new RatchetTransientStoreException("release deadlock"))
           .when(resourcePermitService)

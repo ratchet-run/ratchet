@@ -34,6 +34,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.sql.SQLTransientConnectionException;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.List;
@@ -78,6 +79,26 @@ class ClaimReschedulesTest {
   private void drainAt(long seconds) {
     clock.set(TimeUnit.SECONDS.toNanos(seconds));
     tasks.remove().run();
+  }
+
+  @Test
+  void wrappedTransientFailureRetriesThenAcceptsOnce() {
+    Runnable accepted = mock(Runnable.class);
+    Runnable rejected = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
+        .thenThrow(new RuntimeException(new SQLTransientConnectionException("connection lost")))
+        .thenReturn(true);
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> false, accepted, rejected, dropped));
+    drainAt(1);
+    verifyNoInteractions(accepted, rejected, dropped);
+    drainAt(5);
+    verify(store, times(2)).releaseClaim(JOB, "release", TIME, 2, 7L);
+    verify(accepted).run();
+    verifyNoMoreInteractions(accepted);
+    verifyNoInteractions(rejected, dropped);
+    assertTrue(tasks.isEmpty());
   }
 
   @Test

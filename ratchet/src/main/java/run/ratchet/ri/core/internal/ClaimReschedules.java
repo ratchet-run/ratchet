@@ -26,7 +26,6 @@ import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.spi.JobRetryStore;
 
 /**
@@ -226,7 +225,18 @@ class ClaimReschedules {
         } else {
           runCallback(key, item.afterRejected, "Rejected");
         }
-      } catch (RatchetTransientStoreException failure) {
+      } catch (RuntimeException failure) {
+        if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) {
+          pending.remove(key, item);
+          runCallback(key, item.afterDropped, "Dropped");
+          log.errorf(
+              failure,
+              "Job %s claim %s stays RUNNING until this node's shutdown reset or,"
+                  + " after its heartbeat stops, orphan recovery",
+              key.jobId(),
+              key.claimSeq());
+          continue;
+        }
         // The first background try runs a second after hand-off. After it, tries run five
         // seconds after hand-off and then 10, 20, 40 and 60 seconds apart, with no limit.
         item.due =
@@ -243,15 +253,6 @@ class ClaimReschedules {
               key.jobId(),
               key.claimSeq());
         }
-      } catch (RuntimeException failure) {
-        pending.remove(key, item);
-        runCallback(key, item.afterDropped, "Dropped");
-        log.errorf(
-            failure,
-            "Job %s claim %s stays RUNNING until this node's shutdown reset or,"
-                + " after its heartbeat stops, orphan recovery",
-            key.jobId(),
-            key.claimSeq());
       }
     }
   }

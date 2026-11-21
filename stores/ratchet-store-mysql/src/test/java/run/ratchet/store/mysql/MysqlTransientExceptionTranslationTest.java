@@ -33,6 +33,7 @@ import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.sql.SQLException;
+import java.sql.SQLTransientConnectionException;
 import java.sql.SQLTransientException;
 import java.time.Duration;
 import java.time.Instant;
@@ -47,10 +48,89 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 
 class MysqlTransientExceptionTranslationTest {
 
   private static final UUID JOB_ID = UUID.fromString("01900000-0000-7000-8000-000000000001");
+
+  @Test
+  void stateOperationsTranslateTransientFailures() {
+    RuntimeException failure = new RuntimeException(new SQLTransientConnectionException("lost"));
+    var states = stateOperations(failure, false);
+    assertThrows(
+        RatchetTransientStoreException.class, () -> states.getState(UUID.randomUUID(), "test"));
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> states.updateState(UUID.randomUUID(), "test", "{}", 0, 7L));
+  }
+
+  @Test
+  void stateOperationsPreservePermanentFailure() {
+    RuntimeException failure = new RuntimeException(new SQLException("syntax error", "42000"));
+    var states = stateOperations(failure, false);
+    assertSame(
+        failure,
+        assertThrows(RuntimeException.class, () -> states.getState(UUID.randomUUID(), "test")));
+    assertSame(
+        failure,
+        assertThrows(
+            RuntimeException.class,
+            () -> states.updateState(UUID.randomUUID(), "test", "{}", 0, 7L)));
+  }
+
+  @Test
+  void plainStateInitPreservesDuplicateMessageAndCause() {
+    RuntimeException duplicate =
+        new RuntimeException(new SQLException("Duplicate entry", "23000", 1062));
+    var thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () -> stateOperations(duplicate, true).initState(UUID.randomUUID(), "test", "{}"));
+    assertTrue(thrown.getMessage().startsWith("extension state already initialized"));
+    assertSame(duplicate, thrown.getCause());
+  }
+
+  @Test
+  void fencedStateInitPreservesDuplicateDetection() {
+    RuntimeException duplicate =
+        new RuntimeException(new SQLException("Duplicate entry", "23000", 1062));
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateOperations(duplicate, true).initState(UUID.randomUUID(), "test", "{}", 7L));
+  }
+
+  private MysqlExtensionOperations stateOperations(RuntimeException failure, boolean duplicate) {
+    EntityManager em =
+        (EntityManager)
+            Proxy.newProxyInstance(
+                EntityManager.class.getClassLoader(),
+                new Class<?>[] {EntityManager.class},
+                (proxy, method, args) -> {
+                  if (!"createNativeQuery".equals(method.getName()))
+                    throw new AssertionError(method.getName());
+                  String sql = (String) args[0];
+                  return Proxy.newProxyInstance(
+                      Query.class.getClassLoader(),
+                      new Class<?>[] {Query.class},
+                      (query, operation, parameters) -> {
+                        switch (operation.getName()) {
+                          case "setParameter":
+                            return query;
+                          case "getResultList":
+                            if (!duplicate && sql.contains("SELECT state, version")) throw failure;
+                            if (sql.contains("SELECT claim_seq, status"))
+                              return List.<Object[]>of(new Object[] {7L, "RUNNING"});
+                            return List.of(0);
+                          case "executeUpdate":
+                            throw failure;
+                          default:
+                            throw new AssertionError(operation.getName());
+                        }
+                      });
+                });
+    return new MysqlExtensionOperations(new MysqlStoreContext(em, null));
+  }
 
   @Test
   void scheduledTimeSaveRejectsConcurrentModificationBeforeColdUpdate() {

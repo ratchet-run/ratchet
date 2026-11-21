@@ -37,6 +37,7 @@ import static run.ratchet.store.util.ExtensionValidation.requireState;
 import static run.ratchet.store.util.ExtensionValidation.requireValue;
 
 import com.mongodb.MongoException;
+import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.UpdateResult;
@@ -118,35 +119,47 @@ final class MongoExtensionOperations implements JobPropertyStore, JobStateStore 
   @Override
   public Optional<VersionedState> getState(UUID jobId, String namespace) {
     requireNamespace(namespace);
-    Document doc =
-        ctx.jobExtensionState().find(and(eq(JOB_ID, jobId), eq(NAMESPACE, namespace))).first();
-    if (doc == null) {
-      return Optional.empty();
+    try {
+      Document doc =
+          ctx.jobExtensionState()
+              .withReadPreference(ReadPreference.primary())
+              .find(and(eq(JOB_ID, jobId), eq(NAMESPACE, namespace)))
+              .first();
+      if (doc == null) {
+        return Optional.empty();
+      }
+      String json =
+          PayloadEncryptor.decryptValue(
+              doc.getString(STATE), EncryptionTarget.extensionState(jobId, namespace));
+      return Optional.of(new VersionedState(json, doc.getInteger(VERSION, 0)));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("get job state", e);
     }
-    String json =
-        PayloadEncryptor.decryptValue(
-            doc.getString(STATE), EncryptionTarget.extensionState(jobId, namespace));
-    return Optional.of(new VersionedState(json, doc.getInteger(VERSION, 0)));
   }
 
   @Override
   public void initState(UUID jobId, String namespace, String initialState) {
     requireNamespace(namespace);
     requireState(initialState);
+    Optional<Boolean> payload;
+    try {
+      payload = encryptedPayload(jobId);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("init job state", e);
+    }
     boolean encryptedPayload =
-        encryptedPayload(jobId)
-            .orElseThrow(
-                () -> new IllegalStateException("no job " + jobId + " for extension state"));
+        payload.orElseThrow(
+            () -> new IllegalStateException("no job " + jobId + " for extension state"));
     boolean active = JobEncryption.activeFor(encryptedPayload);
     Document doc = stateDocument(jobId, namespace, initialState, active);
     try {
       ctx.jobExtensionState().insertOne(doc);
-    } catch (MongoException e) {
+    } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateKey(e)) {
         throw new IllegalStateException(
             "extension state already initialized for job " + jobId + " namespace " + namespace, e);
       }
-      throw e;
+      throw ctx.translateTransientStoreException("init job state", e);
     }
   }
 
@@ -158,12 +171,16 @@ final class MongoExtensionOperations implements JobPropertyStore, JobStateStore 
       throw new IllegalArgumentException(
           "expectedVersion must be non-negative: " + expectedVersion);
     }
-    Optional<Boolean> encryptedPayload = encryptedPayload(jobId);
-    if (encryptedPayload.isEmpty()) {
-      return false;
+    try {
+      Optional<Boolean> encryptedPayload = encryptedPayload(jobId);
+      if (encryptedPayload.isEmpty()) {
+        return false;
+      }
+      boolean active = JobEncryption.activeFor(encryptedPayload.get());
+      return updateState(null, jobId, namespace, newState, expectedVersion, active);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("update job state", e);
     }
-    boolean active = JobEncryption.activeFor(encryptedPayload.get());
-    return updateState(null, jobId, namespace, newState, expectedVersion, active);
   }
 
   @Override
@@ -189,7 +206,9 @@ final class MongoExtensionOperations implements JobPropertyStore, JobStateStore 
       if (ctx.constraintDetector().isDuplicateKey(e)) {
         return StateWriteResult.VERSION_CONFLICT;
       }
-      throw e;
+      throw ctx.translateTransientStoreException("init job state", e);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("init job state", e);
     }
   }
 
@@ -215,6 +234,8 @@ final class MongoExtensionOperations implements JobPropertyStore, JobStateStore 
                 : StateWriteResult.VERSION_CONFLICT;
           },
           TRANSACTION_OPTIONS);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("update job state", e);
     }
   }
 
