@@ -220,8 +220,8 @@ class RatchetRuntimeConfiguration {
   @Bean(preDestroy = "shutdown")
   @Requires(missingBeans = ExecutorProvider.class)
   // Keep the concrete product for shutdown; applications override its ExecutorProvider SPI.
-  StandaloneExecutorProvider ratchetExecutorProvider() {
-    return new StandaloneExecutorProvider();
+  StandaloneExecutorProvider ratchetExecutorProvider(RatchetOptions options) {
+    return new StandaloneExecutorProvider(() -> options.execution().releaseThreads());
   }
 
   @Singleton

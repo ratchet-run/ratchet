@@ -32,6 +32,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -44,6 +45,86 @@ import run.ratchet.store.spi.NodeStore;
 import run.ratchet.store.spi.OrphanRecovery;
 
 class ReleaseExecutorIsolationTest {
+  @Test
+  void manySlowRetriesYieldToTimeoutFirstTryAndStateFlush() throws Exception {
+    ScheduledThreadPoolExecutor releases = new ScheduledThreadPoolExecutor(2);
+    ScheduledThreadPoolExecutor timer = new ScheduledThreadPoolExecutor(1);
+    CountDownLatch unblockPool = new CountDownLatch(1);
+    CountDownLatch occupied = new CountDownLatch(2);
+    CountDownLatch retriesEntered = new CountDownLatch(2);
+    CountDownLatch timeoutWritten = new CountDownLatch(1);
+    CountDownLatch flushed = new CountDownLatch(1);
+    JobStore store = mock(JobStore.class);
+    ResourcePermitService permits = mock(ResourcePermitService.class);
+    doAnswer(
+            invocation -> {
+              retriesEntered.countDown();
+              Thread.sleep(150);
+              throw new IllegalStateException("store unavailable");
+            })
+        .when(store)
+        .releaseBusinessKeyHold(any(), anyLong());
+    doAnswer(
+            invocation -> {
+              retriesEntered.countDown();
+              Thread.sleep(150);
+              throw new IllegalStateException("store unavailable");
+            })
+        .when(permits)
+        .release(anyString(), any(), anyLong());
+    AtomicLong now = new AtomicLong();
+    JobStateFlusher flusher = new JobStateFlusher(RatchetOptions.defaults(), now::get);
+    try {
+      for (int i = 0; i < 2; i++)
+        releases.execute(
+            () -> {
+              occupied.countDown();
+              awaitRelease(unblockPool);
+            });
+      assertTrue(occupied.await(5, TimeUnit.SECONDS));
+      HeldKeyReleases holds = new HeldKeyReleases(store, () -> releases);
+      PermitReleases permitReleases = new PermitReleases(permits, () -> releases, null);
+      try {
+        Thread.currentThread().interrupt();
+        for (int i = 0; i < 40; i++) {
+          UUID job = UUID.randomUUID();
+          holds.release(job, 1);
+          permitReleases.release("gpu", job, 1);
+        }
+      } finally {
+        Thread.interrupted();
+      }
+      unblockPool.countDown();
+      assertTrue(retriesEntered.await(5, TimeUnit.SECONDS));
+      assertTrue(
+          new OutcomeWriteRetries(() -> releases, null)
+              .execute("timeout", timeoutWritten::countDown));
+      FlushableState writer = mock(FlushableState.class);
+      when(writer.flushIntervalMs()).thenReturn(1L);
+      doAnswer(
+              invocation -> {
+                flushed.countDown();
+                return null;
+              })
+          .when(writer)
+          .flush();
+      flusher.markDirty(writer);
+      now.set(TimeUnit.MILLISECONDS.toNanos(1));
+      flusher.start(timer, () -> releases);
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
+      assertTrue(
+          timeoutWritten.await(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS));
+      assertTrue(flushed.await(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS));
+    } finally {
+      unblockPool.countDown();
+      flusher.stop();
+      releases.shutdownNow();
+      timer.shutdownNow();
+      assertTrue(releases.awaitTermination(5, TimeUnit.SECONDS));
+      assertTrue(timer.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
   @Test
   void blockedReleasesLeaveHeartbeatAndWatchdogRunning() throws Exception {
     exercise(false, false);

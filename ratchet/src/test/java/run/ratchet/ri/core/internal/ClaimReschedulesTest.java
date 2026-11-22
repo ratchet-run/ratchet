@@ -18,6 +18,8 @@ package run.ratchet.ri.core.internal;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -68,7 +70,7 @@ class ClaimReschedulesTest {
               return null;
             })
         .when(scheduler)
-        .schedule(any(Runnable.class), eq(1L), eq(TimeUnit.SECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
   }
 
   private boolean handOff(long seq, Runnable callback) {
@@ -82,6 +84,46 @@ class ClaimReschedulesTest {
   }
 
   @Test
+  void storeErrorDropsOnceAndLaterHandOffsStillWork() {
+    Runnable dropped = mock(Runnable.class);
+    Runnable accepted = mock(Runnable.class);
+    Runnable rejected = mock(Runnable.class);
+    AssertionError failure = new AssertionError("store error");
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L)).thenThrow(failure).thenReturn(true);
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> false, accepted, rejected, dropped));
+    assertSame(failure, assertThrows(AssertionError.class, () -> drainAt(1)));
+    verify(dropped).run();
+    verifyNoMoreInteractions(dropped);
+    verifyNoInteractions(accepted, rejected);
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> false, accepted, rejected, dropped));
+    drainAt(2);
+    verify(store, times(2)).releaseClaim(JOB, "release", TIME, 2, 7L);
+    verify(accepted).run();
+    verifyNoMoreInteractions(accepted, dropped);
+    verifyNoInteractions(rejected);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void drainYieldsAfterTimeBudget() {
+    when(store.releaseClaim(eq(JOB), any(), any(), anyInt(), anyLong()))
+        .thenAnswer(
+            invocation -> {
+              clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(600));
+              return true;
+            });
+    for (int i = 0; i < 4; i++) handOff(i, () -> {});
+    drainAt(1);
+    verify(store, times(2)).releaseClaim(eq(JOB), any(), any(), anyInt(), anyLong());
+    verify(scheduler).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
+    tasks.remove().run();
+    verify(store, times(4)).releaseClaim(eq(JOB), any(), any(), anyInt(), anyLong());
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
   void wrappedTransientFailureRetriesThenAcceptsOnce() {
     Runnable accepted = mock(Runnable.class);
     Runnable rejected = mock(Runnable.class);
@@ -91,8 +133,13 @@ class ClaimReschedulesTest {
         .thenReturn(true);
     assertTrue(
         reschedules.handOff(JOB, 7, "release", TIME, 2, () -> false, accepted, rejected, dropped));
+    // The first try runs a second after hand-off, the second five seconds after it.
+    verify(scheduler)
+        .schedule(any(Runnable.class), eq(TimeUnit.SECONDS.toNanos(1)), eq(TimeUnit.NANOSECONDS));
     drainAt(1);
     verifyNoInteractions(accepted, rejected, dropped);
+    verify(scheduler)
+        .schedule(any(Runnable.class), eq(TimeUnit.SECONDS.toNanos(4)), eq(TimeUnit.NANOSECONDS));
     drainAt(5);
     verify(store, times(2)).releaseClaim(JOB, "release", TIME, 2, 7L);
     verify(accepted).run();
@@ -444,7 +491,7 @@ class ClaimReschedulesTest {
               return null;
             })
         .when(timer)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     doThrow(new RejectedExecutionException("busy"))
         .when(scheduler)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
@@ -457,8 +504,11 @@ class ClaimReschedulesTest {
     assertEquals(1, rearms.size());
     for (int i = 0; i < 7; i++) rearms.remove().run();
     ArgumentCaptor<Long> delays = ArgumentCaptor.forClass(Long.class);
-    verify(timer, times(8)).schedule(any(Runnable.class), delays.capture(), eq(TimeUnit.SECONDS));
-    assertEquals(List.of(1L, 2L, 4L, 8L, 16L, 32L, 60L, 60L), delays.getAllValues());
+    verify(timer, times(8))
+        .schedule(any(Runnable.class), delays.capture(), eq(TimeUnit.NANOSECONDS));
+    assertEquals(
+        List.of(1L, 2L, 4L, 8L, 16L, 32L, 60L, 60L),
+        delays.getAllValues().stream().map(TimeUnit.NANOSECONDS::toSeconds).toList());
     verifyNoInteractions(store);
     captureTasks();
     rearms.remove().run();
@@ -479,7 +529,7 @@ class ClaimReschedulesTest {
               return null;
             })
         .when(timer)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     ClaimReschedules retrying =
         new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
     when(store.releaseClaim(JOB, "release", TIME, 2, 7L))

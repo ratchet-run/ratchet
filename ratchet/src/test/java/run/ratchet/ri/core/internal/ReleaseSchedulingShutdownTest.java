@@ -59,13 +59,20 @@ class ReleaseSchedulingShutdownTest {
         Capture claims = new Capture(ClaimReschedules.class)) {
       ReleaseRetries retries =
           new ReleaseRetries(
-              executor, ReleaseRetries.Policy.bounded(Duration.ofSeconds(1), 2), System::nanoTime);
+              executor,
+              null,
+              ReleaseRetries.Policy.bounded(Duration.ofSeconds(1), 2),
+              System::nanoTime,
+              "resource permit releases",
+              "node cleanup",
+              WARN);
+      ReleaseRetries.Release release =
+          new ReleaseRetries.Release("key", "permit", "node cleanup", WARN, () -> {});
       try {
         Thread.currentThread().interrupt();
-        assertDoesNotThrow(
-            () ->
-                retries.release(
-                    new ReleaseRetries.Release("permit", "node cleanup", WARN, () -> {})));
+        assertDoesNotThrow(() -> retries.release(release));
+        // The key is removed on refusal, and repeated stopping hand-offs log once per kind.
+        assertDoesNotThrow(() -> retries.release(release));
       } finally {
         Thread.interrupted();
       }
@@ -87,7 +94,7 @@ class ReleaseSchedulingShutdownTest {
       for (Capture capture : List.of(releases, claims)) {
         assertEquals(1, capture.records.size());
         LogRecord record = capture.records.get(0);
-        assertEquals(Level.INFO, record.getLevel());
+        assertEquals(Level.INFO.intValue(), record.getLevel().intValue());
         assertTrue(record.getMessage().contains("This node is stopping"));
         assertTrue(record.getMessage().contains("left to"));
       }

@@ -18,7 +18,10 @@ package run.ratchet.quarkus.runtime;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.StandaloneExecutorProvider;
 
 /**
@@ -35,4 +38,11 @@ import run.ratchet.ri.cdi.StandaloneExecutorProvider;
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class QuarkusRatchetExecutorProvider extends StandaloneExecutorProvider {}
+public class QuarkusRatchetExecutorProvider extends StandaloneExecutorProvider {
+  public QuarkusRatchetExecutorProvider() {}
+
+  @Inject
+  public QuarkusRatchetExecutorProvider(Instance<RatchetOptions> options) {
+    super(options);
+  }
+}

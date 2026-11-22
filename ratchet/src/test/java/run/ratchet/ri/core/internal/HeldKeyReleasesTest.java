@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -29,9 +30,12 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -46,8 +50,61 @@ class HeldKeyReleasesTest {
   @Mock private JobTerminalStore store;
   @Mock private ScheduledExecutorService scheduler;
 
+  private final AtomicLong clock = new AtomicLong();
+
   private HeldKeyReleases releases() {
-    return new HeldKeyReleases(store, () -> scheduler);
+    return new HeldKeyReleases(store, () -> scheduler, clock::get);
+  }
+
+  @Test
+  void duplicatePendingHoldKeepsFirstTryAndAcceptsAgainAfterLanding() {
+    HeldKeyReleases releases = releases();
+    Thread.currentThread().interrupt();
+    try {
+      releases.release(JOB_ID, CLAIM_SEQ);
+      releases.release(JOB_ID, CLAIM_SEQ);
+    } finally {
+      Thread.interrupted();
+    }
+    Runnable task = scheduled(1, 0);
+    verifyNoInteractions(store);
+    task.run();
+    releases.release(JOB_ID, CLAIM_SEQ);
+    verify(store, times(2)).releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ);
+    verify(scheduler, times(1)).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+  }
+
+  @Test
+  void duplicateDuringInlineTryIsDropped() throws Exception {
+    HeldKeyReleases releases = releases();
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch finish = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              entered.countDown();
+              assertTrue(finish.await(5, TimeUnit.SECONDS));
+              return true;
+            })
+        .when(store)
+        .releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ);
+    FutureTask<Void> first =
+        new FutureTask<>(
+            () -> {
+              releases.release(JOB_ID, CLAIM_SEQ);
+              return null;
+            });
+    new Thread(first).start();
+    try {
+      assertTrue(entered.await(5, TimeUnit.SECONDS));
+      releases.release(JOB_ID, CLAIM_SEQ);
+      verify(store, times(1)).releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ);
+      verifyNoInteractions(scheduler);
+    } finally {
+      finish.countDown();
+    }
+    first.get(5, TimeUnit.SECONDS);
+    releases.release(JOB_ID, CLAIM_SEQ);
+    verify(store, times(2)).releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ);
   }
 
   @Test
@@ -152,7 +209,13 @@ class HeldKeyReleasesTest {
   private Runnable scheduled(int count, long delayMillis) {
     ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
     verify(scheduler, times(count))
-        .schedule(task.capture(), eq(delayMillis), eq(TimeUnit.MILLISECONDS));
-    return task.getAllValues().get(count - 1);
+        .schedule(
+            task.capture(),
+            eq(TimeUnit.MILLISECONDS.toNanos(delayMillis)),
+            eq(TimeUnit.NANOSECONDS));
+    return () -> {
+      clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(delayMillis));
+      task.getAllValues().get(count - 1).run();
+    };
   }
 }

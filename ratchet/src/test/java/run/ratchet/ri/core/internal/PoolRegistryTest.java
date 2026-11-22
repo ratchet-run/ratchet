@@ -124,6 +124,7 @@ class PoolRegistryTest {
                 "platform",
                 "scheduled",
                 "factory",
+                2,
                 "virtual",
                 counterAccounting,
                 1000L,

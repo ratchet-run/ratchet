@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.cdi.internal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -27,9 +28,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,6 +44,24 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.internal.ExecutorProviderClosedException;
 
 class DefaultExecutorProviderTest {
+
+  @Test
+  void releasePoolUsesConfiguredCoreSize() throws Exception {
+    InitialContext context = mock(InitialContext.class);
+    RatchetOptions options =
+        RatchetOptions.builder().execution(execution -> execution.releaseThreads(5)).build();
+    when(context.lookup(options.execution().threadFactoryJndi()))
+        .thenReturn((ThreadFactory) Thread::new);
+    DefaultExecutorProvider provider = new TestExecutorProvider(context, options);
+    try {
+      provider.getReleaseExecutor();
+      Field pool = DefaultExecutorProvider.class.getDeclaredField("releasePool");
+      pool.setAccessible(true);
+      assertEquals(5, ((ScheduledThreadPoolExecutor) pool.get(provider)).getCorePoolSize());
+    } finally {
+      provider.shutdown();
+    }
+  }
 
   @Test
   void managedReleasePoolUsesFactoryAndDropsDelayedWork() throws Exception {

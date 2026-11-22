@@ -140,8 +140,10 @@ class JobExecutorServiceTest {
     verify(executorProvider, Mockito.times(3)).getReleaseExecutor();
     verify(executorProvider, never()).getScheduledExecutor();
     verify(releases, Mockito.times(2))
-        .schedule(any(Runnable.class), eq(0L), eq(TimeUnit.MILLISECONDS));
-    verify(releases).schedule(any(Runnable.class), eq(1L), eq(TimeUnit.SECONDS));
+        .schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
+    // The claim drain is armed for its absolute due time, one second after hand-off.
+    verify(releases, Mockito.times(3))
+        .schedule(any(Runnable.class), Mockito.anyLong(), eq(TimeUnit.NANOSECONDS));
     Mockito.verifyNoInteractions(store, permits);
   }
 
@@ -179,8 +181,9 @@ class JobExecutorServiceTest {
     }
     verify(executorProvider, Mockito.times(3)).getScheduledExecutor();
     verify(timers, Mockito.times(2))
-        .schedule(any(Runnable.class), eq(5_000L), eq(TimeUnit.MILLISECONDS));
-    verify(timers).schedule(any(Runnable.class), eq(1L), eq(TimeUnit.SECONDS));
+        .schedule(any(Runnable.class), eq(TimeUnit.SECONDS.toNanos(5)), eq(TimeUnit.NANOSECONDS));
+    verify(timers)
+        .schedule(any(Runnable.class), eq(TimeUnit.SECONDS.toNanos(1)), eq(TimeUnit.NANOSECONDS));
     Mockito.verifyNoInteractions(store, permits);
   }
 

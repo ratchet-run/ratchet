@@ -49,7 +49,10 @@ final class OutcomeWriteRetries {
             scheduler,
             timer,
             ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),
-            nanoTime);
+            nanoTime,
+            "outcome writes",
+            "orphan recovery once this node stops heartbeating",
+            Logger.Level.WARN);
   }
 
   /**
@@ -73,6 +76,10 @@ final class OutcomeWriteRetries {
   boolean run(String what, Runnable write) {
     return retries.release(
         new ReleaseRetries.Release(
-            what, "orphan recovery once this node stops heartbeating", Logger.Level.WARN, write));
+            new Object(),
+            what,
+            "orphan recovery once this node stops heartbeating",
+            Logger.Level.WARN,
+            write));
   }
 }
