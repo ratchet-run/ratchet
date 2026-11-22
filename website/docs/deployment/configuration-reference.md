@@ -99,7 +99,9 @@ Graceful shutdown releases do not consume this budget.
 and the minimum is `1`; a configured value below 1 falls back to the default.
 Set `RATCHET_WORKER_RELEASE_THREADS` to change it through the environment.
 The pool runs release retries, hard-timeout outcome writes and state flushes. Each thread can hold
-a database connection, so count them when you size the connection pool. With one thread, a single
+a database connection, and the heartbeat writes through the same datasource. Size the connection
+pool for the release threads plus the heartbeat; if release writes hold every connection, the
+heartbeat waits and other nodes may judge this node stale. With one thread, a single
 stuck store call stalls every write on the pool. The retry tick's one-second budget cannot cut
 short a store call that hangs.
 

@@ -118,7 +118,7 @@ The `ThreadPoolManager` maintains one or more thread pools for job execution. Th
 
 ### Release retries
 
-When an attempt ends, Ratchet releases what it held: its business-key hold, its resource permit and, when it gives the job back, its claim. A release that fails, or that starts on a thread that is still interrupted, is retried on a separate release pool sized by `ratchet.worker.release-threads` (default 2, minimum 1). The heartbeat and the timeout watchdog run on the scheduled executor, so a release that blocks in the store cannot delay them.
+When an attempt ends, Ratchet releases what it held: its business-key hold, its resource permit and, when it gives the job back, its claim. A release that fails, or that starts on a thread that is still interrupted, is retried on a separate release pool sized by `ratchet.worker.release-threads` (default 2, minimum 1). The heartbeat and the timeout watchdog run on the scheduled executor, so a release that blocks in the store cannot hold their threads. The heartbeat still writes through the same datasource, so release writes that hold every connection in its pool can delay it; see [Release pool size](../deployment/configuration-reference.md#release-pool-size).
 
 Retries run through one drain for each kind of write: business-key hold releases, resource permit releases, outcome writes and claim reschedules. Each drain runs its writes in the order they fall due. A tick handles at most 100 writes or about one second of work, then yields to other work queued on the pool. The budget is checked after each write, so it cannot cut short a store call that hangs. The first try of a hard-timeout outcome write and each state-flush drain go straight to the pool and never wait in a drain.
 
