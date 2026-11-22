@@ -17,7 +17,6 @@ package run.ratchet.ri.core.internal;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +25,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
@@ -35,6 +35,12 @@ final class RetryDrain {
   static final int MAX_ITEMS = 100;
   static final long TICK_NANOS = Duration.ofSeconds(1).toNanos();
   private static final Logger log = Logger.getLogger(RetryDrain.class);
+
+  enum Submission {
+    ACCEPTED,
+    DUPLICATE,
+    REFUSED
+  }
 
   interface Attempt {
     // null means done; otherwise the absolute monotonic time of the next try.
@@ -79,8 +85,10 @@ final class RetryDrain {
   private final Map<Object, Entry> pending = new HashMap<>();
   private final PriorityQueue<Entry> queue =
       new PriorityQueue<>(
-          Comparator.comparingLong((Entry entry) -> entry.due)
-              .thenComparingLong(entry -> entry.sequence));
+          (a, b) -> {
+            int due = Long.compare(a.due - b.due, 0);
+            return due != 0 ? due : Long.compare(a.sequence, b.sequence);
+          });
   private final String kind;
   private final Supplier<ScheduledExecutorService> scheduler;
   private final Supplier<ScheduledExecutorService> timer;
@@ -113,6 +121,31 @@ final class RetryDrain {
     this.firstRefusal = firstRefusal.toNanos();
     this.maxRefusal = maxRefusal.toNanos();
     this.refusal = refusal;
+  }
+
+  /** Reserves, queues and arms a hand-off before another caller can observe its key. */
+  Submission submit(Object key, long due, Function<Entry, Attempt> attempt, Runnable onDropped) {
+    List<Entry> dropped = new ArrayList<>();
+    Submission result;
+    synchronized (lock) {
+      // Recover a dropped ticket before reporting an existing hand-off as a duplicate.
+      arm(dropped);
+      if (pending.containsKey(key)) result = Submission.DUPLICATE;
+      else {
+        Entry entry = new Entry(key, onDropped);
+        entry.attempt = attempt.apply(entry);
+        pending.put(key, entry);
+        enqueue(entry, due);
+        if (arm(dropped, entry)) result = Submission.ACCEPTED;
+        else {
+          pending.remove(key, entry);
+          dropped.remove(entry);
+          result = Submission.REFUSED;
+        }
+      }
+    }
+    notifyDropped(dropped);
+    return result;
   }
 
   Entry reserve(Object key, Runnable dropped) {
@@ -186,7 +219,7 @@ final class RetryDrain {
       executor = scheduler.get();
       if (armed != null) {
         boolean stale = armed.executor.isShutdown() || (!armed.timer && armed.executor != executor);
-        if (!stale && (armed.timer || armed.due <= queue.peek().due)) return true;
+        if (!stale && (armed.timer || armed.due - queue.peek().due <= 0)) return true;
         cancelArmed();
       }
       Ticket ticket = new Ticket(executor, false, queue.peek().due);
@@ -291,20 +324,19 @@ final class RetryDrain {
       for (int processed = 0; processed < MAX_ITEMS; processed++) {
         Entry entry;
         synchronized (lock) {
-          if (queue.isEmpty() || queue.peek().due > clock.getAsLong()) break;
+          if (queue.isEmpty() || queue.peek().due - clock.getAsLong() > 0) break;
           entry = queue.remove();
         }
         Long next = null;
         try {
           next = entry.attempt.run();
         } catch (Error failure) {
-          finish(entry);
-          log.errorf(failure, "Error while retrying %s; dropping the pending write", kind);
-          try {
-            entry.dropped.run();
-          } catch (RuntimeException | Error callbackFailure) {
-            if (callbackFailure != failure) failure.addSuppressed(callbackFailure);
+          boolean owned;
+          synchronized (lock) {
+            owned = pending.remove(entry.key, entry);
           }
+          log.errorf(failure, "Error while retrying %s", kind);
+          if (owned) notifyDropped(List.of(entry));
           throw failure;
         } finally {
           synchronized (lock) {
@@ -325,6 +357,12 @@ final class RetryDrain {
   }
 
   private void notifyDropped(List<Entry> dropped) {
-    for (Entry entry : dropped) entry.dropped.run();
+    for (Entry entry : dropped) {
+      try {
+        entry.dropped.run();
+      } catch (RuntimeException | Error failure) {
+        log.errorf(failure, "Dropped callback failed for %s", kind);
+      }
+    }
   }
 }

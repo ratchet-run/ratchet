@@ -109,8 +109,6 @@ class ClaimReschedules {
       Runnable afterRejected,
       Runnable afterDropped) {
     Key key = new Key(jobId, claimSeq);
-    RetryDrain.Entry entry = drain.reserve(key, () -> runCallback(key, afterDropped, "Dropped"));
-    if (entry == null) return true;
     Pending item =
         new Pending(
             reason,
@@ -121,7 +119,14 @@ class ClaimReschedules {
             afterRejected,
             afterDropped,
             clock.getAsLong());
-    if (!drain.schedule(entry, item.due, () -> tryItem(key, item, entry))) return false;
+    RetryDrain.Submission result =
+        drain.submit(
+            key,
+            item.due,
+            entry -> () -> tryItem(key, item, entry),
+            () -> runCallback(key, afterDropped, "Dropped"));
+    if (result == RetryDrain.Submission.DUPLICATE) return true;
+    if (result == RetryDrain.Submission.REFUSED) return false;
     log.warnf(
         "Job %s claim %s could not be rescheduled; retrying in the background", jobId, claimSeq);
     return true;

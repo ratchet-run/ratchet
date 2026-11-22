@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -118,6 +119,106 @@ class RetryDrainTest {
     Task task = next(tasks);
     clock.set(Math.max(clock.get(), task.due()));
     task.run().run();
+  }
+
+  @Test
+  void deadlinesRemainOrderedAndDueAcrossClockWrap() {
+    long firstDue = Long.MAX_VALUE - 5;
+    long secondDue = firstDue + 10;
+    clock.set(firstDue - 5);
+    List<String> order = new ArrayList<>();
+    // Insert the wrapped deadline first, so the earlier entry must replace its ticket.
+    add(
+        "second",
+        secondDue,
+        () -> {
+          order.add("second");
+          return null;
+        });
+    Task later = tasks.peek();
+    add(
+        "first",
+        firstDue,
+        () -> {
+          order.add("first");
+          return null;
+        });
+    assertTrue(later.future().isCancelled());
+    Task first = next(tasks);
+    assertEquals(5, first.delay());
+    clock.set(firstDue);
+    first.run().run();
+    assertEquals(List.of("first"), order);
+    Task second = next(tasks);
+    assertEquals(10, second.delay());
+    clock.set(secondDue);
+    second.run().run();
+    assertEquals(List.of("first", "second"), order);
+    assertTrue(tasks.isEmpty());
+  }
+
+  @Test
+  void droppedCallbackErrorDoesNotSkipOtherCallbacksOrBreakReserve() throws Exception {
+    Runnable firstDropped = mock(Runnable.class);
+    Runnable secondDropped = mock(Runnable.class);
+    Field lockField = RetryDrain.class.getDeclaredField("lock");
+    lockField.setAccessible(true);
+    Object lock = lockField.get(drain);
+    doAnswer(
+            invocation -> {
+              assertFalse(Thread.holdsLock(lock));
+              throw new AssertionError("first callback failed");
+            })
+        .when(firstDropped)
+        .run();
+    doAnswer(
+            invocation -> {
+              assertFalse(Thread.holdsLock(lock));
+              return null;
+            })
+        .when(secondDropped)
+        .run();
+    RetryDrain.Entry first = drain.reserve("first", firstDropped);
+    assertTrue(drain.schedule(first, 0, () -> null));
+    RetryDrain.Entry second = drain.reserve("second", secondDropped);
+    assertTrue(drain.schedule(second, 0, () -> null));
+    when(executor.isShutdown()).thenReturn(true);
+    doThrow(new RejectedExecutionException("stopping"))
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    try (LogCapture logs = new LogCapture()) {
+      RetryDrain.Entry next = drain.reserve("next", () -> {});
+      assertNotNull(next);
+      verify(firstDropped).run();
+      verify(secondDropped).run();
+      verifyNoMoreInteractions(firstDropped, secondDropped);
+      List<LogRecord> errors = logs.atLevel(Level.SEVERE);
+      assertEquals(1, errors.size());
+      assertTrue(mentions(errors.get(0), "resource permit releases"));
+      assertNull(drain.reserve("next", () -> fail("duplicate callback")));
+      drain.finish(next);
+    }
+  }
+
+  @Test
+  void droppedCallbackRuntimeFailureDoesNotBreakScheduleOrRearm() {
+    Runnable dropped = mock(Runnable.class);
+    doThrow(new IllegalStateException("callback failed")).when(dropped).run();
+    RetryDrain.Entry first = drain.reserve("first", dropped);
+    assertTrue(drain.schedule(first, 0, () -> TimeUnit.SECONDS.toNanos(1)));
+    doThrow(new RejectedExecutionException("busy"))
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    doThrow(new RejectedExecutionException("timer busy"))
+        .when(timer)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    try (LogCapture logs = new LogCapture()) {
+      runNext();
+      verify(dropped).run();
+      verifyNoMoreInteractions(dropped);
+      assertEquals(1, logs.atLevel(Level.SEVERE).size());
+      assertNotNull(drain.reserve("first", () -> {}));
+    }
   }
 
   @Test
@@ -209,7 +310,8 @@ class RetryDrainTest {
           return null;
         });
     Task task = tasks.remove();
-    Thread worker = new Thread(task.run());
+    FutureTask<Void> work = new FutureTask<>(task.run(), null);
+    Thread worker = new Thread(work);
     worker.start();
     try {
       assertTrue(entered.await(5, TimeUnit.SECONDS));
@@ -225,6 +327,7 @@ class RetryDrainTest {
       assertEquals(0, calls.get());
     } finally {
       finish.countDown();
+      work.get(5, TimeUnit.SECONDS);
       worker.join(5000);
     }
     assertFalse(worker.isAlive());

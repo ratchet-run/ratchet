@@ -36,16 +36,23 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.sql.SQLTransientConnectionException;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -81,6 +88,154 @@ class ClaimReschedulesTest {
   private void drainAt(long seconds) {
     clock.set(TimeUnit.SECONDS.toNanos(seconds));
     tasks.remove().run();
+  }
+
+  private static Object drainLock(ClaimReschedules reschedules) {
+    try {
+      Field drainField = ClaimReschedules.class.getDeclaredField("drain");
+      drainField.setAccessible(true);
+      Field lockField = RetryDrain.class.getDeclaredField("lock");
+      lockField.setAccessible(true);
+      return lockField.get(drainField.get(reschedules));
+    } catch (ReflectiveOperationException failure) {
+      throw new AssertionError(failure);
+    }
+  }
+
+  @Test
+  void concurrentHandoffAfterRefusalOwnsItsWriteAndCallbacks() throws Exception {
+    Runnable firstAccepted = mock(Runnable.class);
+    Runnable firstRejected = mock(Runnable.class);
+    Runnable firstDropped = mock(Runnable.class);
+    Runnable secondAccepted = mock(Runnable.class);
+    Runnable secondRejected = mock(Runnable.class);
+    Runnable secondDropped = mock(Runnable.class);
+    AtomicReference<ClaimReschedules> owner = new AtomicReference<>();
+    FutureTask<Boolean> second =
+        new FutureTask<>(
+            () ->
+                owner
+                    .get()
+                    .handOff(
+                        JOB,
+                        7,
+                        "second",
+                        TIME,
+                        3,
+                        () -> false,
+                        secondAccepted,
+                        secondRejected,
+                        secondDropped));
+    AtomicBoolean firstRead = new AtomicBoolean(true);
+    AtomicLong now = new AtomicLong();
+    LongSupplier handoffClock =
+        () -> {
+          if (firstRead.compareAndSet(true, false)) {
+            // This read is before submit now, but between reserve and schedule in the old code.
+            // Complete the competing hand-off in that window, while neither version holds a lock.
+            new Thread(second).start();
+            try {
+              second.get(5, TimeUnit.SECONDS);
+            } catch (InterruptedException failure) {
+              Thread.currentThread().interrupt();
+              throw new AssertionError(failure);
+            } catch (ExecutionException | TimeoutException failure) {
+              throw new AssertionError(failure);
+            }
+          }
+          return now.get();
+        };
+    ScheduledExecutorService releaseScheduler = mock(ScheduledExecutorService.class);
+    ArrayDeque<Runnable> captured = new ArrayDeque<>();
+    AtomicInteger schedules = new AtomicInteger();
+    doAnswer(
+            invocation -> {
+              if (schedules.incrementAndGet() == 1)
+                throw new RejectedExecutionException("first refused");
+              captured.add(invocation.getArgument(0));
+              return null;
+            })
+        .when(releaseScheduler)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
+    ClaimReschedules competing =
+        new ClaimReschedules(store, () -> releaseScheduler, null, handoffClock);
+    owner.set(competing);
+    when(store.releaseClaim(eq(JOB), any(), eq(TIME), anyInt(), eq(7L))).thenReturn(true);
+    boolean firstResult =
+        competing.handOff(
+            JOB, 7, "first", TIME, 2, () -> false, firstAccepted, firstRejected, firstDropped);
+    boolean secondResult = second.get(5, TimeUnit.SECONDS);
+    assertEquals(1, (firstResult ? 1 : 0) + (secondResult ? 1 : 0));
+    assertEquals(1, captured.size());
+    now.set(TimeUnit.SECONDS.toNanos(1));
+    captured.remove().run();
+    verify(store)
+        .releaseClaim(JOB, firstResult ? "first" : "second", TIME, firstResult ? 2 : 3, 7L);
+    verifyNoMoreInteractions(store);
+    Runnable accepted = firstResult ? firstAccepted : secondAccepted;
+    Runnable refusedAccepted = firstResult ? secondAccepted : firstAccepted;
+    verify(accepted).run();
+    verifyNoMoreInteractions(accepted);
+    verifyNoInteractions(
+        refusedAccepted, firstRejected, firstDropped, secondRejected, secondDropped);
+    assertTrue(captured.isEmpty());
+  }
+
+  @Test
+  void acceptedCallbackErrorDoesNotRunDroppedCallback() {
+    assertTerminalCallbackError(true);
+  }
+
+  @Test
+  void rejectedCallbackErrorDoesNotRunDroppedCallback() {
+    assertTerminalCallbackError(false);
+  }
+
+  private void assertTerminalCallbackError(boolean accepted) {
+    Runnable terminal = mock(Runnable.class);
+    Runnable unexpected = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    AssertionError failure = new AssertionError("terminal callback error");
+    doThrow(failure).when(terminal).run();
+    when(store.releaseClaim(JOB, "release", TIME, 2, 7L)).thenReturn(accepted);
+    assertTrue(
+        reschedules.handOff(
+            JOB,
+            7,
+            "release",
+            TIME,
+            2,
+            () -> false,
+            accepted ? terminal : unexpected,
+            accepted ? unexpected : terminal,
+            dropped));
+    assertSame(failure, assertThrows(AssertionError.class, () -> drainAt(1)));
+    verify(terminal).run();
+    verifyNoMoreInteractions(terminal);
+    verifyNoInteractions(unexpected, dropped);
+    assertTrue(tasks.isEmpty());
+    assertTrue(handOff(8, () -> {}));
+    drainAt(2);
+    verifyNoInteractions(dropped);
+  }
+
+  @Test
+  void revokedDroppedCallbackErrorRunsOnlyOnce() {
+    Runnable accepted = mock(Runnable.class);
+    Runnable rejected = mock(Runnable.class);
+    Runnable dropped = mock(Runnable.class);
+    AssertionError failure = new AssertionError("dropped callback error");
+    doThrow(failure).when(dropped).run();
+    assertTrue(
+        reschedules.handOff(JOB, 7, "release", TIME, 2, () -> true, accepted, rejected, dropped));
+    assertSame(failure, assertThrows(AssertionError.class, () -> drainAt(1)));
+    verify(dropped).run();
+    verifyNoMoreInteractions(dropped);
+    verifyNoInteractions(store, accepted, rejected);
+    assertTrue(tasks.isEmpty());
+    assertTrue(handOff(7, () -> {}));
+    drainAt(2);
+    verifyNoMoreInteractions(dropped);
   }
 
   @Test
@@ -215,14 +370,14 @@ class ClaimReschedulesTest {
     Runnable unexpected = () -> fail("unexpected write result");
     doAnswer(
             invocation -> {
-              droppedUnderLock.set(Thread.holdsLock(reschedules));
+              droppedUnderLock.set(Thread.holdsLock(drainLock(reschedules)));
               throw new IllegalStateException("callback failed");
             })
         .when(dropped)
         .run();
     doAnswer(
             invocation -> {
-              otherUnderLock.set(Thread.holdsLock(reschedules));
+              otherUnderLock.set(Thread.holdsLock(drainLock(reschedules)));
               return null;
             })
         .when(other)
@@ -507,8 +662,10 @@ class ClaimReschedulesTest {
     verify(timer, times(8))
         .schedule(any(Runnable.class), delays.capture(), eq(TimeUnit.NANOSECONDS));
     assertEquals(
-        List.of(1L, 2L, 4L, 8L, 16L, 32L, 60L, 60L),
-        delays.getAllValues().stream().map(TimeUnit.NANOSECONDS::toSeconds).toList());
+        List.of(1L, 2L, 4L, 8L, 16L, 32L, 60L, 60L).stream()
+            .map(TimeUnit.SECONDS::toNanos)
+            .toList(),
+        delays.getAllValues());
     verifyNoInteractions(store);
     captureTasks();
     rearms.remove().run();
@@ -571,7 +728,7 @@ class ClaimReschedulesTest {
             () -> false,
             () -> {},
             () -> fail("rejected"),
-            () -> droppedUnderLock.set(Thread.holdsLock(retrying))));
+            () -> droppedUnderLock.set(Thread.holdsLock(drainLock(retrying)))));
     doThrow(new RejectedExecutionException("busy"))
         .when(scheduler)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));

@@ -131,6 +131,8 @@ final class ReleaseRetries {
   }
 
   boolean release(Release release) {
+    // Reserve before the inline try: duplicate idempotent releases share the first write's
+    // outcome or backstop. A false return only means the write did not run on this thread.
     RetryDrain.Entry entry = drain.reserve(release.key(), () -> {});
     if (entry == null) {
       log.debugf("%s is already pending", release.what());
