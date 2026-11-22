@@ -118,7 +118,11 @@ The `ThreadPoolManager` maintains one or more thread pools for job execution. Th
 
 ### Release retries
 
-When an attempt ends, Ratchet releases what it held: its business-key hold, its resource permit and, when it gives the job back, its claim. A release that fails, or that starts on a thread that is still interrupted, is retried on a separate 2-thread release pool. The heartbeat and the timeout watchdog run on the scheduled executor, so a release that blocks in the store cannot delay them.
+When an attempt ends, Ratchet releases what it held: its business-key hold, its resource permit and, when it gives the job back, its claim. A release that fails, or that starts on a thread that is still interrupted, is retried on a separate release pool sized by `ratchet.worker.release-threads` (default 2, minimum 1). The heartbeat and the timeout watchdog run on the scheduled executor, so a release that blocks in the store cannot delay them.
+
+Retries run through one drain for each kind of write: business-key hold releases, resource permit releases, outcome writes and claim reschedules. Each drain runs its writes in the order they fall due. A tick handles at most 100 writes or about one second of work, then yields to other work queued on the pool. The budget is checked after each write, so it cannot cut short a store call that hangs. The first try of a hard-timeout outcome write and each state-flush drain go straight to the pool and never wait in a drain.
+
+A second hand-off of a hold release, permit release or claim reschedule that is already pending is dropped, and the first keeps its retry timing and callbacks. Outcome writes are never merged. Each drain warns, at most once every ten minutes, when more than 1000 writes are pending or its oldest write is more than a minute past due. No write is dropped to save memory, because nothing frees a permit or ends a RUNNING job while this node runs. A hold release still gives up after about five minutes and leaves the hold to expire. When the node stops, pending writes are left to hold expiry, node clean-up, shutdown reset or orphan recovery, and the log says which.
 
 A finished run that asks to continue gives its claim back through the same retries. A transient store failure during that release does not charge an attempt or rerun the body.
 

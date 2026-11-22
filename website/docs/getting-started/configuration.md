@@ -224,6 +224,7 @@ DDL, not a datasource.
 | `jobExecutorJndi(String)` | `java:comp/DefaultManagedExecutorService` | Managed executor used for job attempts |
 | `scheduledExecutorJndi(String)` | `java:comp/DefaultManagedScheduledExecutorService` | Managed scheduled executor used for timers and maintenance |
 | `threadFactoryJndi(String)` | `java:comp/DefaultManagedThreadFactory` | Managed thread factory used by release retries and coordinator adapters |
+| `releaseThreads(int)` | `2` | Release pool threads, at least 1; `ratchet.worker.release-threads` / `RATCHET_WORKER_RELEASE_THREADS`. Also runs hard-timeout writes and state flushes; each thread can hold a database connection |
 | `virtualExecutorJndi(String)` | _(none)_ | Adds a second managed executor as the virtual pool; absent means virtual-targeted jobs fall back to platform |
 | `virtualCounterAccounting(boolean)` | `false` | Opt the virtual pool into counter-based backpressure instead of a bounded semaphore |
 | `queueSize(int)` | `100` | Reserved for custom executor implementations |
