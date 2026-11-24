@@ -16,8 +16,6 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -27,7 +25,6 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +36,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,9 +47,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
-import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -150,239 +144,7 @@ class ChainSchedulerTest {
     verify(jobTerminalStore, never()).cancelRunningJob(eq(child.getId()), any());
   }
 
-  @Test
-  void scheduleNext_noChildren_returnsFalse() {
-    JobEntity finished = pendingJob();
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of());
-
-    assertFalse(scheduler.scheduleNext(finished));
-    verify(jobCrudStore, never()).save(finished);
-  }
-
-  @Test
-  void scheduleNext_finalChainStepPublishesChainCompletedEvent() {
-    scheduler =
-        new ChainScheduler(
-            jobCrudStore,
-            jobTerminalStore,
-            jobBatchStatusStore,
-            RatchetOptions.defaults(),
-            FIXED_CLOCK,
-            eventPublisher,
-            new JakartaAfterCommitRegistrar(txRegistry));
-    JobEntity root = pendingJob();
-    root.setJobType(JobExecutionType.SINGLE);
-    JobEntity finished = pendingJob();
-    finished.setJobType(JobExecutionType.CHAIN_STEP);
-    finished.setDependsOn(root.getId());
-
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of());
-    when(jobCrudStore.findById(root.getId())).thenReturn(Optional.of(root));
-
-    assertFalse(scheduler.scheduleNext(finished));
-
-    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher).publish(eventCaptor.capture());
-    ChainCompletedEvent event = (ChainCompletedEvent) eventCaptor.getValue();
-    assertEquals(finished.getId(), event.getJobId());
-    assertEquals(root.getId(), event.getParentJobId());
-  }
-
-  @Test
-  void scheduleNext_chainCompletedEventPublishesExactlyOnceAfterCommit() {
-    scheduler =
-        new ChainScheduler(
-            jobCrudStore,
-            jobTerminalStore,
-            jobBatchStatusStore,
-            RatchetOptions.defaults(),
-            FIXED_CLOCK,
-            eventPublisher,
-            new JakartaAfterCommitRegistrar(txRegistry));
-    AtomicReference<Synchronization> synchronization = activeTransaction();
-    JobEntity root = pendingJob();
-    root.setJobType(JobExecutionType.SINGLE);
-    JobEntity finished = pendingJob();
-    finished.setJobType(JobExecutionType.CHAIN_STEP);
-    finished.setDependsOn(root.getId());
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of());
-    when(jobCrudStore.findById(root.getId())).thenReturn(Optional.of(root));
-
-    assertFalse(scheduler.scheduleNext(finished));
-
-    verify(eventPublisher, never()).publish(any(ChainCompletedEvent.class));
-
-    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
-
-    verify(eventPublisher, times(1)).publish(any(ChainCompletedEvent.class));
-  }
-
-  @Test
-  void scheduleNext_chainCompletedEventIsSuppressedOnRollback() {
-    scheduler =
-        new ChainScheduler(
-            jobCrudStore,
-            jobTerminalStore,
-            jobBatchStatusStore,
-            RatchetOptions.defaults(),
-            FIXED_CLOCK,
-            eventPublisher,
-            new JakartaAfterCommitRegistrar(txRegistry));
-    AtomicReference<Synchronization> synchronization = activeTransaction();
-    JobEntity root = pendingJob();
-    root.setJobType(JobExecutionType.SINGLE);
-    JobEntity finished = pendingJob();
-    finished.setJobType(JobExecutionType.CHAIN_STEP);
-    finished.setDependsOn(root.getId());
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of());
-    when(jobCrudStore.findById(root.getId())).thenReturn(Optional.of(root));
-
-    assertFalse(scheduler.scheduleNext(finished));
-    synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
-
-    verify(eventPublisher, never()).publish(any(ChainCompletedEvent.class));
-  }
-
-  @Test
-  void scheduleNext_pendingChildWithSentinel_setsScheduledTimeAndReturnsTrue() {
-    JobEntity finished = pendingJob();
-    JobEntity child = pendingJob();
-    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of(child));
-
-    assertTrue(scheduler.scheduleNext(finished));
-
-    ArgumentCaptor<JobEntity> saved = ArgumentCaptor.forClass(JobEntity.class);
-    verify(jobCrudStore).save(saved.capture());
-    assertEquals(FIXED_NOW, saved.getValue().getScheduledTime());
-  }
-
-  @Test
-  void scheduleNext_firstChainStepPublishesChainStartedEvent() {
-    scheduler =
-        new ChainScheduler(
-            jobCrudStore,
-            jobTerminalStore,
-            jobBatchStatusStore,
-            RatchetOptions.defaults(),
-            FIXED_CLOCK,
-            eventPublisher,
-            new JakartaAfterCommitRegistrar(txRegistry));
-    JobEntity root = pendingJob();
-    root.setJobType(JobExecutionType.SINGLE);
-    JobEntity child = pendingJob();
-    child.setJobType(JobExecutionType.CHAIN_STEP);
-    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-
-    when(jobCrudStore.findDependants(eq(root.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of(child));
-
-    assertTrue(scheduler.scheduleNext(root));
-
-    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher).publish(eventCaptor.capture());
-    ChainStartedEvent event = (ChainStartedEvent) eventCaptor.getValue();
-    assertEquals(child.getId(), event.getJobId());
-    assertEquals(root.getId(), event.getParentJobId());
-  }
-
-  @Test
-  void scheduleNext_chainStartedEventPublishesExactlyOnceAfterCommit() {
-    scheduler =
-        new ChainScheduler(
-            jobCrudStore,
-            jobTerminalStore,
-            jobBatchStatusStore,
-            RatchetOptions.defaults(),
-            FIXED_CLOCK,
-            eventPublisher,
-            new JakartaAfterCommitRegistrar(txRegistry));
-    AtomicReference<Synchronization> synchronization = activeTransaction();
-    JobEntity root = pendingJob();
-    root.setJobType(JobExecutionType.SINGLE);
-    JobEntity child = pendingJob();
-    child.setJobType(JobExecutionType.CHAIN_STEP);
-    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-    when(jobCrudStore.findDependants(eq(root.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of(child));
-
-    assertTrue(scheduler.scheduleNext(root));
-
-    verify(eventPublisher, never()).publish(any(ChainStartedEvent.class));
-
-    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
-
-    verify(eventPublisher, times(1)).publish(any(ChainStartedEvent.class));
-  }
-
-  @Test
-  void scheduleNext_pendingChildWithRealScheduledTime_notUnlocked() {
-    // Asymmetry: cancelChain cancels any PENDING child, but scheduleNext only unlocks children
-    // whose scheduledTime equals CHAIN_LOCK_TIME. A child manually scheduled with a real time
-    // is NOT unlocked by scheduleNext.
-    JobEntity finished = pendingJob();
-    JobEntity child = pendingJob();
-    child.setScheduledTime(Instant.parse("2025-01-01T00:00:00Z"));
-
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of(child));
-
-    assertFalse(scheduler.scheduleNext(finished));
-    verify(jobCrudStore, never()).save(child);
-  }
-
-  @Test
-  void scheduleNext_nonPendingChildWithSentinel_notScheduled() {
-    JobEntity finished = pendingJob();
-    JobEntity child = job(JobStatus.CANCELED);
-    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of(child));
-
-    assertFalse(scheduler.scheduleNext(finished));
-    verify(jobCrudStore, never()).save(child);
-  }
-
   // ── cancelChain ───────────────────────────────────────────────────────────
-
-  @Test
-  void scheduleNext_waitingChildWithSentinel_unlocksScheduleAndKeepsWaiting() {
-    JobEntity finished = pendingJob();
-    JobEntity child = job(JobStatus.WAITING);
-    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of(child));
-
-    assertTrue(scheduler.scheduleNext(finished));
-
-    verify(jobCrudStore).save(child);
-    assertEquals(JobStatus.WAITING, child.getStatus());
-    assertEquals(FIXED_NOW, child.getScheduledTime());
-  }
-
-  @Test
-  void scheduleNext_mixedChildren_onlyUnlocksSentinelPendingOnes() {
-    JobEntity finished = pendingJob();
-    JobEntity unlockable = pendingJob();
-    unlockable.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-    JobEntity alreadyScheduled = pendingJob();
-    alreadyScheduled.setScheduledTime(Instant.now().plusSeconds(60));
-
-    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
-        .thenReturn(List.of(unlockable, alreadyScheduled));
-
-    assertTrue(scheduler.scheduleNext(finished));
-    verify(jobCrudStore).save(unlockable);
-    verify(jobCrudStore, never()).save(alreadyScheduled);
-  }
 
   @Test
   void cancelChain_noChildren_noop() {

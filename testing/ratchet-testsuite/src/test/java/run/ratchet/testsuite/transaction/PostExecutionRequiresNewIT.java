@@ -16,6 +16,7 @@
 package run.ratchet.testsuite.transaction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
@@ -41,11 +42,11 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
- * Proves the runtime effect of {@code @Transactional(REQUIRES_NEW)} on {@link
- * PostExecutionHandler}: the batch-child completion ack commits in its own transaction and survives
- * a rollback of the caller's JTA context. The annotation is pinned by reflection in the store TCK,
- * but only a live container proves that the container actually suspends the caller transaction
- * rather than silently treating the attribute as REQUIRED and re-executing completed work.
+ * Exercises the completion transaction opened by {@link PostExecutionHandler}: the batch-child
+ * completion ack commits in its own transaction and survives a rollback of the caller's JTA
+ * context. The annotation is pinned by reflection in the store TCK, but only a live container
+ * proves that the container actually suspends the caller transaction rather than silently treating
+ * the attribute as REQUIRED and re-executing completed work.
  *
  * <p>JPA-only: exercises JTA suspension semantics not applicable to document stores.
  */
@@ -78,39 +79,36 @@ class PostExecutionRequiresNewIT extends BaseRatchetIT {
   void batchChildAck_commitsInOwnTransaction_andSurvivesCallerRollback() throws Exception {
     // A three-item batch so neither the ack nor the probe below completes it: the only observable
     // effect is the completed-child counter moving, with no completion cascade.
-    // Seeding goes through TestTransactionRunner so the servlet frame cannot be left poisoned by
-    // the store-interceptor TOM race before the deliberate utx.begin() below; the
-    // handleJobSuccess window stays exposed because caller-managed rollback IS the behavior
-    // under test.
-    JobEntity parent =
+    JobEntity child =
         txRunner.call(
             () -> {
-              JobEntity saved = jobCrudStore.save(batchParentJob());
+              JobEntity parent = jobCrudStore.save(batchParentJob());
               BatchEntity batch = new BatchEntity();
-              batch.setId(saved.getId());
+              batch.setId(parent.getId());
               batch.setTotalItems(3);
-              batch.setCompletedItems(0);
-              batch.setFailedItems(0);
-              batch.setCompletionProcessed(false);
               batchStore.saveBatch(batch);
-              return saved;
+
+              JobEntity runningChild = batchParentJob();
+              runningChild.setJobType(JobExecutionType.BATCH_CHILD);
+              runningChild.setDependsOn(parent.getId());
+              runningChild.setStatus(JobStatus.RUNNING);
+              return jobCrudStore.save(runningChild);
             });
 
-    // update() reads only getDependsOn() off the child, so an in-memory entity is enough and the
-    // poller has no claimable row to touch.
-    JobEntity child = new JobEntity();
-    child.setJobType(JobExecutionType.BATCH_CHILD);
-    child.setDependsOn(parent.getId());
-
     utx.begin();
-    postExecutionHandler.handleJobSuccess(child); // REQUIRES_NEW commits completed 0 -> 1
-    utx.rollback(); // rolls back the empty caller transaction
+    try {
+      Instant now = Instant.now();
+      assertTrue(postExecutionHandler.completeSuccess(child, null, null, now, now, 0, 0, null));
+    } finally {
+      utx.rollback();
+    }
 
     // Read the committed counter without going through the JPA first/second-level cache: a fresh
     // atomic increment locks and reads the live row, then returns the post-update value. If the
     // REQUIRES_NEW ack committed, the row is already 1 and this returns 2; if the ack had instead
     // joined and rolled back with the caller, the row would be 0 and this would return 1.
-    int afterProbeIncrement = batchStore.incrementCompletedAtomic(parent.getId()).completedItems();
+    int afterProbeIncrement =
+        batchStore.incrementCompletedAtomic(child.getDependsOn()).completedItems();
     assertEquals(
         2,
         afterProbeIncrement,

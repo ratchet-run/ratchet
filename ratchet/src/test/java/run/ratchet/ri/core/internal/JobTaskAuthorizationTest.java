@@ -205,9 +205,6 @@ class JobTaskAuthorizationTest {
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(), any());
-    verify(lifecycleFacade, never()).moveToDlq(any(), any());
-    verify(lifecycleFacade, never()).scheduleNext(any());
-    verify(lifecycleFacade, never()).markBatchChildFailed(any());
   }
 
   @Test
@@ -238,7 +235,6 @@ class JobTaskAuthorizationTest {
     verify(jobStore, never()).releaseClaim(any(), any(), any(), anyInt(), anyLong());
     verify(lifecycleFacade, never())
         .completeFailure(any(JobEntity.class), any(), eq(false), nullable(Integer.class));
-    verify(lifecycleFacade, never()).moveToDlq(any(), any());
   }
 
   @Test

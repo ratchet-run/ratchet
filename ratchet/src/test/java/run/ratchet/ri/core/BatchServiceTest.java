@@ -917,7 +917,6 @@ class BatchServiceTest {
     verify(batchStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(deadLetterService, never()).recordDlqTransition(any(), any());
-    verify(workflowScheduler, never()).scheduleNext(any());
     verify(batchStore).findBatchById(parentId);
   }
 
@@ -952,7 +951,6 @@ class BatchServiceTest {
         .resetRunningJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID, 0L);
     verify(batchStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
-    verify(workflowScheduler, never()).scheduleNext(any());
   }
 
   @Test

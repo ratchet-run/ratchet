@@ -1805,7 +1805,6 @@ class JobTimeoutHandlerTest {
 
     verify(jobRetryStore, times(1))
         .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L));
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
@@ -1964,7 +1963,6 @@ class JobTimeoutHandlerTest {
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any());
     verify(lifecycleFacade)
         .handleTimeoutTransition(any(TimeoutException.class), eq(false), any(Supplier.class));
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
   @ParameterizedTest
@@ -2156,7 +2154,6 @@ class JobTimeoutHandlerTest {
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(eventPublisher, never()).publish(any());
@@ -2180,7 +2177,6 @@ class JobTimeoutHandlerTest {
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L), any());
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(eventPublisher, never()).publish(any());
   }
 
@@ -2196,7 +2192,6 @@ class JobTimeoutHandlerTest {
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
   @Test
@@ -2208,7 +2203,6 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L), any());
     verify(jobRetryStore, never())
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
   @Test
@@ -2262,7 +2256,6 @@ class JobTimeoutHandlerTest {
     assertEquals(now.plusMillis(2_500), job.getScheduledTime());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
   @Test
@@ -2348,7 +2341,6 @@ class JobTimeoutHandlerTest {
     assertEquals("Signal timeout exceeded for key: approval", job.getLastError());
     verify(lifecycleFacade)
         .handleTimeoutTransition(any(SignalTimeoutException.class), eq(true), any(Supplier.class));
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
   @Test
@@ -2568,7 +2560,6 @@ class JobTimeoutHandlerTest {
 
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(eventPublisher, never()).publish(any());
   }
 
@@ -2583,7 +2574,6 @@ class JobTimeoutHandlerTest {
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), isNull());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
-    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
   @ParameterizedTest
