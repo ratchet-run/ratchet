@@ -90,7 +90,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     }
   }
 
-  private void installReleasedV001(SchemaMigrator.MigrationScript script) throws Exception {
+  private void installRecordedMigration(SchemaMigrator.MigrationScript script) throws Exception {
     try (Connection connection = newJdbcConnection()) {
       executeSqlScript(connection, script.sql());
       try (PreparedStatement statement =
@@ -251,7 +251,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     assertEquals(
         "0b339e555cddc589c0844184a04e2eff8f803bc7d1ef18a695b02dacb1224112",
         releasedV001.checksum());
-    installReleasedV001(releasedV001);
+    installRecordedMigration(releasedV001);
     try (Connection c = newJdbcConnection();
         Statement statement = c.createStatement()) {
       statement.executeUpdate(
@@ -304,6 +304,64 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   }
 
   @Test
+  void migratesLegacyResourceReferencesBeforeEnablingBinaryComparison() throws Exception {
+    resetDatabase();
+    SchemaMigrator migrator = newMigrator();
+    // Install the released migrations and their checksums, leaving V021 to the migrator.
+    for (var script : migrator.discoverMigrations()) {
+      if (script.version().equals("021")) break;
+      installRecordedMigration(script);
+    }
+
+    String jobId = "UNHEX('00112233445566778899aabbccddeeff')";
+    try (Connection connection = newJdbcConnection();
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "INSERT INTO scheduler_resource_limit (resource_name, max_concurrent) VALUES ('GPU', 2)");
+      statement.executeUpdate(
+          "INSERT INTO scheduler_job (job_id, job_type, payload, idempotency_key, created_at,"
+              + " resource_name) VALUES ("
+              + jobId
+              + ", 'SINGLE', '{}', 'resource-job', NOW(), 'gpu')");
+      statement.executeUpdate(
+          "INSERT INTO scheduler_recurring_job (id, cron_expr, next_fire, payload, created_at,"
+              + " resource_name) VALUES ("
+              + jobId
+              + ", '* * * * *', NOW(), '{}', NOW(), 'Gpu')");
+      statement.executeUpdate(
+          "INSERT INTO scheduler_resource_waiter (job_id, resource_name, priority, wait_since,"
+              + " lease_until) VALUES ("
+              + jobId
+              + ", 'gpu', 0, NOW(), NOW())");
+      statement.executeUpdate(
+          "INSERT INTO scheduler_resource_permit (id, resource_name, job_id, node_id, acquired_at)"
+              + " VALUES ("
+              + jobId
+              + ", 'gpu', "
+              + jobId
+              + ", 'node', NOW())");
+    }
+
+    assertEquals(List.of("021"), versions(migrator.migrate().applied()));
+    try (Connection connection = newJdbcConnection();
+        Statement statement = connection.createStatement()) {
+      for (String table :
+          List.of("scheduler_job", "scheduler_recurring_job", "scheduler_resource_waiter")) {
+        try (ResultSet rows = statement.executeQuery("SELECT resource_name FROM " + table)) {
+          assertTrue(rows.next(), table);
+          assertEquals("GPU", rows.getString(1), table);
+        }
+      }
+      try (ResultSet rows =
+          statement.executeQuery("SELECT COUNT(*) FROM scheduler_resource_permit")) {
+        assertTrue(rows.next());
+        assertEquals(0, rows.getInt(1));
+      }
+    }
+    assertEquals(0, migrator.migrate().appliedCount());
+  }
+
+  @Test
   void migratedLockNamesUseThePrimaryIndex() throws Exception {
     resetDatabase();
     newMigrator().migrate();
@@ -328,7 +386,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   void widensLegacyPriorityColumnsAndPreservesValues() throws Exception {
     resetDatabase();
     SchemaMigrator migrator = newMigrator();
-    installReleasedV001(migrator.discoverMigrations().get(0));
+    installRecordedMigration(migrator.discoverMigrations().get(0));
     assertPriorityColumns("tinyint");
     try (Connection connection = newJdbcConnection();
         Statement statement = connection.createStatement()) {
