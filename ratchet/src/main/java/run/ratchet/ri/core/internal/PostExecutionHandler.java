@@ -32,6 +32,7 @@ import run.ratchet.api.Nullable;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.CompletionReads;
@@ -96,6 +97,9 @@ public class PostExecutionHandler {
       eventsBeforeDlq = List.copyOf(eventsBeforeDlq);
     }
   }
+
+  private static final int COMMIT_CONFIRMATION_ATTEMPTS = 3;
+  private static final long COMMIT_CONFIRMATION_BACKOFF_MS = 25L;
 
   private static final ThreadLocal<CompletionContext> COMPLETION_CONTEXT = new ThreadLocal<>();
 
@@ -565,11 +569,32 @@ public class PostExecutionHandler {
     if (plan == null) return false;
     boolean interrupted = Thread.interrupted();
     try {
-      return jobTerminalStore.wasCompletionCommitted(
-          plan.jobId(), plan.terminalStatus(), plan.expectedClaimSeq(), plan.commitToken());
-    } catch (RuntimeException readFailure) {
-      if (readFailure != writeFailure) writeFailure.addSuppressed(readFailure);
-      return false;
+      // A failed read carries no outcome. Keep the original token and pending notifications
+      // through a short retry window before returning the write to its caller.
+      for (int attempt = 0; attempt < COMMIT_CONFIRMATION_ATTEMPTS; attempt++) {
+        try {
+          return jobTerminalStore.wasCompletionCommitted(
+              plan.jobId(), plan.terminalStatus(), plan.expectedClaimSeq(), plan.commitToken());
+        } catch (RuntimeException readFailure) {
+          if (readFailure != writeFailure) writeFailure.addSuppressed(readFailure);
+        }
+        if (attempt + 1 == COMMIT_CONFIRMATION_ATTEMPTS) break;
+        try {
+          Thread.sleep(COMMIT_CONFIRMATION_BACKOFF_MS << attempt);
+        } catch (InterruptedException interruptedDuringRetry) {
+          interrupted = true;
+          writeFailure.addSuppressed(interruptedDuringRetry);
+          break;
+        }
+      }
+      String message =
+          "Unresolved terminal commit for job %s, claim %s, status %s, token %s"
+              .formatted(
+                  plan.jobId(), plan.expectedClaimSeq(), plan.terminalStatus(), plan.commitToken());
+      var unresolved = new RatchetTransientStoreException(message, writeFailure);
+      // Record the uncertainty even when the caller subsequently retries the fenced transition.
+      Logger.getLogger(PostExecutionHandler.class).error(message, unresolved);
+      throw unresolved;
     } finally {
       if (interrupted) Thread.currentThread().interrupt();
     }
