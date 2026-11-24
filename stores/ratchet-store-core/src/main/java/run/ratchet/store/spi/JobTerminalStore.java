@@ -62,9 +62,10 @@ public interface JobTerminalStore {
   JobCompletionResult commitCompletion(JobCompletionPlan plan);
 
   /**
-   * Reads the exact write's token from the primary store after the original transaction ended. A
-   * matching terminal status and claim sequence are required as well. Transaction attribute: {@code
-   * REQUIRES_NEW}.
+   * Resolves the original terminal write using its token, status and claim sequence. Supporting
+   * stores must wait for or fence any in-flight write before reporting that it did not apply. If
+   * the store cannot determine the outcome, it must propagate the failure. Transaction attribute:
+   * {@code REQUIRES_NEW}.
    */
   default boolean wasCompletionCommitted(
       UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {

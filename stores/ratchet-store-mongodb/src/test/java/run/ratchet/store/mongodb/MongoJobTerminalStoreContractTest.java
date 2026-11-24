@@ -15,11 +15,22 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.set;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETION_TOKEN;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
@@ -45,6 +56,42 @@ class MongoJobTerminalStoreContractTest extends AbstractJobTerminalStoreContract
     var missed = store().commitCompletion(plan);
     assertFalse(missed.committed());
     assertFalse(missed.durable());
+  }
+
+  @Test
+  void completionConfirmationWaitsForAnInFlightWrite() throws Exception {
+    JobEntity job = runningClaim();
+    UUID token = UUID.randomUUID();
+    CountDownLatch commandStarted = new CountDownLatch(1);
+    CompletableFuture<Boolean> confirmation;
+    try (var session = fixture.startSession()) {
+      session.startTransaction();
+      assertEquals(
+          1,
+          fixture
+              .database()
+              .getCollection("scheduler_job")
+              .updateOne(
+                  session,
+                  eq(ID, job.getId()),
+                  combine(set(STATUS, JobStatus.FAILED.name()), set(COMPLETION_TOKEN, token)))
+              .getModifiedCount());
+      confirmation =
+          CompletableFuture.supplyAsync(
+              () ->
+                  fixture.observeCommands(
+                      command -> {
+                        if (command.equals("findAndModify")) commandStarted.countDown();
+                      },
+                      () ->
+                          store()
+                              .wasCompletionCommitted(
+                                  job.getId(), JobStatus.FAILED, job.getClaimSeq(), token)));
+      assertTrue(commandStarted.await(5, TimeUnit.SECONDS));
+      assertFalse(confirmation.isDone());
+      session.commitTransaction();
+    }
+    assertTrue(confirmation.get(5, TimeUnit.SECONDS));
   }
 
   @Test

@@ -628,7 +628,7 @@ public class BatchService {
           () -> {
             publishBatchEnvelope(batch, parent);
             if (succeeded) durable.publishNow(prepared);
-            else deadLetterService.recordPreparedBatchDlqTransition(parent, dlqEvents);
+            else deadLetterService.recordPreparedDlqTransitionAfterCommit(parent, dlqEvents);
           });
     } else publishBatchEvents(batch, parent, succeeded, totalDurationMs);
     workflowScheduler.publishCompletion(workflow);

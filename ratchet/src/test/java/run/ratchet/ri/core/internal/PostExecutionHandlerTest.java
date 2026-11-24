@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -56,6 +57,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
@@ -367,6 +369,18 @@ class PostExecutionHandlerTest {
     useCompletionTransaction();
     stubSuccessfulCommit(new AtomicBoolean());
     AtomicReference<JobCompletionPlan> submitted = new AtomicReference<>();
+    when(deadLetterService.prepareDlqEvent(any(), isNull()))
+        .thenReturn(
+            new JobDlqEvent(
+                child.getId(),
+                null,
+                null,
+                child.getPublicJobType(),
+                child.getPriority(),
+                null,
+                Instant.now(),
+                "failure",
+                child.getAttempts()));
     when(jobTerminalStore.commitCompletion(any()))
         .thenAnswer(
             invocation -> {
@@ -375,11 +389,19 @@ class PostExecutionHandlerTest {
             });
     when(jobTerminalStore.wasCompletionCommitted(
             eq(child.getId()), eq(JobStatus.FAILED), eq(7L), any(UUID.class)))
-        .thenAnswer(invocation -> invocation.getArgument(3).equals(submitted.get().commitToken()));
+        .thenAnswer(
+            invocation -> {
+              verify(deadLetterService, never())
+                  .recordPreparedDlqTransitionAfterCommit(any(), any());
+              verify(workflowScheduler, never()).publishCompletion(any());
+              return invocation.getArgument(3).equals(submitted.get().commitToken());
+            });
 
     assertTrue(handler.completeFailure(child, JobStatus.RUNNING, false, null));
     assertNotNull(submitted.get().commitToken());
     assertEquals(JobStatus.FAILED, submitted.get().terminalStatus());
+    verify(deadLetterService).recordPreparedDlqTransitionAfterCommit(any(), any());
+    verify(workflowScheduler).publishCompletion(any());
   }
 
   @Test

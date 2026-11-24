@@ -133,10 +133,12 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
           store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), token));
       assertTrue(store().commitCompletion(plan).committed());
       assertTrue(store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), token));
+      UUID competingToken = UUID.randomUUID();
+      assertFalse(store().commitCompletion(plan.withCommitToken(competingToken)).committed());
+      assertTrue(store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), token));
       assertFalse(
           store()
-              .wasCompletionCommitted(
-                  claim.getId(), status, claim.getClaimSeq(), UUID.randomUUID()));
+              .wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), competingToken));
       assertFalse(
           store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq() + 1, token));
       if (status == JobStatus.FAILED) {

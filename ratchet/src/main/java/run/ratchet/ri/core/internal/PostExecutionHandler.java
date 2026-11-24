@@ -105,6 +105,7 @@ public class PostExecutionHandler {
     private final List<BatchProgress> batchFollowups = new ArrayList<>();
     private UUID jobId;
     private JobCompletionPlan pendingWrite;
+    private Runnable pendingNotifications;
     private boolean durable;
     private boolean result;
 
@@ -410,6 +411,8 @@ public class PostExecutionHandler {
     JobCompletionPlan plan =
         completionPlan(completed, expectedStatus, null, workflow, expectedAttempts);
     if (durableEnabled) plan = durable.withEvents(plan, events);
+    List<AbstractJobSchedulerEvent> outboxPublication = durableEnabled ? events : null;
+    PreparedDlqEvents plannedDlq = preparedDlq;
     CompletionContext context = COMPLETION_CONTEXT.get();
     if (context != null
         && context.deferSteps
@@ -419,6 +422,13 @@ public class PostExecutionHandler {
       // Record the identity before the store call, which can itself lose its commit reply.
       context.pendingWrite = plan;
       context.jobId = plan.jobId();
+      context.pendingNotifications =
+          () -> {
+            registerCompletionNotifications(
+                completed, cause, failureEvents, outboxPublication, plannedDlq, true);
+            deferPostCommit(() -> workflowScheduler.publishCompletion(workflow));
+            deferPostCommit(() -> wakeupIfNewWorkAvailable(workflow.newWorkAvailable()));
+          };
     }
     JobCompletionResult result = jobTerminalStore.commitCompletion(plan);
     if (!result.committed()) {
@@ -434,30 +444,10 @@ public class PostExecutionHandler {
       context.jobId = completed.getId();
       context.durable |= result.durable();
       context.result = true;
+      context.pendingNotifications = null;
     }
-    if (durableEnabled) {
-      List<AbstractJobSchedulerEvent> committedEvents = events;
-      if (completed.getStatus() == JobStatus.SUCCEEDED)
-        deferPostCommit(() -> durable.publishAfterCommit(committedEvents));
-      else deadLetterService.recordDlqTransitionInCurrentTransaction(completed, preparedDlq);
-    } else {
-      if (completed.getStatus() == JobStatus.SUCCEEDED) {
-        deferPostCommit(
-            () ->
-                workflowScheduler.publishTerminalEvent(
-                    new JobCompletedEvent(
-                        completed.getId(),
-                        completed.getBusinessKey(),
-                        completed.getRecurringMasterId(),
-                        completed.getPublicJobType(),
-                        completed.getPriority(),
-                        completed.getPickedBy(),
-                        completed.getExecutionEndTime(),
-                        completed.getExecutionDurationMs())));
-      } else {
-        deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
-      }
-    }
+    registerCompletionNotifications(
+        completed, cause, failureEvents, outboxPublication, plannedDlq, false);
     deferPostCommit(() -> workflowScheduler.publishCompletion(workflow));
     if (result.batchProgress() != null) {
       // Child terminal state and counters are already one durable unit. Parent completion is
@@ -481,6 +471,47 @@ public class PostExecutionHandler {
     return true;
   }
 
+  private void registerCompletionNotifications(
+      JobEntity completed,
+      Throwable cause,
+      List<AbstractJobSchedulerEvent> failureEvents,
+      @Nullable List<AbstractJobSchedulerEvent> outboxPublication,
+      @Nullable PreparedDlqEvents plannedDlq,
+      boolean recovered) {
+    if (completed.getStatus() == JobStatus.SUCCEEDED) {
+      if (outboxPublication != null) {
+        deferPostCommit(() -> durableEvents.publishAfterCommit(outboxPublication));
+      } else {
+        deferPostCommit(
+            () ->
+                workflowScheduler.publishTerminalEvent(
+                    new JobCompletedEvent(
+                        completed.getId(),
+                        completed.getBusinessKey(),
+                        completed.getRecurringMasterId(),
+                        completed.getPublicJobType(),
+                        completed.getPriority(),
+                        completed.getPickedBy(),
+                        completed.getExecutionEndTime(),
+                        completed.getExecutionDurationMs())));
+      }
+    } else if (recovered) {
+      deferPostCommit(
+          () -> {
+            var dlq =
+                plannedDlq != null
+                    ? plannedDlq
+                    : new PreparedDlqEvents(
+                        failureEvents, deadLetterService.prepareDlqEvent(completed, cause));
+            deadLetterService.recordPreparedDlqTransitionAfterCommit(completed, dlq);
+          });
+    } else if (plannedDlq != null) {
+      deadLetterService.recordDlqTransitionInCurrentTransaction(completed, plannedDlq);
+    } else {
+      deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
+    }
+  }
+
   /**
    * Runs post-commit steps after the completion transaction returns, then batch follow-ups. A
    * durable store commit stays committed if the completion transaction fails afterwards.
@@ -502,6 +533,7 @@ public class PostExecutionHandler {
               : recordedWork.get();
     } catch (RuntimeException failure) {
       if (!context.durable && !resolveCommit(context.pendingWrite, failure)) throw failure;
+      if (context.pendingNotifications != null) context.pendingNotifications.run();
       context.result = true;
       Logger.getLogger(PostExecutionHandler.class)
           .warnf(

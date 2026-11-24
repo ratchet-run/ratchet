@@ -19,6 +19,7 @@ import com.github.dockerjava.api.model.Ulimit;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.ReadPreference;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
@@ -32,6 +33,8 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.bson.Document;
 import org.bson.UuidRepresentation;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -72,6 +75,7 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
   // serverSelectionTimeout converts any future overload into a fast MongoTimeoutException
   // instead of a 10-minute deadlock.
   private static final ThreadLocal<AtomicInteger> COMMAND_COUNT = new ThreadLocal<>();
+  private static final ThreadLocal<Consumer<String>> COMMAND_OBSERVER = new ThreadLocal<>();
 
   private static final MongoClient CLIENT;
 
@@ -96,6 +100,8 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
                     if (count != null) {
                       count.incrementAndGet();
                     }
+                    var observer = COMMAND_OBSERVER.get();
+                    if (observer != null) observer.accept(event.getCommandName());
                   }
                 })
             .applyConnectionString(new ConnectionString(MONGO.getConnectionString()))
@@ -146,6 +152,19 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
 
   MongoDatabase database() {
     return database;
+  }
+
+  ClientSession startSession() {
+    return client.startSession();
+  }
+
+  <T> T observeCommands(Consumer<String> observer, Supplier<T> work) {
+    COMMAND_OBSERVER.set(observer);
+    try {
+      return work.get();
+    } finally {
+      COMMAND_OBSERVER.remove();
+    }
   }
 
   @Override

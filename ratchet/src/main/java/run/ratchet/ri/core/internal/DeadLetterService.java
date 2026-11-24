@@ -98,9 +98,9 @@ public class DeadLetterService {
     log.warnf("Job %s moved to DLQ", job.getId());
   }
 
-  /** Called after a batch commit; no additional transaction or connection is needed. */
+  /** Publishes a prepared DLQ transition after its store commit. */
   @Transactional(TxType.NOT_SUPPORTED)
-  public void recordPreparedBatchDlqTransition(JobEntity job, PreparedDlqEvents prepared) {
+  public void recordPreparedDlqTransitionAfterCommit(JobEntity job, PreparedDlqEvents prepared) {
     job.setLastError(prepared.dlq().getErrorMessage());
     if (durableEvents != null && durableEvents.enabled())
       durableEvents.publishNow(prepared.events());
