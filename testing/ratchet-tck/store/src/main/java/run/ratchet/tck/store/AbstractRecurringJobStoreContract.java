@@ -925,7 +925,8 @@ public abstract class AbstractRecurringJobStoreContract {
     return job;
   }
 
-  private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
+  /** Builds a recurring master with the fixture's no-op task. */
+  protected RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
     return definitionWithExecutionTarget(id, cron, nextFire, null);
   }
 

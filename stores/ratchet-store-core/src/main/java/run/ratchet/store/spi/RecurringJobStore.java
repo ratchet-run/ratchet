@@ -17,9 +17,11 @@ package run.ratchet.store.spi;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.NodeTagFilter;
@@ -206,6 +208,25 @@ public interface RecurringJobStore {
    * the number of masters canceled. Transaction attribute: {@code REQUIRED}.
    */
   int cancelRecurringJobsByTag(String tag);
+
+  /**
+   * Cancels recurring jobs requested through the scheduler's tag API. Stores upgrading from a
+   * different tag comparison can compare legacy values with the same normalizer.
+   *
+   * @param tag the caller's tag
+   * @param normalize the scheduler's tag normalization function
+   * @return the number of masters canceled
+   */
+  default int cancelRecurringJobsByApplicationTag(String tag, UnaryOperator<String> normalize) {
+    String normalized = normalize.apply(tag);
+    if (!Objects.equals(tag, normalized)) {
+      int legacyCount = cancelRecurringJobsByTag(tag);
+      if (legacyCount != 0) {
+        return legacyCount;
+      }
+    }
+    return cancelRecurringJobsByTag(normalized);
+  }
 
   /**
    * Cancels the single recurring master matching {@code businessKey}, if any. Returns {@code true}

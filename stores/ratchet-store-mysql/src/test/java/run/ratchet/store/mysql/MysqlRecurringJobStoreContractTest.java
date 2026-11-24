@@ -15,7 +15,14 @@
  */
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -26,6 +33,30 @@ import run.ratchet.tck.store.JobStoreContractFixture;
 class MysqlRecurringJobStoreContractTest extends AbstractRecurringJobStoreContract {
 
   private final MysqlTestFixture fixture = new MysqlTestFixture();
+
+  @Test
+  void schedulerCancellationFindsLegacyTagsWithoutChangingExactStoreMatching() {
+    UUID legacy = UUID.randomUUID();
+    UUID canonical = UUID.randomUUID();
+    UUID unrelated = UUID.randomUUID();
+    Instant future = Instant.now().plusSeconds(60);
+    for (UUID id : List.of(legacy, canonical, unrelated)) {
+      recurringStore().createRecurring(definition(id, "0 * * * * ?", future));
+    }
+    tagStore().insertTags(legacy, List.of(" İŞ ", "İŞ"));
+    tagStore().insertTags(canonical, List.of("i\u0307ş"));
+    tagStore().insertTags(unrelated, List.of("iş"));
+
+    assertEquals(0, recurringStore().cancelRecurringJobsByTag("İş"));
+    assertEquals(
+        2,
+        recurringStore()
+            .cancelRecurringJobsByApplicationTag(
+                "i\u0307ş", tag -> tag.trim().toLowerCase(Locale.ROOT)));
+    assertTrue(recurringStore().findArchivedRecurring(legacy).isPresent());
+    assertTrue(recurringStore().findArchivedRecurring(canonical).isPresent());
+    assertTrue(recurringStore().getRecurring(unrelated).isPresent());
+  }
 
   @Override
   protected RecurringJobStore recurringStore() {

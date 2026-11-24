@@ -839,7 +839,8 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       return 0;
     }
     String normalizedTag = TagNormalizer.normalize(tag);
-    int count = recurringJobStore.cancelRecurringJobsByTag(normalizedTag);
+    int count =
+        recurringJobStore.cancelRecurringJobsByApplicationTag(tag, TagNormalizer::normalize);
     if (count > 0) {
       publishBulkCancelledEvent(normalizedTag, count);
     }

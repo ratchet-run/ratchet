@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 import run.ratchet.api.BusinessKeyHolder;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
@@ -552,6 +553,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   @Override
   public int cancelRecurringJobsByTag(String tag) {
     return recurringJobs.cancelRecurringJobsByTag(tag);
+  }
+
+  @Override
+  public int cancelRecurringJobsByApplicationTag(String tag, UnaryOperator<String> normalize) {
+    return recurringJobs.cancelRecurringJobsByApplicationTag(tag, normalize);
   }
 
   @Override
