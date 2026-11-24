@@ -18,6 +18,8 @@ package run.ratchet.ri.cdi;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -28,8 +30,10 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.internal.ExecutorProviderClosedException;
 import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ExecutorProvider;
@@ -39,6 +43,9 @@ import run.ratchet.spi.ExecutorProvider;
  *
  * <p>The default production provider uses Jakarta Concurrency managed executors. Enable this bean
  * only when running outside a Jakarta Concurrency-capable runtime.
+ *
+ * <p>Pools and the configured release size are resolved lazily because Quarkus native instantiates
+ * CDI beans during image build.
  */
 @Alternative
 @ApplicationScoped
@@ -54,6 +61,21 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   private volatile ScheduledExecutorService releaseExecutor;
   private volatile ExecutorService virtualJobExecutor;
   private volatile boolean closed;
+  private final IntSupplier releaseThreads;
+
+  public StandaloneExecutorProvider() {
+    this(() -> 2);
+  }
+
+  /** Reads the size only when the release pool is created, including after native image build. */
+  public StandaloneExecutorProvider(IntSupplier releaseThreads) {
+    this.releaseThreads = releaseThreads;
+  }
+
+  @Inject
+  public StandaloneExecutorProvider(Instance<RatchetOptions> options) {
+    this(() -> options.isResolvable() ? options.get().execution().releaseThreads() : 2);
+  }
 
   private static void shutdown(ExecutorService executor) {
     executor.shutdown();
@@ -148,8 +170,11 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
         () -> releaseExecutor,
         value -> releaseExecutor = value,
         () -> {
+          int size = releaseThreads.getAsInt();
+          if (size < 1) throw new IllegalArgumentException("releaseThreads must be at least 1");
           ScheduledThreadPoolExecutor pool =
-              new ScheduledThreadPoolExecutor(2, namedThreadFactory("ratchet-standalone-release"));
+              new ScheduledThreadPoolExecutor(
+                  size, namedThreadFactory("ratchet-standalone-release"));
           pool.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
           pool.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
           pool.setRemoveOnCancelPolicy(true);

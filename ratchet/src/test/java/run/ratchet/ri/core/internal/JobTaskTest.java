@@ -174,7 +174,7 @@ class JobTaskTest {
   private final ScheduledExecutorService outcomeScheduler = mock(ScheduledExecutorService.class);
   private final AtomicLong outcomeClock = new AtomicLong();
   private final OutcomeWriteRetries outcomeRetries =
-      new OutcomeWriteRetries(() -> outcomeScheduler, null, outcomeClock::get);
+      new OutcomeWriteRetries(2, () -> outcomeScheduler, null, outcomeClock::get);
   private final List<Runnable> outcomePending = new ArrayList<>();
   private final List<Long> outcomeDelays = new ArrayList<>();
 
@@ -182,11 +182,11 @@ class JobTaskTest {
     doAnswer(
             invocation -> {
               outcomePending.add(invocation.getArgument(0));
-              outcomeDelays.add(invocation.getArgument(1));
+              outcomeDelays.add(TimeUnit.NANOSECONDS.toMillis(invocation.getArgument(1)));
               return null;
             })
         .when(outcomeScheduler)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
   }
 
   private void runOutcomeRetry() {
@@ -248,8 +248,9 @@ class JobTaskTest {
             checkpointRegistrar,
             jobStateFlusher,
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             FIXED_CLOCK,
@@ -4241,8 +4242,13 @@ class JobTaskTest {
                 mock(AfterCommitRegistrar.class),
                 mock(JobStateFlusher.class),
                 null,
-                new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-                new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+                new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+                new PermitReleases(
+                    2,
+                    resourcePermitService,
+                    () -> permitReleaseScheduler,
+                    null,
+                    outcomeClock::get),
                 claimReschedules,
                 outcomeRetries,
                 null,
@@ -4298,8 +4304,9 @@ class JobTaskTest {
             checkpointRegistrar,
             jobStateFlusher,
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -5556,8 +5563,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             FIXED_CLOCK,
@@ -5620,8 +5628,9 @@ class JobTaskTest {
         registrar,
         flusher,
         null,
-        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+        new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+        new PermitReleases(
+            2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
         claimReschedules,
         outcomeRetries,
         FIXED_CLOCK,
@@ -7861,8 +7870,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -7966,8 +7976,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -8083,8 +8094,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-            new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+            new PermitReleases(
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -8215,8 +8227,9 @@ class JobTaskTest {
         checkpointRegistrar,
         jobStateFlusher,
         timeoutHandler,
-        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+        new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+        new PermitReleases(
+            2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
         claimReschedules,
         outcomeRetries,
         FIXED_CLOCK,
@@ -8247,8 +8260,9 @@ class JobTaskTest {
         mock(AfterCommitRegistrar.class),
         mock(JobStateFlusher.class),
         null,
-        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
-        new PermitReleases(resourcePermitService, () -> permitReleaseScheduler, null),
+        new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
+        new PermitReleases(
+            2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
         claimReschedules,
         outcomeRetries,
         taskClock,
@@ -8534,7 +8548,7 @@ class JobTaskTest {
       verify(jobStore, never()).releaseBusinessKeyHold(any(), anyLong());
       Assertions.assertTrue(Thread.currentThread().isInterrupted());
       ArgumentCaptor<Runnable> release = ArgumentCaptor.forClass(Runnable.class);
-      verify(holdReleaseScheduler).schedule(release.capture(), eq(0L), eq(TimeUnit.MILLISECONDS));
+      verify(holdReleaseScheduler).schedule(release.capture(), eq(0L), eq(TimeUnit.NANOSECONDS));
       Thread.interrupted();
       release.getValue().run();
       verify(jobStore).releaseBusinessKeyHold(JOB_UUID, 7L);
@@ -8617,7 +8631,9 @@ class JobTaskTest {
     jobTask.call();
 
     ArgumentCaptor<Runnable> retry = ArgumentCaptor.forClass(Runnable.class);
-    verify(permitReleaseScheduler).schedule(retry.capture(), eq(5_000L), eq(TimeUnit.MILLISECONDS));
+    verify(permitReleaseScheduler)
+        .schedule(retry.capture(), eq(TimeUnit.SECONDS.toNanos(5)), eq(TimeUnit.NANOSECONDS));
+    outcomeClock.addAndGet(TimeUnit.SECONDS.toNanos(5));
     retry.getValue().run();
     verify(resourcePermitService, times(2)).release("gpu", JOB_UUID, 7L);
     verifyNoMoreInteractions(permitReleaseScheduler);
@@ -8650,7 +8666,7 @@ class JobTaskTest {
       verify(resourcePermitService, never()).release(anyString(), any(UUID.class), anyLong());
       Assertions.assertTrue(Thread.currentThread().isInterrupted());
       ArgumentCaptor<Runnable> release = ArgumentCaptor.forClass(Runnable.class);
-      verify(permitReleaseScheduler).schedule(release.capture(), eq(0L), eq(TimeUnit.MILLISECONDS));
+      verify(permitReleaseScheduler).schedule(release.capture(), eq(0L), eq(TimeUnit.NANOSECONDS));
       Thread.interrupted();
       release.getValue().run();
       verify(resourcePermitService).release("gpu", JOB_UUID, 7L);

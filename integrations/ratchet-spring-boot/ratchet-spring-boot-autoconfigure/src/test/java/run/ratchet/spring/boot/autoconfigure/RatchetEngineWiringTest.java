@@ -27,11 +27,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -68,6 +70,23 @@ import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
+
+  @Test
+  void releasePoolUsesOptionsBean() {
+    runner()
+        .withPropertyValues("ratchet.worker.release-threads=4")
+        .run(
+            context -> {
+              var executor = context.getBean(ExecutorProvider.class).getReleaseExecutor();
+              Field scheduler = executor.getClass().getDeclaredField("scheduler");
+              scheduler.setAccessible(true);
+              ScheduledThreadPoolExecutor pool =
+                  (ScheduledThreadPoolExecutor) scheduler.get(executor);
+              assertThat(context.getBean(RatchetOptions.class).execution().releaseThreads())
+                  .isEqualTo(4);
+              assertThat(pool.getCorePoolSize()).isEqualTo(4);
+            });
+  }
 
   @Test
   void cancellationServicesShareOneTimeoutHandler() {

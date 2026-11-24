@@ -97,7 +97,7 @@ By default, Ratchet looks up the Jakarta Concurrency resources below:
 | Scheduled maintenance | `java:comp/DefaultManagedScheduledExecutorService` | `ratchet.worker.scheduled-executor-jndi` |
 | Release and coordinator threads | `java:comp/DefaultManagedThreadFactory` | `ratchet.worker.thread-factory-jndi` |
 
-Ratchet also builds a 2-thread pool from this managed thread factory for release retries, hard-timeout writes and state flushes, so a store write that blocks cannot delay the heartbeat or the timeout watchdog. The default managed scheduled executor can be shared with other applications on the server, and their work can still delay Ratchet's timers. See [Release retries](../concepts/execution-model.md#release-retries).
+Ratchet also builds a pool sized by `ratchet.worker.release-threads` (default 2, minimum 1) from this managed thread factory for release retries, hard-timeout writes and state flushes, so a store write that blocks cannot hold the threads of the heartbeat or the timeout watchdog. The default managed scheduled executor can be shared with other applications on the server, and their work can still delay Ratchet's timers. Each release thread can hold a database connection, and the heartbeat writes through the same datasource. If release writes hold every connection in its pool, the heartbeat waits for one and can miss its interval, so other nodes may judge this node stale. Size the connection pool for the release threads plus the heartbeat. See [Release retries](../concepts/execution-model.md#release-retries).
 
 Override these only when the application server binds managed resources under different names. Ratchet never creates unmanaged worker threads as a fallback.
 

@@ -15,22 +15,50 @@
  */
 package run.ratchet.ri.cdi;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.ExecutorTargets;
 
 class StandaloneExecutorProviderTest {
+
+  @Test
+  void releasePoolReadsSizeLazilyOnce() throws Exception {
+    AtomicInteger reads = new AtomicInteger();
+    AtomicInteger size = new AtomicInteger(3);
+    StandaloneExecutorProvider provider =
+        new StandaloneExecutorProvider(
+            () -> {
+              reads.incrementAndGet();
+              return size.get();
+            });
+    assertEquals(0, reads.get());
+    size.set(5);
+    try {
+      var executor = provider.getReleaseExecutor();
+      Field scheduler = executor.getClass().getDeclaredField("scheduler");
+      scheduler.setAccessible(true);
+      assertEquals(5, ((ScheduledThreadPoolExecutor) scheduler.get(executor)).getCorePoolSize());
+      provider.getReleaseExecutor();
+      assertEquals(1, reads.get());
+    } finally {
+      provider.shutdown();
+    }
+  }
 
   @Test
   void releasePoolIsDistinctNamedAndDropsDelayedTasksOnShutdown() throws Exception {

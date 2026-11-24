@@ -35,6 +35,39 @@ import run.ratchet.spi.CallerPrincipalResolver;
 class RatchetOptionsTest {
 
   @Test
+  void releaseThreadsDefaultValidationAndCopy() {
+    assertEquals(2, RatchetOptions.defaults().execution().releaseThreads());
+    RatchetOptions options =
+        RatchetOptions.builder().execution(execution -> execution.releaseThreads(7)).build();
+    assertEquals(7, options.execution().releaseThreads());
+    assertEquals(7, options.toBuilder().build().execution().releaseThreads());
+    for (int size : new int[] {0, -1}) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> RatchetOptions.builder().execution(execution -> execution.releaseThreads(size)));
+      RatchetOptions.ExecutionOptions defaults = RatchetOptions.defaults().execution();
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              new RatchetOptions.ExecutionOptions(
+                  defaults.defaultThreadingMode(),
+                  defaults.queueSize(),
+                  defaults.maxConcurrency(),
+                  defaults.virtualThreadLimits(),
+                  defaults.rateLimitsPerMinute(),
+                  defaults.jobExecutorJndi(),
+                  defaults.scheduledExecutorJndi(),
+                  defaults.threadFactoryJndi(),
+                  size,
+                  defaults.virtualExecutorJndi(),
+                  defaults.virtualCounterAccounting(),
+                  defaults.checkpointFlushIntervalMs(),
+                  defaults.progressFlushIntervalMs(),
+                  defaults.maxContinuations()));
+    }
+  }
+
+  @Test
   void maintenanceOptionsRejectsMissingOrNonPositiveFoldTimeout() {
     RatchetOptions.MaintenanceOptions m = RatchetOptions.builder().build().maintenance();
     for (Duration invalid : Arrays.asList(null, Duration.ZERO, Duration.ofSeconds(-1))) {
@@ -549,6 +582,7 @@ class RatchetOptionsTest {
             "java:app/concurrent/JobExecutor",
             "java:app/concurrent/ScheduledExecutor",
             "java:app/concurrent/CoordinatorFactory",
+            2,
             null,
             false,
             1000L,

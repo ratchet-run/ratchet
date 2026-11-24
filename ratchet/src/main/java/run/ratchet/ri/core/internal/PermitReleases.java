@@ -41,14 +41,16 @@ final class PermitReleases {
   private final ReleaseRetries retries;
 
   PermitReleases(
+      int parallelism,
       ResourcePermitService permits,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer) {
-    this(permits, scheduler, timer, System::nanoTime);
+    this(parallelism, permits, scheduler, timer, System::nanoTime);
   }
 
   /** Takes the monotonic clock that times the repeated warnings, so tests can move it. */
   PermitReleases(
+      int parallelism,
       ResourcePermitService permits,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
@@ -56,10 +58,14 @@ final class PermitReleases {
     this.permits = permits;
     this.retries =
         new ReleaseRetries(
+            parallelism,
             scheduler,
             timer,
             ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),
-            nanoTime);
+            nanoTime,
+            "resource permit releases",
+            "node clean-up after this node stops or restarts",
+            Logger.Level.WARN);
   }
 
   /**
@@ -71,10 +77,13 @@ final class PermitReleases {
   boolean release(String resource, UUID jobId, long claimSeq) {
     return retries.release(
         new ReleaseRetries.Release(
+            new Key(resource, jobId, claimSeq),
             "release of resource permit '%s' of job %s claim %s"
                 .formatted(resource, jobId, claimSeq),
             "node clean-up after this node stops or restarts",
             Logger.Level.WARN,
             () -> permits.release(resource, jobId, claimSeq)));
   }
+
+  private record Key(String resource, UUID jobId, long claimSeq) {}
 }

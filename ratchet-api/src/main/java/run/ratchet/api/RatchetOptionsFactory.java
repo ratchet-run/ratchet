@@ -247,6 +247,7 @@ public final class RatchetOptionsFactory {
         .jobExecutorJndi(config.get(RatchetConfigKeys.WORKER_JOB_EXECUTOR_JNDI))
         .scheduledExecutorJndi(config.get(RatchetConfigKeys.WORKER_SCHEDULED_EXECUTOR_JNDI))
         .threadFactoryJndi(config.get(RatchetConfigKeys.WORKER_THREAD_FACTORY_JNDI))
+        .releaseThreads(config.get(RatchetConfigKeys.WORKER_RELEASE_THREADS))
         .virtualExecutorJndi(config.get(RatchetConfigKeys.WORKER_VIRTUAL_EXECUTOR_JNDI))
         .virtualCounterAccounting(config.get(RatchetConfigKeys.WORKER_VIRTUAL_COUNTER_ACCOUNTING))
         .checkpointFlushIntervalMs(config.get(RatchetConfigKeys.CHECKPOINT_FLUSH_INTERVAL_MS))

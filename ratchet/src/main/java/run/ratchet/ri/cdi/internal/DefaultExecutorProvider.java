@@ -65,9 +65,10 @@ import run.ratchet.spi.ExecutorProvider;
  * and sets {@code job-executor-jndi} to that name. The values flow in through {@link
  * RatchetOptions#execution()}.
  *
- * <p>Release retries use an owned two-thread pool built from the managed thread factory configured
- * by {@code ratchet.worker.thread-factory-jndi}. The container's default scheduled executor can be
- * shared with other applications; this pool keeps Ratchet release retries off that scheduler.
+ * <p>Release retries use an owned pool sized by {@code ratchet.worker.release-threads} built from
+ * the managed thread factory configured by {@code ratchet.worker.thread-factory-jndi}. The
+ * container's default scheduled executor can be shared with other applications; this pool keeps
+ * Ratchet release retries off that scheduler.
  *
  * <p>Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
  * ExecutorProvider} bean — for example {@code StandaloneExecutorProvider} for plain-CDI/SE runs.
@@ -90,6 +91,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
   private final String scheduledExecutorJndi;
   private final String virtualExecutorJndi;
   private final String threadFactoryJndi;
+  private final int releaseThreads;
   private volatile ThreadFactory resolvedThreadFactory;
   private ScheduledThreadPoolExecutor releasePool;
   private ScheduledExecutorService releaseExecutor;
@@ -110,6 +112,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
     this.scheduledExecutorJndi = options.execution().scheduledExecutorJndi();
     this.virtualExecutorJndi = options.execution().virtualExecutorJndi();
     this.threadFactoryJndi = options.execution().threadFactoryJndi();
+    this.releaseThreads = options.execution().releaseThreads();
   }
 
   DefaultExecutorProvider(ThreadFactory factory) {
@@ -278,7 +281,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       AtomicInteger counter = new AtomicInteger();
       releasePool =
           new ScheduledThreadPoolExecutor(
-              2,
+              releaseThreads,
               runnable -> {
                 Thread thread = managedFactory.newThread(runnable);
                 try {

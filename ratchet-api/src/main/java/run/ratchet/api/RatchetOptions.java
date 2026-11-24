@@ -190,6 +190,7 @@ public class RatchetOptions {
     builder.execution.jobExecutorJndi = execution.jobExecutorJndi();
     builder.execution.scheduledExecutorJndi = execution.scheduledExecutorJndi();
     builder.execution.threadFactoryJndi = execution.threadFactoryJndi();
+    builder.execution.releaseThreads = execution.releaseThreads();
     builder.execution.virtualExecutorJndi = execution.virtualExecutorJndi();
     builder.execution.virtualCounterAccounting = execution.virtualCounterAccounting();
 
@@ -562,6 +563,7 @@ public class RatchetOptions {
    *     scheduled work
    * @param threadFactoryJndi JNDI name of the {@code ManagedThreadFactory} used by release retries
    *     and bundled cluster coordinators for listener loops and dispatch pools
+   * @param releaseThreads number of release threads, at least 1; defaults to 2
    * @param virtualExecutorJndi JNDI name of the {@code ManagedExecutorService} used for
    *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
    * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
@@ -580,6 +582,7 @@ public class RatchetOptions {
       String jobExecutorJndi,
       String scheduledExecutorJndi,
       String threadFactoryJndi,
+      int releaseThreads,
       String virtualExecutorJndi,
       boolean virtualCounterAccounting,
       long checkpointFlushIntervalMs,
@@ -605,6 +608,7 @@ public class RatchetOptions {
           jobExecutorJndi,
           scheduledExecutorJndi,
           DEFAULT_WORKER_THREAD_FACTORY_JNDI,
+          2,
           virtualExecutorJndi,
           virtualCounterAccounting,
           1000L,
@@ -613,6 +617,7 @@ public class RatchetOptions {
     }
 
     public ExecutionOptions {
+      atLeast("releaseThreads", releaseThreads, 1);
       atLeast("checkpointFlushIntervalMs", checkpointFlushIntervalMs, 1L);
       atLeast("progressFlushIntervalMs", progressFlushIntervalMs, 1L);
       atLeast("maxContinuations", maxContinuations, 1);
@@ -1160,6 +1165,7 @@ public class RatchetOptions {
     private String jobExecutorJndi = "java:comp/DefaultManagedExecutorService";
     private String scheduledExecutorJndi = "java:comp/DefaultManagedScheduledExecutorService";
     private String threadFactoryJndi = DEFAULT_WORKER_THREAD_FACTORY_JNDI;
+    private int releaseThreads = 2;
     private String virtualExecutorJndi;
     private boolean virtualCounterAccounting;
     private long checkpointFlushIntervalMs = 1000L;
@@ -1283,6 +1289,12 @@ public class RatchetOptions {
       return this;
     }
 
+    /** Sets the release pool size, at least 1; defaults to 2. */
+    public ExecutionBuilder releaseThreads(int releaseThreads) {
+      this.releaseThreads = atLeast("releaseThreads", releaseThreads, 1);
+      return this;
+    }
+
     private ExecutionOptions build() {
       return new ExecutionOptions(
           defaultThreadingMode,
@@ -1293,6 +1305,7 @@ public class RatchetOptions {
           jobExecutorJndi,
           scheduledExecutorJndi,
           threadFactoryJndi,
+          releaseThreads,
           virtualExecutorJndi,
           virtualCounterAccounting,
           checkpointFlushIntervalMs,

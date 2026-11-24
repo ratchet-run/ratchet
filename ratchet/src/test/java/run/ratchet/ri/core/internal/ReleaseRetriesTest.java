@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -33,11 +34,13 @@ import static org.mockito.Mockito.when;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -46,6 +49,106 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.ri.core.internal.ReleaseRetries.Policy;
 
 class ReleaseRetriesTest {
+
+  @Test
+  void outcomeWritesAreDistinctEvenWithSameDescription() {
+    ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+    ArrayDeque<Runnable> tasks = new ArrayDeque<>();
+    doAnswer(
+            invocation -> {
+              tasks.add(invocation.getArgument(0));
+              return null;
+            })
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
+    OutcomeWriteRetries outcomes = new OutcomeWriteRetries(2, () -> executor, null, () -> 0);
+    Runnable write = mock(Runnable.class);
+    try {
+      Thread.currentThread().interrupt();
+      assertFalse(outcomes.run("same outcome", write));
+      assertFalse(outcomes.run("same outcome", write));
+    } finally {
+      Thread.interrupted();
+    }
+    assertEquals(1, tasks.size());
+    tasks.remove().run();
+    verify(write, times(2)).run();
+  }
+
+  @Test
+  void keysAreRemovedAfterInlineErrorRetryErrorGiveUpAndRefusal() {
+    ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+    AtomicLong clock = new AtomicLong();
+    ArrayDeque<Runnable> tasks = new ArrayDeque<>();
+    doAnswer(
+            invocation -> {
+              long due = clock.get() + (long) invocation.getArgument(1);
+              Runnable task = invocation.getArgument(0);
+              tasks.add(
+                  () -> {
+                    clock.set(due);
+                    task.run();
+                  });
+              return null;
+            })
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
+    ReleaseRetries retries =
+        new ReleaseRetries(
+            2,
+            () -> executor,
+            null,
+            Policy.bounded(Duration.ofSeconds(1), 1),
+            clock::get,
+            "business-key hold releases",
+            "recovery",
+            WARN);
+    Object key = new Object();
+    ReleaseRetries.Release error =
+        new ReleaseRetries.Release(
+            key,
+            "write",
+            "recovery",
+            WARN,
+            () -> {
+              throw new AssertionError("store error");
+            });
+    assertThrows(AssertionError.class, () -> retries.release(error));
+    Runnable write = mock(Runnable.class);
+    ReleaseRetries.Release success =
+        new ReleaseRetries.Release(key, "write", "recovery", WARN, write);
+    assertTrue(retries.release(success));
+    try {
+      Thread.currentThread().interrupt();
+      retries.release(error);
+    } finally {
+      Thread.interrupted();
+    }
+    assertThrows(AssertionError.class, () -> tasks.remove().run());
+    assertTrue(retries.release(success));
+    retries.release(
+        new ReleaseRetries.Release(
+            key,
+            "write",
+            "recovery",
+            WARN,
+            () -> {
+              throw new IllegalStateException("store unavailable");
+            }));
+    tasks.remove().run(); // bounded retry gives up
+    assertTrue(retries.release(success));
+    doThrow(new RejectedExecutionException())
+        .when(executor)
+        .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+    try {
+      Thread.currentThread().interrupt();
+      retries.release(success);
+    } finally {
+      Thread.interrupted();
+    }
+    assertTrue(retries.release(success));
+    verify(write, times(4)).run();
+  }
 
   @Test
   void policy_rejectsADelayThatIsNotPositive() {
@@ -83,26 +186,32 @@ class ReleaseRetriesTest {
               return null;
             })
         .when(releases)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     doAnswer(
             invocation -> {
               resubmissions.add(invocation.getArgument(0));
-              delays.add(invocation.getArgument(1));
+              delays.add(TimeUnit.NANOSECONDS.toMillis(invocation.getArgument(1)));
               return null;
             })
         .when(timer)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     Runnable write = mock(Runnable.class);
     ReleaseRetries retries =
         new ReleaseRetries(
+            2,
             () -> releases,
             () -> timer,
             Policy.untilReleased(Duration.ofSeconds(5), Duration.ofMinutes(1)),
-            () -> 0L);
+            () -> 0L,
+            "resource permit releases",
+            "recovery",
+            WARN);
     // The initial refused retry has zero delay because the caller is interrupted.
     try {
       Thread.currentThread().interrupt();
-      assertFalse(retries.release(new ReleaseRetries.Release("write", "recovery", WARN, write)));
+      assertFalse(
+          retries.release(
+              new ReleaseRetries.Release(new Object(), "write", "recovery", WARN, write)));
     } finally {
       Thread.interrupted();
     }
@@ -134,26 +243,32 @@ class ReleaseRetriesTest {
               return null;
             })
         .when(releases)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     doAnswer(
             invocation -> {
               resubmissions.add(invocation.getArgument(0));
-              delays.add(invocation.getArgument(1));
+              delays.add(TimeUnit.NANOSECONDS.toMillis(invocation.getArgument(1)));
               return null;
             })
         .when(timer)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     AtomicInteger calls = new AtomicInteger();
+    AtomicLong clock = new AtomicLong();
     ReleaseRetries retries =
         new ReleaseRetries(
+            2,
             () -> releases,
             () -> timer,
             Policy.untilReleased(Duration.ofSeconds(5), Duration.ofMinutes(1)),
-            () -> 0L);
+            clock::get,
+            "resource permit releases",
+            "recovery",
+            WARN);
     try {
       Thread.currentThread().interrupt();
       retries.release(
           new ReleaseRetries.Release(
+              new Object(),
               "write",
               "recovery",
               WARN,
@@ -168,6 +283,7 @@ class ReleaseRetriesTest {
     writes.remove().run();
     assertEquals(List.of(5_000L, 10_000L, 5_000L), delays);
     resubmissions.remove().run();
+    clock.set(TimeUnit.SECONDS.toNanos(5));
     writes.remove().run();
     assertEquals(2, calls.get());
     assertTrue(resubmissions.isEmpty());
@@ -187,6 +303,7 @@ class ReleaseRetriesTest {
     List<LogRecord> records = new ArrayList<>();
     Logger logger = Logger.getLogger(ReleaseRetries.class.getName());
     Level previous = logger.getLevel();
+    boolean previousParents = logger.getUseParentHandlers();
     Handler capture =
         new Handler() {
           public void publish(LogRecord record) {
@@ -198,19 +315,26 @@ class ReleaseRetriesTest {
           public void close() {}
         };
     logger.setLevel(Level.ALL);
+    logger.setUseParentHandlers(false);
     logger.addHandler(capture);
     try {
       handOffInterrupted(
           releases, timer, Policy.untilReleased(Duration.ofSeconds(5), Duration.ofMinutes(1)));
       assertEquals(1, records.size());
-      assertTrue(
-          records.get(0).getMessage().contains("Could not schedule write; left to recovery"));
+      String text =
+          String.valueOf(records.get(0).getMessage())
+              + Arrays.toString(records.get(0).getParameters());
+      assertTrue(text.contains("Could not schedule"));
+      assertTrue(text.contains("write"));
+      assertTrue(text.contains("recovery"));
     } finally {
       logger.removeHandler(capture);
       logger.setLevel(previous);
+      logger.setUseParentHandlers(previousParents);
     }
-    verify(releases).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.MILLISECONDS));
-    verify(timer).schedule(any(Runnable.class), eq(5_000L), eq(TimeUnit.MILLISECONDS));
+    verify(releases).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.NANOSECONDS));
+    verify(timer)
+        .schedule(any(Runnable.class), eq(TimeUnit.SECONDS.toNanos(5)), eq(TimeUnit.NANOSECONDS));
   }
 
   @Test
@@ -241,10 +365,22 @@ class ReleaseRetriesTest {
       ScheduledExecutorService releases, ScheduledExecutorService timer, Policy policy) {
     Runnable write = mock(Runnable.class);
     ReleaseRetries retries =
-        new ReleaseRetries(() -> releases, () -> timer, policy, System::nanoTime);
+        new ReleaseRetries(
+            2,
+            () -> releases,
+            () -> timer,
+            policy,
+            System::nanoTime,
+            policy.maxRetries().isPresent()
+                ? "business-key hold releases"
+                : "resource permit releases",
+            "recovery",
+            WARN);
     try {
       Thread.currentThread().interrupt();
-      assertFalse(retries.release(new ReleaseRetries.Release("write", "recovery", WARN, write)));
+      assertFalse(
+          retries.release(
+              new ReleaseRetries.Release(new Object(), "write", "recovery", WARN, write)));
     } finally {
       Thread.interrupted();
     }

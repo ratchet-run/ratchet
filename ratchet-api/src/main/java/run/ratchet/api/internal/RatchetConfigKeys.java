@@ -75,6 +75,8 @@ public final class RatchetConfigKeys {
           "ratchet.worker.thread-factory-jndi",
           "RATCHET_WORKER_THREAD_FACTORY_JNDI",
           "java:comp/DefaultManagedThreadFactory");
+  public static final RatchetConfigKey<Integer> WORKER_RELEASE_THREADS =
+      intKey("ratchet.worker.release-threads", "RATCHET_WORKER_RELEASE_THREADS", 2, 1);
   public static final RatchetConfigKey<String> WORKER_VIRTUAL_EXECUTOR_JNDI =
       stringKey("ratchet.worker.virtual-executor-jndi", "RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI", "");
   public static final RatchetConfigKey<Boolean> WORKER_VIRTUAL_COUNTER_ACCOUNTING =

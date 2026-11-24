@@ -208,8 +208,8 @@ class RatchetRuntimeConfiguration {
 
   @Bean(destroyMethod = "shutdown")
   @ConditionalOnMissingBean(ExecutorProvider.class)
-  StandaloneExecutorProvider ratchetExecutorProvider() {
-    return new StandaloneExecutorProvider();
+  StandaloneExecutorProvider ratchetExecutorProvider(RatchetOptions options) {
+    return new StandaloneExecutorProvider(() -> options.execution().releaseThreads());
   }
 
   @Bean

@@ -15,11 +15,9 @@
  */
 package run.ratchet.ri.core.internal;
 
+import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -52,34 +50,58 @@ import run.ratchet.store.spi.JobRetryStore;
 class ClaimReschedules {
   private static final Logger log = Logger.getLogger(ClaimReschedules.class);
   private final JobRetryStore store;
-  private final Supplier<ScheduledExecutorService> scheduler;
-  private final Supplier<ScheduledExecutorService> timer;
   private final LongSupplier clock;
-  private final ConcurrentHashMap<Key, Pending> pending = new ConcurrentHashMap<>();
-  // Scheduling and insertion share this monitor, including the empty-map transition.
-  private boolean scheduled;
-  private boolean stopping;
-  private long refusalDelaySeconds;
+  private final RetryDrain drain;
 
   ClaimReschedules(
+      int parallelism,
       JobRetryStore store,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer) {
-    this(store, scheduler, timer, System::nanoTime);
+    this(parallelism, store, scheduler, timer, System::nanoTime);
   }
 
   ClaimReschedules(
+      int parallelism,
       JobRetryStore store,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
       LongSupplier clock) {
-    this.timer = timer;
     this.store = store;
-    this.scheduler = scheduler;
     this.clock = clock;
+    drain =
+        new RetryDrain(
+            parallelism,
+            "claim reschedules",
+            scheduler,
+            timer,
+            clock,
+            Duration.ofSeconds(1),
+            Duration.ofSeconds(60),
+            new RetryDrain.Refusal() {
+              public void dropped(int count, boolean stopping, RuntimeException failure) {
+                if (stopping)
+                  log.infof(
+                      "This node is stopping; %s claim reschedules left to this node's shutdown"
+                          + " reset or orphan recovery",
+                      count);
+                else
+                  log.warnf(
+                      "Could not re-arm claim reschedules; %s pending items pass to this node's"
+                          + " shutdown reset or orphan recovery",
+                      count);
+              }
+
+              public void retrying(long delayNanos, RuntimeException failure) {
+                log.warnf(
+                    failure,
+                    "Could not schedule claim reschedules; trying again in %s seconds",
+                    TimeUnit.NANOSECONDS.toSeconds(delayNanos));
+              }
+            });
   }
 
-  synchronized boolean handOff(
+  boolean handOff(
       UUID jobId,
       long claimSeq,
       String reason,
@@ -90,7 +112,6 @@ class ClaimReschedules {
       Runnable afterRejected,
       Runnable afterDropped) {
     Key key = new Key(jobId, claimSeq);
-    if (pending.containsKey(key)) return true;
     Pending item =
         new Pending(
             reason,
@@ -101,160 +122,78 @@ class ClaimReschedules {
             afterRejected,
             afterDropped,
             clock.getAsLong());
-    pending.put(key, item);
-    if (!scheduled && !schedule()) {
-      pending.remove(key, item);
-      return false;
-    }
+    RetryDrain.Submission result =
+        drain.submit(
+            key,
+            item.due,
+            entry -> () -> tryItem(key, item, entry),
+            () -> runCallback(key, afterDropped, "Dropped"));
+    if (result == RetryDrain.Submission.DUPLICATE) return true;
+    if (result == RetryDrain.Submission.REFUSED) return false;
     log.warnf(
         "Job %s claim %s could not be rescheduled; retrying in the background", jobId, claimSeq);
     return true;
   }
 
-  private boolean schedule() {
-    stopping = false;
-    ScheduledExecutorService executor = null;
+  private Long tryItem(Key key, Pending item, RetryDrain.Entry entry) {
+    long now = clock.getAsLong();
+    boolean revoked = false;
     try {
-      executor = scheduler.get();
-      if (executor == null) return resubmit();
-      executor.schedule(this::drain, 1, TimeUnit.SECONDS);
-      scheduled = true;
-      refusalDelaySeconds = 0;
-      return true;
+      revoked = item.revoked.getAsBoolean();
     } catch (RuntimeException failure) {
-      stopping = ReleaseRetries.isStopping(failure, executor);
-      if (stopping) {
-        log.infof(
-            "This node is stopping; claim reschedules left to this node's shutdown reset or orphan"
-                + " recovery");
-      }
-      return !stopping && resubmit();
+      log.debugf(
+          failure, "Could not check revocation for job %s claim %s", key.jobId(), key.claimSeq());
     }
-  }
-
-  private boolean resubmit() {
-    if (timer == null) return false;
-    ScheduledExecutorService executor = null;
+    if (revoked) {
+      drain.finish(entry);
+      runCallback(key, item.afterDropped, "Dropped");
+      log.infof(
+          "Job %s claim %s reschedule belongs to the timeout watchdog",
+          key.jobId(), key.claimSeq());
+      return null;
+    }
+    item.tries++;
     try {
-      executor = timer.get();
-      refusalDelaySeconds = Math.min(60, refusalDelaySeconds == 0 ? 1 : refusalDelaySeconds * 2);
-      executor.schedule(this::rearm, refusalDelaySeconds, TimeUnit.SECONDS);
-      scheduled = true;
-      return true;
+      boolean accepted =
+          store.releaseClaim(
+              key.jobId(), item.reason, item.scheduledTime, item.attempts, key.claimSeq());
+      drain.finish(entry);
+      if (accepted) {
+        log.infof(
+            "Job %s claim %s rescheduled after %s background tries",
+            key.jobId(), key.claimSeq(), item.tries);
+        runCallback(key, item.afterAccepted, "Accepted");
+      } else {
+        runCallback(key, item.afterRejected, "Rejected");
+      }
     } catch (RuntimeException failure) {
-      stopping = ReleaseRetries.isStopping(failure, executor);
-      if (stopping) {
-        log.infof(
-            "This node is stopping; claim reschedules left to this node's shutdown reset or orphan"
-                + " recovery");
-      }
-      return false;
-    }
-  }
-
-  private void rearm() {
-    Map<Key, Pending> dropped = Map.of();
-    synchronized (this) {
-      scheduled = false;
-      if (!pending.isEmpty() && !schedule()) dropped = dropPending();
-    }
-    dropped.forEach((key, item) -> runCallback(key, item.afterDropped, "Dropped"));
-  }
-
-  private Map<Key, Pending> dropPending() {
-    if (!stopping)
-      log.warnf(
-          "Could not re-arm claim reschedules; %s pending items pass to this node's"
-              + " shutdown reset or orphan recovery",
-          pending.size());
-    Map<Key, Pending> dropped = new HashMap<>(pending);
-    pending.clear();
-    return dropped;
-  }
-
-  private void drain() {
-    try {
-      drainDue();
-    } finally {
-      // Re-arm even if a store call threw an Error, or the drain would stop for good.
-      Map<Key, Pending> dropped = Map.of();
-      synchronized (this) {
-        scheduled = false;
-        if (!pending.isEmpty() && !schedule()) {
-          dropped = dropPending();
-        }
-      }
-      dropped.forEach((key, item) -> runCallback(key, item.afterDropped, "Dropped"));
-    }
-  }
-
-  private void drainDue() {
-    int processed = 0;
-    for (var entry : pending.entrySet()) {
-      Pending item = entry.getValue();
-      long now = clock.getAsLong();
-      if (now - item.due < 0) continue;
-      if (processed++ == 100) break;
-      Key key = entry.getKey();
-      boolean revoked = false;
-      try {
-        revoked = item.revoked.getAsBoolean();
-      } catch (RuntimeException failure) {
-        log.debugf(
-            failure, "Could not check revocation for job %s claim %s", key.jobId(), key.claimSeq());
-      }
-      if (revoked) {
-        pending.remove(key, item);
+      if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) {
+        drain.finish(entry);
         runCallback(key, item.afterDropped, "Dropped");
-        log.infof(
-            "Job %s claim %s reschedule belongs to the timeout watchdog",
-            key.jobId(), key.claimSeq());
-        continue;
+        log.errorf(
+            failure,
+            "Job %s claim %s stays RUNNING until this node's shutdown reset or,"
+                + " after its heartbeat stops, orphan recovery",
+            key.jobId(),
+            key.claimSeq());
+        return null;
       }
-      item.tries++;
-      try {
-        boolean accepted =
-            store.releaseClaim(
-                key.jobId(), item.reason, item.scheduledTime, item.attempts, key.claimSeq());
-        pending.remove(key, item);
-        if (accepted) {
-          log.infof(
-              "Job %s claim %s rescheduled after %s background tries",
-              key.jobId(), key.claimSeq(), item.tries);
-          runCallback(key, item.afterAccepted, "Accepted");
-        } else {
-          runCallback(key, item.afterRejected, "Rejected");
-        }
-      } catch (RuntimeException failure) {
-        if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) {
-          pending.remove(key, item);
-          runCallback(key, item.afterDropped, "Dropped");
-          log.errorf(
-              failure,
-              "Job %s claim %s stays RUNNING until this node's shutdown reset or,"
-                  + " after its heartbeat stops, orphan recovery",
-              key.jobId(),
-              key.claimSeq());
-          continue;
-        }
-        // The first background try runs a second after hand-off. After it, tries run five
-        // seconds after hand-off and then 10, 20, 40 and 60 seconds apart, with no limit.
-        item.due =
-            item.tries == 1
-                ? item.started + TimeUnit.SECONDS.toNanos(5)
-                : now + TimeUnit.SECONDS.toNanos(item.delaySeconds);
-        if (item.tries > 1) item.delaySeconds = Math.min(60, item.delaySeconds * 2);
-        log.debugf(failure, "Could not reschedule job %s claim %s", key.jobId(), key.claimSeq());
-        if (now - item.lastWarn >= TimeUnit.MINUTES.toNanos(10)) {
-          item.lastWarn = now;
-          log.warnf(
-              failure,
-              "Job %s claim %s still could not be rescheduled",
-              key.jobId(),
-              key.claimSeq());
-        }
+      // The first background try runs a second after hand-off. After it, tries run five
+      // seconds after hand-off and then 10, 20, 40 and 60 seconds apart, with no limit.
+      item.due =
+          item.tries == 1
+              ? item.started + TimeUnit.SECONDS.toNanos(5)
+              : now + TimeUnit.SECONDS.toNanos(item.delaySeconds);
+      if (item.tries > 1) item.delaySeconds = Math.min(60, item.delaySeconds * 2);
+      log.debugf(failure, "Could not reschedule job %s claim %s", key.jobId(), key.claimSeq());
+      if (now - item.lastWarn >= TimeUnit.MINUTES.toNanos(10)) {
+        item.lastWarn = now;
+        log.warnf(
+            failure, "Job %s claim %s still could not be rescheduled", key.jobId(), key.claimSeq());
       }
+      return item.due;
     }
+    return null;
   }
 
   private void runCallback(Key key, Runnable callback, String outcome) {

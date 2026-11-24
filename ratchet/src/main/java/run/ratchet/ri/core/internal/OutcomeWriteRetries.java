@@ -35,21 +35,28 @@ final class OutcomeWriteRetries {
   private final Supplier<ScheduledExecutorService> scheduler;
 
   OutcomeWriteRetries(
-      Supplier<ScheduledExecutorService> scheduler, Supplier<ScheduledExecutorService> timer) {
-    this(scheduler, timer, System::nanoTime);
+      int parallelism,
+      Supplier<ScheduledExecutorService> scheduler,
+      Supplier<ScheduledExecutorService> timer) {
+    this(parallelism, scheduler, timer, System::nanoTime);
   }
 
   OutcomeWriteRetries(
+      int parallelism,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
       LongSupplier nanoTime) {
     this.scheduler = scheduler;
     retries =
         new ReleaseRetries(
+            parallelism,
             scheduler,
             timer,
             ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),
-            nanoTime);
+            nanoTime,
+            "outcome writes",
+            "orphan recovery once this node stops heartbeating",
+            Logger.Level.WARN);
   }
 
   /**
@@ -73,6 +80,10 @@ final class OutcomeWriteRetries {
   boolean run(String what, Runnable write) {
     return retries.release(
         new ReleaseRetries.Release(
-            what, "orphan recovery once this node stops heartbeating", Logger.Level.WARN, write));
+            new Object(),
+            what,
+            "orphan recovery once this node stops heartbeating",
+            Logger.Level.WARN,
+            write));
   }
 }

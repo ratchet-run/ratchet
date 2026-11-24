@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **71 fixed keys**.
+This build exposes **72 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -27,6 +27,7 @@ This build exposes **71 fixed keys**.
 | `ratchet.worker.job-executor-jndi` | `RATCHET_WORKER_JOB_EXECUTOR_JNDI` | `java:comp/DefaultManagedExecutorService` | `WORKER_JOB_EXECUTOR_JNDI` |
 | `ratchet.worker.scheduled-executor-jndi` | `RATCHET_WORKER_SCHEDULED_EXECUTOR_JNDI` | `java:comp/DefaultManagedScheduledExecutorService` | `WORKER_SCHEDULED_EXECUTOR_JNDI` |
 | `ratchet.worker.thread-factory-jndi` | `RATCHET_WORKER_THREAD_FACTORY_JNDI` | `java:comp/DefaultManagedThreadFactory` | `WORKER_THREAD_FACTORY_JNDI` |
+| `ratchet.worker.release-threads` | `RATCHET_WORKER_RELEASE_THREADS` | `2` | `WORKER_RELEASE_THREADS` |
 | `ratchet.worker.virtual-executor-jndi` | `RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI` | `(empty string)` | `WORKER_VIRTUAL_EXECUTOR_JNDI` |
 | `ratchet.worker.virtual-counter-accounting` | `RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING` | `false` | `WORKER_VIRTUAL_COUNTER_ACCOUNTING` |
 | `ratchet.execution.max-continuations` | `RATCHET_EXECUTION_MAX_CONTINUATIONS` | `1000` | `MAX_CONTINUATIONS` |
@@ -91,6 +92,20 @@ This build exposes **71 fixed keys**.
 
 The crash redelivery limit has a minimum of 0. Zero fails a job after its first node crash.
 Graceful shutdown releases do not consume this budget.
+
+## Release pool size
+
+`ratchet.worker.release-threads` sets how many threads the release pool has. The default is `2`
+and the minimum is `1`; a configured value below 1 falls back to the default.
+Set `RATCHET_WORKER_RELEASE_THREADS` to change it through the environment.
+The pool runs release retries, hard-timeout outcome writes and state flushes. Each thread can hold
+a database connection, and the heartbeat writes through the same datasource. Size the connection
+pool for the release threads plus the heartbeat; if release writes hold every connection, the
+heartbeat waits and other nodes may judge this node stale. Each kind of release write runs on up
+to this many threads at once, so a store call that hangs holds one thread while the rest of its
+kind continues on the others. With one thread, a single stuck store call stalls every write on
+the pool. The retry tick's one-second budget cannot cut
+short a store call that hangs.
 
 ## Checkpoint flush interval
 

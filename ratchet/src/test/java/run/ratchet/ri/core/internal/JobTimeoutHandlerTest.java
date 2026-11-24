@@ -755,7 +755,8 @@ class JobTimeoutHandlerTest {
       timers
           .submit(
               () -> {
-                invokeHardTimeout(attempt, future, new OutcomeWriteRetries(() -> releases, null));
+                invokeHardTimeout(
+                    attempt, future, new OutcomeWriteRetries(2, () -> releases, null));
                 return null;
               })
           .get(1, TimeUnit.SECONDS);
@@ -825,12 +826,14 @@ class JobTimeoutHandlerTest {
           public void close() {}
         };
     Level previous = logger.getLevel();
+    boolean previousParents = logger.getUseParentHandlers();
     logger.setLevel(Level.ALL);
+    logger.setUseParentHandlers(false);
     logger.addHandler(capture);
     try {
-      invokeHardTimeout(attempt, mock(Future.class), new OutcomeWriteRetries(supplier, null));
+      invokeHardTimeout(attempt, mock(Future.class), new OutcomeWriteRetries(2, supplier, null));
       assertEquals(1, records.size());
-      assertEquals(Level.INFO, records.get(0).getLevel());
+      assertEquals(Level.INFO.intValue(), records.get(0).getLevel().intValue());
       assertEquals(
           "This node is stopping; hard-timeout transition for job "
               + JOB_ID
@@ -839,6 +842,7 @@ class JobTimeoutHandlerTest {
     } finally {
       logger.removeHandler(capture);
       logger.setLevel(previous);
+      logger.setUseParentHandlers(previousParents);
     }
     verify(flush, never()).run();
     verify(jobCrudStore, never()).findById(any());
@@ -861,6 +865,7 @@ class JobTimeoutHandlerTest {
         attempt,
         mock(Future.class),
         new OutcomeWriteRetries(
+            2,
             () -> {
               throw new IllegalStateException("unavailable");
             },
@@ -1583,6 +1588,7 @@ class JobTimeoutHandlerTest {
     when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(!rescheduleReached);
     ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    AtomicLong clock = new AtomicLong();
     List<Runnable> pending = new ArrayList<>();
     List<Runnable> firstTries = new ArrayList<>();
     doAnswer(
@@ -1592,7 +1598,7 @@ class JobTimeoutHandlerTest {
             })
         .when(releases)
         .execute(any(Runnable.class));
-    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS)))
         .thenAnswer(
             invocation -> {
               pending.add(invocation.getArgument(0));
@@ -1609,7 +1615,7 @@ class JobTimeoutHandlerTest {
         mock(Future.class),
         timers,
         Instant.EPOCH,
-        new OutcomeWriteRetries(() -> releases, null, System::nanoTime));
+        new OutcomeWriteRetries(2, () -> releases, null, clock::get));
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
@@ -1617,6 +1623,7 @@ class JobTimeoutHandlerTest {
     firstTries.remove(0).run();
     assertEquals(1, pending.size());
 
+    clock.addAndGet(TimeUnit.SECONDS.toNanos(5));
     pending.remove(0).run();
 
     assertTrue(pending.isEmpty());
@@ -1639,6 +1646,7 @@ class JobTimeoutHandlerTest {
     when(jobCrudStore.wasCanceledUnderClaim(JOB_ID, 7L)).thenReturn(false);
     ScheduledExecutorService timers = mock(ScheduledExecutorService.class);
     ScheduledExecutorService releases = mock(ScheduledExecutorService.class);
+    AtomicLong clock = new AtomicLong();
     List<Runnable> pending = new ArrayList<>();
     List<Runnable> firstTries = new ArrayList<>();
     doAnswer(
@@ -1648,7 +1656,7 @@ class JobTimeoutHandlerTest {
             })
         .when(releases)
         .execute(any(Runnable.class));
-    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS)))
         .thenAnswer(
             invocation -> {
               pending.add(invocation.getArgument(0));
@@ -1665,7 +1673,7 @@ class JobTimeoutHandlerTest {
         mock(Future.class),
         timers,
         Instant.EPOCH,
-        new OutcomeWriteRetries(() -> releases, null, System::nanoTime));
+        new OutcomeWriteRetries(2, () -> releases, null, clock::get));
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
@@ -1673,6 +1681,7 @@ class JobTimeoutHandlerTest {
     firstTries.remove(0).run();
     assertEquals(1, pending.size());
 
+    clock.addAndGet(TimeUnit.SECONDS.toNanos(5));
     pending.remove(0).run();
 
     assertTrue(pending.isEmpty());
@@ -1703,11 +1712,11 @@ class JobTimeoutHandlerTest {
         .execute(any(Runnable.class));
     List<Long> delays = new ArrayList<>();
     AtomicLong clock = new AtomicLong();
-    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+    when(releases.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS)))
         .thenAnswer(
             invocation -> {
               pending.add(invocation.getArgument(0));
-              delays.add(invocation.getArgument(1));
+              delays.add(TimeUnit.NANOSECONDS.toMillis(invocation.getArgument(1)));
               return null;
             });
     JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.EPOCH, 0, 7L, "node-1");
@@ -1716,7 +1725,7 @@ class JobTimeoutHandlerTest {
         mock(Future.class),
         timers,
         Instant.EPOCH,
-        new OutcomeWriteRetries(() -> releases, null, clock::get));
+        new OutcomeWriteRetries(2, () -> releases, null, clock::get));
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
 

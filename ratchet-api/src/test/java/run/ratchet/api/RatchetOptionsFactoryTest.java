@@ -38,6 +38,41 @@ import run.ratchet.spi.RatchetConfigSource;
 
 class RatchetOptionsFactoryTest {
   @Test
+  void releaseThreadsBindsPropertyAndEnvironmentAndDefaultsNonPositive() {
+    assertEquals(
+        2,
+        optionsFrom(new MapRatchetConfigSource(Map.of(), Map.of())).execution().releaseThreads());
+    assertEquals(
+        3,
+        optionsFrom(
+                new MapRatchetConfigSource(Map.of("ratchet.worker.release-threads", "3"), Map.of()))
+            .execution()
+            .releaseThreads());
+    assertEquals(
+        4,
+        optionsFrom(
+                new MapRatchetConfigSource(Map.of(), Map.of("RATCHET_WORKER_RELEASE_THREADS", "4")))
+            .execution()
+            .releaseThreads());
+    for (String size : List.of("0", "-1")) {
+      assertEquals(
+          2,
+          optionsFrom(
+                  new MapRatchetConfigSource(
+                      Map.of("ratchet.worker.release-threads", size), Map.of()))
+              .execution()
+              .releaseThreads());
+      assertEquals(
+          2,
+          optionsFrom(
+                  new MapRatchetConfigSource(
+                      Map.of(), Map.of("RATCHET_WORKER_RELEASE_THREADS", size)))
+              .execution()
+              .releaseThreads());
+    }
+  }
+
+  @Test
   void durableEventsDefaultOffAndMapBothSources() {
     assertFalse(RatchetOptions.defaults().events().durable());
     assertTrue(

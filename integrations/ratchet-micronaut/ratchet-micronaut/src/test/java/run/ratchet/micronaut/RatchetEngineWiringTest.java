@@ -20,6 +20,7 @@ import static org.mockito.Mockito.*;
 
 import io.micronaut.context.ApplicationContext;
 import jakarta.inject.Singleton;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BusinessKeyLookup;
 import run.ratchet.api.ClusterQueryService;
@@ -133,6 +135,19 @@ import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.PartitionStore;
 
 class RatchetEngineWiringTest {
+
+  @Test
+  void releasePoolUsesOptionsBean() throws Exception {
+    try (var context = TestContexts.engine(Map.of("ratchet.worker.release-threads", 4))) {
+      context.start();
+      var executor = context.getBean(ExecutorProvider.class).getReleaseExecutor();
+      Field scheduler = executor.getClass().getDeclaredField("scheduler");
+      scheduler.setAccessible(true);
+      ScheduledThreadPoolExecutor pool = (ScheduledThreadPoolExecutor) scheduler.get(executor);
+      assertEquals(4, context.getBean(RatchetOptions.class).execution().releaseThreads());
+      assertEquals(4, pool.getCorePoolSize());
+    }
+  }
 
   @Test
   void cancellationServicesShareOneTimeoutHandler() {

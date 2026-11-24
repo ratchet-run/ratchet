@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.store.spi.JobTerminalStore;
@@ -36,20 +37,39 @@ final class HeldKeyReleases {
   private final JobTerminalStore store;
   private final ReleaseRetries retries;
 
-  HeldKeyReleases(JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler) {
+  HeldKeyReleases(
+      int parallelism, JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler) {
+    this(parallelism, store, scheduler, System::nanoTime);
+  }
+
+  HeldKeyReleases(
+      int parallelism,
+      JobTerminalStore store,
+      Supplier<ScheduledExecutorService> scheduler,
+      LongSupplier clock) {
     this.store = store;
     this.retries =
         new ReleaseRetries(
-            scheduler, ReleaseRetries.Policy.bounded(RETRY_DELAY, MAX_RETRIES), System::nanoTime);
+            parallelism,
+            scheduler,
+            null,
+            ReleaseRetries.Policy.bounded(RETRY_DELAY, MAX_RETRIES),
+            clock,
+            "business-key hold releases",
+            "its expiry",
+            Logger.Level.DEBUG);
   }
 
   /** Releases the hold of this claim. */
   void release(UUID jobId, long claimSeq) {
     retries.release(
         new ReleaseRetries.Release(
+            new Key(jobId, claimSeq),
             "release of the business-key hold for job " + jobId,
             "its expiry",
             Logger.Level.DEBUG,
             () -> store.releaseBusinessKeyHold(jobId, claimSeq)));
   }
+
+  private record Key(UUID jobId, long claimSeq) {}
 }

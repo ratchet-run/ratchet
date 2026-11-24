@@ -42,7 +42,8 @@ final class ReleaseRetries {
    * the retries stop, and {@code unscheduledLevel} is the level of the message logged when the
    * release executor does not take it.
    */
-  record Release(String what, String leftTo, Logger.Level unscheduledLevel, Runnable call) {}
+  record Release(
+      Object key, String what, String leftTo, Logger.Level unscheduledLevel, Runnable call) {}
 
   /**
    * How a failed write is retried. The first retry waits {@code firstDelay} and each later one
@@ -79,143 +80,109 @@ final class ReleaseRetries {
     }
   }
 
-  /**
-   * One scheduled try. {@code number} counts the scheduled tries of this write, {@code delayMillis}
-   * is this try's delay, {@code warned} says whether a warning was logged for this write, and
-   * {@code warnedAtNanos} is the clock reading at that warning. Refusals have their own backoff,
-   * reset on acceptance, and share the warning clock once the first refusal is logged.
-   */
-  private record Retry(
-      int number,
-      long delayMillis,
-      boolean warned,
-      long warnedAtNanos,
-      long refusalDelayMillis,
-      boolean refusalWarned) {
-    Retry(int number, long delayMillis, boolean warned, long warnedAtNanos) {
-      this(number, delayMillis, warned, warnedAtNanos, 0, false);
-    }
+  private static final class Retry {
+    int number = 1;
+    long delayMillis;
+    boolean warned;
+    long warnedAtNanos;
   }
 
-  private final Supplier<ScheduledExecutorService> scheduler;
-  private final Supplier<ScheduledExecutorService> timer;
   private final Policy policy;
   private final LongSupplier nanoTime;
+  private final RetryDrain drain;
 
-  /**
-   * @param nanoTime a monotonic clock in nanoseconds, such as {@code System::nanoTime}
-   */
   ReleaseRetries(
-      Supplier<ScheduledExecutorService> scheduler, Policy policy, LongSupplier nanoTime) {
-    this(scheduler, null, policy, nanoTime);
-  }
-
-  /**
-   * @param timer optional timer for resubmission; null leaves refused writes to recovery
-   */
-  ReleaseRetries(
+      int parallelism,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
       Policy policy,
-      LongSupplier nanoTime) {
-    this.scheduler = scheduler;
-    this.timer = timer;
+      LongSupplier nanoTime,
+      String kind,
+      String leftTo,
+      Logger.Level level) {
     this.policy = policy;
     this.nanoTime = nanoTime;
+    drain =
+        new RetryDrain(
+            parallelism,
+            kind,
+            scheduler,
+            policy.maxRetries().isEmpty() ? timer : null,
+            nanoTime,
+            policy.firstDelay(),
+            policy.maxDelay(),
+            new RetryDrain.Refusal() {
+              public void dropped(int count, boolean stopping, RuntimeException failure) {
+                if (stopping)
+                  log.infof(
+                      failure, "This node is stopping; %s %s left to %s", count, kind, leftTo);
+                else
+                  log.logf(
+                      level, failure, "Could not schedule %s %s; left to %s", count, kind, leftTo);
+              }
+
+              public void retrying(long delayNanos, RuntimeException failure) {
+                log.logf(
+                    level,
+                    failure,
+                    "Could not schedule %s; trying again in %s seconds",
+                    kind,
+                    TimeUnit.NANOSECONDS.toSeconds(delayNanos));
+              }
+            });
   }
 
-  /**
-   * Runs the write on this thread, or hands it to the release executor when this thread is
-   * interrupted or the call fails.
-   *
-   * @return true when the write ran on this thread
-   */
   boolean release(Release release) {
-    if (Thread.currentThread().isInterrupted()) {
-      // The interrupt stays set; the caller restores or handles it.
-      schedule(release, new Retry(1, 0, false, 0));
+    // Reserve before the inline try: duplicate idempotent releases share the first write's
+    // outcome or backstop. A false return only means the write did not run on this thread.
+    RetryDrain.Entry entry = drain.reserve(release.key(), () -> {});
+    if (entry == null) {
+      log.debugf("%s is already pending", release.what());
       return false;
     }
-    try {
-      release.call().run();
-      return true;
-    } catch (RuntimeException e) {
-      log.warnf(e, "Could not finish %s; scheduling retry", release.what());
-      long first = policy.firstDelay().toMillis();
-      schedule(release, new Retry(1, first, true, nanoTime.getAsLong()));
-      return false;
-    }
-  }
-
-  private void schedule(Release release, Retry retry) {
-    ScheduledExecutorService executor = null;
-    try {
-      executor = scheduler.get();
-      Retry accepted =
-          new Retry(
-              retry.number(),
-              retry.delayMillis(),
-              retry.warned(),
-              retry.warnedAtNanos(),
-              0,
-              retry.refusalWarned());
-      executor.schedule(() -> retry(release, accepted), retry.delayMillis(), TimeUnit.MILLISECONDS);
-    } catch (RuntimeException e) {
-      if (!isStopping(e, executor) && timer != null && policy.maxRetries().isEmpty()) {
-        resubmit(release, retry, e);
-        return;
+    Retry retry = new Retry();
+    if (!Thread.currentThread().isInterrupted()) {
+      try {
+        release.call().run();
+        drain.finish(entry);
+        return true;
+      } catch (RuntimeException failure) {
+        log.warnf(failure, "Could not finish %s; scheduling retry", release.what());
+        retry.delayMillis = policy.firstDelay().toMillis();
+        retry.warned = true;
+        retry.warnedAtNanos = nanoTime.getAsLong();
+      } catch (Error failure) {
+        drain.finish(entry);
+        throw failure;
       }
-      logUnscheduled(release, e, executor);
     }
-  }
-
-  private void resubmit(Release release, Retry retry, RuntimeException refusal) {
-    long delay =
-        retry.refusalDelayMillis() == 0
-            ? policy.firstDelay().toMillis()
-            : Math.min(retry.refusalDelayMillis() * 2, policy.maxDelay().toMillis());
-    long now = nanoTime.getAsLong();
-    boolean warn = !retry.refusalWarned() || now - retry.warnedAtNanos() >= WARN_INTERVAL.toNanos();
-    Retry next =
-        new Retry(
-            retry.number(),
-            retry.delayMillis(),
-            retry.warned() || warn,
-            warn ? now : retry.warnedAtNanos(),
-            delay,
-            true);
-    ScheduledExecutorService executor = null;
-    try {
-      executor = timer.get();
-      // A resubmission firing after shutdown is refused with isShutdown and logs stopping once.
-      // Only scheduling runs on the timer thread, never the release's store call.
-      executor.schedule(() -> schedule(release, next), delay, TimeUnit.MILLISECONDS);
-    } catch (RuntimeException failure) {
-      logUnscheduled(release, failure, executor);
-      return;
-    }
-    if (warn) {
-      log.logf(
-          release.unscheduledLevel(),
-          refusal,
-          "Could not schedule %s; trying again in %s seconds",
-          release.what(),
-          delay / 1000);
-    }
-  }
-
-  private void logUnscheduled(
-      Release release, RuntimeException e, ScheduledExecutorService executor) {
-    if (isStopping(e, executor)) {
-      log.infof(e, "This node is stopping; %s left to %s", release.what(), release.leftTo());
-    } else {
-      log.logf(
-          release.unscheduledLevel(),
-          e,
-          "Could not schedule %s; left to %s",
-          release.what(),
-          release.leftTo());
-    }
+    drain.schedule(
+        entry,
+        nanoTime.getAsLong() + TimeUnit.MILLISECONDS.toNanos(retry.delayMillis),
+        () -> retry(release, retry),
+        (stopping, failure) -> {
+          if (stopping)
+            log.infof(
+                failure, "This node is stopping; %s left to %s", release.what(), release.leftTo());
+          else
+            log.logf(
+                release.unscheduledLevel(),
+                failure,
+                "Could not schedule %s; left to %s",
+                release.what(),
+                release.leftTo());
+        },
+        (delay, failure) -> {
+          log.logf(
+              release.unscheduledLevel(),
+              failure,
+              "Could not schedule %s; trying again in %s seconds",
+              release.what(),
+              TimeUnit.NANOSECONDS.toSeconds(delay));
+          retry.warned = true;
+          retry.warnedAtNanos = nanoTime.getAsLong();
+        });
+    return false;
   }
 
   static boolean isStopping(RuntimeException failure, ScheduledExecutorService executor) {
@@ -228,54 +195,46 @@ final class ReleaseRetries {
     }
   }
 
-  private void retry(Release release, Retry retry) {
+  private Long retry(Release release, Retry retry) {
     try {
       release.call().run();
-      if (policy.maxRetries().isEmpty() && retry.warned()) {
-        log.infof("Finished %s on retry %s", release.what(), retry.number());
+      if (policy.maxRetries().isEmpty() && retry.warned) {
+        log.infof("Finished %s on retry %s", release.what(), retry.number);
       }
-    } catch (RuntimeException e) {
-      long first = policy.firstDelay().toMillis();
-      long max = policy.maxDelay().toMillis();
-      long next = retry.delayMillis() == 0 ? first : Math.min(retry.delayMillis() * 2, max);
+      return null;
+    } catch (RuntimeException failure) {
+      long next =
+          retry.delayMillis == 0
+              ? policy.firstDelay().toMillis()
+              : Math.min(retry.delayMillis * 2, policy.maxDelay().toMillis());
+      long now = nanoTime.getAsLong();
       if (policy.maxRetries().isPresent()) {
-        log.debugf(e, "Attempt %s failed for %s", retry.number(), release.what());
-        if (retry.number() < policy.maxRetries().getAsInt()) {
-          schedule(
-              release, new Retry(retry.number() + 1, next, retry.warned(), retry.warnedAtNanos()));
-        } else {
+        log.debugf(failure, "Attempt %s failed for %s", retry.number, release.what());
+        if (retry.number >= policy.maxRetries().getAsInt()) {
           log.warnf(
               "Gave up on %s after %s retries; left to %s",
-              release.what(), retry.number(), release.leftTo());
+              release.what(), retry.number, release.leftTo());
+          return null;
         }
+      } else if (!retry.warned) {
+        log.warnf(failure, "Could not finish %s; scheduling retry", release.what());
+        retry.warned = true;
+        retry.warnedAtNanos = now;
+      } else if (now - retry.warnedAtNanos >= WARN_INTERVAL.toNanos()) {
+        log.warnf(
+            failure,
+            "Still could not finish %s after %s retries; retrying every %s seconds until it lands"
+                + " or this node stops",
+            release.what(),
+            retry.number,
+            next / 1000);
+        retry.warnedAtNanos = now;
       } else {
-        retryUntilReleased(release, retry, next, e);
+        log.debugf(failure, "Attempt %s failed for %s", retry.number, release.what());
       }
-    }
-  }
-
-  private void retryUntilReleased(Release release, Retry retry, long next, RuntimeException e) {
-    // Time on the clock, so a store call that hangs or a retry the release executor runs late
-    // counts too.
-    long now = nanoTime.getAsLong();
-    if (!retry.warned()) {
-      log.warnf(e, "Could not finish %s; scheduling retry", release.what());
-      schedule(release, new Retry(retry.number() + 1, next, true, now, 0, retry.refusalWarned()));
-    } else if (now - retry.warnedAtNanos() >= WARN_INTERVAL.toNanos()) {
-      log.warnf(
-          e,
-          "Still could not finish %s after %s retries; retrying every %s seconds until it lands or"
-              + " this node stops",
-          release.what(),
-          retry.number(),
-          next / 1000);
-      schedule(release, new Retry(retry.number() + 1, next, true, now, 0, retry.refusalWarned()));
-    } else {
-      log.debugf(e, "Attempt %s failed for %s", retry.number(), release.what());
-      schedule(
-          release,
-          new Retry(
-              retry.number() + 1, next, true, retry.warnedAtNanos(), 0, retry.refusalWarned()));
+      retry.number++;
+      retry.delayMillis = next;
+      return nanoTime.getAsLong() + TimeUnit.MILLISECONDS.toNanos(next);
     }
   }
 }

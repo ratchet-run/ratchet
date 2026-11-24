@@ -42,12 +42,16 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -86,7 +90,108 @@ class PermitReleasesTest {
   private final AtomicLong clock = new AtomicLong(42_000_000_000L);
 
   private PermitReleases releases() {
-    return new PermitReleases(permits, () -> scheduler, null, clock::get);
+    return new PermitReleases(2, permits, () -> scheduler, null, clock::get);
+  }
+
+  @Test
+  void blockedPermitRetryDoesNotStallAnotherResource() throws Exception {
+    ScheduledThreadPoolExecutor pool = new ScheduledThreadPoolExecutor(2);
+    CountDownLatch aEntered = new CountDownLatch(1);
+    CountDownLatch releaseA = new CountDownLatch(1);
+    CountDownLatch aDone = new CountDownLatch(1);
+    CountDownLatch bDone = new CountDownLatch(1);
+    AtomicInteger aCalls = new AtomicInteger();
+    AtomicInteger bCalls = new AtomicInteger();
+    AtomicLong now = new AtomicLong();
+    // Advance the injected clock when the scheduler is resolved, so the five-second retries
+    // are due immediately on the real pool without sleeping through their backoff.
+    Supplier<ScheduledExecutorService> executor =
+        () -> {
+          now.addAndGet(PermitReleases.FIRST_RETRY_DELAY.toNanos());
+          return pool;
+        };
+    PermitReleases releases = new PermitReleases(2, permits, executor, null, now::get);
+    doAnswer(
+            invocation -> {
+              if (aCalls.incrementAndGet() == 1)
+                throw new RatchetTransientStoreException("a unavailable");
+              aEntered.countDown();
+              assertTrue(releaseA.await(5, TimeUnit.SECONDS));
+              aDone.countDown();
+              return null;
+            })
+        .when(permits)
+        .release("a", JOB_ID, CLAIM_SEQ);
+    doAnswer(
+            invocation -> {
+              if (bCalls.incrementAndGet() == 1)
+                throw new RatchetTransientStoreException("b unavailable");
+              bDone.countDown();
+              return null;
+            })
+        .when(permits)
+        .release("b", JOB_ID, CLAIM_SEQ);
+    try {
+      assertFalse(releases.release("a", JOB_ID, CLAIM_SEQ));
+      assertTrue(aEntered.await(5, TimeUnit.SECONDS));
+      assertFalse(releases.release("b", JOB_ID, CLAIM_SEQ));
+      assertTrue(bDone.await(2, TimeUnit.SECONDS));
+      assertEquals(1, releaseA.getCount());
+      verify(permits, times(2)).release("b", JOB_ID, CLAIM_SEQ);
+      releaseA.countDown();
+      assertTrue(aDone.await(5, TimeUnit.SECONDS));
+      verify(permits, times(2)).release("a", JOB_ID, CLAIM_SEQ);
+    } finally {
+      releaseA.countDown();
+      pool.shutdownNow();
+      assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void duplicateDuringInlineTryReturnsFalse() throws Exception {
+    PermitReleases releases = releases();
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch finish = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              entered.countDown();
+              assertTrue(finish.await(5, TimeUnit.SECONDS));
+              return null;
+            })
+        .when(permits)
+        .release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    FutureTask<Boolean> first =
+        new FutureTask<>(() -> releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
+    new Thread(first).start();
+    try {
+      assertTrue(entered.await(5, TimeUnit.SECONDS));
+      assertFalse(releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
+      verify(permits, times(1)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
+      verifyNoInteractions(scheduler);
+    } finally {
+      finish.countDown();
+    }
+    assertTrue(first.get(5, TimeUnit.SECONDS));
+    assertTrue(releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
+    verify(permits, times(2)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
+  }
+
+  @Test
+  void duplicatePendingPermitKeepsFirstTryAndAcceptsAgainAfterLanding() {
+    PermitReleases releases = releases();
+    Thread.currentThread().interrupt();
+    try {
+      assertFalse(releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
+      assertFalse(releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
+    } finally {
+      Thread.interrupted();
+    }
+    verifyNoInteractions(permits);
+    scheduled(1, 0).run();
+    assertTrue(releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
+    verify(permits, times(2)).release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    verify(scheduler, times(1)).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
   }
 
   @Test
@@ -95,20 +200,25 @@ class PermitReleasesTest {
     doThrow(new RejectedExecutionException("busy"))
         .when(scheduler)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
-    PermitReleases releases = new PermitReleases(permits, () -> scheduler, () -> timer, clock::get);
+    PermitReleases releases =
+        new PermitReleases(2, permits, () -> scheduler, () -> timer, clock::get);
     Thread.currentThread().interrupt();
     assertFalse(releases.release(RESOURCE, JOB_ID, CLAIM_SEQ));
     Thread.interrupted();
     verifyNoInteractions(permits);
     ArgumentCaptor<Runnable> resubmit = ArgumentCaptor.forClass(Runnable.class);
-    verify(timer).schedule(resubmit.capture(), eq(FIRST_DELAY_MS), eq(TimeUnit.MILLISECONDS));
+    verify(timer)
+        .schedule(
+            resubmit.capture(),
+            eq(TimeUnit.MILLISECONDS.toNanos(FIRST_DELAY_MS)),
+            eq(TimeUnit.NANOSECONDS));
     doAnswer(invocation -> null)
         .when(scheduler)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
     resubmit.getValue().run();
     verifyNoInteractions(permits);
     ArgumentCaptor<Runnable> write = ArgumentCaptor.forClass(Runnable.class);
-    verify(scheduler, times(2)).schedule(write.capture(), eq(0L), eq(TimeUnit.MILLISECONDS));
+    verify(scheduler, times(2)).schedule(write.capture(), eq(0L), eq(TimeUnit.NANOSECONDS));
     write.getValue().run();
     verify(permits).release(RESOURCE, JOB_ID, CLAIM_SEQ);
   }
@@ -393,7 +503,8 @@ class PermitReleasesTest {
         .releasePermit(RESOURCE, JOB_ID, CLAIM_SEQ);
     when(store.wakeWaiters(RESOURCE)).thenReturn(List.of());
 
-    new PermitReleases(service, () -> scheduler, null).release(RESOURCE, JOB_ID, CLAIM_SEQ);
+    new PermitReleases(2, service, () -> scheduler, null, clock::get)
+        .release(RESOURCE, JOB_ID, CLAIM_SEQ);
     verify(store, never()).wakeWaiters(anyString());
     scheduled(1, FIRST_DELAY_MS).run();
 
@@ -411,13 +522,13 @@ class PermitReleasesTest {
   private void recordSchedules() {
     doAnswer(
             invocation -> {
-              long delayMillis = invocation.getArgument(1);
+              long delayMillis = TimeUnit.NANOSECONDS.toMillis(invocation.getArgument(1));
               pending.add(new Scheduled(invocation.getArgument(0), delayMillis));
               delays.add(delayMillis);
               return null;
             })
         .when(scheduler)
-        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+        .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
   }
 
   /** Runs the next scheduled try on time: the clock moves by its delay first. */
@@ -429,7 +540,9 @@ class PermitReleasesTest {
   }
 
   private static long count(List<LogRecord> records, Level level) {
-    return records.stream().filter(record -> record.getLevel().equals(level)).count();
+    return records.stream()
+        .filter(record -> record.getLevel().intValue() == level.intValue())
+        .count();
   }
 
   private static final class LogCapture implements AutoCloseable {
@@ -486,7 +599,13 @@ class PermitReleasesTest {
   private Runnable scheduled(int count, long delayMillis) {
     ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
     verify(scheduler, times(count))
-        .schedule(task.capture(), eq(delayMillis), eq(TimeUnit.MILLISECONDS));
-    return task.getAllValues().get(count - 1);
+        .schedule(
+            task.capture(),
+            eq(TimeUnit.MILLISECONDS.toNanos(delayMillis)),
+            eq(TimeUnit.NANOSECONDS));
+    return () -> {
+      clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(delayMillis));
+      task.getAllValues().get(count - 1).run();
+    };
   }
 }
