@@ -53,4 +53,7 @@ public interface DataSourceStrategy {
    * @return the server-specific JTA datasource name
    */
   String jtaDataSourceName();
+
+  /** Maximum physical connections in the test datasource pool. */
+  int maximumPoolSize();
 }

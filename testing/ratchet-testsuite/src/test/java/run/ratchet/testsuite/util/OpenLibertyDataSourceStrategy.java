@@ -34,6 +34,7 @@ import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
  */
 public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
 
+  private static final int MAXIMUM_POOL_SIZE = 50;
   private static final String JTA_DATASOURCE = "jdbc/RatchetDS";
   private static final String SERVER_CONFIG_DIR_PROPERTY = "openliberty.server.config.dir";
 
@@ -52,6 +53,11 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
     } catch (IOException e) {
       throw new IllegalStateException("Unable to configure Open Liberty datasource", e);
     }
+  }
+
+  @Override
+  public int maximumPoolSize() {
+    return MAXIMUM_POOL_SIZE;
   }
 
   @Override
@@ -156,6 +162,7 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
                       jndiName="%s"
                       jdbcDriverRef="RatchetJdbcDriver"
                       transactional="true"%s>
+            <connectionManager maxPoolSize="%d"/>
             <properties URL="%s" user="%s" password="%s"/>
           </dataSource>
         </server>
@@ -165,6 +172,7 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
         DataSourceResources.dataSourceClassName(config.dbType()),
         JTA_DATASOURCE,
         isolationLevelAttribute(config.dbType()),
+        MAXIMUM_POOL_SIZE,
         DataSourceResources.xml(config.url()),
         DataSourceResources.xml(config.username()),
         DataSourceResources.xml(config.password()));

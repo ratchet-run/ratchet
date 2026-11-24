@@ -35,6 +35,11 @@ public class WildflyDataSourceStrategy implements DataSourceStrategy {
   }
 
   @Override
+  public int maximumPoolSize() {
+    return 20;
+  }
+
+  @Override
   public String jtaDataSourceName() {
     return "java:jboss/datasources/RatchetDS";
   }

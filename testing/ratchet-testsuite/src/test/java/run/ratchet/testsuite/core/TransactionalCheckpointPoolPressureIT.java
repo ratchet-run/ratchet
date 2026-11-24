@@ -19,11 +19,17 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import jakarta.inject.Inject;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import javax.naming.InitialContext;
+import javax.sql.DataSource;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
@@ -36,17 +42,19 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestRuntimeConfig;
 import run.ratchet.testsuite.app.TransactionalUnitProbe;
 import run.ratchet.testsuite.app.TransactionalUnitProbe.Attempt;
 import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.DataSourceStrategyFactory;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
-/**
- * A burst of units larger than the datasource pool must complete. It fills the pool only where the
- * server runs more jobs at once than the pool has connections; WildFly runs two per CPU.
- */
+/** A transactional unit must finish with one physical connection available. */
 @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
 class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
+  private static final String DATASOURCE_NAME = "ratchet.test.pressure.datasource";
+  private static final String POOL_SIZE = "ratchet.test.pressure.pool-size";
+
   @Inject private TestJobService jobs;
   @Inject private JobStore store;
   @Inject private JobAuditStore audit;
@@ -57,13 +65,18 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
   @Deployment
   public static WebArchive createDeployment() {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    var datasource = DataSourceStrategyFactory.create();
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(System.getProperty("testsuite.profile", "wildfly-managed"), dbType)
-        .addClasses(TestJobService.class, TransactionalUnitProbe.class, Attempt.class)
+        .addClasses(
+            TestJobService.class, TransactionalUnitProbe.class, Attempt.class, Reservations.class)
         .addStoreInfrastructure()
         .addResource(
             RatchetArchiveBuilder.testRuntimeConfigContent(
-                dbType, Map.of("ratchet.thread-pool.size.single", "64")),
+                dbType,
+                Map.of(
+                    DATASOURCE_NAME, datasource.jtaDataSourceName(),
+                    POOL_SIZE, Integer.toString(datasource.maximumPoolSize()))),
             "ratchet-testsuite.properties")
         .addBeansXml()
         .build();
@@ -98,43 +111,62 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
   }
 
   @Test
-  void transactionalCheckpointsSurvivePoolPressure() {
+  void transactionalCheckpointsSurvivePoolPressure() throws Exception {
     probe.clear();
     TransactionalUnitProbe.reset();
-    // 128 jobs exceed the default datasource pool and the 64 single-job workers.
     TransactionalUnitProbe.pressureStart = new CountDownLatch(1);
-    try {
-      for (int n = 0; n < 128; n++) {
-        String key = UUID.randomUUID().toString();
-        TransactionalUnitProbe.prepare(key);
-        UUID id =
-            jobs.enqueue(() -> TransactionalUnitProbe.execute(key, "pressure"))
-                .withMaxRetries(0)
-                .submit()
-                .id();
-        expected.put(id, key);
+    String key = UUID.randomUUID().toString();
+    TransactionalUnitProbe.prepare(key);
+    UUID id =
+        jobs.enqueue(() -> TransactionalUnitProbe.execute(key, "pressure"))
+            .withMaxRetries(0)
+            .submit()
+            .id();
+    expected.put(id, key);
+
+    TestRuntimeConfig config = new TestRuntimeConfig();
+    String datasourceName = config.get(DATASOURCE_NAME, DATASOURCE_NAME).orElseThrow();
+    int poolSize = Integer.parseInt(config.get(POOL_SIZE, POOL_SIZE).orElseThrow());
+    DataSource datasource = InitialContext.doLookup(datasourceName);
+    try (Reservations reservations = new Reservations()) {
+      for (int i = 1; i < poolSize; i++) {
+        reservations.connections.add(datasource.getConnection());
       }
-    } finally {
       TransactionalUnitProbe.pressureStart.countDown();
+      await()
+          .atMost(Duration.ofSeconds(25))
+          .untilAsserted(
+              () ->
+                  assertEquals(JobStatus.SUCCEEDED, store.findById(id).orElseThrow().getStatus()));
     }
-    await()
-        .atMost(Duration.ofSeconds(40))
-        .untilAsserted(
-            () -> {
-              for (UUID id : expected.keySet()) {
-                assertEquals(
-                    JobStatus.SUCCEEDED,
-                    store.findById(id).orElseThrow().getStatus(),
-                    id.toString());
-              }
-            });
+
     var states = store.capability(JobStateStore.class).orElseThrow();
     expected.forEach(
-        (id, key) -> {
-          for (int page = 0; page < 3; page++) assertEquals(1, probe.countPage(key, page), key);
-          var row = states.getState(id, "ratchet.checkpoint").orElseThrow();
+        (jobId, checkpointKey) -> {
+          for (int page = 0; page < 3; page++) {
+            assertEquals(1, probe.countPage(checkpointKey, page), checkpointKey);
+          }
+          var row = states.getState(jobId, "ratchet.checkpoint").orElseThrow();
           assertEquals(
-              "done", serializer.deserialize(row.json(), Map.class).get("value"), id.toString());
+              "done", serializer.deserialize(row.json(), Map.class).get("value"), jobId.toString());
         });
+  }
+
+  static final class Reservations implements AutoCloseable {
+    private final List<Connection> connections = new ArrayList<>();
+
+    @Override
+    public void close() throws SQLException {
+      SQLException failure = null;
+      for (Connection connection : connections) {
+        try {
+          connection.close();
+        } catch (SQLException closeFailure) {
+          if (failure == null) failure = closeFailure;
+          else failure.addSuppressed(closeFailure);
+        }
+      }
+      if (failure != null) throw failure;
+    }
   }
 }
