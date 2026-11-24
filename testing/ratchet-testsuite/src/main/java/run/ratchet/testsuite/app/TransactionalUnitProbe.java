@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -56,7 +57,6 @@ public class TransactionalUnitProbe {
   }
 
   private static final Map<String, Attempt> ATTEMPTS = new ConcurrentHashMap<>();
-  public static volatile CountDownLatch pressureStart = new CountDownLatch(0);
   @Inject private RatchetEntityManagerProvider entityManagers;
 
   public static Attempt prepare(String key) {
@@ -68,7 +68,6 @@ public class TransactionalUnitProbe {
   public static void reset() {
     ATTEMPTS.values().forEach(attempt -> attempt.release.countDown());
     ATTEMPTS.clear();
-    pressureStart.countDown();
   }
 
   public static String pageKey(String key, int page) {
@@ -84,8 +83,8 @@ public class TransactionalUnitProbe {
     attempt.starts.add(ctx.lastCheckpoint());
     try {
       if (scenario.equals("pressure")) {
-        if (!pressureStart.await(30, TimeUnit.SECONDS))
-          throw new IllegalStateException("Burst not released");
+        // The test owns the deadline for setup and releases this latch even when setup fails.
+        attempt.release.await();
       }
       if (scenario.equals("enclosing")) {
         try {
@@ -174,6 +173,19 @@ public class TransactionalUnitProbe {
         .setParameter(1, UUID.randomUUID().toString())
         .setParameter(2, key)
         .executeUpdate();
+  }
+
+  @Transactional(TxType.REQUIRES_NEW)
+  public void reserveConnection(
+      String sessionQuery, CompletableFuture<Long> ready, CountDownLatch release)
+      throws InterruptedException {
+    Number session =
+        (Number)
+            entityManagers.getEntityManager().createNativeQuery(sessionQuery).getSingleResult();
+    ready.complete(session.longValue());
+    if (!release.await(90, TimeUnit.SECONDS)) {
+      throw new IllegalStateException("Datasource reservation was not released");
+    }
   }
 
   @Transactional(TxType.REQUIRES_NEW)

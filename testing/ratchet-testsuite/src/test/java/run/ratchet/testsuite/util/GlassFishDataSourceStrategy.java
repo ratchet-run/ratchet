@@ -47,6 +47,11 @@ public class GlassFishDataSourceStrategy implements DataSourceStrategy {
   }
 
   @Override
+  public int maximumPoolSize() {
+    return GlassFishResources.MAXIMUM_POOL_SIZE;
+  }
+
+  @Override
   public String jtaDataSourceName() {
     return GlassFishResources.JTA_DATASOURCE;
   }

@@ -23,6 +23,7 @@ import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 
 final class GlassFishResources {
 
+  static final int MAXIMUM_POOL_SIZE = 32;
   static final String JTA_DATASOURCE = "java:app/jdbc/RatchetDS";
 
   private GlassFishResources() {}
@@ -59,6 +60,7 @@ final class GlassFishResources {
           <jdbc-connection-pool name="RatchetPool"
                                 res-type="javax.sql.DataSource"
                                 datasource-classname="%s"
+                                max-pool-size="%d"
                                 transaction-isolation-level="read-committed"
                                 is-isolation-level-guaranteed="true">
             <property name="URL" value="%s"/>
@@ -75,6 +77,7 @@ final class GlassFishResources {
     return template.formatted(
         doctype,
         DataSourceResources.dataSourceClassName(config.dbType()),
+        MAXIMUM_POOL_SIZE,
         DataSourceResources.xml(config.url()),
         DataSourceResources.xml(config.username()),
         DataSourceResources.xml(config.password()),

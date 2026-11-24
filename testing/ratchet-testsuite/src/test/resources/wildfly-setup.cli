@@ -50,6 +50,7 @@ if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-res
     --user-name=${ratchet.test.db.username:sa} \
     --password=${ratchet.test.db.password:sa} \
     --enabled=true \
+    --max-pool-size=20 \
     --use-java-context=true \
     --transaction-isolation=TRANSACTION_READ_COMMITTED
 end-if
