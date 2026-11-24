@@ -21,7 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import run.ratchet.api.internal.StringKeyNormalizer;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /**
  * Predicate passed to claim queries to scope returned rows to an effective executor pool.

@@ -25,8 +25,8 @@ import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.JobPage;
 import run.ratchet.api.NodeStatus;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.spi.NodeStore;
 

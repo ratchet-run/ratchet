@@ -23,9 +23,9 @@ import java.util.Objects;
 import java.util.Optional;
 import org.jboss.logging.Logger;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.spi.LockStore;
 
 /** Acquires expiring cluster-wide leases for work that must run on at most one node at a time. */

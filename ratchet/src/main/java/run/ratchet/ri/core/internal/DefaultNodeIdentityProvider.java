@@ -22,9 +22,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
-import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /**
  * Resolves the node ID: explicit ID, then hostname-PID-UUID, then a random UUID fallback. The

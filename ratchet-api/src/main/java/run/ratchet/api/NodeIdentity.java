@@ -17,7 +17,7 @@ package run.ratchet.api;
 
 import java.util.Objects;
 import java.util.regex.Pattern;
-import run.ratchet.api.internal.StringKeyNormalizer;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /**
  * Value type wrapping the stable, unique identifier for a scheduler node at the cluster-coordinator

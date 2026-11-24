@@ -42,7 +42,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
-import run.ratchet.api.internal.StringKeyNormalizer;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JobPriorityConverter;
 import run.ratchet.store.converter.JsonMapColumns;

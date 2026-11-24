@@ -42,8 +42,8 @@ import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.api.internal.ResourceLimitRules;
-import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.api.internal.TagNormalizer;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /** Default {@link JobBuilder} implementation. */
 final class DefaultJobBuilder implements JobBuilder, JobBuilderState {

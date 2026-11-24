@@ -19,7 +19,7 @@ import java.util.Objects;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
-import run.ratchet.api.internal.StringKeyNormalizer;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /**
  * Payload delivered to {@link ClusterCoordinator} wakeup listeners.

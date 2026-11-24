@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.api.internal;
+package run.ratchet.spi.internal;
 
 import run.ratchet.api.Nullable;
 
@@ -21,6 +21,14 @@ import run.ratchet.api.Nullable;
 public final class StringKeyNormalizer {
   private StringKeyNormalizer() {}
 
+  /**
+   * Strips surrounding whitespace from a required key.
+   *
+   * @param key the supplied key
+   * @param name the field name used in validation errors
+   * @return the stripped key
+   * @throws IllegalArgumentException if the key is null or blank
+   */
   public static String required(@Nullable String key, String name) {
     if (key == null) throw new IllegalArgumentException(name + " must not be null or blank");
     String normalized = key.strip();
@@ -30,6 +38,14 @@ public final class StringKeyNormalizer {
     return normalized;
   }
 
+  /**
+   * Strips surrounding whitespace from an optional key.
+   *
+   * @param key the supplied key
+   * @param name the field name used in validation errors
+   * @return the stripped key, or null when no key was supplied
+   * @throws IllegalArgumentException if a supplied key is blank
+   */
   public static @Nullable String optional(@Nullable String key, String name) {
     return key == null ? null : required(key, name);
   }

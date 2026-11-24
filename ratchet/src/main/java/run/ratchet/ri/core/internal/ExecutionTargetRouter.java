@@ -21,9 +21,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 import run.ratchet.api.ExecutorTargets;
-import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /**
  * Resolves a job's requested execution target to an effective pool name, exactly once, before a

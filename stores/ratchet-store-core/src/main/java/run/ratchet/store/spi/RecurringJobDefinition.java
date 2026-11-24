@@ -21,7 +21,7 @@ import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.RecurringMisfirePolicy;
-import run.ratchet.api.internal.StringKeyNormalizer;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.entity.JobPayload;
 
 /**

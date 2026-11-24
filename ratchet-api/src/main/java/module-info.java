@@ -56,7 +56,11 @@ module run.ratchet.api {
   exports run.ratchet.api.internal to
       run.ratchet.ri,
       run.ratchet.coordinator.common,
-      run.ratchet.spring.boot.autoconfigure,
+      run.ratchet.spring.boot.autoconfigure;
+
+  // Key validation is shared by the RI and the bundled store implementations.
+  exports run.ratchet.spi.internal to
+      run.ratchet.ri,
       run.ratchet.store.core,
       run.ratchet.store.mongodb,
       run.ratchet.store.mysql,
