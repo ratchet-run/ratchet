@@ -82,8 +82,8 @@ class ReleaseExecutorIsolationTest {
               awaitRelease(unblockPool);
             });
       assertTrue(occupied.await(5, TimeUnit.SECONDS));
-      HeldKeyReleases holds = new HeldKeyReleases(store, () -> releases);
-      PermitReleases permitReleases = new PermitReleases(permits, () -> releases, null);
+      HeldKeyReleases holds = new HeldKeyReleases(2, store, () -> releases);
+      PermitReleases permitReleases = new PermitReleases(2, permits, () -> releases, null);
       try {
         Thread.currentThread().interrupt();
         for (int i = 0; i < 40; i++) {
@@ -97,7 +97,7 @@ class ReleaseExecutorIsolationTest {
       unblockPool.countDown();
       assertTrue(retriesEntered.await(5, TimeUnit.SECONDS));
       assertTrue(
-          new OutcomeWriteRetries(() -> releases, null)
+          new OutcomeWriteRetries(2, () -> releases, null)
               .execute("timeout", timeoutWritten::countDown));
       FlushableState writer = mock(FlushableState.class);
       when(writer.flushIntervalMs()).thenReturn(1L);
@@ -200,9 +200,9 @@ class ReleaseExecutorIsolationTest {
             : () -> provider.getReleaseExecutor();
     AtomicLong now = new AtomicLong();
     JobStateFlusher flusher = new JobStateFlusher(RatchetOptions.defaults(), now::get);
-    HeldKeyReleases holds = new HeldKeyReleases(store, releases);
-    PermitReleases permitReleases = new PermitReleases(permits, releases, null);
-    ClaimReschedules claims = new ClaimReschedules(store, releases, null);
+    HeldKeyReleases holds = new HeldKeyReleases(2, store, releases);
+    PermitReleases permitReleases = new PermitReleases(2, permits, releases, null);
+    ClaimReschedules claims = new ClaimReschedules(2, store, releases, null);
     try {
       liveness.init();
       doAnswer(
@@ -266,7 +266,7 @@ class ReleaseExecutorIsolationTest {
               future,
               provider.getScheduledExecutor(),
               Instant.now(),
-              new OutcomeWriteRetries(releases, null));
+              new OutcomeWriteRetries(2, releases, null));
         }
         assertTrue(timeoutEntered.await(10, TimeUnit.SECONDS));
         if (!sharedScheduler) assertTrue(interrupted.await(10, TimeUnit.SECONDS));

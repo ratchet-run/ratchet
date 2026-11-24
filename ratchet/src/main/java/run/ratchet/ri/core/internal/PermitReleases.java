@@ -41,14 +41,16 @@ final class PermitReleases {
   private final ReleaseRetries retries;
 
   PermitReleases(
+      int parallelism,
       ResourcePermitService permits,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer) {
-    this(permits, scheduler, timer, System::nanoTime);
+    this(parallelism, permits, scheduler, timer, System::nanoTime);
   }
 
   /** Takes the monotonic clock that times the repeated warnings, so tests can move it. */
   PermitReleases(
+      int parallelism,
       ResourcePermitService permits,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
@@ -56,6 +58,7 @@ final class PermitReleases {
     this.permits = permits;
     this.retries =
         new ReleaseRetries(
+            parallelism,
             scheduler,
             timer,
             ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),

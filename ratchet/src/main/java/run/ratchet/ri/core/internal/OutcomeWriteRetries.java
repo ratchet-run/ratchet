@@ -35,17 +35,21 @@ final class OutcomeWriteRetries {
   private final Supplier<ScheduledExecutorService> scheduler;
 
   OutcomeWriteRetries(
-      Supplier<ScheduledExecutorService> scheduler, Supplier<ScheduledExecutorService> timer) {
-    this(scheduler, timer, System::nanoTime);
+      int parallelism,
+      Supplier<ScheduledExecutorService> scheduler,
+      Supplier<ScheduledExecutorService> timer) {
+    this(parallelism, scheduler, timer, System::nanoTime);
   }
 
   OutcomeWriteRetries(
+      int parallelism,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
       LongSupplier nanoTime) {
     this.scheduler = scheduler;
     retries =
         new ReleaseRetries(
+            parallelism,
             scheduler,
             timer,
             ReleaseRetries.Policy.untilReleased(FIRST_RETRY_DELAY, MAX_RETRY_DELAY),

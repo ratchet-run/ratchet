@@ -37,15 +37,20 @@ final class HeldKeyReleases {
   private final JobTerminalStore store;
   private final ReleaseRetries retries;
 
-  HeldKeyReleases(JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler) {
-    this(store, scheduler, System::nanoTime);
+  HeldKeyReleases(
+      int parallelism, JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler) {
+    this(parallelism, store, scheduler, System::nanoTime);
   }
 
   HeldKeyReleases(
-      JobTerminalStore store, Supplier<ScheduledExecutorService> scheduler, LongSupplier clock) {
+      int parallelism,
+      JobTerminalStore store,
+      Supplier<ScheduledExecutorService> scheduler,
+      LongSupplier clock) {
     this.store = store;
     this.retries =
         new ReleaseRetries(
+            parallelism,
             scheduler,
             null,
             ReleaseRetries.Policy.bounded(RETRY_DELAY, MAX_RETRIES),

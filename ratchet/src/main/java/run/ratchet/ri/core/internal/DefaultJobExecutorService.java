@@ -40,6 +40,7 @@ import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.internal.RatchetConfigKeys;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
@@ -285,18 +286,26 @@ public class DefaultJobExecutorService implements JobExecutorService {
       RatchetOptions options) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
+    int parallelism =
+        options == null
+            ? RatchetConfigKeys.WORKER_RELEASE_THREADS.defaultValue()
+            : options.execution().releaseThreads();
     this.outcomeRetries =
         new OutcomeWriteRetries(
+            parallelism,
             () -> executorProvider.getReleaseExecutor(),
             () -> executorProvider.getScheduledExecutor());
-    this.holdReleases = new HeldKeyReleases(jobStore, () -> executorProvider.getReleaseExecutor());
+    this.holdReleases =
+        new HeldKeyReleases(parallelism, jobStore, () -> executorProvider.getReleaseExecutor());
     this.permitReleases =
         new PermitReleases(
+            parallelism,
             resourcePermitService,
             () -> executorProvider.getReleaseExecutor(),
             () -> executorProvider.getScheduledExecutor());
     this.claimReschedules =
         new ClaimReschedules(
+            parallelism,
             jobStore,
             () -> executorProvider.getReleaseExecutor(),
             () -> executorProvider.getScheduledExecutor());

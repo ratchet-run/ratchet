@@ -101,8 +101,10 @@ Set `RATCHET_WORKER_RELEASE_THREADS` to change it through the environment.
 The pool runs release retries, hard-timeout outcome writes and state flushes. Each thread can hold
 a database connection, and the heartbeat writes through the same datasource. Size the connection
 pool for the release threads plus the heartbeat; if release writes hold every connection, the
-heartbeat waits and other nodes may judge this node stale. With one thread, a single
-stuck store call stalls every write on the pool. The retry tick's one-second budget cannot cut
+heartbeat waits and other nodes may judge this node stale. Each kind of release write runs on up
+to this many threads at once, so a store call that hangs holds one thread while the rest of its
+kind continues on the others. With one thread, a single stuck store call stalls every write on
+the pool. The retry tick's one-second budget cannot cut
 short a store call that hangs.
 
 ## Checkpoint flush interval

@@ -59,6 +59,7 @@ class ReleaseSchedulingShutdownTest {
         Capture claims = new Capture(ClaimReschedules.class)) {
       ReleaseRetries retries =
           new ReleaseRetries(
+              2,
               executor,
               null,
               ReleaseRetries.Policy.bounded(Duration.ofSeconds(1), 2),
@@ -77,7 +78,7 @@ class ReleaseSchedulingShutdownTest {
         Thread.interrupted();
       }
       ClaimReschedules reschedules =
-          new ClaimReschedules(mock(JobRetryStore.class), executor, null);
+          new ClaimReschedules(2, mock(JobRetryStore.class), executor, null);
       assertFalse(
           assertDoesNotThrow(
               () ->

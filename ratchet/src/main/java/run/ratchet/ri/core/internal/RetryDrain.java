@@ -97,7 +97,8 @@ final class RetryDrain {
   private final long maxRefusal;
   private final Refusal refusal;
   private Ticket armed;
-  private boolean running;
+  private int running;
+  private final int parallelism;
   private long sequence;
   private long refusalDelay;
   private boolean refusalWarned;
@@ -107,6 +108,7 @@ final class RetryDrain {
   private boolean stoppingLogged;
 
   RetryDrain(
+      int parallelism,
       String kind,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
@@ -114,6 +116,8 @@ final class RetryDrain {
       Duration firstRefusal,
       Duration maxRefusal,
       Refusal refusal) {
+    if (parallelism < 1) throw new IllegalArgumentException("parallelism must be at least 1");
+    this.parallelism = parallelism;
     this.kind = kind;
     this.scheduler = scheduler;
     this.timer = timer;
@@ -136,6 +140,7 @@ final class RetryDrain {
         entry.attempt = attempt.apply(entry);
         pending.put(key, entry);
         enqueue(entry, due);
+        if (pending.size() > 1000) warnBacklog(clock.getAsLong());
         if (arm(dropped, entry)) result = Submission.ACCEPTED;
         else {
           pending.remove(key, entry);
@@ -187,6 +192,7 @@ final class RetryDrain {
       entry.refused = refused;
       entry.retrying = retrying;
       enqueue(entry, due);
+      if (pending.size() > 1000) warnBacklog(clock.getAsLong());
       accepted = arm(dropped, entry);
     }
     // An initial hand-off refusal belongs to the caller, not its dropped callback.
@@ -207,7 +213,7 @@ final class RetryDrain {
   }
 
   private boolean arm(List<Entry> dropped, Entry initial) {
-    if (running || queue.isEmpty()) return true;
+    if (running >= parallelism || queue.isEmpty()) return true;
     ScheduledExecutorService executor = null;
     try {
       // A live timer ticket owns refusal backoff. New hand-offs, including duplicates, must
@@ -305,28 +311,25 @@ final class RetryDrain {
 
   private void tick(Ticket ticket) {
     synchronized (lock) {
-      if (armed != ticket || running) return;
+      if (armed != ticket) return;
       armed = null;
-      running = true;
+      if (running >= parallelism) return;
+      running++;
       long now = clock.getAsLong();
       long lag = queue.isEmpty() ? 0 : Math.max(0, now - queue.peek().due);
-      if ((pending.size() > 1000 || lag > Duration.ofMinutes(1).toNanos())
-          && (!backlogWarned || now - backlogWarnedAt >= ReleaseRetries.WARN_INTERVAL.toNanos())) {
-        log.warnf(
-            "Backlog of %s: %s pending; oldest entry %s seconds past due",
-            kind, pending.size(), TimeUnit.NANOSECONDS.toSeconds(lag));
-        backlogWarned = true;
-        backlogWarnedAt = now;
-      }
+      if (pending.size() > 1000 || lag > Duration.ofMinutes(1).toNanos()) warnBacklog(now);
     }
     long started = clock.getAsLong();
     try {
       for (int processed = 0; processed < MAX_ITEMS; processed++) {
         Entry entry;
+        List<Entry> dropped = new ArrayList<>();
         synchronized (lock) {
           if (queue.isEmpty() || queue.peek().due - clock.getAsLong() > 0) break;
           entry = queue.remove();
+          arm(dropped);
         }
+        notifyDropped(dropped);
         Long next = null;
         try {
           next = entry.attempt.run();
@@ -339,21 +342,35 @@ final class RetryDrain {
           if (owned) notifyDropped(List.of(entry));
           throw failure;
         } finally {
+          List<Entry> requeueDropped = new ArrayList<>();
           synchronized (lock) {
             if (next == null) pending.remove(entry.key, entry);
             else if (pending.get(entry.key) == entry) enqueue(entry, next);
+            arm(requeueDropped);
           }
+          notifyDropped(requeueDropped);
         }
         if (clock.getAsLong() - started >= TICK_NANOS) break;
       }
     } finally {
       List<Entry> dropped = new ArrayList<>();
       synchronized (lock) {
-        running = false;
+        running--;
         arm(dropped);
       }
       notifyDropped(dropped);
     }
+  }
+
+  // Called with lock held, sharing one throttle for queue-time and tick-time warnings.
+  private void warnBacklog(long now) {
+    if (backlogWarned && now - backlogWarnedAt < ReleaseRetries.WARN_INTERVAL.toNanos()) return;
+    long lag = queue.isEmpty() ? 0 : Math.max(0, now - queue.peek().due);
+    log.warnf(
+        "Backlog of %s: %s pending; oldest entry %s seconds past due",
+        kind, pending.size(), TimeUnit.NANOSECONDS.toSeconds(lag));
+    backlogWarned = true;
+    backlogWarnedAt = now;
   }
 
   private void notifyDropped(List<Entry> dropped) {

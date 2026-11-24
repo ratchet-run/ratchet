@@ -755,7 +755,8 @@ class JobTimeoutHandlerTest {
       timers
           .submit(
               () -> {
-                invokeHardTimeout(attempt, future, new OutcomeWriteRetries(() -> releases, null));
+                invokeHardTimeout(
+                    attempt, future, new OutcomeWriteRetries(2, () -> releases, null));
                 return null;
               })
           .get(1, TimeUnit.SECONDS);
@@ -830,7 +831,7 @@ class JobTimeoutHandlerTest {
     logger.setUseParentHandlers(false);
     logger.addHandler(capture);
     try {
-      invokeHardTimeout(attempt, mock(Future.class), new OutcomeWriteRetries(supplier, null));
+      invokeHardTimeout(attempt, mock(Future.class), new OutcomeWriteRetries(2, supplier, null));
       assertEquals(1, records.size());
       assertEquals(Level.INFO.intValue(), records.get(0).getLevel().intValue());
       assertEquals(
@@ -864,6 +865,7 @@ class JobTimeoutHandlerTest {
         attempt,
         mock(Future.class),
         new OutcomeWriteRetries(
+            2,
             () -> {
               throw new IllegalStateException("unavailable");
             },
@@ -1613,7 +1615,7 @@ class JobTimeoutHandlerTest {
         mock(Future.class),
         timers,
         Instant.EPOCH,
-        new OutcomeWriteRetries(() -> releases, null, clock::get));
+        new OutcomeWriteRetries(2, () -> releases, null, clock::get));
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
@@ -1671,7 +1673,7 @@ class JobTimeoutHandlerTest {
         mock(Future.class),
         timers,
         Instant.EPOCH,
-        new OutcomeWriteRetries(() -> releases, null, clock::get));
+        new OutcomeWriteRetries(2, () -> releases, null, clock::get));
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
     tasks.getAllValues().get(1).run();
@@ -1723,7 +1725,7 @@ class JobTimeoutHandlerTest {
         mock(Future.class),
         timers,
         Instant.EPOCH,
-        new OutcomeWriteRetries(() -> releases, null, clock::get));
+        new OutcomeWriteRetries(2, () -> releases, null, clock::get));
     ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
     verify(timers, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
 

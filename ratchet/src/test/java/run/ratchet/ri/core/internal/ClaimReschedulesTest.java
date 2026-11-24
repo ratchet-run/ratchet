@@ -66,8 +66,8 @@ class ClaimReschedulesTest {
   private final ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
   private final AtomicLong clock = new AtomicLong();
   private final ArrayDeque<Runnable> tasks = new ArrayDeque<>();
-  private final ClaimReschedules reschedules =
-      new ClaimReschedules(store, () -> scheduler, null, clock::get);
+  private ClaimReschedules reschedules =
+      new ClaimReschedules(2, store, () -> scheduler, null, clock::get);
 
   @BeforeEach
   void captureTasks() {
@@ -158,7 +158,7 @@ class ClaimReschedulesTest {
         .when(releaseScheduler)
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     ClaimReschedules competing =
-        new ClaimReschedules(store, () -> releaseScheduler, null, handoffClock);
+        new ClaimReschedules(1, store, () -> releaseScheduler, null, handoffClock);
     owner.set(competing);
     when(store.releaseClaim(eq(JOB), any(), eq(TIME), anyInt(), eq(7L))).thenReturn(true);
     boolean firstResult =
@@ -214,9 +214,23 @@ class ClaimReschedulesTest {
     verifyNoMoreInteractions(terminal);
     verifyNoInteractions(unexpected, dropped);
     assertTrue(tasks.isEmpty());
-    assertTrue(handOff(8, () -> {}));
+    Runnable resumed = mock(Runnable.class);
+    assertTrue(
+        reschedules.handOff(
+            JOB,
+            7,
+            "release",
+            TIME,
+            2,
+            () -> false,
+            accepted ? resumed : unexpected,
+            accepted ? unexpected : resumed,
+            dropped));
     drainAt(2);
-    verifyNoInteractions(dropped);
+    verify(store, times(2)).releaseClaim(JOB, "release", TIME, 2, 7L);
+    verify(resumed).run();
+    verifyNoMoreInteractions(resumed, terminal);
+    verifyNoInteractions(dropped, unexpected);
   }
 
   @Test
@@ -263,6 +277,7 @@ class ClaimReschedulesTest {
 
   @Test
   void drainYieldsAfterTimeBudget() {
+    reschedules = new ClaimReschedules(1, store, () -> scheduler, null, clock::get);
     when(store.releaseClaim(eq(JOB), any(), any(), anyInt(), anyLong()))
         .thenAnswer(
             invocation -> {
@@ -280,6 +295,7 @@ class ClaimReschedulesTest {
 
   @Test
   void wrappedTransientFailureRetriesThenAcceptsOnce() {
+    reschedules = new ClaimReschedules(1, store, () -> scheduler, null, clock::get);
     Runnable accepted = mock(Runnable.class);
     Runnable rejected = mock(Runnable.class);
     Runnable dropped = mock(Runnable.class);
@@ -404,6 +420,7 @@ class ClaimReschedulesTest {
 
   @Test
   void throwingAcceptedCallbackDoesNotDropEntryAndDrainRearms() {
+    reschedules = new ClaimReschedules(1, store, () -> scheduler, null, clock::get);
     Runnable accepted = mock(Runnable.class);
     Runnable dropped = mock(Runnable.class);
     doThrow(new IllegalStateException("callback failed")).when(accepted).run();
@@ -493,6 +510,7 @@ class ClaimReschedulesTest {
 
   @Test
   void differentClaimOfSameJobIsSeparate() {
+    reschedules = new ClaimReschedules(1, store, () -> scheduler, null, clock::get);
     handOff(7, () -> {});
     handOff(8, () -> {});
     drainAt(1);
@@ -548,6 +566,7 @@ class ClaimReschedulesTest {
 
   @Test
   void throwingCallbackDoesNotStopOtherItems() {
+    reschedules = new ClaimReschedules(1, store, () -> scheduler, null, clock::get);
     Runnable callback = mock(Runnable.class);
     doThrow(new IllegalStateException("callback failed")).when(callback).run();
     handOff(7, callback);
@@ -570,6 +589,7 @@ class ClaimReschedulesTest {
 
   @Test
   void eachDrainProcessesAtMostOneHundredItems() {
+    reschedules = new ClaimReschedules(1, store, () -> scheduler, null, clock::get);
     for (int i = 0; i < 101; i++) handOff(i, () -> {});
     drainAt(1);
     verify(store, times(100)).releaseClaim(eq(JOB), eq("release"), eq(TIME), eq(2), anyLong());
@@ -595,10 +615,11 @@ class ClaimReschedulesTest {
   @Test
   void missingOrThrowingSchedulerRefusesHandoff() {
     assertFalse(
-        new ClaimReschedules(store, () -> null, null)
+        new ClaimReschedules(2, store, () -> null, null)
             .handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}, () -> {}, () -> {}));
     assertFalse(
         new ClaimReschedules(
+                2,
                 store,
                 () -> {
                   throw new IllegalStateException("missing");
@@ -651,7 +672,7 @@ class ClaimReschedulesTest {
         .when(scheduler)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
     ClaimReschedules retrying =
-        new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
+        new ClaimReschedules(2, store, () -> scheduler, () -> timer, clock::get);
     assertTrue(
         retrying.handOff(JOB, 7, "release", TIME, 2, () -> false, () -> {}, () -> {}, () -> {}));
     assertTrue(
@@ -688,7 +709,7 @@ class ClaimReschedulesTest {
         .when(timer)
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     ClaimReschedules retrying =
-        new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
+        new ClaimReschedules(2, store, () -> scheduler, () -> timer, clock::get);
     when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
         .thenThrow(new RatchetTransientStoreException("down"))
         .thenReturn(true);
@@ -714,7 +735,7 @@ class ClaimReschedulesTest {
         .when(timer)
         .schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
     ClaimReschedules retrying =
-        new ClaimReschedules(store, () -> scheduler, () -> timer, clock::get);
+        new ClaimReschedules(2, store, () -> scheduler, () -> timer, clock::get);
     AtomicBoolean droppedUnderLock = new AtomicBoolean(true);
     when(store.releaseClaim(JOB, "release", TIME, 2, 7L))
         .thenThrow(new RatchetTransientStoreException("down"));

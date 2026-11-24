@@ -61,7 +61,7 @@ class ReleaseRetriesTest {
             })
         .when(executor)
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
-    OutcomeWriteRetries outcomes = new OutcomeWriteRetries(() -> executor, null, () -> 0);
+    OutcomeWriteRetries outcomes = new OutcomeWriteRetries(2, () -> executor, null, () -> 0);
     Runnable write = mock(Runnable.class);
     try {
       Thread.currentThread().interrupt();
@@ -95,6 +95,7 @@ class ReleaseRetriesTest {
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.NANOSECONDS));
     ReleaseRetries retries =
         new ReleaseRetries(
+            2,
             () -> executor,
             null,
             Policy.bounded(Duration.ofSeconds(1), 1),
@@ -197,6 +198,7 @@ class ReleaseRetriesTest {
     Runnable write = mock(Runnable.class);
     ReleaseRetries retries =
         new ReleaseRetries(
+            2,
             () -> releases,
             () -> timer,
             Policy.untilReleased(Duration.ofSeconds(5), Duration.ofMinutes(1)),
@@ -254,6 +256,7 @@ class ReleaseRetriesTest {
     AtomicLong clock = new AtomicLong();
     ReleaseRetries retries =
         new ReleaseRetries(
+            2,
             () -> releases,
             () -> timer,
             Policy.untilReleased(Duration.ofSeconds(5), Duration.ofMinutes(1)),
@@ -363,6 +366,7 @@ class ReleaseRetriesTest {
     Runnable write = mock(Runnable.class);
     ReleaseRetries retries =
         new ReleaseRetries(
+            2,
             () -> releases,
             () -> timer,
             policy,

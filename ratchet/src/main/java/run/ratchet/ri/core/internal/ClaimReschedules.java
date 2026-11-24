@@ -54,13 +54,15 @@ class ClaimReschedules {
   private final RetryDrain drain;
 
   ClaimReschedules(
+      int parallelism,
       JobRetryStore store,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer) {
-    this(store, scheduler, timer, System::nanoTime);
+    this(parallelism, store, scheduler, timer, System::nanoTime);
   }
 
   ClaimReschedules(
+      int parallelism,
       JobRetryStore store,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
@@ -69,6 +71,7 @@ class ClaimReschedules {
     this.clock = clock;
     drain =
         new RetryDrain(
+            parallelism,
             "claim reschedules",
             scheduler,
             timer,

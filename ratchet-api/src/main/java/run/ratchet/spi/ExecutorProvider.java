@@ -96,6 +96,10 @@ public interface ExecutorProvider {
    * two different executors share the same threads. The provider owns this executor and is
    * responsible for disposing it during application shutdown; callers must not shut it down.
    *
+   * <p>Ratchet runs up to {@code ratchet.worker.release-threads} retry tasks for each kind of
+   * release write at once, so a store call that blocks one task does not hold up the rest of that
+   * kind. A custom executor needs at least that many threads for this to hold.
+   *
    * @return release executor; never {@code null}
    */
   ScheduledExecutorService getReleaseExecutor();

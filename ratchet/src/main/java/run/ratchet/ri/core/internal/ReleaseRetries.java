@@ -92,6 +92,7 @@ final class ReleaseRetries {
   private final RetryDrain drain;
 
   ReleaseRetries(
+      int parallelism,
       Supplier<ScheduledExecutorService> scheduler,
       Supplier<ScheduledExecutorService> timer,
       Policy policy,
@@ -103,6 +104,7 @@ final class ReleaseRetries {
     this.nanoTime = nanoTime;
     drain =
         new RetryDrain(
+            parallelism,
             kind,
             scheduler,
             policy.maxRetries().isEmpty() ? timer : null,

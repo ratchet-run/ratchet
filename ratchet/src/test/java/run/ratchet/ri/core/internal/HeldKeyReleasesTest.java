@@ -52,8 +52,10 @@ class HeldKeyReleasesTest {
 
   private final AtomicLong clock = new AtomicLong();
 
+  private int parallelism = 2;
+
   private HeldKeyReleases releases() {
-    return new HeldKeyReleases(store, () -> scheduler, clock::get);
+    return new HeldKeyReleases(parallelism, store, () -> scheduler, clock::get);
   }
 
   @Test
@@ -155,6 +157,7 @@ class HeldKeyReleasesTest {
 
   @Test
   void retry_keepsRetryingUntilTheStoreAnswers() {
+    parallelism = 1;
     // Each failure retries, while a false store answer ends retrying.
     try {
       when(store.releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ))
@@ -173,6 +176,7 @@ class HeldKeyReleasesTest {
 
   @Test
   void retry_givesUpAfterMaxRetries() {
+    parallelism = 1;
     // Persistent failure stops after the inline attempt and the retry limit.
     try {
       when(store.releaseBusinessKeyHold(JOB_ID, CLAIM_SEQ))

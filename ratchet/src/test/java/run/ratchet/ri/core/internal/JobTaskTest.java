@@ -174,7 +174,7 @@ class JobTaskTest {
   private final ScheduledExecutorService outcomeScheduler = mock(ScheduledExecutorService.class);
   private final AtomicLong outcomeClock = new AtomicLong();
   private final OutcomeWriteRetries outcomeRetries =
-      new OutcomeWriteRetries(() -> outcomeScheduler, null, outcomeClock::get);
+      new OutcomeWriteRetries(2, () -> outcomeScheduler, null, outcomeClock::get);
   private final List<Runnable> outcomePending = new ArrayList<>();
   private final List<Long> outcomeDelays = new ArrayList<>();
 
@@ -248,9 +248,9 @@ class JobTaskTest {
             checkpointRegistrar,
             jobStateFlusher,
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
             new PermitReleases(
-                resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             FIXED_CLOCK,
@@ -4242,9 +4242,13 @@ class JobTaskTest {
                 mock(AfterCommitRegistrar.class),
                 mock(JobStateFlusher.class),
                 null,
-                new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+                new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
                 new PermitReleases(
-                    resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+                    2,
+                    resourcePermitService,
+                    () -> permitReleaseScheduler,
+                    null,
+                    outcomeClock::get),
                 claimReschedules,
                 outcomeRetries,
                 null,
@@ -4300,9 +4304,9 @@ class JobTaskTest {
             checkpointRegistrar,
             jobStateFlusher,
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
             new PermitReleases(
-                resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -5559,9 +5563,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
             new PermitReleases(
-                resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             FIXED_CLOCK,
@@ -5624,9 +5628,9 @@ class JobTaskTest {
         registrar,
         flusher,
         null,
-        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+        new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
         new PermitReleases(
-            resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+            2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
         claimReschedules,
         outcomeRetries,
         FIXED_CLOCK,
@@ -7866,9 +7870,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
             new PermitReleases(
-                resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -7972,9 +7976,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
             new PermitReleases(
-                resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -8090,9 +8094,9 @@ class JobTaskTest {
             mock(AfterCommitRegistrar.class),
             mock(JobStateFlusher.class),
             null,
-            new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+            new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
             new PermitReleases(
-                resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+                2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
             claimReschedules,
             outcomeRetries,
             Clock.systemUTC(),
@@ -8223,9 +8227,9 @@ class JobTaskTest {
         checkpointRegistrar,
         jobStateFlusher,
         timeoutHandler,
-        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+        new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
         new PermitReleases(
-            resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+            2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
         claimReschedules,
         outcomeRetries,
         FIXED_CLOCK,
@@ -8256,9 +8260,9 @@ class JobTaskTest {
         mock(AfterCommitRegistrar.class),
         mock(JobStateFlusher.class),
         null,
-        new HeldKeyReleases(jobStore, () -> holdReleaseScheduler),
+        new HeldKeyReleases(2, jobStore, () -> holdReleaseScheduler),
         new PermitReleases(
-            resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
+            2, resourcePermitService, () -> permitReleaseScheduler, null, outcomeClock::get),
         claimReschedules,
         outcomeRetries,
         taskClock,
