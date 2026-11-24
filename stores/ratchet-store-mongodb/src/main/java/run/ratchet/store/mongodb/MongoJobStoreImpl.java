@@ -866,6 +866,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public PermitSweepPage sweepUnownedPermits(@Nullable UUID after, int limit) {
+    return auxiliary.sweepUnownedPermits(after, limit);
+  }
+
+  @Override
   public int deleteStaleWaiters(int limit) {
     return auxiliary.deleteStaleWaiters(limit);
   }

@@ -53,11 +53,13 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   private final ResourcePermitStore resourcePermitStore;
   // Bound background work so a large waiter population cannot monopolize a scan.
   static final int SWEEP_RESOURCE_LIMIT = 64;
+  private static final int PERMIT_SWEEP_LIMIT = 256;
   static final int STALE_DELETE_LIMIT = 500;
 
   private final JobWakeupService jobWakeupService;
   private final AfterCommitRegistrar afterCommitRegistrar;
   // Advance across sweeps so persistent waiters cannot starve later resource names.
+  private UUID permitSweepCursor;
   private volatile String waiterSweepCursor;
 
   protected DefaultResourcePermitService() {
@@ -168,6 +170,14 @@ public class DefaultResourcePermitService implements ResourcePermitService {
       log.warnf(
           e, "Could not wake waiters for resource %s; the periodic sweep will retry", resource);
     }
+  }
+
+  @Override
+  public void sweepUnownedPermits() {
+    if (resourcePermitStore == null) return;
+    var page = resourcePermitStore.sweepUnownedPermits(permitSweepCursor, PERMIT_SWEEP_LIMIT);
+    permitSweepCursor = page.nextCursor();
+    page.freedResources().forEach(this::wake);
   }
 
   @Override

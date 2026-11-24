@@ -306,6 +306,11 @@ public class OrphanRecoveryTimer {
       recoverOrphans(cutoff, deadline);
     } finally {
       try {
+        resourcePermitService.sweepUnownedPermits();
+      } catch (RuntimeException e) {
+        log.warn("Unowned resource permit sweep failed; the next scan will retry", e);
+      }
+      try {
         resourcePermitService.sweepWaiters();
       } catch (RuntimeException e) {
         log.warn("Resource waiter sweep failed; the next scan will retry", e);

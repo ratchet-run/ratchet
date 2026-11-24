@@ -68,6 +68,25 @@ public interface ResourcePermitStore {
    */
   int deleteStaleWaiters(int limit);
 
+  /** Resources freed by one permit scan page and the cursor for the next page. */
+  record PermitSweepPage(@Nullable UUID nextCursor, List<String> freedResources) {
+    public PermitSweepPage {
+      freedResources = List.copyOf(freedResources);
+    }
+  }
+
+  /**
+   * Examines at most {@code limit} permits after the store's opaque cursor, or from the beginning
+   * when the cursor is null. Deletes permits whose job has no current RUNNING claim with that
+   * permit's identity. Returns only resources for which a permit was deleted and a null cursor at
+   * the end of the scan. Wake waiters after this transaction commits.
+   *
+   * <p>Transaction attribute: {@code REQUIRES_NEW}.
+   */
+  default PermitSweepPage sweepUnownedPermits(@Nullable UUID after, int limit) {
+    return new PermitSweepPage(null, List.of());
+  }
+
   /** Outcome of {@link #tryAcquirePermit(String, UUID, long, String)}. */
   enum AcquireResult {
     /** The claim holds the permit. */

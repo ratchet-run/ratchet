@@ -101,6 +101,7 @@ import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
+import run.ratchet.store.spi.ResourcePermitStore.PermitSweepPage;
 import run.ratchet.store.spi.ResourcePermitStore.WokenWaiter;
 import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.store.util.WorkflowConditionOrdering;
@@ -676,6 +677,56 @@ final class MongoAuxiliaryOperations {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("configure resource", e);
     }
+  }
+
+  PermitSweepPage sweepUnownedPermits(@Nullable UUID after, int limit) {
+    if (limit < 1) throw new IllegalArgumentException("limit must be positive");
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> sweepUnownedPermitPage(session, after, limit), TRANSACTION_OPTIONS);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("sweep unowned resource permits", e);
+    }
+  }
+
+  private PermitSweepPage sweepUnownedPermitPage(ClientSession session, UUID after, int limit) {
+    List<Document> permits =
+        (after == null
+                ? ctx.resourcePermits().find(session)
+                : ctx.resourcePermits().find(session, gt(ID, after)))
+            .sort(ascending(ID))
+            .limit(limit)
+            .into(new ArrayList<>());
+    if (permits.isEmpty()) return new PermitSweepPage(null, List.of());
+
+    List<Object> jobIds = permits.stream().map(doc -> doc.get(JOB_ID)).toList();
+    Map<Object, Long> runningClaims = new HashMap<>();
+    ctx.jobs()
+        .find(session, and(in(ID, jobIds), eq(STATUS, "RUNNING")))
+        .forEach(
+            doc -> {
+              Number claim = doc.get(CLAIM_SEQ, Number.class);
+              runningClaims.put(doc.get(ID), claim == null ? 0L : claim.longValue());
+            });
+    List<UUID> stale = new ArrayList<>();
+    Map<String, Integer> freed = new HashMap<>();
+    for (Document permit : permits) {
+      UUID permitId = permit.get(ID, UUID.class);
+      UUID jobId = permit.get(JOB_ID, UUID.class);
+      String resource = permit.getString(RESOURCE_NAME);
+      Long claim = runningClaims.get(jobId);
+      if (claim != null && permitId.equals(ResourcePermitEntity.idFor(resource, jobId, claim))) {
+        continue;
+      }
+      stale.add(permitId);
+      freed.merge(resource, 1, Integer::sum);
+    }
+    if (!stale.isEmpty()) {
+      ctx.resourcePermits().deleteMany(session, in(ID, stale));
+      decrementResourceCounts(session, freed);
+    }
+    UUID next = permits.size() < limit ? null : permits.get(permits.size() - 1).get(ID, UUID.class);
+    return new PermitSweepPage(next, List.copyOf(freed.keySet()));
   }
 
   int cleanupOrphanedPermits(List<String> staleNodeIds) {

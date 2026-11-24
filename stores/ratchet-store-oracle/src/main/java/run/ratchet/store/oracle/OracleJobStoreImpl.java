@@ -905,6 +905,12 @@ class OracleJobStoreImpl implements OracleJobStore {
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public PermitSweepPage sweepUnownedPermits(@Nullable UUID after, int limit) {
+    return auxiliary.sweepUnownedPermits(after, limit);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public int deleteStaleWaiters(int limit) {
     return auxiliary.deleteStaleWaiters(limit);
   }
