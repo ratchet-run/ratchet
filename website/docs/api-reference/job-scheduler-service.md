@@ -488,7 +488,7 @@ scheduler.setResourceLimit(
 Optional<ResourceLimit> findResourceLimit(String resourceName)
 ```
 
-Returns the limit stored for the name, or empty. A null or blank name returns empty. The name is trimmed. A name that no limit can have (over 100 characters, or not printable ASCII) throws `IllegalArgumentException`. Returns empty on a store without the `ResourcePermitStore` capability. MySQL ignores case and accents when matching names. PostgreSQL, Oracle, MongoDB and SQL Server compare names exactly.
+Returns the limit stored for the name, or empty. A null or blank name returns empty. The name is trimmed. A name that no limit can have (over 100 characters, or not printable ASCII) throws `IllegalArgumentException`. Returns empty on a store without the `ResourcePermitStore` capability. All stores compare names with case-sensitive matching.
 
 Transaction attribute: SUPPORTS.
 

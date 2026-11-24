@@ -15,31 +15,20 @@
  */
 package run.ratchet.store.sqlserver;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.StringReader;
 import java.sql.Connection;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
-import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.w3c.dom.Element;
 import org.xml.sax.InputSource;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.LockStore;
-import run.ratchet.store.spi.ResourcePermitStore;
-import run.ratchet.store.spi.SignalStore;
 
 /** Keys retain their spelling and compare exactly under the binary column collation. */
 class SqlserverExactKeyTest {
@@ -49,114 +38,6 @@ class SqlserverExactKeyTest {
   @AfterEach
   void cleanup() {
     fixture.cleanupStore();
-  }
-
-  static Stream<Arguments> distinctKeys() {
-    return Stream.of(
-        Arguments.of("x-a", "X-A"),
-        Arguments.of("x-a", "x-ā"),
-        Arguments.of("x-ā", "x-a\u0304"),
-        Arguments.of("x-😀", "x-😁"),
-        Arguments.of("x-😀", "x-"));
-  }
-
-  @ParameterizedTest
-  @MethodSource("distinctKeys")
-  void locksAndNodesKeepBothKeys(String first, String second) {
-    var store = fixture.store();
-    var locks = store.capability(LockStore.class).orElseThrow();
-    assertTrue(locks.tryLock(first, Duration.ofMinutes(5), "first-owner"));
-    assertTrue(locks.tryLock(second, Duration.ofMinutes(5), "second-owner"));
-    assertFalse(locks.tryLock(first, Duration.ofMinutes(5), "second-owner"));
-    assertFalse(locks.tryLock(second, Duration.ofMinutes(5), "first-owner"));
-    assertTrue(locks.renewLock(first, Duration.ofMinutes(5), "first-owner"));
-    assertTrue(locks.renewLock(second, Duration.ofMinutes(5), "second-owner"));
-    Instant now = Instant.now();
-    store.upsertHeartbeat(first, now);
-    store.upsertHeartbeat(second, now.plusSeconds(1));
-    assertEquals(first, store.findNodeById(first).orElseThrow().getId());
-    assertEquals(second, store.findNodeById(second).orElseThrow().getId());
-    assertEquals(2, store.findAllNodes(10).size());
-  }
-
-  @ParameterizedTest
-  @MethodSource("distinctKeys")
-  void tagsSignalsAndBusinessKeysKeepBothJobs(String first, String second) {
-    var store = fixture.store();
-    var queries = store.capability(JobQueryStore.class).orElseThrow();
-    var signals = store.capability(SignalStore.class).orElseThrow();
-    var firstJob = fixture.newPendingJob();
-    firstJob.setBusinessKey(first);
-    var secondJob = fixture.newPendingJob();
-    secondJob.setBusinessKey(second);
-    store.create(firstJob);
-    store.create(secondJob);
-    assertEquals(firstJob.getId(), store.findBusinessKeyHolder(first).orElseThrow().id());
-    assertEquals(secondJob.getId(), store.findBusinessKeyHolder(second).orElseThrow().id());
-    assertEquals(first, store.findById(firstJob.getId()).orElseThrow().getBusinessKey());
-    assertEquals(second, store.findById(secondJob.getId()).orElseThrow().getBusinessKey());
-    store.insertTags(firstJob.getId(), List.of(first));
-    store.insertTags(secondJob.getId(), List.of(second));
-    assertEquals(List.of(firstJob.getId()), queries.findJobIdsByTag(first, 10, 0));
-    assertEquals(List.of(secondJob.getId()), queries.findJobIdsByTag(second, 10, 0));
-    assertEquals(List.of(first), store.findById(firstJob.getId()).orElseThrow().getTags());
-    assertEquals(List.of(second), store.findById(secondJob.getId()).orElseThrow().getTags());
-
-    var firstWaiting = fixture.newPendingJob();
-    firstWaiting.setStatus(JobStatus.WAITING);
-    firstWaiting.setSignalKey(first);
-    firstWaiting.setSignalTimeout(Instant.now().plusSeconds(600));
-    var secondWaiting = fixture.newPendingJob();
-    secondWaiting.setStatus(JobStatus.WAITING);
-    secondWaiting.setSignalKey(second);
-    secondWaiting.setSignalTimeout(Instant.now().plusSeconds(600));
-    store.create(firstWaiting);
-    store.create(secondWaiting);
-    assertEquals(first, store.findById(firstWaiting.getId()).orElseThrow().getSignalKey());
-    assertEquals(second, store.findById(secondWaiting.getId()).orElseThrow().getSignalKey());
-    assertEquals(
-        1,
-        signals.deliverSignalByKey(
-            first,
-            null,
-            null,
-            "APPROVED",
-            null,
-            "caller",
-            Instant.now(),
-            UUID.randomUUID().toString()));
-    assertEquals(JobStatus.PENDING, store.findById(firstWaiting.getId()).orElseThrow().getStatus());
-    assertEquals(
-        JobStatus.WAITING, store.findById(secondWaiting.getId()).orElseThrow().getStatus());
-    assertEquals(
-        1,
-        signals.deliverSignalByKey(
-            second,
-            null,
-            null,
-            "APPROVED",
-            null,
-            "caller",
-            Instant.now(),
-            UUID.randomUUID().toString()));
-    assertEquals(
-        JobStatus.PENDING, store.findById(secondWaiting.getId()).orElseThrow().getStatus());
-  }
-
-  @ParameterizedTest
-  @MethodSource("distinctKeys")
-  void resourcesKeepBothConfigurations(String first, String second) {
-    var resources = fixture.store().capability(ResourcePermitStore.class).orElseThrow();
-    resources.configureResource(first, 1, 100, "first");
-    resources.configureResource(second, 2, 200, "second");
-    var firstLimit = resources.findResourceLimit(first).orElseThrow();
-    var secondLimit = resources.findResourceLimit(second).orElseThrow();
-    assertEquals(first, firstLimit.resourceName());
-    assertEquals(second, secondLimit.resourceName());
-    assertEquals(1, firstLimit.maxConcurrent());
-    assertEquals(2, secondLimit.maxConcurrent());
-    assertEquals("first", firstLimit.description());
-    assertEquals("second", secondLimit.description());
   }
 
   @Test

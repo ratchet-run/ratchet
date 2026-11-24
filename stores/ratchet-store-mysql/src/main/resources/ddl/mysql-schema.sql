@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS ratchet_schema_version
 -- 1. Cluster nodes
 CREATE TABLE IF NOT EXISTS scheduler_node
 (
-    node_id      VARCHAR(64) NOT NULL,
+    node_id      VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
     heartbeat_ts DATETIME(6) NOT NULL,
     started_at   DATETIME(6) NOT NULL,
     PRIMARY KEY (node_id),
@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS scheduler_node
 -- 2. Distributed locks
 CREATE TABLE IF NOT EXISTS scheduler_lock
 (
-    lock_name  VARCHAR(128) NOT NULL,
-    owner_node VARCHAR(64)  NOT NULL,
+    lock_name  VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    owner_node VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
     locked_at  DATETIME(6)  NOT NULL,
     expires_at DATETIME(6)  NOT NULL,
     PRIMARY KEY (lock_name),
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS scheduler_lock
 -- 3. Resource concurrency config
 CREATE TABLE IF NOT EXISTS scheduler_resource_limit
 (
-    resource_name  VARCHAR(100) NOT NULL,
+    resource_name  VARCHAR(100) COLLATE utf8mb4_bin NOT NULL,
     max_concurrent INT          NOT NULL,
     retry_delay_ms INT          NOT NULL DEFAULT 5000,
     description    VARCHAR(255) NULL,
@@ -72,9 +72,9 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     payload               JSON                                                              NOT NULL,
     on_success_payload    JSON                                                              NULL,
     on_failure_payload    JSON                                                              NULL,
-    business_key          VARCHAR(255)                                                      NULL,
-    resource_name         VARCHAR(100)                                                      NULL,
-    execution_target      VARCHAR(64)                                                       NULL,
+    business_key          VARCHAR(255) COLLATE utf8mb4_bin NULL,
+    resource_name         VARCHAR(100) COLLATE utf8mb4_bin NULL,
+    execution_target      VARCHAR(64) COLLATE utf8mb4_bin NULL,
     target_class          VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.target'))) STORED,
     method_name           VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.method'))) STORED,
     created_at            DATETIME(6)                                                       NOT NULL,
@@ -109,8 +109,8 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job_archive
     payload               JSON                                  NOT NULL,
     on_success_payload    JSON                                  NULL,
     on_failure_payload    JSON                                  NULL,
-    business_key          VARCHAR(255)                          NULL,
-    execution_target      VARCHAR(64)                           NULL,
+    business_key          VARCHAR(255) COLLATE utf8mb4_bin NULL,
+    execution_target      VARCHAR(64) COLLATE utf8mb4_bin NULL,
     created_at            DATETIME(6)                           NOT NULL,
     caller_principal      VARCHAR(255)                          NULL,
     archived_at           DATETIME(6)                           NOT NULL,
@@ -151,15 +151,15 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     trace_id_extracted    VARCHAR(55) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(trace_context, '$.traceparent'))) STORED NULL,
     target_class          VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.target'))) STORED,
     method_name           VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.method'))) STORED,
-    idempotency_key       VARCHAR(36)                                                                                                         NOT NULL,
+    idempotency_key       VARCHAR(36) COLLATE utf8mb4_bin NOT NULL,
     -- business_key is immutable after enqueue; active-uniqueness owned by
     -- scheduler_business_key_reservation (not a UNIQUE KEY here anymore).
-    business_key          VARCHAR(255)                                                                                                        NULL,
-    resource_name         VARCHAR(100)                                                                                                        NULL,
+    business_key          VARCHAR(255) COLLATE utf8mb4_bin NULL,
+    resource_name         VARCHAR(100) COLLATE utf8mb4_bin NULL,
     -- Immutable routing label: which configured executor pool runs the job. NULL = inherit the
     -- deployment default. Denormalized onto scheduler_job_queue for the claim projection. Reserved
     -- values 'platform'/'virtual' today; stored as a string so future named pools need no migration.
-    execution_target      VARCHAR(64)                                                                                                         NULL,
+    execution_target      VARCHAR(64) COLLATE utf8mb4_bin NULL,
     on_success_payload    JSON                                                                                                                NULL,
     on_failure_payload    JSON                                                                                                                NULL,
     depends_on            BINARY(16)                                                                                                          NULL,
@@ -235,17 +235,17 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority           INT                                                                                                                 NOT NULL DEFAULT 2,
     scheduled_time     DATETIME(6)                                                                                                         NOT NULL,
-    business_key       VARCHAR(255)                                                                                                        NULL,
+    business_key       VARCHAR(255) COLLATE utf8mb4_bin NULL,
     timeout_sec        INT                                                                                                                 NOT NULL DEFAULT 0,
     max_retries        INT                                                                                                                 NOT NULL DEFAULT 0,
     attempts           INT                                                                                                                 NOT NULL DEFAULT 0,
-    picked_by          VARCHAR(64)                                                                                                         NULL,
+    picked_by          VARCHAR(64) COLLATE utf8mb4_bin NULL,
     picked_at          DATETIME(6)                                                                                                         NULL,
     paused_from_status VARCHAR(20)                                                                                                         NULL,
     last_error         MEDIUMTEXT                                                                                                          NULL,
     version            INT                                                                                                                 NOT NULL DEFAULT 0,
     updated_at         DATETIME(6)                                                                                                         NOT NULL,
-    signal_key              VARCHAR(255)                                                                                                   NULL,
+    signal_key              VARCHAR(255) COLLATE utf8mb4_bin NULL,
     signal_timeout          DATETIME(3)                                                                                                    NULL,
     signal_payload          MEDIUMTEXT                                                                                                     NULL,
     signal_payload_type     VARCHAR(16)                                                                                                    NULL,
@@ -255,7 +255,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     signal_delivered_by     VARCHAR(255)                                                                                                   NULL,
     signal_delivery_id      VARCHAR(36)                                                                                                    NULL,
     -- Denormalized from scheduler_job: claim-time routing label read into JobClaimDto.
-    execution_target        VARCHAR(64)                                                                                                    NULL,
+    execution_target        VARCHAR(64) COLLATE utf8mb4_bin NULL,
     PRIMARY KEY (job_id),
     CONSTRAINT chk_queue_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_queue_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','PAUSED')),
@@ -284,12 +284,12 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
 -- race-prone UNION SELECT check.
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
-    business_key VARCHAR(255)                 NOT NULL,
+    business_key VARCHAR(255) COLLATE utf8mb4_bin NOT NULL,
     owner_job_id BINARY(16)                   NOT NULL,
     owner_table  ENUM ('QUEUE','RECURRING')   NOT NULL,
     reserved_at  DATETIME(6)                  NOT NULL,
     held_until     DATETIME(6) NULL,
-    held_by_node   VARCHAR(64) NULL,
+    held_by_node   VARCHAR(64) COLLATE utf8mb4_bin NULL,
     held_claim_seq BIGINT NULL,
     PRIMARY KEY (business_key),
     INDEX idx_bk_owner (owner_job_id),
@@ -306,7 +306,7 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 CREATE TABLE IF NOT EXISTS scheduler_job_tag
 (
     job_id BINARY(16)      NOT NULL,
-    tag    VARCHAR(64)     NOT NULL,
+    tag    VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
     PRIMARY KEY (job_id, tag),
     INDEX idx_job_tag_tag_job (tag, job_id)
     -- No fk_job_tag_job. job_id is polymorphic (executable jobs → scheduler_job, recurring
@@ -363,7 +363,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_execution
     id            BINARY(16)      NOT NULL,
     job_id        BINARY(16)                                       NOT NULL,
     attempt       INT                                              NOT NULL,
-    node_id       VARCHAR(64)                                      NOT NULL,
+    node_id       VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
     started_at    DATETIME(6)                                      NOT NULL,
     ended_at      DATETIME(6)                                      NULL,
     status        ENUM ('RUNNING','SUCCEEDED','FAILED','CANCELED') NOT NULL DEFAULT 'RUNNING',
@@ -411,7 +411,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     timeout_sec             INT                                                                                                                 NOT NULL DEFAULT 0,
     target_class            VARCHAR(255)                                                                                                        NULL,
     method_name             VARCHAR(128)                                                                                                        NULL,
-    business_key            VARCHAR(255)                                                                                                        NULL,
+    business_key            VARCHAR(255) COLLATE utf8mb4_bin NULL,
     cron_expr               VARCHAR(64)                                                                                                         NULL,
     zone_id                 VARCHAR(32)                                                                                                         NULL,
     original_scheduled_time DATETIME(6)                                                                                                         NOT NULL,
@@ -421,7 +421,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     total_execution_time_ms BIGINT                                                                                                              NULL,
     queue_wait_ms           BIGINT                                                                                                              NULL,
     archived_at             DATETIME(6)                                                                                                         NOT NULL,
-    archived_by             VARCHAR(64)                                                                                                         NULL,
+    archived_by             VARCHAR(64) COLLATE utf8mb4_bin NULL,
     archive_reason          VARCHAR(128)                                                                                                        NULL,
     job_result              JSON                                                                                                                NULL,
     result_type             VARCHAR(100)                                                                                                        NULL,
@@ -429,7 +429,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     payload_summary         MEDIUMTEXT                                                                                                          NULL,
     depended_on             BINARY(16)                                                                                                          NULL,
     superseded_by           BINARY(16)                                                                                                          NULL,
-    tags                    VARCHAR(512)                                                                                                        NULL,
+    tags                    VARCHAR(512) COLLATE utf8mb4_bin NULL,
     properties              JSON                                                                                                                NULL,
     extension_state         JSON                                                                                                                NULL,
     PRIMARY KEY (archive_id),
@@ -477,9 +477,9 @@ CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
 CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 (
     id            BINARY(16)      NOT NULL,
-    resource_name VARCHAR(100)    NOT NULL,
+    resource_name VARCHAR(100) COLLATE utf8mb4_bin NOT NULL,
     job_id        BINARY(16)      NOT NULL,
-    node_id       VARCHAR(64)     NOT NULL,
+    node_id       VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
     acquired_at   DATETIME(6)     NOT NULL,
     PRIMARY KEY (id),
     INDEX idx_resource_permit_resource (resource_name),
@@ -523,7 +523,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_extension_state
 
 -- Permanent idempotency tombstones; deliberately independent of retained job history.
 CREATE TABLE IF NOT EXISTS scheduler_idempotency_key (
-    idempotency_key VARCHAR(36) NOT NULL,
+    idempotency_key VARCHAR(36) COLLATE utf8mb4_bin NOT NULL,
     original_job_id BINARY(16) NOT NULL,
     reserved_at DATETIME(6) NOT NULL,
     CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
@@ -535,11 +535,11 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
     event_id BINARY(16) NOT NULL,
     event_type VARCHAR(32) NOT NULL,
     job_id BINARY(16) NOT NULL,
-    business_key VARCHAR(255) NULL,
+    business_key VARCHAR(255) COLLATE utf8mb4_bin NULL,
     recurring_master_id BINARY(16) NULL,
     job_type VARCHAR(32) NULL,
     priority VARCHAR(16) NULL,
-    node_id VARCHAR(64) NULL,
+    node_id VARCHAR(64) COLLATE utf8mb4_bin NULL,
     event_ts DATETIME(6) NOT NULL,
     execution_time_ms BIGINT NULL,
     error_message MEDIUMTEXT NULL,
@@ -551,7 +551,7 @@ CREATE TABLE IF NOT EXISTS scheduler_event_outbox
 
 CREATE TABLE IF NOT EXISTS scheduler_partition_set (
     set_id BINARY(16) NOT NULL,
-    set_key VARCHAR(36) NOT NULL,
+    set_key VARCHAR(36) COLLATE utf8mb4_bin NOT NULL,
     name VARCHAR(255) NOT NULL,
     partition_count INT NOT NULL,
     latest_generation INT NOT NULL,
@@ -585,7 +585,7 @@ CREATE TABLE IF NOT EXISTS scheduler_partition (
 CREATE TABLE IF NOT EXISTS scheduler_resource_waiter
 (
     job_id        BINARY(16) NOT NULL,
-    resource_name VARCHAR(100) NOT NULL,
+    resource_name VARCHAR(100) COLLATE utf8mb4_bin NOT NULL,
     priority      INT NOT NULL,
     wait_since    DATETIME(6) NOT NULL,
     lease_until   DATETIME(6) NOT NULL,

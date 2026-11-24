@@ -265,7 +265,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     assertEquals(
         List.of(
             "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013",
-            "014", "015", "016", "017", "018", "019", "020"),
+            "014", "015", "016", "017", "018", "019", "020", "021"),
         versions(result.applied()));
     assertEquals(List.of("001"), versions(result.skipped()));
     try (Connection c = newJdbcConnection();
@@ -295,12 +295,33 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     assertEquals(
         List.of(
             "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012",
-            "013", "014", "015", "016", "017", "018", "019", "020"),
+            "013", "014", "015", "016", "017", "018", "019", "020", "021"),
         versions(result.applied()));
     assertEquals(List.of(), result.skipped());
     assertExtensionSchemaExists();
     assertMediumtextColumns();
     assertSchemaVersionRowsMatch(migrator.discoverMigrations());
+  }
+
+  @Test
+  void migratedLockNamesUseThePrimaryIndex() throws Exception {
+    resetDatabase();
+    newMigrator().migrate();
+    try (Connection connection = newJdbcConnection();
+        Statement insert = connection.createStatement();
+        PreparedStatement plan =
+            connection.prepareStatement(
+                "EXPLAIN SELECT owner_node FROM scheduler_lock WHERE lock_name = ?")) {
+      insert.executeUpdate(
+          "INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)"
+              + " VALUES ('lock-a', 'node-a', NOW(6), NOW(6)),"
+              + " ('lock-ā', 'node-b', NOW(6), NOW(6))");
+      plan.setString(1, "lock-ā");
+      try (ResultSet rows = plan.executeQuery()) {
+        assertTrue(rows.next());
+        assertEquals("PRIMARY", rows.getString("key"));
+      }
+    }
   }
 
   @Test

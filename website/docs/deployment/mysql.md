@@ -14,6 +14,18 @@ Ratchet on MySQL 8+.
 - `utf8mb4` character set with `utf8mb4_unicode_ci` collation
 - Default `REPEATABLE READ` or `READ COMMITTED` transaction isolation
 
+## Key comparison
+
+Migration V021 changes string-key columns to `utf8mb4_bin`. Keys that differ in case, accents,
+Unicode composition or supplementary characters compare separately. MySQL still ignores trailing
+spaces in equality comparisons. Free text and job property keys retain their original collation.
+
+Stop application writers before upgrading. The migration matches job, recurring job and waiter
+resource names to the spelling of the existing limit. It removes permits with a different spelling
+because their identifier includes the old name. Jobs acquire a fresh permit on their next attempt.
+Check execution targets, node IDs, lock names and signal keys for differences in spelling between
+stored rows, worker configuration and callers before restarting.
+
 ## Schema Setup
 
 ### Apply DDL

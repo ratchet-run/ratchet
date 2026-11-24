@@ -60,6 +60,7 @@ import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.ResourceLimitRules;
 import run.ratchet.api.internal.StringKeyNormalizer;
+import run.ratchet.api.internal.TagNormalizer;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -816,7 +817,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   @Override
   @Transactional
   public int cancelJobsByTag(String tag) {
-    int count = jobBatchStatusStore.cancelJobsByTag(tag);
+    int count = jobBatchStatusStore.cancelJobsByTag(TagNormalizer.normalize(tag));
     if (count > 0) {
       publishBulkCancelledEvent(tag, count);
     }
@@ -837,7 +838,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       // No RecurringJobStore capability: there are no recurring jobs to cancel.
       return 0;
     }
-    int count = recurringJobStore.cancelRecurringJobsByTag(tag);
+    int count = recurringJobStore.cancelRecurringJobsByTag(TagNormalizer.normalize(tag));
     if (count > 0) {
       publishBulkCancelledEvent(tag, count);
     }

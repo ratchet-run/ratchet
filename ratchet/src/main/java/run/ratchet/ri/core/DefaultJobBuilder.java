@@ -43,6 +43,7 @@ import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.api.internal.ResourceLimitRules;
 import run.ratchet.api.internal.StringKeyNormalizer;
+import run.ratchet.api.internal.TagNormalizer;
 
 /** Default {@link JobBuilder} implementation. */
 final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
@@ -256,7 +257,7 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   public JobBuilder withTags(String... tags) {
     for (String tag : tags) {
       if (tag != null && !tag.isBlank()) {
-        this.tags.add(tag.trim().toLowerCase());
+        this.tags.add(TagNormalizer.normalize(tag));
       }
     }
     return this;
