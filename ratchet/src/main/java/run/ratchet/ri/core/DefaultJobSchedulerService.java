@@ -59,6 +59,7 @@ import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.ResourceLimitRules;
+import run.ratchet.api.internal.TagNormalizer;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -793,7 +794,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     if (limit < 1 || limit > 1000) {
       throw new IllegalArgumentException("limit must be between 1 and 1000");
     }
-    int count = jobRetryStore.resetFailedToPending(filter, limit);
+    int count = jobRetryStore.resetFailedToPending(TagNormalizer.normalizeFilter(filter), limit);
     if (count > 0) {
       JobsBulkRetriedEvent event =
           new JobsBulkRetriedEvent(filter, limit, count, effective().instant());
@@ -815,9 +816,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   @Override
   @Transactional
   public int cancelJobsByTag(String tag) {
-    int count = jobBatchStatusStore.cancelJobsByTag(tag);
+    String normalizedTag = TagNormalizer.normalize(tag);
+    int count = jobBatchStatusStore.cancelJobsByTag(normalizedTag);
     if (count > 0) {
-      publishBulkCancelledEvent(tag, count);
+      publishBulkCancelledEvent(normalizedTag, count);
     }
     return count;
   }
@@ -836,9 +838,11 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       // No RecurringJobStore capability: there are no recurring jobs to cancel.
       return 0;
     }
-    int count = recurringJobStore.cancelRecurringJobsByTag(tag);
+    String normalizedTag = TagNormalizer.normalize(tag);
+    int count =
+        recurringJobStore.cancelRecurringJobsByApplicationTag(tag, TagNormalizer::normalize);
     if (count > 0) {
-      publishBulkCancelledEvent(tag, count);
+      publishBulkCancelledEvent(normalizedTag, count);
     }
     return count;
   }

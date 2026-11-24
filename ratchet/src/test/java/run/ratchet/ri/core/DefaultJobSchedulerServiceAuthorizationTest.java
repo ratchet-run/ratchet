@@ -467,7 +467,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
   @Test
   void cancelRecurringJobsByTag_doesNotCheckAuthorization() {
-    when(recurringJobStore.cancelRecurringJobsByTag("tag")).thenReturn(2);
+    when(recurringJobStore.cancelRecurringJobsByApplicationTag(eq("tag"), any())).thenReturn(2);
     service.cancelRecurringJobsByTag("tag");
     verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
   }

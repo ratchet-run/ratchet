@@ -31,9 +31,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
-import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
@@ -153,30 +151,5 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
         .commitRecurringExecutions(
             List.of(new RecurringExecutionPlan(newClaim, List.of(), due.plusSeconds(3600))));
     assertTrue(recurringStore().getRecurring(id).orElseThrow().nextFire().isAfter(Instant.now()));
-  }
-
-  private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
-    return new RecurringJobDefinition(
-        id,
-        cron,
-        "UTC",
-        nextFire,
-        false,
-        null,
-        2,
-        0,
-        BackoffPolicy.NONE,
-        0,
-        0,
-        noopPayload(),
-        null,
-        null,
-        null,
-        null,
-        null,
-        Instant.now(),
-        null,
-        false,
-        RecurringMisfirePolicy.defaults());
   }
 }

@@ -221,17 +221,18 @@ class MysqlResourcePermitLockingTest {
   }
 
   @Test
-  void missingNodeCleanupDeletesMixedCasePermitsUsingStoredLimitKey() {
+  void missingNodeCleanupDeletesPermitsUnderDistinctCaseSensitiveLimits() {
     var ids = seed("missing", "missing");
     var em = emf.createEntityManager();
     try {
       begin(em);
       var store = store(em);
-      store.configureResource("Res", 3, 100, "mixed case");
+      store.configureResource("Res", 1, 100, "upper");
+      store.configureResource("res", 1, 100, "lower");
       assertEquals(
-          AcquireResult.ACQUIRED, store.tryAcquirePermit("res", ids.get(0), 7L, "missing"));
+          AcquireResult.ACQUIRED, store.tryAcquirePermit("Res", ids.get(0), 7L, "missing"));
       assertEquals(
-          AcquireResult.ACQUIRED, store.tryAcquirePermit("RES", ids.get(1), 7L, "missing"));
+          AcquireResult.ACQUIRED, store.tryAcquirePermit("res", ids.get(1), 7L, "missing"));
       em.getTransaction().commit();
       begin(em);
       em.createNativeQuery("UPDATE scheduler_job_queue SET status = 'PENDING'").executeUpdate();
@@ -239,7 +240,7 @@ class MysqlResourcePermitLockingTest {
       assertEquals(
           List.of(),
           em.createNativeQuery(
-                  "SELECT id FROM scheduler_resource_permit WHERE resource_name = 'Res'")
+                  "SELECT id FROM scheduler_resource_permit WHERE resource_name IN ('Res', 'res')")
               .getResultList());
       em.getTransaction().commit();
     } finally {

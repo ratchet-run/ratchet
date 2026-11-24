@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -734,6 +735,31 @@ public abstract class AbstractRecurringJobStoreContract {
     assertTrue(recurringStore().getRecurring(survivor).isPresent());
   }
 
+  @Test
+  void schedulerCancellationMatchesBothRequestedAndNormalizedTags() {
+    UUID legacy = UuidV7Factory.create();
+    UUID canonical = UuidV7Factory.create();
+    UUID both = UuidV7Factory.create();
+    UUID survivor = UuidV7Factory.create();
+    Instant future = Instant.now().plusSeconds(60);
+    for (UUID id : List.of(legacy, canonical, both, survivor)) {
+      recurringStore().createRecurring(definition(id, "0 * * * * ?", future));
+    }
+    tagStore().insertTags(legacy, List.of("OPS"));
+    tagStore().insertTags(canonical, List.of("ops"));
+    tagStore().insertTags(both, List.of("OPS", "ops"));
+    tagStore().insertTags(survivor, List.of("other"));
+
+    assertEquals(
+        3,
+        recurringStore()
+            .cancelRecurringJobsByApplicationTag("OPS", tag -> tag.toLowerCase(Locale.ROOT)));
+    for (UUID id : List.of(legacy, canonical, both)) {
+      assertTrue(recurringStore().findArchivedRecurring(id).isPresent());
+    }
+    assertTrue(recurringStore().getRecurring(survivor).isPresent());
+  }
+
   /**
    * Annotation-orphan cleanup only cancels masters carrying the annotation tag whose business key
    * is absent from the known set and whose creation time is strictly before the node-start cutoff.
@@ -925,7 +951,8 @@ public abstract class AbstractRecurringJobStoreContract {
     return job;
   }
 
-  private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
+  /** Builds a recurring master with the fixture's no-op task. */
+  protected RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
     return definitionWithExecutionTarget(id, cron, nextFire, null);
   }
 
