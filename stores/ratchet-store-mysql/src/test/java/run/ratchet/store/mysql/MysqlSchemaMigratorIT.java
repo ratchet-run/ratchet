@@ -16,6 +16,7 @@
 package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -340,6 +341,11 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
               + ", 'gpu', "
               + jobId
               + ", 'node', NOW())");
+      statement.executeUpdate(
+          "INSERT INTO scheduler_resource_permit (id, resource_name, job_id, node_id, acquired_at)"
+              + " VALUES (UNHEX('10112233445566778899aabbccddeeff'), 'GPU', "
+              + jobId
+              + ", 'node', NOW())");
     }
 
     assertEquals(List.of("021", "022"), versions(migrator.migrate().applied()));
@@ -353,9 +359,10 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
         }
       }
       try (ResultSet rows =
-          statement.executeQuery("SELECT COUNT(*) FROM scheduler_resource_permit")) {
+          statement.executeQuery("SELECT resource_name FROM scheduler_resource_permit")) {
         assertTrue(rows.next());
-        assertEquals(0, rows.getInt(1));
+        assertEquals("GPU", rows.getString(1));
+        assertFalse(rows.next());
       }
     }
     assertEquals(0, migrator.migrate().appliedCount());

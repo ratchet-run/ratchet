@@ -47,8 +47,9 @@ public interface RecurringJobBuilder {
   /**
    * Replaces the recurring job tags.
    *
-   * <p>The builder defensively copies the supplied list. Passing null clears the tags. Duplicate
-   * tags are not significant; backing stores may collapse duplicates when persisting tags.
+   * <p>The builder copies the supplied list, skips blank tags, and trims and lowercases each tag
+   * using the root locale. Passing null clears the tags. Backing stores may collapse duplicate tags
+   * when persisting them.
    *
    * @param tags replacement tags, or null for no tags
    * @throws NullPointerException if {@code tags} contains null elements

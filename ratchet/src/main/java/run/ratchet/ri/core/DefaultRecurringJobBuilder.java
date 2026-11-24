@@ -25,6 +25,7 @@ import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.internal.BusinessKeyNormalizer;
+import run.ratchet.api.internal.TagNormalizer;
 
 /** {@inheritDoc} */
 public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
@@ -60,7 +61,10 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   @Override
   public RecurringJobBuilder withTags(List<String> tags) {
-    this.tags = tags == null ? List.of() : List.copyOf(tags);
+    this.tags =
+        tags == null
+            ? List.of()
+            : tags.stream().filter(tag -> !tag.isBlank()).map(TagNormalizer::normalize).toList();
     return this;
   }
 

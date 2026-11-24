@@ -27,7 +27,9 @@ import java.util.function.BiConsumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 
 /** Unicode storage and exact comparison of string keys. */
 public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreContractFixture {
@@ -142,12 +144,11 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
   }
 
   @Test
-  void locksAndNodesKeepBothKeys() {
-    forDistinctKeys(this::locksAndNodesKeepBothKeys);
+  void locksKeepBothKeys() {
+    forDistinctKeys(this::locksKeepBothKeys);
   }
 
-  private void locksAndNodesKeepBothKeys(String first, String second) {
-    var store = store();
+  private void locksKeepBothKeys(String first, String second) {
     var locks = lockStore();
     assertTrue(locks.tryLock(first, Duration.ofMinutes(5), "first-owner"));
     assertTrue(locks.tryLock(second, Duration.ofMinutes(5), "second-owner"));
@@ -155,6 +156,15 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
     assertFalse(locks.tryLock(second, Duration.ofMinutes(5), "first-owner"));
     assertTrue(locks.renewLock(first, Duration.ofMinutes(5), "first-owner"));
     assertTrue(locks.renewLock(second, Duration.ofMinutes(5), "second-owner"));
+  }
+
+  @Test
+  void nodesKeepBothKeys() {
+    forDistinctKeys(this::nodesKeepBothKeys);
+  }
+
+  private void nodesKeepBothKeys(String first, String second) {
+    var store = store();
     Instant now = Instant.now();
     store.upsertHeartbeat(first, now);
     store.upsertHeartbeat(second, now.plusSeconds(1));
@@ -164,14 +174,12 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
   }
 
   @Test
-  void tagsSignalsAndBusinessKeysKeepBothJobs() {
-    forDistinctKeys(this::tagsSignalsAndBusinessKeysKeepBothJobs);
+  void businessKeysKeepBothJobs() {
+    forDistinctKeys(this::businessKeysKeepBothJobs);
   }
 
-  private void tagsSignalsAndBusinessKeysKeepBothJobs(String first, String second) {
+  private void businessKeysKeepBothJobs(String first, String second) {
     var store = store();
-    var queries = queryStore();
-    var signals = signalStore();
     var firstJob = newPendingJob();
     firstJob.setBusinessKey(first);
     var secondJob = newPendingJob();
@@ -182,13 +190,46 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
     assertEquals(secondJob.getId(), store.findBusinessKeyHolder(second).orElseThrow().id());
     assertEquals(first, store.findById(firstJob.getId()).orElseThrow().getBusinessKey());
     assertEquals(second, store.findById(secondJob.getId()).orElseThrow().getBusinessKey());
+  }
+
+  @Test
+  void tagLookupsKeepBothJobs() {
+    forDistinctKeys(this::tagLookupsKeepBothJobs);
+  }
+
+  private void tagLookupsKeepBothJobs(String first, String second) {
+    var queries = queryStore();
+    var store = store();
+    var firstJob = newPendingJob();
+    var secondJob = newPendingJob();
+    store.create(firstJob);
+    store.create(secondJob);
     store.insertTags(firstJob.getId(), List.of(first));
     store.insertTags(secondJob.getId(), List.of(second));
     assertEquals(List.of(firstJob.getId()), queries.findJobIdsByTag(first, 10, 0));
     assertEquals(List.of(secondJob.getId()), queries.findJobIdsByTag(second, 10, 0));
+    assertEquals(
+        List.of(firstJob.getId()),
+        queries.searchJobs(JobFilter.builder().tags(first).build(), 10, 0).stream()
+            .map(JobEntity::getId)
+            .toList());
+    assertEquals(
+        List.of(secondJob.getId()),
+        queries.searchJobs(JobFilter.builder().tags(second).build(), 10, 0).stream()
+            .map(JobEntity::getId)
+            .toList());
     assertEquals(List.of(first), store.findById(firstJob.getId()).orElseThrow().getTags());
     assertEquals(List.of(second), store.findById(secondJob.getId()).orElseThrow().getTags());
+  }
 
+  @Test
+  void signalDeliveryKeepsBothKeys() {
+    forDistinctKeys(this::signalDeliveryKeepsBothKeys);
+  }
+
+  private void signalDeliveryKeepsBothKeys(String first, String second) {
+    var signals = signalStore();
+    var store = store();
     var firstWaiting = newPendingJob();
     firstWaiting.setStatus(JobStatus.WAITING);
     firstWaiting.setSignalKey(first);
