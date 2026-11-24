@@ -130,10 +130,8 @@ public final class ExecutionTargetFilter {
     if (executionTarget == null) {
       return includeNull;
     }
-    if (exclusion) {
-      return !explicitTargets.contains(executionTarget);
-    }
-    return explicitTargets.contains(executionTarget);
+    boolean namedTarget = explicitTargets.contains(executionTarget.strip());
+    return exclusion ? !namedTarget : namedTarget;
   }
 
   @Override
