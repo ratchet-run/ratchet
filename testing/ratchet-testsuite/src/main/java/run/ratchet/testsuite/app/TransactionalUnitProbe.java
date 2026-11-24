@@ -82,6 +82,10 @@ public class TransactionalUnitProbe {
     int body = attempt.bodies.incrementAndGet();
     attempt.starts.add(ctx.lastCheckpoint());
     try {
+      if (scenario.equals("pressure")) {
+        // The test owns the deadline for setup and releases this latch even when setup fails.
+        attempt.release.await();
+      }
       if (scenario.equals("enclosing")) {
         try {
           probe.runUnitInsideTransaction(key);

@@ -118,22 +118,26 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
     int poolSize = Integer.parseInt(config.get(POOL_SIZE, POOL_SIZE).orElseThrow());
     ThreadFactory threadFactory =
         InitialContext.doLookup(RatchetOptions.defaults().execution().threadFactoryJndi());
+    String key = UUID.randomUUID().toString();
+    Attempt attempt = TransactionalUnitProbe.prepare(key);
+    UUID id =
+        jobs.enqueue(() -> TransactionalUnitProbe.execute(key, "pressure"))
+            .withMaxRetries(0)
+            .submit()
+            .id();
+    expected.put(id, key);
     try (Reservations reservations = new Reservations()) {
       reservations.reserve(
           threadFactory, probe, sessionQuery(TestRuntimeConfig.dbType()), poolSize - 1);
-      String key = UUID.randomUUID().toString();
-      TransactionalUnitProbe.prepare(key);
-      UUID id =
-          jobs.enqueue(() -> TransactionalUnitProbe.execute(key, "pressure"))
-              .withMaxRetries(0)
-              .submit()
-              .id();
-      expected.put(id, key);
+      // Submission can use more than one connection. Only checkpoint work runs under pressure.
+      attempt.release.countDown();
       await()
           .atMost(Duration.ofSeconds(25))
           .untilAsserted(
               () ->
                   assertEquals(JobStatus.SUCCEEDED, store.findById(id).orElseThrow().getStatus()));
+    } finally {
+      attempt.release.countDown();
     }
 
     var states = store.capability(JobStateStore.class).orElseThrow();
