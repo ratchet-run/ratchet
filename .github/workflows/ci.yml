@@ -755,7 +755,7 @@ jobs:
         id: m2
         with:
           path: ${{ runner.temp }}/ratchet-staged-repository
-          key: m2-spring-boot-consumer-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
+          key: m2-spring-boot-consumer-${{ runner.os }}-${{ matrix.boot }}-all-stores-${{ hashFiles('**/pom.xml', 'infra/ci/warm-consumer-cache.sh') }}
           restore-keys: |
             m2-spring-boot-consumer-${{ runner.os }}-${{ matrix.boot }}-
             m2-spring-boot-consumer-${{ runner.os }}-
@@ -788,12 +788,18 @@ jobs:
             -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository" \
             -Dspring-boot.version=${{ matrix.boot }} -Dstore=${{ matrix.store }} \
             -pl "$consumer" -am "${profiles[@]}" verify
+      - name: Warm the cache for every store
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql' && matrix.java == 21 && matrix.provider == 'default'
+        env:
+          CONSUMER_VERSION: ${{ matrix.boot }}
+        run: >-
+          bash infra/ci/warm-consumer-cache.sh spring-boot "$CONSUMER_VERSION"
+          "$RUNNER_TEMP/ratchet-staged-repository" jvm
       - name: Keep Ratchet artifacts out of the saved cache
-        # Save only successful main-push dependencies, never locally installed snapshots.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql' && matrix.java == 21 && matrix.provider == 'default'
         run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql' && matrix.java == 21 && matrix.provider == 'default'
         with:
           path: ${{ runner.temp }}/ratchet-staged-repository
           key: ${{ steps.m2.outputs.cache-primary-key }}
@@ -972,7 +978,7 @@ jobs:
         id: m2
         with:
           path: ${{ runner.temp }}/ratchet-native-repository
-          key: m2-spring-boot-native-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
+          key: m2-spring-boot-native-${{ runner.os }}-${{ matrix.boot }}-all-stores-${{ hashFiles('**/pom.xml', 'infra/ci/warm-consumer-cache.sh') }}
           restore-keys: |
             m2-spring-boot-native-${{ runner.os }}-${{ matrix.boot }}-
             m2-spring-boot-native-${{ runner.os }}-
@@ -1009,12 +1015,18 @@ jobs:
             -Dspring-boot.version=${{ matrix.boot }} -Dstore=${{ matrix.store }} \
             -pl "$consumer" -am -Pnative clean verify \
             -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tee native-build.log
+      - name: Warm the cache for every store
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
+        env:
+          CONSUMER_VERSION: ${{ matrix.boot }}
+        run: >-
+          bash infra/ci/warm-consumer-cache.sh spring-boot "$CONSUMER_VERSION"
+          "$RUNNER_TEMP/ratchet-native-repository" native
       - name: Keep Ratchet artifacts out of the saved cache
-        # Save only successful main-push dependencies, never locally installed snapshots.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
         run: rm -rf "$RUNNER_TEMP/ratchet-native-repository/run/ratchet"
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
         with:
           path: ${{ runner.temp }}/ratchet-native-repository
           key: ${{ steps.m2.outputs.cache-primary-key }}
@@ -1132,7 +1144,7 @@ jobs:
         id: m2
         with:
           path: ${{ runner.temp }}/ratchet-staged-repository
-          key: m2-micronaut-consumer-${{ runner.os }}-${{ matrix.lane }}-${{ hashFiles('**/pom.xml') }}
+          key: m2-micronaut-consumer-${{ runner.os }}-${{ matrix.lane }}-all-stores-${{ hashFiles('**/pom.xml', 'infra/ci/warm-consumer-cache.sh') }}
           restore-keys: |
             m2-micronaut-consumer-${{ runner.os }}-${{ matrix.lane }}-
             m2-micronaut-consumer-${{ runner.os }}-
@@ -1159,12 +1171,18 @@ jobs:
           mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml \
             -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository" \
             -P${{ matrix.lane }} "${selection[@]}" verify
+      - name: Warm the cache for every store
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
+        env:
+          CONSUMER_VERSION: ${{ matrix.lane }}
+        run: >-
+          bash infra/ci/warm-consumer-cache.sh micronaut "$CONSUMER_VERSION"
+          "$RUNNER_TEMP/ratchet-staged-repository" jvm
       - name: Keep Ratchet artifacts out of the saved cache
-        # Save only successful main-push dependencies, never locally installed snapshots.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
         run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
         with:
           path: ${{ runner.temp }}/ratchet-staged-repository
           key: ${{ steps.m2.outputs.cache-primary-key }}
@@ -1201,7 +1219,7 @@ jobs:
         id: m2
         with:
           path: ${{ runner.temp }}/ratchet-micronaut-native-repository
-          key: m2-micronaut-native-${{ runner.os }}-${{ matrix.lane }}-${{ hashFiles('**/pom.xml') }}
+          key: m2-micronaut-native-${{ runner.os }}-${{ matrix.lane }}-all-stores-${{ hashFiles('**/pom.xml', 'infra/ci/warm-consumer-cache.sh') }}
           restore-keys: |
             m2-micronaut-native-${{ runner.os }}-${{ matrix.lane }}-
             m2-micronaut-native-${{ runner.os }}-
@@ -1228,12 +1246,18 @@ jobs:
             -P${{ matrix.lane }},native "${selection[@]}" clean verify \
             -Dgoogle-java-format.version=1.35.0 \
             -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tee micronaut-native-build.log
+      - name: Warm the cache for every store
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
+        env:
+          CONSUMER_VERSION: ${{ matrix.lane }}
+        run: >-
+          bash infra/ci/warm-consumer-cache.sh micronaut "$CONSUMER_VERSION"
+          "$RUNNER_TEMP/ratchet-micronaut-native-repository" native
       - name: Keep Ratchet artifacts out of the saved cache
-        # Save only successful main-push dependencies, never locally installed snapshots.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
         run: rm -rf "$RUNNER_TEMP/ratchet-micronaut-native-repository/run/ratchet"
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.m2.outputs.cache-hit != 'true' && matrix.store == 'postgresql'
         with:
           path: ${{ runner.temp }}/ratchet-micronaut-native-repository
           key: ${{ steps.m2.outputs.cache-primary-key }}
