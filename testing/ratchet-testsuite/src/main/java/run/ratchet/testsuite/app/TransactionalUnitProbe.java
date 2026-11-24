@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -174,6 +175,19 @@ public class TransactionalUnitProbe {
         .setParameter(1, UUID.randomUUID().toString())
         .setParameter(2, key)
         .executeUpdate();
+  }
+
+  @Transactional(TxType.REQUIRES_NEW)
+  public void reserveConnection(
+      String sessionQuery, CompletableFuture<Long> ready, CountDownLatch release)
+      throws InterruptedException {
+    Number session =
+        (Number)
+            entityManagers.getEntityManager().createNativeQuery(sessionQuery).getSingleResult();
+    ready.complete(session.longValue());
+    if (!release.await(90, TimeUnit.SECONDS)) {
+      throw new IllegalStateException("Datasource reservation was not released");
+    }
   }
 
   @Transactional(TxType.REQUIRES_NEW)

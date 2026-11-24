@@ -19,23 +19,28 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import jakarta.inject.Inject;
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import javax.naming.InitialContext;
-import javax.sql.DataSource;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.spi.JobAuditStore;
@@ -52,7 +57,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 /** A transactional unit must finish with one physical connection available. */
 @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
 class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
-  private static final String DATASOURCE_NAME = "ratchet.test.pressure.datasource";
   private static final String POOL_SIZE = "ratchet.test.pressure.pool-size";
 
   @Inject private TestJobService jobs;
@@ -73,10 +77,7 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
         .addStoreInfrastructure()
         .addResource(
             RatchetArchiveBuilder.testRuntimeConfigContent(
-                dbType,
-                Map.of(
-                    DATASOURCE_NAME, datasource.jtaDataSourceName(),
-                    POOL_SIZE, Integer.toString(datasource.maximumPoolSize()))),
+                dbType, Map.of(POOL_SIZE, Integer.toString(datasource.maximumPoolSize()))),
             "ratchet-testsuite.properties")
         .addBeansXml()
         .build();
@@ -125,13 +126,12 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
     expected.put(id, key);
 
     TestRuntimeConfig config = new TestRuntimeConfig();
-    String datasourceName = config.get(DATASOURCE_NAME, DATASOURCE_NAME).orElseThrow();
     int poolSize = Integer.parseInt(config.get(POOL_SIZE, POOL_SIZE).orElseThrow());
-    DataSource datasource = InitialContext.doLookup(datasourceName);
+    ThreadFactory threadFactory =
+        InitialContext.doLookup(RatchetOptions.defaults().execution().threadFactoryJndi());
     try (Reservations reservations = new Reservations()) {
-      for (int i = 1; i < poolSize; i++) {
-        reservations.connections.add(datasource.getConnection());
-      }
+      reservations.reserve(
+          threadFactory, probe, sessionQuery(TestRuntimeConfig.dbType()), poolSize - 1);
       TransactionalUnitProbe.pressureStart.countDown();
       await()
           .atMost(Duration.ofSeconds(25))
@@ -152,21 +152,60 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
         });
   }
 
+  private static String sessionQuery(String dbType) {
+    return switch (dbType) {
+      case "mysql" -> "SELECT CONNECTION_ID()";
+      case "postgresql" -> "SELECT pg_backend_pid()";
+      case "oracle" -> "SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'SID')) FROM dual";
+      case "sqlserver" -> "SELECT CAST(@@SPID AS INT)";
+      default -> throw new IllegalArgumentException("Unsupported SQL store: " + dbType);
+    };
+  }
+
   static final class Reservations implements AutoCloseable {
-    private final List<Connection> connections = new ArrayList<>();
+    private final CountDownLatch release = new CountDownLatch(1);
+    private final List<CompletableFuture<Void>> returned = new ArrayList<>();
+
+    void reserve(
+        ThreadFactory threads, TransactionalUnitProbe probe, String sessionQuery, int count)
+        throws InterruptedException, ExecutionException, TimeoutException {
+      List<CompletableFuture<Long>> started = new ArrayList<>();
+      for (int i = 0; i < count; i++) {
+        var ready = new CompletableFuture<Long>();
+        var closed = new CompletableFuture<Void>();
+        Thread thread =
+            threads.newThread(
+                () -> {
+                  try {
+                    // Use the same enlisted entity manager as a job's transactional unit. A direct
+                    // datasource lookup can have different connection-sharing or authentication
+                    // rules.
+                    probe.reserveConnection(sessionQuery, ready, release);
+                    closed.complete(null);
+                  } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    ready.completeExceptionally(interrupted);
+                    closed.completeExceptionally(interrupted);
+                  } catch (RuntimeException | Error failure) {
+                    ready.completeExceptionally(failure);
+                    closed.completeExceptionally(failure);
+                  }
+                });
+        thread.start();
+        started.add(ready);
+        returned.add(closed);
+      }
+      CompletableFuture.allOf(started.toArray(CompletableFuture[]::new)).get(30, TimeUnit.SECONDS);
+      Set<Long> sessions = new HashSet<>();
+      for (var ready : started) sessions.add(ready.join());
+      assertEquals(
+          count, sessions.size(), "Each reservation must hold a distinct database session");
+    }
 
     @Override
-    public void close() throws SQLException {
-      SQLException failure = null;
-      for (Connection connection : connections) {
-        try {
-          connection.close();
-        } catch (SQLException closeFailure) {
-          if (failure == null) failure = closeFailure;
-          else failure.addSuppressed(closeFailure);
-        }
-      }
-      if (failure != null) throw failure;
+    public void close() throws InterruptedException, ExecutionException, TimeoutException {
+      release.countDown();
+      CompletableFuture.allOf(returned.toArray(CompletableFuture[]::new)).get(30, TimeUnit.SECONDS);
     }
   }
 }
