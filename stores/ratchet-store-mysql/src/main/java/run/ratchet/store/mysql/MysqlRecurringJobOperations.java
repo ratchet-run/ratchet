@@ -27,6 +27,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
+import java.util.stream.Stream;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -293,6 +295,29 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     List<UUID> ids = new ArrayList<>(raw.size());
     for (Object id : raw) {
       ids.add(MysqlJobRowMapper.uuidOrNull(id));
+    }
+    return archiveAndDelete(ids, ArchiveReason.CANCELED);
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public int cancelRecurringJobsByApplicationTag(String tag, UnaryOperator<String> normalize) {
+    String normalized = normalize.apply(tag);
+    if (normalized == null) {
+      return 0;
+    }
+    // Historical recurring tags were written as supplied. The old collation matched mixed case.
+    // Only the application bulk-cancel operation folds them. Raw SPI lookups remain exact.
+    String sql =
+        "SELECT r.id, t.tag FROM scheduler_recurring_job r"
+            + " JOIN scheduler_job_tag t ON t.job_id = r.id";
+    List<UUID> ids;
+    try (Stream<Object[]> rows = ctx.em().createNativeQuery(sql).getResultStream()) {
+      ids =
+          rows.filter(row -> normalized.equals(normalize.apply((String) row[1])))
+              .map(row -> MysqlJobRowMapper.uuidOrNull(row[0]))
+              .distinct()
+              .toList();
     }
     return archiveAndDelete(ids, ArchiveReason.CANCELED);
   }

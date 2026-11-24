@@ -26,6 +26,10 @@ because their identifier includes the old name. Jobs acquire a fresh permit on t
 Check execution targets, node IDs, lock names and signal keys for differences in spelling between
 stored rows, worker configuration and callers before restarting.
 
+The scheduler's recurring cancellation API compares existing tags using the same root-locale
+lowercasing and trimming as new tags. This lets it cancel masters with tags saved before V021.
+Direct store calls use the exact tag supplied by the caller.
+
 ## Schema Setup
 
 ### Apply DDL
