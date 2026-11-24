@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -698,24 +699,24 @@ class OracleJobStoreImpl implements OracleJobStore {
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean tryLock(String name, Duration ttl, String nodeId) {
-    nodeId = StringKeyNormalizer.required(nodeId, "node id");
-    name = StringKeyNormalizer.required(name, "lock name");
+    nodeId = StringKeyNormalizer.required(Objects.requireNonNull(nodeId, "nodeId"), "node id");
+    name = StringKeyNormalizer.required(Objects.requireNonNull(name, "name"), "lock name");
     return nodeLocks.tryLock(name, ttl, nodeId);
   }
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void unlock(String name, String nodeId) {
-    nodeId = StringKeyNormalizer.required(nodeId, "node id");
-    name = StringKeyNormalizer.required(name, "lock name");
+    nodeId = StringKeyNormalizer.required(Objects.requireNonNull(nodeId, "nodeId"), "node id");
+    name = StringKeyNormalizer.required(Objects.requireNonNull(name, "name"), "lock name");
     nodeLocks.unlock(name, nodeId);
   }
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean renewLock(String name, Duration extension, String nodeId) {
-    nodeId = StringKeyNormalizer.required(nodeId, "node id");
-    name = StringKeyNormalizer.required(name, "lock name");
+    nodeId = StringKeyNormalizer.required(Objects.requireNonNull(nodeId, "nodeId"), "node id");
+    name = StringKeyNormalizer.required(Objects.requireNonNull(name, "name"), "lock name");
     return nodeLocks.renewLock(name, extension, nodeId);
   }
 
