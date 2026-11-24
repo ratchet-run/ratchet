@@ -557,7 +557,7 @@ class DefaultJobSchedulerServiceSignalTest {
   void cancelJobsByTagPublishesBulkEventUsingInjectedClock() {
     when(jobBatchStatusStore.cancelJobsByTag("stale")).thenReturn(3);
 
-    assertEquals(3, service.cancelJobsByTag("stale"));
+    assertEquals(3, service.cancelJobsByTag(" STALE "));
 
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher).publish(eventCaptor.capture());

@@ -795,7 +795,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     if (limit < 1 || limit > 1000) {
       throw new IllegalArgumentException("limit must be between 1 and 1000");
     }
-    int count = jobRetryStore.resetFailedToPending(filter, limit);
+    int count = jobRetryStore.resetFailedToPending(TagNormalizer.normalizeFilter(filter), limit);
     if (count > 0) {
       JobsBulkRetriedEvent event =
           new JobsBulkRetriedEvent(filter, limit, count, effective().instant());
@@ -817,9 +817,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   @Override
   @Transactional
   public int cancelJobsByTag(String tag) {
-    int count = jobBatchStatusStore.cancelJobsByTag(TagNormalizer.normalize(tag));
+    String normalizedTag = TagNormalizer.normalize(tag);
+    int count = jobBatchStatusStore.cancelJobsByTag(normalizedTag);
     if (count > 0) {
-      publishBulkCancelledEvent(tag, count);
+      publishBulkCancelledEvent(normalizedTag, count);
     }
     return count;
   }
@@ -838,9 +839,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       // No RecurringJobStore capability: there are no recurring jobs to cancel.
       return 0;
     }
-    int count = recurringJobStore.cancelRecurringJobsByTag(TagNormalizer.normalize(tag));
+    String normalizedTag = TagNormalizer.normalize(tag);
+    int count = recurringJobStore.cancelRecurringJobsByTag(normalizedTag);
     if (count > 0) {
-      publishBulkCancelledEvent(tag, count);
+      publishBulkCancelledEvent(normalizedTag, count);
     }
     return count;
   }

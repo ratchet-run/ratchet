@@ -45,6 +45,7 @@ import run.ratchet.api.PartitionSetSummary;
 import run.ratchet.api.QueueHealthSnapshot;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.api.internal.TagNormalizer;
 import run.ratchet.ri.core.internal.JobProgressWriter;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
@@ -617,7 +618,8 @@ public class DefaultJobQueryService implements JobQueryService {
   }
 
   private JobFilter scopeFilter(JobFilter filter) {
-    JobFilter original = filter != null ? filter : JobFilter.builder().build();
+    JobFilter original =
+        filter != null ? TagNormalizer.normalizeFilter(filter) : JobFilter.builder().build();
     requirePropertyCapability(original);
     if (authPolicy == null) {
       return original;
