@@ -25,6 +25,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.spi.LockStore;
 
 /** Acquires expiring cluster-wide leases for work that must run on at most one node at a time. */
@@ -93,11 +94,14 @@ public class SingletonLeaseService {
   public boolean releaseHeldBy(String leaseName, String nodeId) {
     String normalizedName = requireLeaseName(leaseName);
     Objects.requireNonNull(nodeId, "nodeId must not be null");
-    if (lockStore == null || nodeId.equals(nodeIdentityProvider.getNodeId())) {
+    String owner = StringKeyNormalizer.required(nodeId, "node id");
+    if (lockStore == null
+        || owner.equals(
+            StringKeyNormalizer.optional(nodeIdentityProvider.getNodeId(), "node id"))) {
       return false;
     }
     try {
-      lockStore.unlock(normalizedName, nodeId);
+      lockStore.unlock(normalizedName, owner);
       return true;
     } catch (RuntimeException e) {
       log.warnf(e, "Failed to release singleton lease %s held by node %s", normalizedName, nodeId);
@@ -109,7 +113,7 @@ public class SingletonLeaseService {
     String normalizedName = requireLeaseName(leaseName);
     requirePositiveDuration(ttl, "ttl");
 
-    String nodeId = nodeIdentityProvider.getNodeId();
+    String nodeId = StringKeyNormalizer.optional(nodeIdentityProvider.getNodeId(), "node id");
     if (lockStore == null) {
       // No distributed lock available: grant a perpetually-held no-op lease so leased work (e.g.
       // orphan recovery, which is core) still runs on this node.

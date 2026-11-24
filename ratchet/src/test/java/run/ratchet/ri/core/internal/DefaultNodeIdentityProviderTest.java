@@ -34,10 +34,17 @@ class DefaultNodeIdentityProviderTest {
   @Test
   void explicitIdIsStable() {
     DefaultNodeIdentityProvider provider =
-        new DefaultNodeIdentityProvider(executorProvider, "test-node");
+        new DefaultNodeIdentityProvider(executorProvider, " test-node ");
     assertEquals("test-node", provider.getNodeId());
     assertEquals("test-node", provider.getNodeId());
     verifyNoInteractions(executorProvider);
+  }
+
+  @Test
+  void blankExplicitNodeIdIsRejected() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new DefaultNodeIdentityProvider(executorProvider, " "));
   }
 
   @Test

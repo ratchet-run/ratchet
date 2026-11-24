@@ -80,6 +80,7 @@ import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.entity.JobEntity;
@@ -337,7 +338,7 @@ public class JobTask implements Callable<Void> {
 
     ResilienceTarget target = payloadInvoker.resilienceTarget(jobEntity.getPayload());
     boolean transactional = target.transactional();
-    String nodeId = nodeIdProvider.getNodeId();
+    String nodeId = StringKeyNormalizer.optional(nodeIdProvider.getNodeId(), "node id");
     if (claim != null
         && (jobEntity.getStatus() != JobStatus.RUNNING
             || (jobEntity.getPickedBy() != null && !nodeId.equals(jobEntity.getPickedBy()))
@@ -1881,7 +1882,7 @@ public class JobTask implements Callable<Void> {
     ExecutionObserver observer = observabilityFacade;
     PostExecutionHandler lifecycle = lifecycleFacade;
     LifecycleCallbackInvoker callbacks = callbackInvoker;
-    String node = nodeIdProvider.getNodeId();
+    String node = StringKeyNormalizer.optional(nodeIdProvider.getNodeId(), "node id");
     Thread worker = Thread.currentThread();
     String businessKey = claim != null ? claim.businessKey() : snapshot.getBusinessKey();
     HeldKeyReleases releases = holdReleases;

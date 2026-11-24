@@ -42,6 +42,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JobPriorityConverter;
 import run.ratchet.store.converter.JsonMapColumns;
@@ -475,7 +476,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public void setExecutionTarget(String executionTarget) {
-    this.executionTarget = executionTarget;
+    this.executionTarget = StringKeyNormalizer.optional(executionTarget, "execution target");
   }
 
   public JobPayload getOnSuccessPayload() {
@@ -523,7 +524,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public void setPickedBy(String pickedBy) {
-    this.pickedBy = pickedBy;
+    this.pickedBy = StringKeyNormalizer.optional(pickedBy, "node id");
   }
 
   public Instant getPickedAt() {
@@ -675,7 +676,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public void setSignalKey(String signalKey) {
-    this.signalKey = signalKey;
+    this.signalKey = StringKeyNormalizer.optional(signalKey, "signal key");
   }
 
   public Instant getSignalTimeout() {

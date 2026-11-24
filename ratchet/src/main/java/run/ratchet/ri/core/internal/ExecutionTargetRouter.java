@@ -23,6 +23,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /**
  * Resolves a job's requested execution target to an effective pool name, exactly once, before a
@@ -69,7 +70,7 @@ public class ExecutionTargetRouter {
   public String resolve(String requestedTarget) {
     String requested =
         requestedTarget != null
-            ? requestedTarget
+            ? StringKeyNormalizer.required(requestedTarget, "execution target")
             : executionTuningProvider.defaultThreadingMode().target();
 
     if (poolRegistry.hasPool(requested)) {

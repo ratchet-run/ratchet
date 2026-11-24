@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 
 /**
  * Predicate passed to claim queries to scope returned rows to an effective executor pool.
@@ -74,10 +75,7 @@ public final class ExecutionTargetFilter {
     Objects.requireNonNull(explicitTargets, "explicitTargets");
     LinkedHashSet<String> normalized = new LinkedHashSet<>();
     for (String target : explicitTargets) {
-      if (target == null || target.isBlank()) {
-        throw new IllegalArgumentException("execution target must not be blank");
-      }
-      normalized.add(target);
+      normalized.add(StringKeyNormalizer.required(target, "execution target"));
     }
     return new ExecutionTargetFilter(
         Collections.unmodifiableList(new ArrayList<>(normalized)), includeNull, false, false);
@@ -92,10 +90,7 @@ public final class ExecutionTargetFilter {
     Objects.requireNonNull(excludedTargets, "excludedTargets");
     LinkedHashSet<String> normalized = new LinkedHashSet<>();
     for (String target : excludedTargets) {
-      if (target == null || target.isBlank()) {
-        throw new IllegalArgumentException("execution target must not be blank");
-      }
-      normalized.add(target);
+      normalized.add(StringKeyNormalizer.required(target, "execution target"));
     }
     if (normalized.isEmpty() && includeNull) {
       return any();
@@ -135,10 +130,8 @@ public final class ExecutionTargetFilter {
     if (executionTarget == null) {
       return includeNull;
     }
-    if (exclusion) {
-      return !explicitTargets.contains(executionTarget);
-    }
-    return explicitTargets.contains(executionTarget);
+    boolean namedTarget = explicitTargets.contains(executionTarget.strip());
+    return exclusion ? !namedTarget : namedTarget;
   }
 
   @Override

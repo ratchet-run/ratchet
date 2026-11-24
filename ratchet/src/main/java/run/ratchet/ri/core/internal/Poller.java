@@ -35,6 +35,7 @@ import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.spi.PollingConfig;
 import run.ratchet.spi.PollingDelayStrategy;
 import run.ratchet.spi.PollingStrategyProvider;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobClaimStore;
@@ -320,7 +321,7 @@ public class Poller {
   private List<JobClaimDto> claimJobsByTypeBudget(List<JobClaimDto> claims) {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
-    String nodeId = nodeIdProvider.getNodeId();
+    String nodeId = StringKeyNormalizer.optional(nodeIdProvider.getNodeId(), "node id");
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
       for (ExecutionTargetClaimPlanner.PoolClaimBudget budget : claimPlanner.budgets(jobType)) {
         int claimLimit = computeClaimLimit(budget.availableCapacity());

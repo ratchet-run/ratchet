@@ -57,6 +57,16 @@ module run.ratchet.api {
       run.ratchet.ri,
       run.ratchet.coordinator.common,
       run.ratchet.spring.boot.autoconfigure;
+
+  // Key validation is shared by the RI and the bundled store implementations.
+  exports run.ratchet.spi.internal to
+      run.ratchet.ri,
+      run.ratchet.store.core,
+      run.ratchet.store.mongodb,
+      run.ratchet.store.mysql,
+      run.ratchet.store.oracle,
+      run.ratchet.store.postgresql,
+      run.ratchet.store.sqlserver;
   // run.ratchet.spi is open to all module-path consumers. Every type in this package carries
   // @Incubating, which is the stability contract — method signatures and contracts may change
   // between minor releases without a semver major bump. The qualified allowlist was removed

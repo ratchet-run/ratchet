@@ -16,7 +16,9 @@
 package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 
@@ -59,6 +61,17 @@ class JobClaimSqlSupportTest {
     order.verify(query).setParameter(3, "fast");
     order.verify(query).setParameter(4, "io");
     order.verify(query).setParameter(5, "gpu");
+  }
+
+  @Test
+  void executionTargetFilterMatchesPaddedTargets() {
+    var allowed = ExecutionTargetFilter.matching(List.of(" gpu "), false);
+    var excluded = ExecutionTargetFilter.excluding(List.of(" gpu "), true);
+
+    assertTrue(allowed.matches(" gpu "));
+    assertFalse(allowed.matches(null));
+    assertFalse(excluded.matches(" gpu "));
+    assertTrue(excluded.matches(null));
   }
 
   @Test

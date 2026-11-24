@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -39,6 +40,7 @@ import run.ratchet.api.ResourceLimit;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.BusinessKeyReservationConflictException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.ChildResult;
@@ -404,11 +406,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public OrphanRecovery resetOrphanJobsForNode(String nodeId, int maxCrashRedeliveries, int limit) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, limit);
   }
 
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return claims.claimNextBatch(limit, nodeId, tagFilter);
   }
 
@@ -419,6 +423,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
       String nodeId,
       NodeTagFilter tagFilter,
       ExecutionTargetFilter executionTargetFilter) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return claims.claimNextBatchOptimized(jobType, limit, nodeId, tagFilter, executionTargetFilter);
   }
 
@@ -441,6 +446,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public boolean tryPickUpJob(UUID id, String nodeId) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return lifecycle.tryPickUpJob(id, nodeId);
   }
 
@@ -540,11 +546,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return lifecycle.resetRunningJob(id, nodeId, expectedClaimSeq);
   }
 
   @Override
   public int resetRunningJobs(String nodeId) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return lifecycle.resetRunningJobs(nodeId);
   }
 
@@ -692,29 +700,37 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean tryLock(String name, Duration ttl, String nodeId) {
+    nodeId = StringKeyNormalizer.required(Objects.requireNonNull(nodeId, "nodeId"), "node id");
+    name = StringKeyNormalizer.required(Objects.requireNonNull(name, "name"), "lock name");
     return nodeLocks.tryLock(name, ttl, nodeId);
   }
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void unlock(String name, String nodeId) {
+    nodeId = StringKeyNormalizer.required(Objects.requireNonNull(nodeId, "nodeId"), "node id");
+    name = StringKeyNormalizer.required(Objects.requireNonNull(name, "name"), "lock name");
     nodeLocks.unlock(name, nodeId);
   }
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean renewLock(String name, Duration extension, String nodeId) {
+    nodeId = StringKeyNormalizer.required(Objects.requireNonNull(nodeId, "nodeId"), "node id");
+    name = StringKeyNormalizer.required(Objects.requireNonNull(name, "name"), "lock name");
     return nodeLocks.renewLock(name, extension, nodeId);
   }
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void upsertHeartbeat(String nodeId, Instant ts) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     nodeLocks.upsertHeartbeat(nodeId, ts);
   }
 
   @Override
   public Optional<NodeEntity> findNodeById(String nodeId) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return nodeLocks.findNodeById(nodeId);
   }
 
@@ -737,6 +753,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public int deleteInactiveNodesByIds(Collection<String> nodeIds) {
+    nodeIds = nodeIds.stream().map(id -> StringKeyNormalizer.required(id, "node id")).toList();
     return nodeLocks.deleteInactiveNodesByIds(nodeIds);
   }
 
@@ -890,6 +907,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public AcquireResult tryAcquirePermit(String resource, UUID jobId, long claimSeq, String nodeId) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return auxiliary.tryAcquirePermit(resource, jobId, claimSeq, nodeId);
   }
 
@@ -954,6 +972,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
+    staleNodeIds =
+        staleNodeIds.stream().map(id -> StringKeyNormalizer.required(id, "node id")).toList();
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }
 
@@ -1003,6 +1023,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
       String deliveredBy,
       Instant deliveredAt,
       String deliveryId) {
+    signalKey = StringKeyNormalizer.required(signalKey, "signal key");
     return signals.deliverSignalByKey(
         signalKey,
         payload,
@@ -1070,6 +1091,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   public List<RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
+    nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return recurringJobs.claimDueRecurring(limit, nodeId, tagFilter);
   }
 
@@ -1263,6 +1285,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public int releaseBusinessKeyHolds(List<String> nodeIds) {
+    nodeIds = nodeIds.stream().map(id -> StringKeyNormalizer.required(id, "node id")).toList();
     return jobs.releaseBusinessKeyHolds(nodeIds);
   }
 

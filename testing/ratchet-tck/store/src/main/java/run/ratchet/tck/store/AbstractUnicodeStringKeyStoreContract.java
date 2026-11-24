@@ -17,6 +17,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -29,7 +30,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 /** Unicode storage and exact comparison of string keys. */
 public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreContractFixture {
@@ -37,6 +41,90 @@ public abstract class AbstractUnicodeStringKeyStoreContract implements JobStoreC
   @AfterEach
   void cleanupUnicodeKeys() {
     cleanupStore();
+  }
+
+  @Test
+  void lockNamesAndOwnersUseTheTrimmedKey() {
+    var locks = lockStore();
+    var ttl = Duration.ofMinutes(5);
+    assertTrue(locks.tryLock(" key ", ttl, " owner "));
+    assertFalse(locks.tryLock("key", ttl, "other"));
+    assertTrue(locks.renewLock("key ", ttl, "owner"));
+    locks.unlock("key", "owner ");
+    assertTrue(locks.tryLock("key ", ttl, "other"));
+    assertThrows(IllegalArgumentException.class, () -> locks.tryLock(" ", ttl, "owner"));
+    assertThrows(IllegalArgumentException.class, () -> locks.renewLock("key", ttl, " "));
+    assertThrows(IllegalArgumentException.class, () -> locks.unlock(" ", "other"));
+  }
+
+  @Test
+  void nodeHeartbeatAndLookupUseTheTrimmedKey() {
+    Instant now = Instant.parse("2026-05-12T12:00:00Z");
+    store().upsertHeartbeat(" k ", now);
+    store().upsertHeartbeat("k", now.plusSeconds(1));
+    assertEquals("k", store().findNodeById("k ").orElseThrow().getId());
+    assertEquals(now.plusSeconds(1), store().findNodeById("k").orElseThrow().getLastHeartbeat());
+    assertEquals(1, store().findAllNodes(10).size());
+    assertThrows(IllegalArgumentException.class, () -> store().upsertHeartbeat(" ", now));
+    assertThrows(IllegalArgumentException.class, () -> store().findNodeById(" "));
+  }
+
+  @Test
+  void signalWriteAndDeliveryUseTheTrimmedKey() {
+    var signals = signalStore();
+    var waiting = newPendingJob();
+    waiting.setStatus(JobStatus.WAITING);
+    waiting.setSignalKey(" k ");
+    waiting.setSignalTimeout(Instant.now().plusSeconds(600));
+    var job = persist(waiting);
+    assertEquals("k", store().findById(job.getId()).orElseThrow().getSignalKey());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            signals.deliverSignalByKey(
+                " ",
+                null,
+                null,
+                "APPROVED",
+                null,
+                "caller",
+                Instant.now(),
+                UUID.randomUUID().toString()));
+    assertEquals(
+        1,
+        signals.deliverSignalByKey(
+            "k ",
+            null,
+            null,
+            "APPROVED",
+            null,
+            "caller",
+            Instant.now(),
+            UUID.randomUUID().toString()));
+    assertEquals(JobStatus.PENDING, store().findById(job.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void claimFiltersUseTheTrimmedExecutionTargetAndNodeId() {
+    var job = newPendingJob();
+    assertThrows(IllegalArgumentException.class, () -> job.setExecutionTarget(" "));
+    job.setExecutionTarget(" target ");
+    var saved = persist(job);
+    assertThrows(
+        IllegalArgumentException.class, () -> ExecutionTargetFilter.matching(List.of(" "), false));
+    assertThrows(
+        IllegalArgumentException.class, () -> ExecutionTargetFilter.excluding(List.of(" "), false));
+    var claimed =
+        store()
+            .claimNextBatchOptimized(
+                JobExecutionType.SINGLE,
+                1,
+                " node ",
+                NodeTagFilter.NONE,
+                ExecutionTargetFilter.matching(List.of("target "), false));
+    assertEquals(List.of(saved.getId()), claimed.stream().map(claim -> claim.id()).toList());
+    assertEquals("target", claimed.get(0).executionTarget());
+    assertEquals("node", store().findById(saved.getId()).orElseThrow().getPickedBy());
   }
 
   @Test

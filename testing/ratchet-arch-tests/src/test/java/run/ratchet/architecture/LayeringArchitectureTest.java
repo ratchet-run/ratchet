@@ -99,6 +99,7 @@ public class LayeringArchitectureTest {
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             .importPackages("run.ratchet");
     assertPackageNonEmpty(imported, "run.ratchet.api.internal");
+    assertPackageNonEmpty(imported, "run.ratchet.spi.internal");
     assertPackageNonEmpty(imported, "run.ratchet.ri.core.internal");
     assertPackageNonEmpty(imported, "run.ratchet.ri.cdi.internal");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator.common.internal");
@@ -235,6 +236,16 @@ public class LayeringArchitectureTest {
           .resideInAnyPackage(
               "run.ratchet.api..", RI, SPRING_ADAPTER, "run.ratchet.coordinator.common..")
           .because("coordinator-common shares managed thread factory lookup with the RI");
+
+  @ArchTest
+  static final ArchRule storeInternalsAreSharedWithTheReferenceImplementation =
+      classes()
+          .that()
+          .resideInAPackage("run.ratchet.spi.internal..")
+          .should()
+          .onlyHaveDependentClassesThat()
+          .resideInAnyPackage(API, SPI, RI, STORE_CORE)
+          .because("the API, RI and bundled stores share key validation");
 
   /**
    * RI-internal sub-packages stay inside the RI module except for the Spring adapter, whose named

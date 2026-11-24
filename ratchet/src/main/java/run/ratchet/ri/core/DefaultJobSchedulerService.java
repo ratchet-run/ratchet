@@ -72,6 +72,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.internal.StringKeyNormalizer;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -407,7 +408,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   @Override
   @Transactional
   public int deliverSignal(String signalKey, Serializable payload) {
-    return deliverSignalRaw(signalKey, payload);
+    return deliverSignalRaw(StringKeyNormalizer.required(signalKey, "signal key"), payload);
   }
 
   @Override
@@ -416,7 +417,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     if (decision == null) {
       throw new IllegalArgumentException("decision must not be null");
     }
-    return deliverSignalDecision(signalKey, decision);
+    return deliverSignalDecision(StringKeyNormalizer.required(signalKey, "signal key"), decision);
   }
 
   @Override
