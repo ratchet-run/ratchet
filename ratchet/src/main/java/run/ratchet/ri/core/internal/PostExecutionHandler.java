@@ -104,6 +104,7 @@ public class PostExecutionHandler {
     private final List<Runnable> steps = new ArrayList<>();
     private final List<BatchProgress> batchFollowups = new ArrayList<>();
     private UUID jobId;
+    private JobCompletionPlan pendingWrite;
     private boolean durable;
     private boolean result;
 
@@ -409,8 +410,19 @@ public class PostExecutionHandler {
     JobCompletionPlan plan =
         completionPlan(completed, expectedStatus, null, workflow, expectedAttempts);
     if (durableEnabled) plan = durable.withEvents(plan, events);
+    CompletionContext context = COMPLETION_CONTEXT.get();
+    if (context != null
+        && context.deferSteps
+        && plan.expectedClaimSeq() != null
+        && plan.terminalStatus() != JobStatus.CANCELED) {
+      plan = plan.withCommitToken(UUID.randomUUID());
+      // Record the identity before the store call, which can itself lose its commit reply.
+      context.pendingWrite = plan;
+      context.jobId = plan.jobId();
+    }
     JobCompletionResult result = jobTerminalStore.commitCompletion(plan);
     if (!result.committed()) {
+      if (context != null) context.pendingWrite = null;
       if (expectedStatus == JobStatus.RUNNING && completed.getClaimSeq() != null)
         Logger.getLogger(PostExecutionHandler.class)
             .warnf(
@@ -418,7 +430,6 @@ public class PostExecutionHandler {
                 completed.getId(), completed.getClaimSeq(), completed.getPickedBy());
       return false;
     }
-    CompletionContext context = COMPLETION_CONTEXT.get();
     if (context != null) {
       context.jobId = completed.getId();
       context.durable |= result.durable();
@@ -490,7 +501,8 @@ public class PostExecutionHandler {
               ? completionTransaction.complete(recordedWork)
               : recordedWork.get();
     } catch (RuntimeException failure) {
-      if (!context.durable) throw failure;
+      if (!context.durable && !resolveCommit(context.pendingWrite, failure)) throw failure;
+      context.result = true;
       Logger.getLogger(PostExecutionHandler.class)
           .warnf(
               failure,
@@ -515,6 +527,20 @@ public class PostExecutionHandler {
       runBatchFollowup(progress, context.jobId);
     }
     return context.result;
+  }
+
+  private boolean resolveCommit(@Nullable JobCompletionPlan plan, RuntimeException writeFailure) {
+    if (plan == null) return false;
+    boolean interrupted = Thread.interrupted();
+    try {
+      return jobTerminalStore.wasCompletionCommitted(
+          plan.jobId(), plan.terminalStatus(), plan.expectedClaimSeq(), plan.commitToken());
+    } catch (RuntimeException readFailure) {
+      if (readFailure != writeFailure) writeFailure.addSuppressed(readFailure);
+      return false;
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
+    }
   }
 
   private void runBatchFollowup(BatchProgress progress) {

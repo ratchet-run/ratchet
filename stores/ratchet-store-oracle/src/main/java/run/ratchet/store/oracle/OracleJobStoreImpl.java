@@ -444,6 +444,14 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public boolean wasCompletionCommitted(
+      UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {
+    return SqlJobCompletion.wasCompletionCommitted(
+        em, jobId, status, claimSeq, commitToken, false, UuidRawConverter::toBytes);
+  }
+
+  @Override
   public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     return SqlJobCompletion.commit(
         em,

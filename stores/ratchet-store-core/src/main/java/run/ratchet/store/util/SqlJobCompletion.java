@@ -167,6 +167,12 @@ public final class SqlJobCompletion {
           default -> throw new IllegalArgumentException("Not a terminal status");
         };
     if (!transitioned) throw stale("Terminal transition lost", plan.jobId());
+    if (plan.commitToken() != null) {
+      em.createNativeQuery("UPDATE scheduler_job SET completion_token = ? WHERE job_id = ?")
+          .setParameter(1, uuid.apply(plan.commitToken()))
+          .setParameter(2, uuid.apply(plan.jobId()))
+          .executeUpdate();
+    }
     for (var dependency : plan.dependencies()) {
       if (dependency.status() == JobStatus.CANCELED) {
         if (!store.cancelJob(dependency.jobId()))
@@ -284,6 +290,35 @@ public final class SqlJobCompletion {
           && canceledClaim.longValue() == claimSeq) return TerminalOutcome.CANCELED;
     }
     return TerminalOutcome.SUPERSEDED;
+  }
+
+  /** Waits for the original cold-row write before reading its commit token. */
+  public static boolean wasCompletionCommitted(
+      EntityManager em,
+      UUID jobId,
+      JobStatus status,
+      long claimSeq,
+      UUID commitToken,
+      boolean sqlServer,
+      Function<UUID, Object> uuid) {
+    if (!em.createNativeQuery(lockSql("scheduler_job_queue", "job_id", "job_id", sqlServer))
+        .setParameter(1, uuid.apply(jobId))
+        .getResultList()
+        .isEmpty()) return false;
+    List<?> rows =
+        em.createNativeQuery(
+                lockSql(
+                    "scheduler_job",
+                    "job_id",
+                    "terminal_status, claim_seq, completion_token",
+                    sqlServer))
+            .setParameter(1, uuid.apply(jobId))
+            .getResultList();
+    if (rows.isEmpty()) return false;
+    Object[] row = (Object[]) rows.get(0);
+    return status.name().equals(row[0])
+        && ((Number) row[1]).longValue() == claimSeq
+        && commitToken.equals(RowValues.uuidOrNull(row[2]));
   }
 
   private static String lockSql(String table, String id, String columns, boolean sqlServer) {

@@ -35,6 +35,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CANCELED_CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETION_TOKEN;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
@@ -220,6 +221,7 @@ final class MongoJobCrudOperations {
                               .append(CLAIM_SEQ, 1)
                               .append(STATUS, 1)
                               .append(CANCELED_CLAIM_SEQ, 1)
+                              .append(COMPLETION_TOKEN, 1)
                               .append(SCHEDULED_TIME, 1)
                               .append(RESOURCE_NAME, 1))
                       .first();
@@ -242,6 +244,11 @@ final class MongoJobCrudOperations {
                 }
               } else {
                 doc.remove(CANCELED_CLAIM_SEQ);
+              }
+              if (current != null && job.getStatus().name().equals(current.getString(STATUS))) {
+                doc.put(COMPLETION_TOKEN, current.get(COMPLETION_TOKEN));
+              } else {
+                doc.remove(COMPLETION_TOKEN);
               }
               UpdateResult result =
                   ctx.jobs()

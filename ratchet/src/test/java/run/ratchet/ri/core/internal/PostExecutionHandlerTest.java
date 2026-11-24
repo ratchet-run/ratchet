@@ -17,6 +17,7 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,6 +42,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -356,6 +358,28 @@ class PostExecutionHandlerTest {
 
     verify(workflowScheduler, never()).publishCompletion(any());
     verifyNoInteractions(batchService);
+  }
+
+  @Test
+  void lostStoreAcknowledgementResolvesTheExactFailureWrite() {
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    child.setClaimSeq(7L);
+    useCompletionTransaction();
+    stubSuccessfulCommit(new AtomicBoolean());
+    AtomicReference<JobCompletionPlan> submitted = new AtomicReference<>();
+    when(jobTerminalStore.commitCompletion(any()))
+        .thenAnswer(
+            invocation -> {
+              submitted.set(invocation.getArgument(0));
+              throw new IllegalStateException("commit reply lost");
+            });
+    when(jobTerminalStore.wasCompletionCommitted(
+            eq(child.getId()), eq(JobStatus.FAILED), eq(7L), any(UUID.class)))
+        .thenAnswer(invocation -> invocation.getArgument(3).equals(submitted.get().commitToken()));
+
+    assertTrue(handler.completeFailure(child, JobStatus.RUNNING, false, null));
+    assertNotNull(submitted.get().commitToken());
+    assertEquals(JobStatus.FAILED, submitted.get().terminalStatus());
   }
 
   @Test

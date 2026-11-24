@@ -509,7 +509,7 @@ final class SqlserverJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, completion_token = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,
@@ -577,7 +577,7 @@ final class SqlserverJobTerminalOperations {
       String clearTerminalSql =
           """
           UPDATE scheduler_job
-          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, terminal_error = NULL,
+          SET row_version = row_version + 1, terminal_status = NULL, canceled_claim_seq = NULL, completion_token = NULL, terminal_error = NULL,
               job_result = NULL, result_type = NULL,
               execution_start_time = NULL, execution_end_time = NULL,
               execution_duration_ms = NULL, queue_wait_ms = NULL,

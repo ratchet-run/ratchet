@@ -81,6 +81,7 @@ final class MongoCompletionOperations {
                 combine(
                     set(STATUS, plan.terminalStatus().name()),
                     set(CANCELED_CLAIM_SEQ, cancelClaim),
+                    set(COMPLETION_TOKEN, plan.commitToken()),
                     set(JOB_RESULT, plan.resultJson()),
                     set(RESULT_TYPE, plan.resultType()),
                     set(LAST_ERROR, plan.errorMessage()),

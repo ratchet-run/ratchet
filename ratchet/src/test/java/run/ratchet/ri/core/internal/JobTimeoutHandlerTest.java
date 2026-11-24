@@ -1337,6 +1337,30 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void hardTimeoutInvokesCallbackWhenTheStoreCommitReplyWasLost() throws Exception {
+    JobEntity job = callbackJob(0);
+    IllegalStateException lostReply = new IllegalStateException("commit reply lost");
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenThrow(lostReply);
+    doAnswer(
+            invocation -> {
+              Supplier<?> transition = invocation.getArgument(2);
+              assertSame(lostReply, assertThrows(IllegalStateException.class, transition::get));
+              return true; // The completion transaction read the persisted commit token.
+            })
+        .when(lifecycleFacade)
+        .handleTimeoutTransition(any(), anyBoolean(), any());
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+
+    assertEquals(JobStatus.FAILED, job.getStatus());
+    verify(payloadInvoker).invoke(job.getOnFailurePayload());
+  }
+
+  @Test
   void hardTimeoutWithRetriesRemainingDoesNotInvokeCallback() throws Exception {
     callbackJob(1);
     when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L, 0)).thenReturn(1);

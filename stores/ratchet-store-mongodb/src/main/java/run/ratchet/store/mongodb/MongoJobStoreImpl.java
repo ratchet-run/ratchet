@@ -15,6 +15,15 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETION_TOKEN;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
@@ -380,6 +389,22 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public boolean tryPickUpJob(UUID id, String nodeId) {
     return lifecycle.tryPickUpJob(id, nodeId);
+  }
+
+  @Override
+  public boolean wasCompletionCommitted(
+      UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {
+    return ctx.jobs()
+            .withReadPreference(ReadPreference.primary())
+            .withReadConcern(ReadConcern.MAJORITY)
+            .find(
+                and(
+                    eq(ID, jobId),
+                    eq(STATUS, status.name()),
+                    eq(CLAIM_SEQ, claimSeq),
+                    eq(COMPLETION_TOKEN, commitToken)))
+            .first()
+        != null;
   }
 
   @Override

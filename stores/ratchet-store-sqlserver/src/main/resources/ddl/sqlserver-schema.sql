@@ -171,6 +171,7 @@ CREATE TABLE scheduler_job
     caller_principal      NVARCHAR(255),
     claim_seq BIGINT NOT NULL CONSTRAINT df_scheduler_job_claim_seq DEFAULT 0,
     canceled_claim_seq BIGINT NULL,
+    completion_token BINARY(16) NULL,
     terminal_status       VARCHAR(16),
     terminal_error        NVARCHAR(MAX),
     total_attempts        INT,

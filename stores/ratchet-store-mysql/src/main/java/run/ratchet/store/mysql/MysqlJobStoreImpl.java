@@ -441,6 +441,14 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public boolean wasCompletionCommitted(
+      UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {
+    return SqlJobCompletion.wasCompletionCommitted(
+        em, jobId, status, claimSeq, commitToken, false, UuidByteArrayConverter::toBytes);
+  }
+
+  @Override
   public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     return SqlJobCompletion.commit(
         em,

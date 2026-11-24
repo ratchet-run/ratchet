@@ -445,6 +445,14 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public boolean wasCompletionCommitted(
+      UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {
+    return SqlJobCompletion.wasCompletionCommitted(
+        em, jobId, status, claimSeq, commitToken, false, id -> id);
+  }
+
+  @Override
   public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     return SqlJobCompletion.commit(
         em,

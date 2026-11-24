@@ -36,6 +36,7 @@ final class MongoFieldNames {
   static final String LAST_ERROR = "last_error";
   static final String CRASH_COUNT = "crash_count";
   static final String CANCELED_CLAIM_SEQ = "canceled_claim_seq";
+  static final String COMPLETION_TOKEN = "completion_token";
   static final String CLAIM_SEQ = "claim_seq";
   static final String VERSION = "version";
   static final String CREATED_AT = "created_at";

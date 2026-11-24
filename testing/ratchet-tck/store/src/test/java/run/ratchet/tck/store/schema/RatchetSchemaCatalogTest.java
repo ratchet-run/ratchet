@@ -39,7 +39,7 @@ class RatchetSchemaCatalogTest {
             .orElseThrow();
     assertEquals(LogicalType.INT64, canceledClaim.type());
     assertTrue(canceledClaim.nullable());
-    assertEquals(24, RatchetSchemaCatalog.CURRENT_VERSION);
+    assertEquals(25, RatchetSchemaCatalog.CURRENT_VERSION);
   }
 
   @Test
@@ -180,7 +180,7 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        24,
+        25,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "catalog version should track the combined workflow, recurring, DLQ, and node schema"
             + " revision");
