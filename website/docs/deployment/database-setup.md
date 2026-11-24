@@ -221,7 +221,7 @@ and guidance when upgrading older builds.
 - Uses `JSON` column type for payload, params, and result data
 - `GENERATED ALWAYS AS ... STORED` columns extract `target_class` and `method_name` from payload JSON
 - Business key uniqueness for active jobs is enforced by the `scheduler_business_key_reservation` table, not by a column on `scheduler_job`
-- All tables use `InnoDB` engine with `utf8mb4_unicode_ci` collation
+- All tables use `InnoDB` and `utf8mb4`. MySQL uses `utf8mb4_bin` for key columns and `utf8mb4_unicode_ci` for free text.
 
 ## Oracle
 
