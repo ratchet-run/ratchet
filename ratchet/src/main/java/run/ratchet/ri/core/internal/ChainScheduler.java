@@ -28,9 +28,7 @@ import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
-import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.ri.core.CompletionReads;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.entity.JobEntity;
@@ -155,61 +153,6 @@ public class ChainScheduler {
         != null;
   }
 
-  public boolean scheduleNext(JobEntity finished) {
-    return scheduleNext(finished, Set.of());
-  }
-
-  protected boolean scheduleNext(JobEntity finished, Set<UUID> skippedDirectChildren) {
-    List<JobEntity> children = findAllDependants(finished.getId());
-    boolean hasEligibleChild = false;
-    for (JobEntity child : children) {
-      if (!skippedDirectChildren.contains(child.getId())) {
-        hasEligibleChild = true;
-        break;
-      }
-    }
-    if (!hasEligibleChild) {
-      if (finished.getJobType() == JobExecutionType.CHAIN_STEP) {
-        publishChainCompleted(finished);
-      }
-      return false;
-    }
-
-    boolean scheduled = false;
-    for (JobEntity c : children) {
-      if (skippedDirectChildren.contains(c.getId())) {
-        continue;
-      }
-      if (c.getStatus() == JobStatus.PENDING && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
-        c.setScheduledTime(effective().instant());
-        jobCrudStore.save(c);
-        log.infof("Chain step %s unlocked (prev=%s)", c.getId(), finished.getId());
-        publishChainStartedIfFirstStep(finished, c);
-        scheduled = true;
-      } else if (c.getStatus() == JobStatus.WAITING
-          && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
-        // Signal-waiting chain step: unlock scheduledTime so it runs once the signal arrives,
-        // but leave it WAITING — the signal delivery path sets it to PENDING independently.
-        c.setScheduledTime(effective().instant());
-        jobCrudStore.save(c);
-        log.infof(
-            "Signal-waiting chain step %s unlocked (signal still pending, prev=%s)",
-            c.getId(), finished.getId());
-        publishChainStartedIfFirstStep(finished, c);
-        scheduled = true;
-      }
-    }
-    return scheduled;
-  }
-
-  private Clock effective() {
-    return clock != null ? clock : Clock.systemUTC();
-  }
-
-  protected List<JobEntity> findAllDependants(UUID parentId) {
-    return findAllDependants(parentId, CompletionReads.plain(jobCrudStore, null));
-  }
-
   protected List<JobEntity> findAllDependants(UUID parentId, CompletionReads reads) {
     List<JobEntity> dependants = new ArrayList<>();
     int offset = 0;
@@ -221,38 +164,6 @@ public class ChainScheduler {
       }
       offset += page.size();
     }
-  }
-
-  private void publishChainStartedIfFirstStep(JobEntity finished, JobEntity child) {
-    if (eventPublisher == null
-        || child.getJobType() != JobExecutionType.CHAIN_STEP
-        || finished.getJobType() == JobExecutionType.CHAIN_STEP) {
-      return;
-    }
-    publishAfterCommit(
-        new ChainStartedEvent(
-            child.getId(),
-            child.getBusinessKey(),
-            child.getRecurringMasterId(),
-            child.getPublicJobType(),
-            child.getPriority(),
-            child.getPickedBy(),
-            findRootJobId(finished)));
-  }
-
-  private void publishChainCompleted(JobEntity finished) {
-    if (eventPublisher == null) {
-      return;
-    }
-    publishAfterCommit(
-        new ChainCompletedEvent(
-            finished.getId(),
-            finished.getBusinessKey(),
-            finished.getRecurringMasterId(),
-            finished.getPublicJobType(),
-            finished.getPriority(),
-            finished.getPickedBy(),
-            findRootJobId(finished)));
   }
 
   private void publishChainFailed(JobEntity failed) {

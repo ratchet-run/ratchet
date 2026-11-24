@@ -581,26 +581,6 @@ public class PostExecutionHandler {
     return snapshot;
   }
 
-  public boolean markBatchChildFailed(JobEntity job) {
-    return batchService.markChildFailed(job);
-  }
-
-  public boolean markBatchChildSucceeded(JobEntity job) {
-    return batchService.markChildSucceeded(job);
-  }
-
-  public void cancelChain(JobEntity job) {
-    workflowScheduler.cancelChain(job);
-  }
-
-  public boolean scheduleNext(JobEntity job) {
-    return workflowScheduler.scheduleNext(job);
-  }
-
-  public void moveToDlq(JobEntity job, Throwable ex) {
-    deadLetterService.recordDlqTransition(job, ex);
-  }
-
   /**
    * Atomically moves a still-RUNNING job to the DLQ and applies its batch/workflow failure
    * bookkeeping through the store's atomic completion operation. SQL stores join the helper's
@@ -623,22 +603,6 @@ public class PostExecutionHandler {
           job.setStatus(JobStatus.FAILED);
           return true;
         });
-  }
-
-  public void handleJobSuccess(JobEntity job) {
-    boolean newWorkAvailable =
-        switch (job.getJobType()) {
-          case BATCH_CHILD -> markBatchChildSucceeded(job);
-          case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> scheduleNext(job);
-          default -> false;
-        };
-    wakeupIfNewWorkAvailable(newWorkAvailable);
-  }
-
-  public void handlePermanentFailure(JobEntity job, Throwable ex) {
-    requireFailureRoutingMetadata(job);
-    moveToDlq(job, ex);
-    wakeupIfNewWorkAvailable(applyPermanentFailureBookkeeping(job));
   }
 
   /**
@@ -676,14 +640,6 @@ public class PostExecutionHandler {
           // downstream events in order, in this transaction.
           return true;
         });
-  }
-
-  private boolean applyPermanentFailureBookkeeping(JobEntity job) {
-    return switch (job.getJobType()) {
-      case BATCH_CHILD -> markBatchChildFailed(job);
-      case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> scheduleNext(job);
-      default -> false;
-    };
   }
 
   private static void requireFailureRoutingMetadata(JobEntity job) {
