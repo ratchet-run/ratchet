@@ -77,17 +77,17 @@ class MysqlOrphanRecoveryLockingTest {
   @ParameterizedTest
   @ValueSource(ints = {4, 2})
   void periodicScanSeesHeartbeatCommittedAfterItsSnapshot(int isolation) {
-    scanAfterOwnerHeartbeat(isolation, "late", "late");
+    scanAfterOwnerHeartbeat(isolation, "late", "late", false);
   }
 
   @ParameterizedTest
   @ValueSource(ints = {4, 2})
-  void periodicScanMatchesOwnersWithTheColumnCollation(int isolation) {
-    // The tables use utf8mb4_unicode_ci, so MySQL treats these as the same node.
-    scanAfterOwnerHeartbeat(isolation, "Late-Node", "late-node");
+  void periodicScanDoesNotConfuseNodeNamesThatDifferInCase(int isolation) {
+    scanAfterOwnerHeartbeat(isolation, "Late-Node", "late-node", true);
   }
 
-  private void scanAfterOwnerHeartbeat(int isolation, String storedNodeId, String jobOwner) {
+  private void scanAfterOwnerHeartbeat(
+      int isolation, String storedNodeId, String jobOwner, boolean differentOwner) {
     fixture.cleanupStore();
     emf = newFactory(isolation);
     Instant now = Instant.now();
@@ -115,9 +115,9 @@ class MysqlOrphanRecoveryLockingTest {
       heartbeat.getTransaction().commit();
 
       var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 500);
-      // Before this fix isolation 4 reset the job because the heartbeat check read the old
-      // snapshot.
-      assertEquals(0, recovery.reset());
+      // The scan sees the committed heartbeat even under REPEATABLE READ, and only a
+      // heartbeat for the job's exact owner protects its claim.
+      assertEquals(differentOwner ? 1 : 0, recovery.reset());
       assertTrue(scanStore.resetOrphanJobsBefore(cutoff, 3, 100).exhausted().isEmpty());
 
       // The scan locks only candidate owners' node rows, so other nodes' heartbeats do not wait.
@@ -129,10 +129,10 @@ class MysqlOrphanRecoveryLockingTest {
 
       scan.getTransaction().begin();
       var job = scanStore.findById(jobId).orElseThrow();
-      assertEquals(JobStatus.RUNNING, job.getStatus());
-      assertEquals(jobOwner, job.getPickedBy());
+      assertEquals(differentOwner ? JobStatus.PENDING : JobStatus.RUNNING, job.getStatus());
+      assertEquals(differentOwner ? null : jobOwner, job.getPickedBy());
       assertEquals(
-          0,
+          differentOwner ? 1 : 0,
           ((Number)
                   scan.createNativeQuery(
                           "SELECT crash_count FROM scheduler_job_queue WHERE job_id = ?")
