@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -731,6 +732,31 @@ public abstract class AbstractRecurringJobStoreContract {
     int canceled = recurringStore().cancelRecurringJobsByTag("legacy");
     assertEquals(1, canceled, "only the legacy-tagged master is canceled");
     assertTrue(recurringStore().getRecurring(legacy).isEmpty());
+    assertTrue(recurringStore().getRecurring(survivor).isPresent());
+  }
+
+  @Test
+  void schedulerCancellationMatchesBothRequestedAndNormalizedTags() {
+    UUID legacy = UuidV7Factory.create();
+    UUID canonical = UuidV7Factory.create();
+    UUID both = UuidV7Factory.create();
+    UUID survivor = UuidV7Factory.create();
+    Instant future = Instant.now().plusSeconds(60);
+    for (UUID id : List.of(legacy, canonical, both, survivor)) {
+      recurringStore().createRecurring(definition(id, "0 * * * * ?", future));
+    }
+    tagStore().insertTags(legacy, List.of("OPS"));
+    tagStore().insertTags(canonical, List.of("ops"));
+    tagStore().insertTags(both, List.of("OPS", "ops"));
+    tagStore().insertTags(survivor, List.of("other"));
+
+    assertEquals(
+        3,
+        recurringStore()
+            .cancelRecurringJobsByApplicationTag("OPS", tag -> tag.toLowerCase(Locale.ROOT)));
+    for (UUID id : List.of(legacy, canonical, both)) {
+      assertTrue(recurringStore().findArchivedRecurring(id).isPresent());
+    }
     assertTrue(recurringStore().getRecurring(survivor).isPresent());
   }
 

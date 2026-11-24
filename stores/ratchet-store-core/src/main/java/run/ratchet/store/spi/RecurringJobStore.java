@@ -211,7 +211,8 @@ public interface RecurringJobStore {
 
   /**
    * Cancels recurring jobs requested through the scheduler's tag API. Stores upgrading from a
-   * different tag comparison can compare legacy values with the same normalizer.
+   * different tag comparison can compare legacy values with the same normalizer. The default
+   * matches both the requested and normalized spellings. Transaction attribute: {@code REQUIRED}.
    *
    * @param tag the caller's tag
    * @param normalize the scheduler's tag normalization function
@@ -219,13 +220,8 @@ public interface RecurringJobStore {
    */
   default int cancelRecurringJobsByApplicationTag(String tag, UnaryOperator<String> normalize) {
     String normalized = normalize.apply(tag);
-    if (!Objects.equals(tag, normalized)) {
-      int legacyCount = cancelRecurringJobsByTag(tag);
-      if (legacyCount != 0) {
-        return legacyCount;
-      }
-    }
-    return cancelRecurringJobsByTag(normalized);
+    int legacyCount = Objects.equals(tag, normalized) ? 0 : cancelRecurringJobsByTag(tag);
+    return legacyCount + cancelRecurringJobsByTag(normalized);
   }
 
   /**
