@@ -85,7 +85,6 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
 
   @AfterEach
   void cancelAndDrain() {
-    TransactionalUnitProbe.pressureStart.countDown();
     try {
       // Stop every job before the shared probe state is cleared. A job that started later would
       // find no Attempt, and a running one would write pages after the cleanup.
@@ -115,16 +114,6 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
   void transactionalCheckpointsSurvivePoolPressure() throws Exception {
     probe.clear();
     TransactionalUnitProbe.reset();
-    TransactionalUnitProbe.pressureStart = new CountDownLatch(1);
-    String key = UUID.randomUUID().toString();
-    TransactionalUnitProbe.prepare(key);
-    UUID id =
-        jobs.enqueue(() -> TransactionalUnitProbe.execute(key, "pressure"))
-            .withMaxRetries(0)
-            .submit()
-            .id();
-    expected.put(id, key);
-
     TestRuntimeConfig config = new TestRuntimeConfig();
     int poolSize = Integer.parseInt(config.get(POOL_SIZE, POOL_SIZE).orElseThrow());
     ThreadFactory threadFactory =
@@ -132,7 +121,14 @@ class TransactionalCheckpointPoolPressureIT extends BaseRatchetIT {
     try (Reservations reservations = new Reservations()) {
       reservations.reserve(
           threadFactory, probe, sessionQuery(TestRuntimeConfig.dbType()), poolSize - 1);
-      TransactionalUnitProbe.pressureStart.countDown();
+      String key = UUID.randomUUID().toString();
+      TransactionalUnitProbe.prepare(key);
+      UUID id =
+          jobs.enqueue(() -> TransactionalUnitProbe.execute(key, "pressure"))
+              .withMaxRetries(0)
+              .submit()
+              .id();
+      expected.put(id, key);
       await()
           .atMost(Duration.ofSeconds(25))
           .untilAsserted(
