@@ -27,7 +27,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import run.ratchet.api.internal.TagNormalizer;
 
 /**
  * Immutable filter criteria for {@link JobQueryService} queries.
@@ -122,13 +121,7 @@ public record JobFilter(
     statuses = copyOrNull(statuses);
     types = copyOrNull(types);
     priorities = copyOrNull(priorities);
-    if (tags != null) {
-      Set<String> normalizedTags = new HashSet<>();
-      for (String tag : tags) {
-        normalizedTags.add(TagNormalizer.normalize(tag));
-      }
-      tags = Collections.unmodifiableSet(normalizedTags);
-    }
+    tags = copyOrNull(tags);
     propertyFilters = copyPropertyFiltersOrNull(propertyFilters);
   }
 

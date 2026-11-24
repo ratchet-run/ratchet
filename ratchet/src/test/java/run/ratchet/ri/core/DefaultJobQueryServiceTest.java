@@ -417,6 +417,16 @@ class DefaultJobQueryServiceTest {
   }
 
   @Test
+  void findJobsNormalizesApplicationTagsBeforeCallingTheStore() {
+    JobFilter callerFilter = JobFilter.builder().tags(" I ", "OPS").build();
+    JobFilter storeFilter = callerFilter.toBuilder().tags("i", "ops").build();
+
+    service.findJobs(callerFilter, 10, 0);
+
+    verify(queryStore).searchJobs(storeFilter, 10, 0);
+  }
+
+  @Test
   void findJobs_emptyResult_returnsEmptyPage() {
     when(queryStore.searchJobs(any(), anyInt(), anyInt())).thenReturn(Collections.emptyList());
     when(queryStore.countJobs(any())).thenReturn(0L);

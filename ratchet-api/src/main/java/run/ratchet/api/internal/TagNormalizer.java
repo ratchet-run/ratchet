@@ -15,13 +15,40 @@
  */
 package run.ratchet.api.internal;
 
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
+import run.ratchet.api.JobFilter;
 
 /** Normalizes application-facing job tags. Store SPI calls use the keys they receive. */
 public final class TagNormalizer {
   private TagNormalizer() {}
 
+  /**
+   * Trims the tag and converts it to lowercase using {@link Locale#ROOT}.
+   *
+   * @param tag the application-facing tag, which may be null
+   * @return the normalized tag, or null when the input is null
+   */
   public static String normalize(String tag) {
     return tag == null ? null : tag.trim().toLowerCase(Locale.ROOT);
+  }
+
+  /**
+   * Normalizes the tags of an application-facing filter before it reaches a store.
+   *
+   * @param filter the filter supplied by the application
+   * @return the filter with normalized tags
+   */
+  public static JobFilter normalizeFilter(JobFilter filter) {
+    Set<String> tags = filter.tags();
+    if (tags == null || tags.isEmpty()) {
+      return filter;
+    }
+    Set<String> normalized = new HashSet<>();
+    for (String tag : tags) {
+      normalized.add(normalize(tag));
+    }
+    return tags.equals(normalized) ? filter : filter.toBuilder().tags(normalized).build();
   }
 }

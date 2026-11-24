@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.ExecutorTargets;
@@ -45,6 +46,17 @@ class DefaultRecurringJobBuilderTest {
 
     assertEquals(List.of("alpha"), builder.tags());
     assertThrows(UnsupportedOperationException.class, () -> builder.tags().add("gamma"));
+  }
+
+  @Test
+  void withTagsNormalizesAndOmitsBlankEntries() {
+    DefaultRecurringJobBuilder builder = newBuilder();
+
+    builder.withTags(List.of("  I  ", "Équipe", "", "  "));
+
+    assertEquals(List.of("i", "équipe"), builder.tags());
+    assertThrows(NullPointerException.class, () -> builder.withTags(Arrays.asList("ok", null)));
+    assertEquals(List.of("i", "équipe"), builder.tags());
   }
 
   @Test
