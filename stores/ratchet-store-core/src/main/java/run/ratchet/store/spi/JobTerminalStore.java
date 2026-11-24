@@ -18,6 +18,7 @@ package run.ratchet.store.spi;
 import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.BusinessKeyReservationConflictException;
@@ -59,6 +60,17 @@ public interface JobTerminalStore {
    * existing cancel attribution. CANCELED completion plans and dependencies follow the same rule.
    */
   JobCompletionResult commitCompletion(JobCompletionPlan plan);
+
+  /**
+   * Resolves the original terminal write using its token, status and claim sequence. Supporting
+   * stores must wait for or fence any in-flight write before reporting that it did not apply. If
+   * the store cannot determine the outcome, it must propagate the failure. Transaction attribute:
+   * {@code REQUIRES_NEW}.
+   */
+  default boolean wasCompletionCommitted(
+      UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {
+    return false;
+  }
 
   /**
    * Marks a job as succeeded with a stored result.

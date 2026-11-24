@@ -104,6 +104,52 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   }
 
   @Test
+  void terminalCommitTokenAttributesOnlyTheExactWrite() {
+    for (JobStatus status : List.of(JobStatus.FAILED, JobStatus.SUCCEEDED)) {
+      JobEntity claim = attributionClaim();
+      UUID token = UUID.randomUUID();
+      Instant now = Instant.now();
+      JobCompletionPlan plan =
+          new JobCompletionPlan(
+                  claim.getId(),
+                  JobStatus.RUNNING,
+                  status,
+                  null,
+                  null,
+                  "failure",
+                  0,
+                  now,
+                  now,
+                  0L,
+                  0L,
+                  null,
+                  null,
+                  List.of(),
+                  claim.getClaimSeq(),
+                  null,
+                  List.of())
+              .withCommitToken(token);
+      assertFalse(
+          store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), token));
+      assertTrue(store().commitCompletion(plan).committed());
+      assertTrue(store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), token));
+      UUID competingToken = UUID.randomUUID();
+      assertFalse(store().commitCompletion(plan.withCommitToken(competingToken)).committed());
+      assertTrue(store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), token));
+      assertFalse(
+          store()
+              .wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), competingToken));
+      assertFalse(
+          store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq() + 1, token));
+      if (status == JobStatus.FAILED) {
+        assertTrue(store().resetFailedToPending(claim.getId()));
+        assertFalse(
+            store().wasCompletionCommitted(claim.getId(), status, claim.getClaimSeq(), token));
+      }
+    }
+  }
+
+  @Test
   void runningCancelRecordsOnlyTheClaimItEnded() {
     JobEntity claim = attributionClaim();
     assertTrue(store().cancelRunningJob(claim.getId(), null));

@@ -46,7 +46,70 @@ public record JobCompletionPlan(
     List<DependencyTransition> dependencies,
     @Nullable Long expectedClaimSeq,
     @Nullable Integer expectedAttempts,
-    List<OutboxEvent> outboxEvents) {
+    List<OutboxEvent> outboxEvents,
+    @Nullable UUID commitToken) {
+
+  public JobCompletionPlan(
+      UUID jobId,
+      JobStatus expectedStatus,
+      JobStatus terminalStatus,
+      String resultJson,
+      String resultType,
+      String errorMessage,
+      int attempts,
+      Instant start,
+      Instant end,
+      Long durationMs,
+      Long queueWaitMs,
+      UUID batchId,
+      BatchCompletion completedBatch,
+      List<DependencyTransition> dependencies,
+      @Nullable Long expectedClaimSeq,
+      @Nullable Integer expectedAttempts,
+      List<OutboxEvent> outboxEvents) {
+    this(
+        jobId,
+        expectedStatus,
+        terminalStatus,
+        resultJson,
+        resultType,
+        errorMessage,
+        attempts,
+        start,
+        end,
+        durationMs,
+        queueWaitMs,
+        batchId,
+        completedBatch,
+        dependencies,
+        expectedClaimSeq,
+        expectedAttempts,
+        outboxEvents,
+        null);
+  }
+
+  /** Identifies this exact write so an ambiguous acknowledgement can be resolved. */
+  public JobCompletionPlan withCommitToken(UUID token) {
+    return new JobCompletionPlan(
+        jobId,
+        expectedStatus,
+        terminalStatus,
+        resultJson,
+        resultType,
+        errorMessage,
+        attempts,
+        start,
+        end,
+        durationMs,
+        queueWaitMs,
+        batchId,
+        completedBatch,
+        dependencies,
+        expectedClaimSeq,
+        expectedAttempts,
+        outboxEvents,
+        token);
+  }
 
   public JobCompletionPlan {
     Objects.requireNonNull(jobId);

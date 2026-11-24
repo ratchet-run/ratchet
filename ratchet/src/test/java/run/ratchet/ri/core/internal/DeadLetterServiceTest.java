@@ -145,7 +145,8 @@ class DeadLetterServiceTest {
             job.getAttempts());
     job.setLastError(null);
 
-    service.recordPreparedBatchDlqTransition(job, new PreparedDlqEvents(List.of(failed), dlq));
+    service.recordPreparedDlqTransitionAfterCommit(
+        job, new PreparedDlqEvents(List.of(failed), dlq));
 
     assertEquals("prepared terminal error", job.getLastError());
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);

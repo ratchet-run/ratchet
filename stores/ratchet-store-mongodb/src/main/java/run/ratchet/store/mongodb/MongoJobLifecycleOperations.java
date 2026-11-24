@@ -28,6 +28,7 @@ import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.CANCELED_CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETION_TOKEN;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
 import static run.ratchet.store.mongodb.MongoFieldNames.ENDED_AT;
@@ -600,6 +601,7 @@ final class MongoJobLifecycleOperations
                           eq(CLAIM_SEQ, expectedClaimSeq)),
                       combine(
                           set(STATUS, "PENDING"),
+                          unset(COMPLETION_TOKEN),
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
                           set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
@@ -643,6 +645,7 @@ final class MongoJobLifecycleOperations
                               filter,
                               combine(
                                   set(STATUS, "PENDING"),
+                                  unset(COMPLETION_TOKEN),
                                   set(PICKED_BY, null),
                                   set(PICKED_AT, null),
                                   set(UPDATED_AT, now),
@@ -720,6 +723,7 @@ final class MongoJobLifecycleOperations
                             and(eq(ID, id), eq(STATUS, "FAILED")),
                             combine(
                                 set(STATUS, "PENDING"),
+                                unset(COMPLETION_TOKEN),
                                 set(PAUSED_FROM_STATUS, null),
                                 set(ATTEMPTS, 0),
                                 set(CRASH_COUNT, 0),
@@ -764,6 +768,7 @@ final class MongoJobLifecycleOperations
                         and(in(ID, ids), eq(STATUS, "FAILED")),
                         combine(
                             set(STATUS, "PENDING"),
+                            unset(COMPLETION_TOKEN),
                             set(PAUSED_FROM_STATUS, null),
                             set(ATTEMPTS, 0),
                             set(CRASH_COUNT, 0),

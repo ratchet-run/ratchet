@@ -33,7 +33,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
@@ -474,7 +475,7 @@ public class JobTimeoutHandler {
           timeoutEx,
           false,
           workerContextBound,
-          () -> {
+          prepared -> {
             miss.set(null);
             return applyHardTimeoutTransition(
                 jobId,
@@ -485,7 +486,8 @@ public class JobTimeoutHandler {
                 expectedClaimSeq,
                 nodeId,
                 attempt,
-                miss);
+                miss,
+                prepared);
           });
     } finally {
       // The cooperative worker checks for the cancel itself once this returns.
@@ -509,19 +511,20 @@ public class JobTimeoutHandler {
       Throwable timeoutEx,
       boolean cancelChainOnFailure,
       boolean workerContextBound,
-      Supplier<Optional<TerminalTimeoutTransition>> transition) {
+      Function<Consumer<JobEntity>, Optional<TerminalTimeoutTransition>> transition) {
     AtomicReference<JobEntity> terminalJob = new AtomicReference<>();
     boolean committed =
         lifecycleFacade.handleTimeoutTransition(
             timeoutEx,
             cancelChainOnFailure,
             () -> {
-              Optional<TerminalTimeoutTransition> outcome = transition.get();
+              Optional<TerminalTimeoutTransition> outcome = transition.apply(terminalJob::set);
               outcome.ifPresent(terminal -> terminalJob.set(terminal.job()));
               return outcome;
             });
     JobEntity job = terminalJob.get();
     if (committed && callbackInvoker != null && job != null) {
+      job.setStatus(JobStatus.FAILED);
       if (workerContextBound) {
         callbackInvoker.invokeOnFailure(job, timeoutEx);
       } else {
@@ -547,7 +550,8 @@ public class JobTimeoutHandler {
       long expectedClaimSeq,
       @Nullable String nodeId,
       @Nullable JobAttemptControl attempt,
-      AtomicReference<TimeoutMiss> miss) {
+      AtomicReference<TimeoutMiss> miss,
+      Consumer<JobEntity> prepared) {
     String sanitizedError = sanitizeTimeoutError(timeoutEx);
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -623,6 +627,7 @@ public class JobTimeoutHandler {
     TerminalTimeoutTransition outcome =
         terminalHardTimeoutTransition(
             job, sanitizedError, newAttempts, timeoutSec, observedElapsedTime);
+    prepared.accept(job);
     boolean marked =
         lifecycleFacade.completeTimeoutFailure(
             job, JobStatus.RUNNING, false, timeoutEx, outcome.eventsBeforeDlq());
@@ -700,7 +705,10 @@ public class JobTimeoutHandler {
     SignalTimeoutException timeoutEx = new SignalTimeoutException(message);
 
     runTimeoutTransition(
-        timeoutEx, true, false, () -> applySignalTimeoutTransition(job.getId(), now, message));
+        timeoutEx,
+        true,
+        false,
+        prepared -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
   private enum RetryParentLock {

@@ -15,9 +15,25 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.or;
+import static com.mongodb.client.model.Projections.include;
+import static com.mongodb.client.model.Updates.inc;
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+import static run.ratchet.store.mongodb.MongoFieldNames.COMPLETION_TOKEN;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
+import com.mongodb.WriteConcern;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.FindOneAndUpdateOptions;
+import com.mongodb.client.model.ReturnDocument;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -385,6 +401,38 @@ class MongoJobStoreImpl implements MongoJobStore {
   public boolean tryPickUpJob(UUID id, String nodeId) {
     nodeId = StringKeyNormalizer.required(nodeId, "node id");
     return lifecycle.tryPickUpJob(id, nodeId);
+  }
+
+  @Override
+  public boolean wasCompletionCommitted(
+      UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {
+    var claim = and(eq(ID, jobId), eq(CLAIM_SEQ, claimSeq));
+    var committed = and(eq(STATUS, status.name()), eq(COMPLETION_TOKEN, commitToken));
+    if (ctx.jobs()
+            .withReadPreference(ReadPreference.primary())
+            .withReadConcern(ReadConcern.MAJORITY)
+            .find(and(claim, committed))
+            .projection(include(ID))
+            .first()
+        != null) {
+      return true;
+    }
+
+    // An absent majority read can race the original commit. A real write to the same document
+    // waits for or fences the competing transaction. Majority acknowledgment also covers any
+    // original completion already applied before this write on the primary.
+    var settled =
+        ctx.jobs()
+            .withWriteConcern(WriteConcern.MAJORITY)
+            .findOneAndUpdate(
+                and(claim, or(eq(STATUS, JobStatus.RUNNING.name()), committed)),
+                inc(VERSION, 1),
+                new FindOneAndUpdateOptions()
+                    .returnDocument(ReturnDocument.BEFORE)
+                    .projection(include(STATUS, COMPLETION_TOKEN)));
+    return settled != null
+        && status.name().equals(settled.getString(STATUS))
+        && commitToken.equals(settled.get(COMPLETION_TOKEN));
   }
 
   @Override

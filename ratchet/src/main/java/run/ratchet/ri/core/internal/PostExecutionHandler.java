@@ -32,6 +32,7 @@ import run.ratchet.api.Nullable;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.CompletionReads;
@@ -97,6 +98,9 @@ public class PostExecutionHandler {
     }
   }
 
+  private static final int COMMIT_CONFIRMATION_ATTEMPTS = 3;
+  private static final long COMMIT_CONFIRMATION_BACKOFF_MS = 25L;
+
   private static final ThreadLocal<CompletionContext> COMPLETION_CONTEXT = new ThreadLocal<>();
 
   private static final class CompletionContext {
@@ -104,6 +108,8 @@ public class PostExecutionHandler {
     private final List<Runnable> steps = new ArrayList<>();
     private final List<BatchProgress> batchFollowups = new ArrayList<>();
     private UUID jobId;
+    private JobCompletionPlan pendingWrite;
+    private Runnable pendingNotifications;
     private boolean durable;
     private boolean result;
 
@@ -409,8 +415,28 @@ public class PostExecutionHandler {
     JobCompletionPlan plan =
         completionPlan(completed, expectedStatus, null, workflow, expectedAttempts);
     if (durableEnabled) plan = durable.withEvents(plan, events);
+    List<AbstractJobSchedulerEvent> outboxPublication = durableEnabled ? events : null;
+    PreparedDlqEvents plannedDlq = preparedDlq;
+    CompletionContext context = COMPLETION_CONTEXT.get();
+    if (context != null
+        && context.deferSteps
+        && plan.expectedClaimSeq() != null
+        && plan.terminalStatus() != JobStatus.CANCELED) {
+      plan = plan.withCommitToken(UUID.randomUUID());
+      // Record the identity before the store call, which can itself lose its commit reply.
+      context.pendingWrite = plan;
+      context.jobId = plan.jobId();
+      context.pendingNotifications =
+          () -> {
+            registerCompletionNotifications(
+                completed, cause, failureEvents, outboxPublication, plannedDlq, true);
+            deferPostCommit(() -> workflowScheduler.publishCompletion(workflow));
+            deferPostCommit(() -> wakeupIfNewWorkAvailable(workflow.newWorkAvailable()));
+          };
+    }
     JobCompletionResult result = jobTerminalStore.commitCompletion(plan);
     if (!result.committed()) {
+      if (context != null) context.pendingWrite = null;
       if (expectedStatus == JobStatus.RUNNING && completed.getClaimSeq() != null)
         Logger.getLogger(PostExecutionHandler.class)
             .warnf(
@@ -418,35 +444,14 @@ public class PostExecutionHandler {
                 completed.getId(), completed.getClaimSeq(), completed.getPickedBy());
       return false;
     }
-    CompletionContext context = COMPLETION_CONTEXT.get();
     if (context != null) {
       context.jobId = completed.getId();
       context.durable |= result.durable();
       context.result = true;
+      context.pendingNotifications = null;
     }
-    if (durableEnabled) {
-      List<AbstractJobSchedulerEvent> committedEvents = events;
-      if (completed.getStatus() == JobStatus.SUCCEEDED)
-        deferPostCommit(() -> durable.publishAfterCommit(committedEvents));
-      else deadLetterService.recordDlqTransitionInCurrentTransaction(completed, preparedDlq);
-    } else {
-      if (completed.getStatus() == JobStatus.SUCCEEDED) {
-        deferPostCommit(
-            () ->
-                workflowScheduler.publishTerminalEvent(
-                    new JobCompletedEvent(
-                        completed.getId(),
-                        completed.getBusinessKey(),
-                        completed.getRecurringMasterId(),
-                        completed.getPublicJobType(),
-                        completed.getPriority(),
-                        completed.getPickedBy(),
-                        completed.getExecutionEndTime(),
-                        completed.getExecutionDurationMs())));
-      } else {
-        deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
-      }
-    }
+    registerCompletionNotifications(
+        completed, cause, failureEvents, outboxPublication, plannedDlq, false);
     deferPostCommit(() -> workflowScheduler.publishCompletion(workflow));
     if (result.batchProgress() != null) {
       // Child terminal state and counters are already one durable unit. Parent completion is
@@ -470,6 +475,47 @@ public class PostExecutionHandler {
     return true;
   }
 
+  private void registerCompletionNotifications(
+      JobEntity completed,
+      Throwable cause,
+      List<AbstractJobSchedulerEvent> failureEvents,
+      @Nullable List<AbstractJobSchedulerEvent> outboxPublication,
+      @Nullable PreparedDlqEvents plannedDlq,
+      boolean recovered) {
+    if (completed.getStatus() == JobStatus.SUCCEEDED) {
+      if (outboxPublication != null) {
+        deferPostCommit(() -> durableEvents.publishAfterCommit(outboxPublication));
+      } else {
+        deferPostCommit(
+            () ->
+                workflowScheduler.publishTerminalEvent(
+                    new JobCompletedEvent(
+                        completed.getId(),
+                        completed.getBusinessKey(),
+                        completed.getRecurringMasterId(),
+                        completed.getPublicJobType(),
+                        completed.getPriority(),
+                        completed.getPickedBy(),
+                        completed.getExecutionEndTime(),
+                        completed.getExecutionDurationMs())));
+      }
+    } else if (recovered) {
+      deferPostCommit(
+          () -> {
+            var dlq =
+                plannedDlq != null
+                    ? plannedDlq
+                    : new PreparedDlqEvents(
+                        failureEvents, deadLetterService.prepareDlqEvent(completed, cause));
+            deadLetterService.recordPreparedDlqTransitionAfterCommit(completed, dlq);
+          });
+    } else if (plannedDlq != null) {
+      deadLetterService.recordDlqTransitionInCurrentTransaction(completed, plannedDlq);
+    } else {
+      deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
+    }
+  }
+
   /**
    * Runs post-commit steps after the completion transaction returns, then batch follow-ups. A
    * durable store commit stays committed if the completion transaction fails afterwards.
@@ -490,7 +536,9 @@ public class PostExecutionHandler {
               ? completionTransaction.complete(recordedWork)
               : recordedWork.get();
     } catch (RuntimeException failure) {
-      if (!context.durable) throw failure;
+      if (!context.durable && !resolveCommit(context.pendingWrite, failure)) throw failure;
+      if (context.pendingNotifications != null) context.pendingNotifications.run();
+      context.result = true;
       Logger.getLogger(PostExecutionHandler.class)
           .warnf(
               failure,
@@ -515,6 +563,41 @@ public class PostExecutionHandler {
       runBatchFollowup(progress, context.jobId);
     }
     return context.result;
+  }
+
+  private boolean resolveCommit(@Nullable JobCompletionPlan plan, RuntimeException writeFailure) {
+    if (plan == null) return false;
+    boolean interrupted = Thread.interrupted();
+    try {
+      // A failed read carries no outcome. Keep the original token and pending notifications
+      // through a short retry window before returning the write to its caller.
+      for (int attempt = 0; attempt < COMMIT_CONFIRMATION_ATTEMPTS; attempt++) {
+        try {
+          return jobTerminalStore.wasCompletionCommitted(
+              plan.jobId(), plan.terminalStatus(), plan.expectedClaimSeq(), plan.commitToken());
+        } catch (RuntimeException readFailure) {
+          if (readFailure != writeFailure) writeFailure.addSuppressed(readFailure);
+        }
+        if (attempt + 1 == COMMIT_CONFIRMATION_ATTEMPTS) break;
+        try {
+          Thread.sleep(COMMIT_CONFIRMATION_BACKOFF_MS << attempt);
+        } catch (InterruptedException interruptedDuringRetry) {
+          interrupted = true;
+          writeFailure.addSuppressed(interruptedDuringRetry);
+          break;
+        }
+      }
+      String message =
+          "Unresolved terminal commit for job %s, claim %s, status %s, token %s"
+              .formatted(
+                  plan.jobId(), plan.expectedClaimSeq(), plan.terminalStatus(), plan.commitToken());
+      var unresolved = new RatchetTransientStoreException(message, writeFailure);
+      // Record the uncertainty even when the caller subsequently retries the fenced transition.
+      Logger.getLogger(PostExecutionHandler.class).error(message, unresolved);
+      throw unresolved;
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
+    }
   }
 
   private void runBatchFollowup(BatchProgress progress) {

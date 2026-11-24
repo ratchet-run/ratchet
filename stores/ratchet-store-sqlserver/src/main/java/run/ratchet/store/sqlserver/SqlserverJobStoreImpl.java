@@ -459,6 +459,14 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public boolean wasCompletionCommitted(
+      UUID jobId, JobStatus status, long claimSeq, UUID commitToken) {
+    return SqlJobCompletion.wasCompletionCommitted(
+        em, jobId, status, claimSeq, commitToken, true, UuidByteArrayConverter::toBytes);
+  }
+
+  @Override
   public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     return SqlJobCompletion.commit(
         em,

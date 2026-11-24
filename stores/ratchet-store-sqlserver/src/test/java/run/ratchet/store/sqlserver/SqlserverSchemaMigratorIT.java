@@ -175,7 +175,7 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
     }
     var migrator = new SchemaMigrator(dataSource(), dialect());
     assertEquals(
-        List.of("018", "019"),
+        List.of("018", "019", "020"),
         migrator.migrate().applied().stream()
             .map(SchemaMigrator.MigrationScript::version)
             .toList());
@@ -535,7 +535,7 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
     }
     var migrator = new SchemaMigrator(dataSource(), dialect());
     assertEquals(
-        List.of("018", "019"),
+        List.of("018", "019", "020"),
         migrator.migrate().applied().stream()
             .map(SchemaMigrator.MigrationScript::version)
             .toList());

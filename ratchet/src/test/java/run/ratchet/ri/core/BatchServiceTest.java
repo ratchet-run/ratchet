@@ -504,7 +504,7 @@ class BatchServiceTest {
               return null;
             })
         .when(deadLetterService)
-        .recordPreparedBatchDlqTransition(any(), any());
+        .recordPreparedDlqTransitionAfterCommit(any(), any());
     batchService.afterChildCompletion(new BatchProgress(parentId, 2, 1, 1, null));
     ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
     verify(jobTerminalStore).commitCompletion(plan.capture());

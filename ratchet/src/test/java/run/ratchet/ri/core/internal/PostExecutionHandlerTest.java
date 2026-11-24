@@ -17,11 +17,13 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -41,6 +43,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +58,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
@@ -356,6 +362,82 @@ class PostExecutionHandlerTest {
 
     verify(workflowScheduler, never()).publishCompletion(any());
     verifyNoInteractions(batchService);
+  }
+
+  @Test
+  void lostStoreAcknowledgementResolvesTheExactFailureWrite() {
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    child.setClaimSeq(7L);
+    useCompletionTransaction();
+    stubSuccessfulCommit(new AtomicBoolean());
+    AtomicReference<JobCompletionPlan> submitted = new AtomicReference<>();
+    AtomicInteger reads = new AtomicInteger();
+    when(deadLetterService.prepareDlqEvent(any(), isNull()))
+        .thenReturn(
+            new JobDlqEvent(
+                child.getId(),
+                null,
+                null,
+                child.getPublicJobType(),
+                child.getPriority(),
+                null,
+                Instant.now(),
+                "failure",
+                child.getAttempts()));
+    when(jobTerminalStore.commitCompletion(any()))
+        .thenAnswer(
+            invocation -> {
+              submitted.set(invocation.getArgument(0));
+              throw new IllegalStateException("commit reply lost");
+            });
+    when(jobTerminalStore.wasCompletionCommitted(
+            eq(child.getId()), eq(JobStatus.FAILED), eq(7L), any(UUID.class)))
+        .thenAnswer(
+            invocation -> {
+              verify(deadLetterService, never())
+                  .recordPreparedDlqTransitionAfterCommit(any(), any());
+              verify(workflowScheduler, never()).publishCompletion(any());
+              assertEquals(submitted.get().commitToken(), invocation.getArgument(3));
+              if (reads.incrementAndGet() == 1) {
+                throw new RatchetTransientStoreException("confirmation connection lost");
+              }
+              return true;
+            });
+
+    assertTrue(handler.completeFailure(child, JobStatus.RUNNING, false, null));
+    assertNotNull(submitted.get().commitToken());
+    assertEquals(JobStatus.FAILED, submitted.get().terminalStatus());
+    assertEquals(2, reads.get());
+    verify(jobTerminalStore).commitCompletion(any());
+    verify(deadLetterService).recordPreparedDlqTransitionAfterCommit(any(), any());
+    verify(workflowScheduler).publishCompletion(any());
+  }
+
+  @Test
+  void reportsAnUnresolvedCommitWhenConfirmationStaysUnavailable() {
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    child.setClaimSeq(7L);
+    useCompletionTransaction();
+    stubSuccessfulCommit(new AtomicBoolean());
+    var writeFailure = new IllegalStateException("commit reply lost");
+    var readFailure = new RatchetTransientStoreException("confirmation connection lost");
+    when(jobTerminalStore.commitCompletion(any())).thenThrow(writeFailure);
+    when(jobTerminalStore.wasCompletionCommitted(
+            eq(child.getId()), eq(JobStatus.FAILED), eq(7L), any(UUID.class)))
+        .thenThrow(readFailure);
+
+    var unresolved =
+        assertThrows(
+            RatchetTransientStoreException.class,
+            () -> handler.completeFailure(child, JobStatus.RUNNING, false, null));
+
+    assertTrue(unresolved.getMessage().contains("Unresolved terminal commit"));
+    assertTrue(unresolved.getMessage().contains(child.getId().toString()));
+    assertSame(writeFailure, unresolved.getCause());
+    assertEquals(3, writeFailure.getSuppressed().length);
+    verify(jobTerminalStore).commitCompletion(any());
+    verify(workflowScheduler, never()).publishCompletion(any());
+    verifyNoInteractions(deadLetterService);
   }
 
   @Test

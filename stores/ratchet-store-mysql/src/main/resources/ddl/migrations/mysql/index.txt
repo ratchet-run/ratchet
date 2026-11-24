@@ -19,3 +19,4 @@ V018__job_row_version.sql
 V019__business_key_hold.sql
 V020__canceled_claim_seq.sql
 V021__exact_string_keys.sql
+V022__completion_token.sql
