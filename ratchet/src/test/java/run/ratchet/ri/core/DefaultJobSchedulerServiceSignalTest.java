@@ -447,7 +447,7 @@ class DefaultJobSchedulerServiceSignalTest {
             anyString()))
         .thenReturn(2);
 
-    assertEquals(2, systemService.deliverSignal("approval-key", (Serializable) null));
+    assertEquals(2, systemService.deliverSignal(" approval-key ", (Serializable) null));
 
     verify(authorizationPolicy).checkDeliverSignal("approval-key", null);
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
@@ -455,6 +455,15 @@ class DefaultJobSchedulerServiceSignalTest {
     JobsBulkSignaledEvent event =
         assertInstanceOf(JobsBulkSignaledEvent.class, eventCaptor.getValue());
     assertEquals("system", event.getSignalDeliveredBy());
+  }
+
+  @Test
+  void blankBroadcastKeyIsRejectedBeforeTheStoreCall() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> newService(payloadSerializer).deliverSignal(" ", (Serializable) null));
+    verify(signalStore, never())
+        .deliverSignalByKey(any(), any(), any(), any(), any(), any(), any(), any());
   }
 
   @Test

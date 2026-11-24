@@ -29,6 +29,7 @@ import java.util.function.LongUnaryOperator;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
@@ -166,7 +167,8 @@ public class NodeLiveness {
       return;
     }
 
-    String resolvedNodeId = nodeIdentityProvider.getNodeId();
+    String resolvedNodeId =
+        StringKeyNormalizer.optional(nodeIdentityProvider.getNodeId(), "node id");
     nodeId = resolvedNodeId;
     log.infof("Scheduler nodeId=%s", resolvedNodeId);
 

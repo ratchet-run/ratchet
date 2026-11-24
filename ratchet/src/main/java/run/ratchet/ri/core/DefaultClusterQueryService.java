@@ -25,6 +25,7 @@ import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.JobPage;
 import run.ratchet.api.NodeStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.spi.NodeStore;
@@ -71,7 +72,7 @@ public class DefaultClusterQueryService implements ClusterQueryService {
   @Override
   public JobPage<NodeStatus> getNodes() {
     Instant cutoff = effective().instant().minusSeconds(options.node().orphanGraceSeconds());
-    String localId = nodeIdentityProvider.getNodeId();
+    String localId = StringKeyNormalizer.optional(nodeIdentityProvider.getNodeId(), "node id");
     List<NodeEntity> rows = nodeStore.findAllNodes(NODE_ROSTER_LIMIT);
     List<NodeStatus> items =
         rows.stream()

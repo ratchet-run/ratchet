@@ -22,6 +22,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
+import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 
@@ -41,7 +42,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
   public DefaultNodeIdentityProvider(ExecutorProvider executorProvider, String explicitNodeId) {
     this.executorProvider = executorProvider;
-    this.explicitNodeId = explicitNodeId;
+    this.explicitNodeId = StringKeyNormalizer.optional(explicitNodeId, "node id");
   }
 
   @Override
@@ -59,7 +60,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   }
 
   private String resolveNodeId() {
-    if (explicitNodeId != null && !explicitNodeId.isBlank()) {
+    if (explicitNodeId != null) {
       return explicitNodeId;
     }
     try {

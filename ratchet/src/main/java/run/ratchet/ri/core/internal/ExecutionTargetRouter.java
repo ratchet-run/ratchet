@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.MetricsCollector;
 
@@ -69,7 +70,7 @@ public class ExecutionTargetRouter {
   public String resolve(String requestedTarget) {
     String requested =
         requestedTarget != null
-            ? requestedTarget
+            ? StringKeyNormalizer.required(requestedTarget, "execution target")
             : executionTuningProvider.defaultThreadingMode().target();
 
     if (poolRegistry.hasPool(requested)) {

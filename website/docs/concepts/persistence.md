@@ -8,6 +8,17 @@ description: Entity/document model, JobStore SPI composition, UUIDv7 identifiers
 
 Ratchet persists all job state in the selected store backend. SQL stores use JPA entities and DDL-backed tables; the MongoDB store maps the same model to documents and collections. The shared persistence layer is built around a composable SPI interface, UUIDv7 identifiers, and dialect-specific constraint detection where the backend needs it.
 
+## Whitespace in keys
+
+Ratchet strips surrounding whitespace from node IDs, lock names, execution targets and signal keys,
+including when you call the store SPI directly. A supplied key must contain at least one
+non-whitespace character. An absent optional execution target still uses the default executor.
+Business keys, idempotency keys, resource names, partition keys and tags also trim their input.
+
+Before upgrading an existing installation, reconcile any surrounding whitespace in stored keys and
+worker configuration. Where a store has separate rows for padded and unpadded spellings, decide which
+identity to keep before consolidating the rows.
+
 ## Terminal event outbox
 
 `scheduler_event_outbox` is a table (or MongoDB collection) holding typed terminal event

@@ -42,6 +42,7 @@ import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.api.internal.ResourceLimitRules;
+import run.ratchet.api.internal.StringKeyNormalizer;
 
 /** Default {@link JobBuilder} implementation. */
 final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
@@ -178,13 +179,11 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
 
   @Override
   public JobBuilder awaitSignal(String signalKey, Duration timeout) {
-    if (signalKey == null || signalKey.isBlank()) {
-      throw new IllegalArgumentException("signalKey must not be null or blank");
-    }
+    String key = StringKeyNormalizer.required(signalKey, "signal key");
     if (timeout == null || timeout.isNegative() || timeout.isZero()) {
       throw new IllegalArgumentException("timeout must be positive");
     }
-    this.awaitSignalKey = signalKey.trim();
+    this.awaitSignalKey = key;
     this.awaitSignalTimeout = timeout;
     return this;
   }

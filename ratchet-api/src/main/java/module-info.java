@@ -56,7 +56,13 @@ module run.ratchet.api {
   exports run.ratchet.api.internal to
       run.ratchet.ri,
       run.ratchet.coordinator.common,
-      run.ratchet.spring.boot.autoconfigure;
+      run.ratchet.spring.boot.autoconfigure,
+      run.ratchet.store.core,
+      run.ratchet.store.mongodb,
+      run.ratchet.store.mysql,
+      run.ratchet.store.oracle,
+      run.ratchet.store.postgresql,
+      run.ratchet.store.sqlserver;
   // run.ratchet.spi is open to all module-path consumers. Every type in this package carries
   // @Incubating, which is the stability contract — method signatures and contracts may change
   // between minor releases without a semver major bump. The qualified allowlist was removed

@@ -59,6 +59,7 @@ import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.ResourceLimitRules;
+import run.ratchet.api.internal.StringKeyNormalizer;
 import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -406,7 +407,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   @Override
   @Transactional
   public int deliverSignal(String signalKey, Serializable payload) {
-    return deliverSignalRaw(signalKey, payload);
+    return deliverSignalRaw(StringKeyNormalizer.required(signalKey, "signal key"), payload);
   }
 
   @Override
@@ -415,7 +416,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     if (decision == null) {
       throw new IllegalArgumentException("decision must not be null");
     }
-    return deliverSignalDecision(signalKey, decision);
+    return deliverSignalDecision(StringKeyNormalizer.required(signalKey, "signal key"), decision);
   }
 
   @Override

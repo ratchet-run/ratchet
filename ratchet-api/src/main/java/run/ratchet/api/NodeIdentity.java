@@ -17,6 +17,7 @@ package run.ratchet.api;
 
 import java.util.Objects;
 import java.util.regex.Pattern;
+import run.ratchet.api.internal.StringKeyNormalizer;
 
 /**
  * Value type wrapping the stable, unique identifier for a scheduler node at the cluster-coordinator
@@ -48,9 +49,7 @@ public record NodeIdentity(String value) {
 
   public NodeIdentity {
     Objects.requireNonNull(value, "value");
-    if (value.isBlank()) {
-      throw new IllegalArgumentException("blank node identity");
-    }
+    value = StringKeyNormalizer.required(value, "node identity");
     if (!ALLOWED_PATTERN.matcher(value).matches()) {
       throw new IllegalArgumentException(
           "node identity '" + value + "' contains characters outside " + ALLOWED_PATTERN.pattern());
