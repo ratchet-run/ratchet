@@ -46,6 +46,7 @@ import run.ratchet.store.spi.ResourcePermitStore.AcquireResult;
 import run.ratchet.store.spi.ResourceWaiterLease;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.SqlResourcePermitSweep;
 import run.ratchet.store.util.WorkflowConditionOrdering;
 
 final class OracleAuxiliaryOperations
@@ -625,6 +626,15 @@ final class OracleAuxiliaryOperations
       return query.getResultList();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find resources with waiters", e);
+    }
+  }
+
+  @Override
+  public PermitSweepPage sweepUnownedPermits(@Nullable UUID after, int limit) {
+    try {
+      return SqlResourcePermitSweep.sweep(ctx.em(), after, limit, UuidRawConverter::toBytes);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("sweep unowned resource permits", e);
     }
   }
 

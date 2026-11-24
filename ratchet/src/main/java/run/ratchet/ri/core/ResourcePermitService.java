@@ -77,6 +77,9 @@ public interface ResourcePermitService {
   /** Wakes resource waiters and removes stale waiter rows with bounded work. */
   void sweepWaiters();
 
+  /** Frees abandoned permits and wakes waiters after committing the sweep. */
+  void sweepUnownedPermits();
+
   /** Call periodically, e.g. during node heartbeat. */
   int cleanupOrphanedPermits(List<String> staleNodeIds);
 

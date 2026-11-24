@@ -294,6 +294,68 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   }
 
   @Test
+  void sweepReleasesPermitsOfEndedClaimsOnALiveNode() {
+    var permits = resourcePermitStore();
+    store().upsertHeartbeat("live", Instant.now());
+    for (JobStatus status : List.of(JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.PENDING)) {
+      String resource = "ended-" + status.name();
+      permits.configureResource(resource, 1, 60_000, null);
+      JobEntity owner = claimNewJob(resource, "live");
+      assertEquals(ACQUIRED, acquire(resource, owner, "live"));
+      JobEntity waiter = claimNewJob(resource, "live");
+      assertEquals(AT_CAPACITY, acquire(resource, waiter, "live"));
+
+      if (status == JobStatus.PENDING) {
+        assertTrue(
+            store()
+                .scheduleJobRetry(
+                    owner.getId(),
+                    "retry later",
+                    Instant.now().plusSeconds(600),
+                    owner.getAttempts() + 1,
+                    owner.getClaimSeq()));
+      } else if (status == JobStatus.SUCCEEDED) {
+        Instant now = Instant.now();
+        assertTrue(store().markJobSucceededMinimal(owner.getId(), now, now, 0L, 0L));
+      } else {
+        assertTrue(store().markJobFailedTerminal(owner.getId(), "failed", 1, owner.getClaimSeq()));
+      }
+
+      assertEquals(List.of(resource), permits.sweepUnownedPermits(null, 10).freedResources());
+      assertEquals(1, permits.wakeWaiters(resource).size());
+      assertEquals(ACQUIRED, acquire(resource, reclaim(waiter, "live"), "live"));
+      cleanupStore();
+      store().upsertHeartbeat("live", Instant.now());
+    }
+  }
+
+  @Test
+  void sweepPagesKeepTheCurrentPermitAndReleaseTheOlderClaimOnTheSameNode() {
+    var permits = resourcePermitStore();
+    String resource = "live-claims";
+    permits.configureResource(resource, 2, 60_000, null);
+    store().upsertHeartbeat("live", Instant.now());
+    JobEntity old = claimNewJob(resource, "live");
+    assertEquals(ACQUIRED, acquire(resource, old, "live"));
+    scheduleImmediateRetry(old);
+    JobEntity current = reclaim(old, "live");
+    assertEquals(ACQUIRED, acquire(resource, current, "live"));
+    JobEntity waiter = claimNewJob(resource, "live");
+    assertEquals(AT_CAPACITY, acquire(resource, waiter, "live"));
+
+    var first = permits.sweepUnownedPermits(null, 1);
+    var second = permits.sweepUnownedPermits(first.nextCursor(), 1);
+    assertTrue(first.nextCursor() != null);
+    assertTrue(second.nextCursor() != null);
+    assertEquals(1, first.freedResources().size() + second.freedResources().size());
+    assertTrue(permits.sweepUnownedPermits(second.nextCursor(), 1).freedResources().isEmpty());
+
+    assertEquals(1, permits.wakeWaiters(resource).size());
+    assertEquals(ACQUIRED, acquire(resource, reclaim(waiter, "live"), "live"));
+    assertEquals(AT_CAPACITY, acquire(resource, claimNewJob(resource, "live"), "live"));
+  }
+
+  @Test
   void cleanupOrphanedPermits_removesStaleNodePermits() {
     resourcePermitStore().configureResource("res-orphan", 1, 1000, "orphan test");
     var job = claimNewJob("res-orphan", "stale-node");
